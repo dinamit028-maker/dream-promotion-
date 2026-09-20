@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   DESIGN TOKENS — the single source of truth for the visual system
+   ============================================================ */
+:root {
+  --bg:#FAF8F6; --bg-2:#F3EFF7; --surface:#FFFFFF; --surface-2:#F7F5FA;
+  --ink:#171320; --ink-2:#4B4557; --muted:#807A8E; --line:#EBE6F1;
+  --primary:#6B3BF5; --primary-soft:#F0EAFF;
+  --pink:#FF7FA8; --peach:#FFAE7C; --blue:#5BA4FF; --mint:#43D2AE;
+  --ok:#17A97F; --warn:#E0892B; --danger:#E2445C;
+  --grad:linear-gradient(135deg,#6B3BF5 0%,#A96BF8 55%,#FF7FA8 100%);
+  --grad-soft:linear-gradient(135deg,#F3ECFF 0%,#FCEDF5 100%);
+  --shadow-sm:0 1px 2px rgba(23,19,32,.05),0 2px 8px rgba(23,19,32,.04);
+  --shadow-md:0 4px 16px rgba(23,19,32,.07),0 12px 32px rgba(23,19,32,.06);
+  --shadow-lg:0 18px 60px rgba(76,45,140,.18);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg:#100D18; --bg-2:#171325; --surface:#191524; --surface-2:#211C31;
+    --ink:#F4F1FA; --ink-2:#C9C2DA; --muted:#938BA8; --line:#2C2640;
+    --primary:#9B7BFF; --primary-soft:#241C3D;
+    --grad:linear-gradient(135deg,#7C55FF 0%,#B77BFF 55%,#FF8FB5 100%);
+    --grad-soft:linear-gradient(135deg,#221A38 0%,#301E33 100%);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --shadow-md:0 8px 26px rgba(0,0,0,.45);
+    --shadow-lg:0 20px 60px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme='dark'] {
+  --bg:#100D18; --bg-2:#171325; --surface:#191524; --surface-2:#211C31;
+  --ink:#F4F1FA; --ink-2:#C9C2DA; --muted:#938BA8; --line:#2C2640;
+  --primary:#9B7BFF; --primary-soft:#241C3D;
+  --grad:linear-gradient(135deg,#7C55FF 0%,#B77BFF 55%,#FF8FB5 100%);
+  --grad-soft:linear-gradient(135deg,#221A38 0%,#301E33 100%);
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+/* iOS safe areas — the app draws edge to edge */
+.safe-t { padding-top: env(safe-area-inset-top, 0px); }
+.safe-b { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+@layer components {
+  .grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+}
+
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+.spinner {
+  width: 17px; height: 17px; border-radius: 50%;
+  border: 2.5px solid var(--line); border-top-color: var(--primary);
+  animation: spin-slow .7s linear infinite; flex: 0 0 17px;
+}
