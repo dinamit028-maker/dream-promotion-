@@ -1,6 +1,6 @@
 'use client';
-import Link from 'next/link';
 import type { ContentItem } from '@/types';
+import { useApp } from '@/lib/store';
 import { Visual } from '@/components/ui/Visual';
 import { Pill } from '@/components/ui/primitives';
 import { KIND_HE, fmtDay } from '@/lib/utils';
@@ -11,9 +11,10 @@ const statusPill = (s: ContentItem['status']) =>
   : <Pill>טיוטה</Pill>;
 
 export function ContentCard({ item }: { item: ContentItem }) {
+  const openEditor = useApp((s) => s.openEditor);
   return (
-    <Link href={`/content?id=${item.id}`}
-      className="block overflow-hidden rounded-lg border border-line bg-surface shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+    <button type="button" onClick={() => openEditor(item.id)}
+      className="block w-full overflow-hidden rounded-lg border border-line bg-surface text-start shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
       <Visual emoji={item.emoji} palette={item.palette} mediaId={item.mediaId}
         ratio={item.kind === 'reel' || item.kind === 'story' ? 'portrait' : 'square'} className="rounded-none" />
       <div className="p-4">
@@ -24,6 +25,6 @@ export function ContentCard({ item }: { item: ContentItem }) {
         <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed text-ink-2">{item.caption}</p>
         {item.date && <p className="mt-2 text-xs text-muted">{fmtDay(item.date)}{item.time ? ` · ${item.time}` : ''}</p>}
       </div>
-    </Link>
+    </button>
   );
 }

@@ -1,11 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { AIService } from '@/lib/services';
 import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Card, Chip, Field, Input, Select, Textarea, Pill } from '@/components/ui/primitives';
-import { AdapterNote, AiUnavailable, EmptyState, GenerationState } from '@/components/ui/feedback';
+import { AdapterNote, AiUnavailable, EmptyState, GenerationState, Modal } from '@/components/ui/feedback';
+import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { Visual } from '@/components/ui/Visual';
 import { KIND_HE, today } from '@/lib/utils';
 import type { ContentKind, GeneratedVariant, Platform } from '@/types';
@@ -24,6 +25,15 @@ export function CreateStudio() {
   const [picked, setPicked] = useState(0);
   const [step, setStep] = useState(-1);
   const [error, setError] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [when, setWhen] = useState({ date: today(), time: '19:30' });
+
+  // arriving from a calendar day (/create?date=…&time=…) pre-selects that slot
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const d = q.get('date'); const t = q.get('time');
+    if (d) setWhen({ date: d, time: t || '19:30' });
+  }, []);
 
   const v = variants[picked];
 
@@ -48,7 +58,9 @@ export function CreateStudio() {
     addContent({
       kind, platform, goal, headline: v.headline, caption: v.caption, hashtags: v.hashtags || [],
       cta: v.cta, emoji: v.emoji, palette: v.palette, visualDirection: v.visual_direction,
-      mediaId: null, status, date: status === 'scheduled' ? today() : null, time: status === 'scheduled' ? '19:30' : null,
+      mediaId: null, status,
+      date: status === 'scheduled' ? when.date : null,
+      time: status === 'scheduled' ? when.time : null,
     });
     router.push(status === 'scheduled' ? '/calendar' : '/content');
   }
@@ -122,13 +134,24 @@ export function CreateStudio() {
                 {v.visual_direction && <AdapterNote><strong>כיוון ויזואלי: </strong>{v.visual_direction}</AdapterNote>}
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Button variant="primary" onClick={() => save('draft')}>שמירה כטיוטה</Button>
-                  <Button variant="ghost" onClick={() => save('scheduled')}>תזמון ליומן</Button>
+                  <Button variant="ghost" onClick={() => setScheduling(true)}>◫ תזמון ליומן</Button>
                 </div>
               </Card>
             </div>
           </>
         )}
       </div>
+
+      <Modal open={scheduling} onClose={() => setScheduling(false)}>
+        <h3 className="mb-5 font-display text-2xl font-extrabold">מתי לפרסם?</h3>
+        <ScheduleFields date={when.date} time={when.time} onChange={setWhen} />
+        <div className="mt-6 flex gap-3">
+          <Button variant="primary" disabled={!when.date} onClick={() => { setScheduling(false); save('scheduled'); }}>
+            תזמון
+          </Button>
+          <Button variant="ghost" onClick={() => setScheduling(false)}>ביטול</Button>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -17,6 +17,9 @@ interface AppState {
   media: MediaAsset[];
   leads: Lead[];
   ads: AdDraft[];
+  editingId: string | null;
+  openEditor: (id: string) => void;
+  closeEditor: () => void;
   setBrand: (b: Partial<BrandProfile>) => void;
   setAnalysis: (a: BrandAnalysis | null) => void;
   finishOnboarding: () => void;
@@ -48,6 +51,9 @@ export const useApp = create<AppState>()(
       media: [],
       leads: [],
       ads: [],
+      editingId: null,
+      openEditor: (id) => set({ editingId: id }),
+      closeEditor: () => set({ editingId: null }),
       setBrand: (b) => set((s) => ({ brand: { ...s.brand, ...b } })),
       setAnalysis: (analysis) => set({ analysis }),
       finishOnboarding: () => set({ onboarded: true }),
@@ -72,6 +78,10 @@ export const useApp = create<AppState>()(
       addAd: (a) => set((s) => ({ ads: [{ ...a, id: uid() }, ...s.ads] })),
       reset: () => set({ onboarded: false, brand: emptyBrand, analysis: null, content: [], media: [], leads: [], ads: [] }),
     }),
-    { name: 'dream-promotion' },
+    {
+      name: 'dream-promotion',
+      // the open editor is UI state, not data — never restore it on reload
+      partialize: ({ editingId, ...rest }) => rest,
+    },
   ),
 );

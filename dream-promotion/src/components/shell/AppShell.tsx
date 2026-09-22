@@ -6,6 +6,7 @@ import { useApp } from '@/lib/store';
 import { AIService } from '@/lib/services';
 import { cx } from '@/lib/utils';
 import { Button, Pill } from '@/components/ui/primitives';
+import { ContentEditor } from '@/features/content/ContentEditor';
 
 export const NAV = [
   { href: '/dashboard', label: 'בית', ico: '✦' },
@@ -94,6 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         ))}
       </nav>
+      <ContentEditor />
     </div>
   );
 }
