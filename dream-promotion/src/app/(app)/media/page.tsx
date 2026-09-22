@@ -4,6 +4,7 @@ import { useApp } from '@/lib/store';
 import { MediaService } from '@/lib/services';
 import { Button, PageHead } from '@/components/ui/primitives';
 import { AdapterNote, EmptyState } from '@/components/ui/feedback';
+import { Images } from '@/components/ui/Icon';
 
 export default function MediaPage() {
   const { media, addMedia, removeMedia } = useApp();
@@ -42,7 +43,7 @@ export default function MediaPage() {
           ))}
         </div>
       ) : (
-        <EmptyState emoji="⬚" title="אין מדיה עדיין" body="העלו כמה תמונות ונהפוך אותן לתוכן."
+        <EmptyState icon={<Images />} title="אין מדיה עדיין" body="העלו כמה תמונות ונהפוך אותן לתוכן."
           action={<Button variant="primary" onClick={() => input.current?.click()}>העלאת קבצים</Button>} />
       )}
     </>

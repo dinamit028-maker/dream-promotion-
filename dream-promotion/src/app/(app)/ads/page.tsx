@@ -6,6 +6,7 @@ import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Card, Chip, Field, Input, PageHead } from '@/components/ui/primitives';
 import { AdapterNote, AiUnavailable, EmptyState, GenerationState, IntegrationDialog } from '@/components/ui/feedback';
 import { Visual } from '@/components/ui/Visual';
+import { Megaphone, Sparkle } from '@/components/ui/Icon';
 
 const GOALS = ['יותר פניות בוואטסאפ', 'יותר לידים', 'יותר תורים', 'מכירות באתר'];
 
@@ -47,14 +48,14 @@ export default function AdsPage() {
               <Input type="number" value={days} onChange={(e) => setDays(+e.target.value)} /></Field></div>
           </div>
           <Button variant="primary" size="lg" className="w-full" onClick={generate} disabled={!aiReady || busy}>
-            ✦ כתיבת המודעה
+            <Sparkle size={18} weight="fill" aria-hidden />כתיבת המודעה
           </Button>
           {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}
         </Card>
 
         <div>
           {busy && <GenerationState lines={['קורא את המותג…', 'בוחר זווית…', 'מנסח את המודעה…']} step={1} />}
-          {!busy && !copy && <EmptyState emoji="◉" title="עוד לא נבנתה מודעה" body="בחרו מטרה ותקציב, וה-AI יכתוב כותרת, טקסט ו-CTA." />}
+          {!busy && !copy && <EmptyState icon={<Megaphone />} title="עוד לא נבנתה מודעה" body="בחרו מטרה ותקציב, וה-AI יכתוב כותרת, טקסט ו-CTA." />}
           {copy && (
             <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
               <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
@@ -64,7 +65,7 @@ export default function AdsPage() {
                     <p className="text-xs text-muted">ממומן</p></div>
                 </div>
                 <p className="p-3 text-sm leading-relaxed">{copy.primary}</p>
-                <Visual emoji="✦" palette={['#6B3BF5', '#5BA4FF']} className="rounded-none" />
+                <Visual kind="ad" headline={copy.headline} palette={['#6B3BF5', '#5BA4FF']} className="rounded-none" />
                 <div className="flex items-center justify-between bg-surface-2 p-3">
                   <div><strong className="text-sm">{copy.headline}</strong>
                     <p className="text-xs text-muted">{copy.description}</p></div>

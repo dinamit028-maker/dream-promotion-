@@ -7,6 +7,7 @@ import { Button, Card, Chip, Field, PageHead, Pill, Select, Textarea } from '@/c
 import { AdapterNote, AiUnavailable, EmptyState, GenerationState } from '@/components/ui/feedback';
 import { Visual } from '@/components/ui/Visual';
 import type { Storyboard } from '@/types';
+import { FilmSlate, Sparkle } from '@/components/ui/Icon';
 
 export default function ReelsPage() {
   const aiReady = useAiReady();
@@ -40,14 +41,14 @@ export default function ReelsPage() {
             <Select>{['נשי · חם', 'נשי · אנרגטי', 'גברי · רגוע', 'ללא קריינות'].map((v) => <option key={v}>{v}</option>)}</Select>
           </Field>
           <Button variant="primary" size="lg" className="w-full" onClick={generate} disabled={!aiReady || busy}>
-            ✦ בניית סטוריבורד
+            <Sparkle size={18} weight="fill" aria-hidden />בניית סטוריבורד
           </Button>
           {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}
         </Card>
 
         <div>
           {busy && <GenerationState lines={['קורא את המותג…', 'בונה מבנה סצנות…', 'כותב טקסטים למסך…']} step={1} />}
-          {!busy && !board && <EmptyState emoji="▶" title="אין עדיין סטוריבורד" body="תארו נושא ונקבל מבנה סצנה-אחר-סצנה עם טקסטים וקריינות." />}
+          {!busy && !board && <EmptyState icon={<FilmSlate />} title="אין עדיין סטוריבורד" body="תארו נושא ונקבל מבנה סצנה-אחר-סצנה עם טקסטים וקריינות." />}
           {board && (
             <>
               <div className="mb-4 flex items-center justify-between gap-3">
@@ -60,7 +61,7 @@ export default function ReelsPage() {
                 })}>שמירה לתוכן</Button>
               </div>
               <div className="grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-                <Visual emoji={board.scenes?.[0]?.emoji || '▶'} palette={['#6B3BF5', '#FF7FA8']} ratio="vertical" />
+                <Visual kind="reel" headline={board.title} palette={['#6B3BF5', '#FF7FA8']} ratio="vertical" size="lg" />
                 <div>
                   <div className="grid gap-2.5">
                     {board.scenes?.map((s, i) => (

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { Button, Card, PageHead, Pill } from '@/components/ui/primitives';
 import { KIND_HE, addDays, dayName, fmtDay, today } from '@/lib/utils';
+import { Sparkle } from '@/components/ui/Icon';
 
 export default function StrategyPage() {
   const { content, openEditor } = useApp();
@@ -10,7 +11,7 @@ export default function StrategyPage() {
   return (
     <>
       <PageHead title="האסטרטגיה השבועית" sub="מה לפרסם, מתי ולמה"
-        action={<Link href="/calendar"><Button variant="primary">✦ בניית שבוע</Button></Link>} />
+        action={<Link href="/calendar"><Button variant="primary"><Sparkle size={18} weight="fill" aria-hidden />בניית שבוע</Button></Link>} />
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
         {week.map((d) => {
           const items = content.filter((c) => c.date === d);

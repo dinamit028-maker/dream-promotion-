@@ -6,11 +6,13 @@
    DESIGN TOKENS — the single source of truth for the visual system
    ============================================================ */
 :root {
-  --bg:#FAF8F6; --bg-2:#F3EFF7; --surface:#FFFFFF; --surface-2:#F7F5FA;
-  --ink:#171320; --ink-2:#4B4557; --muted:#807A8E; --line:#EBE6F1;
-  --primary:#6B3BF5; --primary-soft:#F0EAFF;
+  /* base is a cool lavender-white so the violet brand reads as intentional, not a warm-cream default */
+  --bg:#F7F6FB; --bg-2:#EFECF7; --surface:#FFFFFF; --surface-2:#F4F2F9;
+  /* every text token below clears WCAG 4.5:1 on --bg, --surface and --surface-2 */
+  --ink:#1A1530; --ink-2:#463F5A; --muted:#6B6579; --line:#E5E0EF;
+  --primary:#6B3BF5; --primary-soft:#EFE9FF;
   --pink:#FF7FA8; --peach:#FFAE7C; --blue:#5BA4FF; --mint:#43D2AE;
-  --ok:#17A97F; --warn:#E0892B; --danger:#E2445C;
+  --ok:#0E7C5C; --ok-soft:#E3F4EE; --warn:#8F4F08; --warn-soft:#FBF0E2; --danger:#C22F48;
   --grad:linear-gradient(135deg,#6B3BF5 0%,#A96BF8 55%,#FF7FA8 100%);
   --grad-soft:linear-gradient(135deg,#F3ECFF 0%,#FCEDF5 100%);
   --shadow-sm:0 1px 2px rgba(23,19,32,.05),0 2px 8px rgba(23,19,32,.04);
@@ -23,6 +25,7 @@
     --bg:#100D18; --bg-2:#171325; --surface:#191524; --surface-2:#211C31;
     --ink:#F4F1FA; --ink-2:#C9C2DA; --muted:#938BA8; --line:#2C2640;
     --primary:#9B7BFF; --primary-soft:#241C3D;
+    --ok:#5FD4AE; --ok-soft:#12302A; --warn:#F2B66B; --warn-soft:#3A2A14; --danger:#FF7A8F;
     --grad:linear-gradient(135deg,#7C55FF 0%,#B77BFF 55%,#FF8FB5 100%);
     --grad-soft:linear-gradient(135deg,#221A38 0%,#301E33 100%);
     --shadow-sm:0 1px 2px rgba(0,0,0,.4);
@@ -34,11 +37,24 @@
   --bg:#100D18; --bg-2:#171325; --surface:#191524; --surface-2:#211C31;
   --ink:#F4F1FA; --ink-2:#C9C2DA; --muted:#938BA8; --line:#2C2640;
   --primary:#9B7BFF; --primary-soft:#241C3D;
+  --ok:#5FD4AE; --ok-soft:#12302A; --warn:#F2B66B; --warn-soft:#3A2A14; --danger:#FF7A8F;
   --grad:linear-gradient(135deg,#7C55FF 0%,#B77BFF 55%,#FF8FB5 100%);
   --grad-soft:linear-gradient(135deg,#221A38 0%,#301E33 100%);
 }
 
 html { scroll-behavior: smooth; }
+
+/* keyboard users always see where they are; mouse clicks don't flash a ring */
+:focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; border-radius: 10px; }
+button, [role='button'], a, summary, label[for] { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}
 body {
   background: var(--bg);
   color: var(--ink);

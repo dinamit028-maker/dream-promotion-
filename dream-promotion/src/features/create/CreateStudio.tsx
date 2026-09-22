@@ -10,6 +10,7 @@ import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { Visual } from '@/components/ui/Visual';
 import { KIND_HE, today } from '@/lib/utils';
 import type { ContentKind, GeneratedVariant, Platform } from '@/types';
+import { ArrowsClockwise, CalendarBlank, MagicWand, Sparkle } from '@/components/ui/Icon';
 
 const STEPS = ['מנתח את המותג שלך…', 'בונה זווית שיווקית…', 'כותב את הפתיח…', 'מנסח קריאה לפעולה…'];
 
@@ -90,7 +91,7 @@ export function CreateStudio() {
             placeholder="על מה התוכן? מבצע? שירות חדש? לקוחה מרוצה?" />
         </Field>
         <Button variant="primary" size="lg" className="w-full" onClick={generate} disabled={!aiReady || step >= 0}>
-          ✦ ייצור תוכן
+          <Sparkle size={18} weight="fill" aria-hidden />ייצור תוכן
         </Button>
         {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}
       </Card>
@@ -104,7 +105,7 @@ export function CreateStudio() {
           </AdapterNote>
         )}
         {step < 0 && !error && !variants.length && (
-          <EmptyState emoji="✦" title="הקנבס מחכה" body="מלאו את הבריף ותקבלו כמה זוויות שונות לבחירה." />
+          <EmptyState icon={<MagicWand />} title="הקנבס מחכה" body="מלאו את הבריף ותקבלו כמה זוויות שונות לבחירה." />
         )}
         {v && (
           <>
@@ -112,10 +113,10 @@ export function CreateStudio() {
               {variants.map((x, i) => (
                 <Chip key={i} on={i === picked} onClick={() => setPicked(i)}>{x.angle || `גרסה ${i + 1}`}</Chip>
               ))}
-              <Button size="sm" variant="ghost" onClick={generate}>↻ ייצור מחדש</Button>
+              <Button size="sm" variant="ghost" onClick={generate}><ArrowsClockwise size={16} aria-hidden />ייצור מחדש</Button>
             </div>
             <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-              <Visual emoji={v.emoji} palette={v.palette} ratio={kind === 'reel' || kind === 'story' ? 'vertical' : 'square'} />
+              <Visual kind={kind} headline={v.headline} palette={v.palette} ratio={kind === 'reel' || kind === 'story' ? 'vertical' : 'square'} size="lg" />
               <Card>
                 <Pill tone="ai">{KIND_HE[kind]} · {platform}</Pill>
                 <h3 className="mb-4 mt-3 font-display text-xl font-extrabold">{v.headline}</h3>
@@ -134,7 +135,7 @@ export function CreateStudio() {
                 {v.visual_direction && <AdapterNote><strong>כיוון ויזואלי: </strong>{v.visual_direction}</AdapterNote>}
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Button variant="primary" onClick={() => save('draft')}>שמירה כטיוטה</Button>
-                  <Button variant="ghost" onClick={() => setScheduling(true)}>◫ תזמון ליומן</Button>
+                  <Button variant="ghost" onClick={() => setScheduling(true)}><CalendarBlank size={18} aria-hidden />תזמון ליומן</Button>
                 </div>
               </Card>
             </div>

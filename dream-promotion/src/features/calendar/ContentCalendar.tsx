@@ -5,8 +5,10 @@ import { useApp } from '@/lib/store';
 import { AIService } from '@/lib/services';
 import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Field, Input, Pill } from '@/components/ui/primitives';
-import { AiUnavailable, GenerationState, Modal } from '@/components/ui/feedback';
-import { HE_DAYS, HE_MONTHS, KIND_HE, addDays, cx, dayName, fmtDay, iso, today } from '@/lib/utils';
+import { AiUnavailable, CloseButton, GenerationState, Modal } from '@/components/ui/feedback';
+import { Swatch } from '@/components/ui/Visual';
+import { CaretLeft, CaretRight, Sparkle } from '@/components/ui/Icon';
+import { PALETTE, HE_DAYS, HE_MONTHS, KIND_HE, addDays, cx, dayName, fmtDay, iso, today } from '@/lib/utils';
 import type { ContentKind, Platform } from '@/types';
 
 const PLAN_STEPS = ['קורא את פרופיל המותג…', 'מאזן סוגי תוכן…', 'בוחר שעות פרסום…', 'כותב את הקאפשנים…'];
@@ -46,7 +48,7 @@ export function ContentCalendar() {
           kind: (it.kind || 'post') as ContentKind,
           platform: (it.platform || 'Instagram') as Platform,
           goal: it.goal || '', headline: it.headline || it.idea || 'רעיון', caption: it.caption || '',
-          hashtags: [], cta: brand.cta, emoji: it.emoji || '✦', palette: ['#6B3BF5', '#A96BF8'],
+          hashtags: [], cta: brand.cta, emoji: it.emoji || '', palette: PALETTE[it.kind] ?? PALETTE.post,
           visualDirection: it.visual_direction, mediaId: null, status: 'scheduled',
           date: addDays(today(), Math.max(0, Math.min(6, it.dayOffset ?? 0))), time: it.time || '19:30',
         });
@@ -61,11 +63,16 @@ export function ContentCalendar() {
           <h2 className="font-display text-2xl font-extrabold sm:text-3xl">יומן התוכן</h2>
           <p className="mt-1 text-muted">{HE_MONTHS[m]} {y} · לחצו על יום כדי לתזמן אליו</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setCursor(new Date(y, m + 1, 1))} aria-label="החודש הבא">›</Button>
-          <Button variant="ghost" size="sm" onClick={() => setCursor(new Date())}>היום</Button>
-          <Button variant="ghost" size="sm" onClick={() => setCursor(new Date(y, m - 1, 1))} aria-label="החודש הקודם">‹</Button>
-          <Button variant="primary" size="sm" onClick={planWeek}>✦ תכנן לי את השבוע</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-full border border-line bg-surface">
+            <button type="button" onClick={() => setCursor(new Date(y, m - 1, 1))} aria-label="החודש הקודם"
+              className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-surface-2"><CaretRight size={18} aria-hidden /></button>
+            <button type="button" onClick={() => setCursor(new Date())}
+              className="h-11 rounded-full px-3 text-sm font-semibold hover:bg-surface-2">היום</button>
+            <button type="button" onClick={() => setCursor(new Date(y, m + 1, 1))} aria-label="החודש הבא"
+              className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-surface-2"><CaretLeft size={18} aria-hidden /></button>
+          </div>
+          <Button variant="primary" size="sm" onClick={planWeek}><Sparkle size={16} weight="fill" aria-hidden />תכנן לי את השבוע</Button>
         </div>
       </div>
 
@@ -93,8 +100,8 @@ export function ContentCalendar() {
               {/* mobile: dots; desktop: chips */}
               <div className="flex flex-wrap gap-1 sm:hidden">
                 {items.map((c) => (
-                  <span key={c.id} className="h-2 w-2 rounded-full"
-                    style={{ background: `linear-gradient(135deg, ${c.palette[0]}, ${c.palette[1]})` }} />
+                  <span key={c.id} className="h-2.5 w-2.5 rounded-full ring-1 ring-surface"
+                    style={{ background: c.palette[0] }} />
                 ))}
               </div>
               <div className="hidden flex-col gap-1.5 sm:flex">
@@ -103,8 +110,7 @@ export function ContentCalendar() {
                     onDragStart={() => setDrag(c.id)}
                     onClick={(e) => { e.stopPropagation(); openEditor(c.id); }}
                     className="flex cursor-grab items-center gap-1.5 overflow-hidden rounded-lg bg-surface-2 px-1.5 py-1 text-[11px] font-semibold hover:bg-primary-soft">
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[11px]"
-                      style={{ background: `linear-gradient(135deg, ${c.palette[0]}, ${c.palette[1]})` }}>{c.emoji}</span>
+                    <Swatch palette={c.palette} kind={c.kind} />
                     <span className="truncate">{c.headline}</span>
                   </div>
                 ))}
@@ -120,7 +126,7 @@ export function ContentCalendar() {
           <>
             <div className="mb-5 flex items-center justify-between">
               <h3 className="font-display text-2xl font-extrabold">יום {dayName(day)}׳, {fmtDay(day)}</h3>
-              <Button variant="ghost" size="sm" onClick={() => setDay(null)} aria-label="סגירה">✕</Button>
+              <CloseButton onClick={() => setDay(null)} />
             </div>
 
             {onDay.length > 0 && (
@@ -130,8 +136,7 @@ export function ContentCalendar() {
                   {onDay.map((c) => (
                     <button key={c.id} type="button" onClick={() => { setDay(null); openEditor(c.id); }}
                       className="flex items-center gap-3 rounded-2xl bg-surface-2 p-3 text-start hover:bg-primary-soft">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg"
-                        style={{ background: `linear-gradient(135deg, ${c.palette[0]}, ${c.palette[1]})` }}>{c.emoji}</span>
+                      <Swatch palette={c.palette} kind={c.kind} className="h-10 w-10 rounded-xl" />
                       <span className="min-w-0 flex-1">
                         <strong className="block truncate text-sm">{c.headline}</strong>
                         <span className="text-xs text-muted">{c.time} · {KIND_HE[c.kind]} · לחצו לעריכה או להזזה</span>
@@ -151,8 +156,7 @@ export function ContentCalendar() {
               <div className="mb-5 grid max-h-64 gap-2 overflow-y-auto">
                 {unscheduled.map((c) => (
                   <div key={c.id} className="flex items-center gap-3 rounded-2xl border border-line p-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg"
-                      style={{ background: `linear-gradient(135deg, ${c.palette[0]}, ${c.palette[1]})` }}>{c.emoji}</span>
+                    <Swatch palette={c.palette} kind={c.kind} className="h-10 w-10 rounded-xl" />
                     <span className="min-w-0 flex-1">
                       <strong className="block truncate text-sm">{c.headline}</strong>
                       <Pill>טיוטה · {KIND_HE[c.kind]}</Pill>
@@ -167,7 +171,7 @@ export function ContentCalendar() {
 
             <Button variant="ghost" className="w-full"
               onClick={() => router.push(`/create?date=${day}&time=${encodeURIComponent(dayTime)}`)}>
-              ✦ יצירת תוכן חדש ליום הזה
+              <Sparkle size={18} weight="fill" aria-hidden />יצירת תוכן חדש ליום הזה
             </Button>
           </>
         )}

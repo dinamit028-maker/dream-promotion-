@@ -5,6 +5,7 @@ import { useApp } from '@/lib/store';
 import { ContentCard } from '@/features/content/ContentCard';
 import { Button, Chip, PageHead } from '@/components/ui/primitives';
 import { EmptyState } from '@/components/ui/feedback';
+import { SquaresFour } from '@/components/ui/Icon';
 
 const FILTERS = [['all', 'הכול'], ['draft', 'טיוטות'], ['scheduled', 'מתוזמן'], ['published', 'פורסם'], ['reel', 'רילס'], ['ad', 'מודעות']] as const;
 
@@ -25,7 +26,7 @@ export default function ContentPage() {
           {list.map((c) => <ContentCard key={c.id} item={c} />)}
         </div>
       ) : (
-        <EmptyState emoji="▦" title="אין כאן עדיין כלום" body="כל מה שתייצרו יישמר כאן, מוכן לעריכה ולתזמון."
+        <EmptyState icon={<SquaresFour />} title="אין כאן עדיין כלום" body="כל מה שתייצרו יישמר כאן, מוכן לעריכה ולתזמון."
           action={<Link href="/create"><Button variant="primary">יצירת התוכן הראשון</Button></Link>} />
       )}
     </>

@@ -5,6 +5,7 @@ import { Button, Card, Field, Input, PageHead, Select } from '@/components/ui/pr
 import { AdapterNote, EmptyState, Modal } from '@/components/ui/feedback';
 import { today } from '@/lib/utils';
 import type { LeadStatus } from '@/types';
+import { UsersThree } from '@/components/ui/Icon';
 
 const STATUSES: LeadStatus[] = ['חדש', 'נוצר קשר', 'מעוניין', 'נקבע תור', 'נסגר', 'לא רלוונטי'];
 
@@ -45,7 +46,7 @@ export default function LeadsPage() {
           </table>
         </Card>
       ) : (
-        <EmptyState emoji="☺" title="אין לידים עדיין" body="כאן ינחתו הפניות מהקמפיינים ומהוואטסאפ."
+        <EmptyState icon={<UsersThree />} title="אין לידים עדיין" body="כאן ינחתו הפניות מהקמפיינים ומהוואטסאפ."
           action={<Button variant="primary" onClick={() => setOpen(true)}>הוספת ליד ידני</Button>} />
       )}
 

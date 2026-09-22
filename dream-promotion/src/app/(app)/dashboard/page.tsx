@@ -7,6 +7,7 @@ import { ContentCard } from '@/features/content/ContentCard';
 import { greeting, today } from '@/lib/utils';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { CalendarPlus, Sparkle, SunHorizon } from '@/components/ui/Icon';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -31,7 +32,7 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-2">
             {['פוסט', 'ריל', 'סטורי', 'מודעה'].map((k) => <Chip key={k} onClick={() => router.push('/create')}>{k}</Chip>)}
           </div>
-          <Button variant="primary" onClick={() => router.push('/create')}>✦ צרו עכשיו</Button>
+          <Button variant="primary" onClick={() => router.push('/create')}><Sparkle size={18} weight="fill" aria-hidden />צרו עכשיו</Button>
         </div>
       </div>
 
@@ -45,14 +46,14 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="mb-8">
-          <EmptyState emoji="☀" title="היום עוד ריק" body="הפוסט הבא שלכם מתחיל כאן."
+          <EmptyState icon={<SunHorizon />} title="היום עוד ריק" body="הפוסט הבא שלכם מתחיל כאן."
             action={<Link href="/create"><Button variant="primary">יצירת תוכן</Button></Link>} />
         </div>
       )}
 
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-display text-xl font-extrabold">בהמשך השבוע</h3>
-        <Link href="/calendar"><Button variant="ghost" size="sm">✦ תכנון שבועי</Button></Link>
+        <Link href="/calendar"><Button variant="ghost" size="sm"><Sparkle size={18} weight="fill" aria-hidden />תכנון שבועי</Button></Link>
       </div>
       {upcoming.length ? (
         <div className="mb-8 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(210px,1fr))]">
@@ -60,7 +61,7 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="mb-8">
-          <EmptyState emoji="◫" title="אין תוכן מתוזמן" body="תנו ל-AI לבנות לכם שבוע שלם."
+          <EmptyState icon={<CalendarPlus />} title="אין תוכן מתוזמן" body="תנו ל-AI לבנות לכם שבוע שלם."
             action={<Link href="/calendar"><Button variant="primary">בניית תוכנית שבועית</Button></Link>} />
         </div>
       )}

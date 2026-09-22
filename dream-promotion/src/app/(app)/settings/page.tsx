@@ -4,6 +4,7 @@ import { useApp } from '@/lib/store';
 import { AIService, MediaService, VideoService } from '@/lib/services';
 import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Card, Field, Input, PageHead, Pill, Select, Textarea } from '@/components/ui/primitives';
+import { Sparkle } from '@/components/ui/Icon';
 
 export default function SettingsPage() {
   const aiReady = useAiReady();
@@ -31,7 +32,7 @@ export default function SettingsPage() {
         <Field label="קהל יעד"><Input value={brand.audience} onChange={(e) => setBrand({ audience: e.target.value })} /></Field>
         <Field label="קריאה לפעולה ברירת מחדל"><Input value={brand.cta} onChange={(e) => setBrand({ cta: e.target.value })} /></Field>
         <Button variant="primary" onClick={analyze} disabled={!aiReady || busy}>
-          {busy ? 'מנתח…' : '✦ הרצת ניתוח מותג'}
+          {busy ? 'מנתח…' : <><Sparkle size={18} weight="fill" aria-hidden />הרצת ניתוח מותג</>}
         </Button>
       </Card>
 

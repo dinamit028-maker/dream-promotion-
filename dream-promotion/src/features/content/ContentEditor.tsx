@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { Button, Field, Input, Pill, Textarea } from '@/components/ui/primitives';
-import { IntegrationDialog, Modal } from '@/components/ui/feedback';
+import { CloseButton, IntegrationDialog, Modal } from '@/components/ui/feedback';
 import { Visual } from '@/components/ui/Visual';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { KIND_HE, today } from '@/lib/utils';
@@ -52,11 +52,11 @@ export function ContentEditor() {
             {item.status === 'draft' && <Pill>טיוטה</Pill>}
             {item.status === 'published' && <Pill tone="ok">פורסם</Pill>}
           </div>
-          <Button variant="ghost" size="sm" onClick={closeEditor} aria-label="סגירה">✕</Button>
+          <CloseButton onClick={closeEditor} />
         </div>
 
         <div className="grid items-start gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
-          <Visual emoji={item.emoji} palette={item.palette} mediaId={item.mediaId}
+          <Visual kind={item.kind} headline={headline} palette={item.palette} mediaId={item.mediaId}
             ratio={item.kind === 'reel' || item.kind === 'story' ? 'vertical' : 'square'} className="max-md:mx-auto max-md:w-40" />
           <div>
             <Field label="כותרת"><Input value={headline} onChange={(e) => setHeadline(e.target.value)} /></Field>

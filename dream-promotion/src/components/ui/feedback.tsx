@@ -2,8 +2,18 @@
 import { useEffect, type ReactNode } from 'react';
 import { Button } from './primitives';
 import { cx } from '@/lib/utils';
+import { Check, X } from './Icon';
 
 export function Spinner() { return <span className="spinner" aria-hidden />; }
+
+export function CloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-label="סגירה"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted transition-colors hover:bg-surface-2 hover:text-ink">
+      <X size={20} aria-hidden />
+    </button>
+  );
+}
 
 export function Modal({ open, onClose, children, wide }: { open: boolean; onClose: () => void; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
@@ -15,18 +25,21 @@ export function Modal({ open, onClose, children, wide }: { open: boolean; onClos
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(18,14,28,.46)] p-4 backdrop-blur-sm">
-      <div className={cx('max-h-[88vh] w-full overflow-y-auto rounded-xl bg-surface p-8 shadow-lg animate-pop', wide ? 'max-w-4xl' : 'max-w-2xl')}>
+      <div role="dialog" aria-modal="true"
+        className={cx('max-h-[90vh] w-full overflow-y-auto rounded-xl bg-surface p-5 shadow-lg animate-pop sm:p-8', wide ? 'max-w-4xl' : 'max-w-2xl')}>
         {children}
       </div>
     </div>
   );
 }
 
-export function EmptyState({ emoji, title, body, action }: { emoji: string; title: string; body: string; action?: ReactNode }) {
+export function EmptyState({ icon, title, body, action }: { icon: ReactNode; title: string; body: string; action?: ReactNode }) {
   return (
-    <div className="rounded-xl border-[1.5px] border-dashed border-line bg-brand-soft px-6 py-16 text-center">
-      <div className="mb-3 text-5xl">{emoji}</div>
-      <h3 className="font-display text-xl font-extrabold">{title}</h3>
+    <div className="rounded-xl border-[1.5px] border-dashed border-line bg-surface px-6 py-14 text-center">
+      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-soft text-primary [&>svg]:h-7 [&>svg]:w-7">
+        {icon}
+      </div>
+      <h3 className="font-display text-xl font-bold">{title}</h3>
       <p className="mx-auto mt-2 max-w-sm text-muted">{body}</p>
       {action && <div className="mt-5">{action}</div>}
     </div>
@@ -58,7 +71,7 @@ export function GenerationState({ lines, step }: { lines: string[]; step: number
       {lines.map((l, i) => (
         <div key={l} className={cx('flex items-center gap-3 py-2 text-[15px] transition-all',
           i < step ? 'text-ok opacity-80' : i === step ? 'text-ink opacity-100' : 'text-muted opacity-30')}>
-          {i < step ? <span className="w-[17px] shrink-0">✓</span> : i === step ? <Spinner /> : <span className="w-[17px] shrink-0" />}
+          {i < step ? <Check size={17} weight="bold" aria-hidden className="shrink-0" /> : i === step ? <Spinner /> : <span className="w-[17px] shrink-0" />}
           <span>{l}</span>
         </div>
       ))}

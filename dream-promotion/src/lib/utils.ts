@@ -29,3 +29,11 @@ export const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? 'בוקר טוב' : h < 18 ? 'צהריים טובים' : 'ערב טוב';
 };
+
+/** Brand-consistent colour pair per format, used when the model doesn't supply one. */
+export const PALETTE: Record<string, [string, string]> = {
+  post: ['#6B3BF5', '#A96BF8'],
+  reel: ['#D6336C', '#FF8FA3'],
+  story: ['#2F6FDB', '#5BC8D6'],
+  ad: ['#3B2A8C', '#6B3BF5'],
+};
