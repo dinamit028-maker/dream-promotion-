@@ -1,3 +1,4 @@
+import { authHeaders } from './http';
 import type { BrandAnalysis, BrandProfile, ContentBrief, GeneratedVariant, Storyboard } from '@/types';
 
 /**
@@ -12,7 +13,7 @@ export class AIServiceError extends Error {
 async function call<T>(task: string, payload: Record<string, unknown>): Promise<T> {
   const res = await fetch('/api/ai', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify({ task, payload }),
   });
   if (!res.ok) {

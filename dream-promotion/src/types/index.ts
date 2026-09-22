@@ -18,6 +18,10 @@ export interface BrandAnalysis {
 
 export interface ReelScene {
   role: string; seconds: number; onScreen: string; voiceover: string; visual: string; emoji?: string;
+  /** English motion/camera prompt sent to the video model — no on-screen text */
+  videoPrompt?: string;
+  /** generated clip, once rendered */
+  clipUrl?: string;
 }
 
 export interface Storyboard {

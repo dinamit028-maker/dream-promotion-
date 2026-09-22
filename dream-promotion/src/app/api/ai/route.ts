@@ -4,6 +4,7 @@ import {
   adCopyPrompt, assistantPrompt, brandAnalysisPrompt,
   contentPrompt, storyboardPrompt, weeklyPlanPrompt,
 } from '@/lib/services/prompts';
+import { accessDenied } from '@/lib/server/access';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +35,8 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
+  const denied = accessDenied(req);
+  if (denied) return denied;
   try {
     const { task, payload } = await req.json();
     const { prompt, json } = buildPrompt(task, payload);

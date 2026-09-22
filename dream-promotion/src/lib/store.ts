@@ -18,6 +18,8 @@ interface AppState {
   leads: Lead[];
   ads: AdDraft[];
   editingId: string | null;
+  accessCode: string;
+  setAccessCode: (c: string) => void;
   openEditor: (id: string) => void;
   closeEditor: () => void;
   setBrand: (b: Partial<BrandProfile>) => void;
@@ -52,6 +54,8 @@ export const useApp = create<AppState>()(
       leads: [],
       ads: [],
       editingId: null,
+      accessCode: '',
+      setAccessCode: (accessCode) => set({ accessCode }),
       openEditor: (id) => set({ editingId: id }),
       closeEditor: () => set({ editingId: null }),
       setBrand: (b) => set((s) => ({ brand: { ...s.brand, ...b } })),

@@ -1,15 +1,19 @@
 'use client';
 import { useState } from 'react';
 import { useApp } from '@/lib/store';
-import { AIService, MediaService, VideoService } from '@/lib/services';
+import { AIService, MediaService } from '@/lib/services';
+import { VideoService } from '@/lib/services/video.service';
+import { useEffect } from 'react';
 import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Card, Field, Input, PageHead, Pill, Select, Textarea } from '@/components/ui/primitives';
 import { Sparkle } from '@/components/ui/Icon';
 
 export default function SettingsPage() {
   const aiReady = useAiReady();
-  const { brand, setBrand, setAnalysis, reset } = useApp();
+  const { brand, setBrand, setAnalysis, reset, accessCode, setAccessCode } = useApp();
   const [busy, setBusy] = useState(false);
+  const [videoReady, setVideoReady] = useState<boolean | null>(null);
+  useEffect(() => { VideoService.available().then(setVideoReady); }, []);
 
   async function analyze() {
     setBusy(true);
@@ -52,13 +56,21 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      <Card className="mb-4">
+        <h3 className="font-display text-xl font-extrabold">קוד גישה</h3>
+        <p className="mt-1 text-sm text-muted">אם הוגדר APP_ACCESS_CODE בשרת, הקלידו אותו כאן. בלעדיו יצירת תוכן ווידאו תיחסם.</p>
+        <div className="mt-3 max-w-sm">
+          <Input type="password" autoComplete="off" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="קוד גישה" />
+        </div>
+      </Card>
+
       <Card>
         <h3 className="font-display text-xl font-extrabold">מצב המערכת</h3>
         <dl className="mt-3 space-y-2.5 text-sm">
           {([
             ['מנוע AI', aiReady],
             ['אחסון מדיה', MediaService.persistent],
-            ['רינדור וידאו', VideoService.configured],
+            ['רינדור וידאו (Wan 3.0)', videoReady],
             ['רשתות חברתיות', false],
           ] as [string, boolean | null][]).map(([label, ok]) => (
             <div key={label} className="flex items-center justify-between">

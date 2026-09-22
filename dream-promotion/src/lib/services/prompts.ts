@@ -31,13 +31,25 @@ export const weeklyPlanPrompt = (b: BrandProfile) => `${brandContext(b)}
 החזר/י JSON בלבד:
 {"items":[{"dayOffset":0,"time":"19:30","kind":"post|reel|story","platform":"Instagram|Facebook|TikTok","goal":"","idea":"","headline":"","caption":"","emoji":"","visual_direction":""}]}`;
 
-export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number) => `${brandContext(b)}
+export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number) => {
+  const clips = Math.max(1, Math.round(duration / 15));
+  const per = Math.round(duration / clips);
+  return `${brandContext(b)}
 
-בנה/י סטוריבורד לריל אנכי (9:16) באורך ${duration} שניות.
+בנה/י תוכנית לסרטון אנכי (9:16) באורך ${duration} שניות, מחולק ל-${clips} קליפים של ${per} שניות כל אחד.
 נושא: ${brief || 'הצע/י נושא חזק לעסק'}
-מבנה: Hook → בעיה → פתרון → הוכחה → CTA.
+הקליפים מתחברים ברצף לסרטון אחד, אז כל קליף ממשיך את הקודם: אותו מקום, אותה תאורה, אותה דמות או מוצר.
+מבנה כולל: הוק ובעיה ← פתרון ← הוכחה וקריאה לפעולה.
+
+לכל קליף:
+- onScreen: טקסט קצר בעברית שיופיע כשכבת כיתוב (עד 8 מילים)
+- voiceover: קריינות בעברית לקליף
+- visual: תיאור קצר בעברית של מה רואים
+- videoPrompt: פרומפט באנגלית למודל וידאו — נושא, פעולה, תנועת מצלמה, תאורה, אווירה, עדשה. בלי שום טקסט, כתוביות, אותיות או לוגואים בתוך התמונה. כתוב/י בזמן הווה, 40–80 מילים.
+
 החזר/י JSON בלבד:
-{"title":"","scenes":[{"role":"","seconds":3,"onScreen":"","voiceover":"","visual":"","emoji":""}],"caption":"","hashtags":[]}`;
+{"title":"","scenes":[{"role":"","seconds":${per},"onScreen":"","voiceover":"","visual":"","videoPrompt":""}],"caption":"","hashtags":[]}`;
+};
 
 export const brandAnalysisPrompt = (b: BrandProfile) => `${brandContext(b)}
 

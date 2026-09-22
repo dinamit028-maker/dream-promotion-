@@ -84,7 +84,7 @@ src/
 - אונבורדינג מלא + ניתוח מותג (AI)
 - יצירת פוסט / ריל / סטורי / מודעה עם כמה וריאציות בזוויות שונות
 - עריכה, שמירה כטיוטה, תזמון, שכפול, מחיקה
-- אולפן רילס — סטוריבורד סצנה-אחר-סצנה
+- אולפן רילס — תסריט מחולק לקליפים של 15 שניות, רינדור ב-Wan 3.0 (fal), רצף חלק בין קליפים ותצוגה רציפה
 - יומן חודשי עם גרירה ושחרור + "תכנן לי את השבוע"
 - אסטרטגיה שבועית
 - ספריית מדיה עם העלאה
@@ -102,7 +102,7 @@ src/
 | לידים מוואטסאפ | WhatsApp Business API | `social.service.ts` |
 | העלאת קמפיינים | Meta Marketing API (`ads_management`) | `ads.service.ts` |
 | נתוני ביצועים | Instagram Graph + Meta Insights | מסך analytics |
-| רינדור וידאו | ספק וידאו (Runway / Pika / HeyGen) | `video.service.ts` |
+| חיבור הקליפים לקובץ אחד + כתוביות וקריינות בעברית | Remotion / ffmpeg | חדש |
 | אחסון מדיה מתמיד | S3 / Supabase Storage | `media.service.ts` |
 | התחברות ומשתמשים | Supabase Auth | חדש |
 | בסיס נתונים | Postgres/Supabase במקום localStorage | `lib/store.ts` |
