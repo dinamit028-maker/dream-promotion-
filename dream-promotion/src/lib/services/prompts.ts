@@ -76,3 +76,43 @@ ${brandContext(b)}
 ${recentContent}
 
 שאלה: ${question}`;
+
+export type RewriteMode = 'shorter' | 'professional' | 'casual' | 'cta' | 'hook';
+
+const REWRITE_HE: Record<RewriteMode, string> = {
+  shorter: 'קצר/י משמעותית — בערך חצי מהאורך, בלי לאבד את המסר ואת הקריאה לפעולה.',
+  professional: 'הפוך/הפכי את הטון למקצועי ומדויק יותר, בלי להישמע מרוחק.',
+  casual: 'הפוך/הפכי את הטון לקליל ומדובר יותר, כמו הודעה לחברה.',
+  cta: 'החלף/י את הקריאה לפעולה בניסוח אחר וחזק יותר. שאר הטקסט נשאר כמעט זהה.',
+  hook: 'כתוב/י שורת פתיחה אחרת לגמרי שעוצרת גלילה. שאר הטקסט נשאר.',
+};
+
+export const rewritePrompt = (b: BrandProfile, mode: RewriteMode, caption: string, cta: string) =>
+  `${brandContext(b)}
+
+לפניך טקסט של פוסט. ${REWRITE_HE[mode]}
+עברית טבעית, בלי קלישאות ובלי הבטחות רפואיות.
+
+הטקסט:
+${caption}
+
+קריאה לפעולה נוכחית: ${cta}
+
+החזר/י JSON בלבד:
+{"caption":"","cta":""}`;
+
+/** A fresh visual direction for one clip — used after a content-policy block or a weak result. */
+export const scenePrompt = (b: BrandProfile, role: string, onScreen: string, previous: string) =>
+  `${brandContext(b)}
+
+אנחנו מייצרים קליפ וידאו אנכי לסצנה "${role}" עם הכיתוב "${onScreen}".
+הכיוון הקודם לא התאים או נחסם:
+${previous}
+
+כתוב/י כיוון ויזואלי אחר לגמרי. חוקים:
+- סצנה אנושית, מקום אמיתי או מוצר מוחשי. בלי מפות עולם, בלי רשתות נתונים ובלי מסכים שמציגים ממשקים — אלה נחסמים בבדיקת התוכן של מנוע הווידאו.
+- בלי טקסט, אותיות, לוגואים או כתוביות בתוך התמונה.
+- אנגלית, זמן הווה, 40 עד 80 מילים: נושא, פעולה, תנועת מצלמה, תאורה, אווירה.
+
+החזר/י JSON בלבד:
+{"videoPrompt":"","visual":"תיאור קצר בעברית"}`;

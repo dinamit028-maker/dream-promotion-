@@ -5,12 +5,14 @@ import { useApp } from '@/lib/store';
 import { AIService } from '@/lib/services';
 import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Card, Chip, Field, Input, Select, Textarea, Pill } from '@/components/ui/primitives';
-import { AdapterNote, AiUnavailable, EmptyState, GenerationState, Modal } from '@/components/ui/feedback';
+import { AdapterNote, AiUnavailable, EmptyState, GenerationState, Modal, Spinner } from '@/components/ui/feedback';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { Visual } from '@/components/ui/Visual';
 import { KIND_HE, today } from '@/lib/utils';
 import type { ContentKind, GeneratedVariant, Platform } from '@/types';
-import { ArrowsClockwise, CalendarBlank, MagicWand, Sparkle } from '@/components/ui/Icon';
+import { ArrowsClockwise, CalendarBlank, FilmSlate, MagicWand, Sparkle } from '@/components/ui/Icon';
+import { aiErrorMessage } from '@/lib/errors';
+import type { RewriteMode } from '@/lib/services/prompts';
 
 const STEPS = ['מנתח את המותג שלך…', 'בונה זווית שיווקית…', 'כותב את הפתיח…', 'מנסח קריאה לפעולה…'];
 
@@ -27,6 +29,7 @@ export function CreateStudio() {
   const [step, setStep] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
+  const [rewriting, setRewriting] = useState<RewriteMode | null>(null);
   const [when, setWhen] = useState({ date: today(), time: '19:30' });
 
   // arriving from a calendar day (/create?date=…&time=…) pre-selects that slot
@@ -34,6 +37,9 @@ export function CreateStudio() {
     const q = new URLSearchParams(window.location.search);
     const d = q.get('date'); const t = q.get('time');
     if (d) setWhen({ date: d, time: t || '19:30' });
+    const k = q.get('kind'); const b = q.get('brief');
+    if (k && ['post', 'reel', 'story', 'ad'].includes(k)) setKind(k as ContentKind);
+    if (b) setBrief(b);
   }, []);
 
   const v = variants[picked];
@@ -48,10 +54,23 @@ export function CreateStudio() {
       })));
       setPicked(0);
     } catch (e: any) {
-      setError(e.code || 'error');
+      setError(aiErrorMessage(e.code));
     } finally {
       clearInterval(tick); setStep(-1);
     }
+  }
+
+  /** Rewrites the selected variant in place — the user keeps their edits to everything else. */
+  async function rewrite(mode: RewriteMode) {
+    const current = variants[picked];
+    if (!current) return;
+    setRewriting(mode);
+    try {
+      const out = await AIService.rewrite(brand, mode, current.caption, current.cta);
+      setVariants((vs) => vs.map((x, i) => (i === picked ? { ...x, caption: out.caption || x.caption, cta: out.cta || x.cta } : x)));
+    } catch (e: any) {
+      setError(aiErrorMessage(e.code));
+    } finally { setRewriting(null); }
   }
 
   function save(status: 'draft' | 'scheduled') {
@@ -100,7 +119,7 @@ export function CreateStudio() {
         {step >= 0 && <GenerationState lines={STEPS} step={step} />}
         {error && (
           <AdapterNote title="היצירה נכשלה.">
-            קוד: {error}. לא נכתב טקסט מקומי במקום, כדי שלא תקבלו תוכן שלא נוצר על ידי המודל.
+            {error} לא נכתב טקסט מקומי במקום, כדי שלא תקבלו תוכן שלא נוצר על ידי המודל.
             <div className="mt-3"><Button size="sm" variant="ghost" onClick={generate}>ניסיון נוסף</Button></div>
           </AdapterNote>
         )}
@@ -133,9 +152,27 @@ export function CreateStudio() {
                     onChange={(e) => setVariants((vs) => vs.map((x, i) => i === picked ? { ...x, cta: e.target.value } : x))} />
                 </Field>
                 {v.visual_direction && <AdapterNote><strong>כיוון ויזואלי: </strong>{v.visual_direction}</AdapterNote>}
-                <div className="mt-4 flex flex-wrap gap-3">
+                <div className="mt-2">
+                  <p className="mb-2 text-sm font-semibold text-ink-2">שינוי מהיר</p>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ['shorter', 'קצר יותר'], ['professional', 'מקצועי יותר'], ['casual', 'קליל יותר'],
+                      ['hook', 'פתיחה אחרת'], ['cta', 'קריאה לפעולה אחרת'],
+                    ] as [RewriteMode, string][]).map(([m, label]) => (
+                      <Button key={m} size="sm" variant="ghost" disabled={!!rewriting} onClick={() => rewrite(m)}>
+                        {rewriting === m ? <><Spinner />משכתב…</> : label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-3 border-t border-line pt-4">
                   <Button variant="primary" onClick={() => save('draft')}>שמירה כטיוטה</Button>
                   <Button variant="ghost" onClick={() => setScheduling(true)}><CalendarBlank size={18} aria-hidden />תזמון ליומן</Button>
+                  <Button variant="ghost"
+                    onClick={() => router.push(`/reels?brief=${encodeURIComponent(brief || v.headline || '')}`)}>
+                    <FilmSlate size={18} aria-hidden />הפיכה לסרטון
+                  </Button>
                 </div>
               </Card>
             </div>

@@ -1,4 +1,5 @@
 import { authHeaders } from './http';
+import type { RewriteMode } from './prompts';
 import type { BrandAnalysis, BrandProfile, ContentBrief, GeneratedVariant, Storyboard } from '@/types';
 
 /**
@@ -41,6 +42,10 @@ export const AIService = {
   brandAnalysis: (brand: BrandProfile) => call<BrandAnalysis>('analysis', { brand }),
   adCopy: (brand: BrandProfile, p: { goal: string; audience: string; budget: number; contentCaption?: string }) =>
     call<{ headline: string; primary: string; description: string; cta: string; audienceSuggestion: string }>('ad', { brand, ...p }),
+  rewrite: (brand: BrandProfile, mode: RewriteMode, caption: string, cta: string) =>
+    call<{ caption: string; cta: string }>('rewrite', { brand, mode, caption, cta }),
+  sceneIdea: (brand: BrandProfile, role: string, onScreen: string, previous: string) =>
+    call<{ videoPrompt: string; visual: string }>('scene', { brand, role, onScreen, previous }),
   assistant: (brand: BrandProfile, recentContent: string, question: string) =>
     call<{ text: string }>('assistant', { brand, recentContent, question }),
 };

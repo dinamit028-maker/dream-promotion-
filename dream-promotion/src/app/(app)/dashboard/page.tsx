@@ -30,9 +30,13 @@ export default function Dashboard() {
           placeholder="תארו מה בא לכם לפרסם — למשל: ריל שמסביר את הטיפול החדש שלנו" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
-            {['פוסט', 'ריל', 'סטורי', 'מודעה'].map((k) => <Chip key={k} onClick={() => router.push('/create')}>{k}</Chip>)}
+            {([['post', 'פוסט'], ['reel', 'ריל'], ['story', 'סטורי'], ['ad', 'מודעה']] as [string, string][]).map(([k, label]) => (
+              <Chip key={k} onClick={() => router.push(k === 'reel' ? `/reels?brief=${encodeURIComponent(prompt)}` : `/create?kind=${k}&brief=${encodeURIComponent(prompt)}`)}>
+                {label}
+              </Chip>
+            ))}
           </div>
-          <Button variant="primary" onClick={() => router.push('/create')}><Sparkle size={18} weight="fill" aria-hidden />צרו עכשיו</Button>
+          <Button variant="primary" onClick={() => router.push(`/create?brief=${encodeURIComponent(prompt)}`)}><Sparkle size={18} weight="fill" aria-hidden />צרו עכשיו</Button>
         </div>
       </div>
 

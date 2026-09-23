@@ -14,7 +14,7 @@ export default function AnalyticsPage() {
   ];
   return (
     <>
-      <PageHead title="ביצועים" sub="נתוני רשתות אמיתיים דורשים חשבון מחובר" />
+      <PageHead title="ביצועים" sub="המספרים למטה נספרים מתוך המערכת עצמה, לא מהרשתות" />
       <div className="mb-6 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
         {stats.map(([l, v]) => (
           <Card key={l}>
