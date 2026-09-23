@@ -12,6 +12,8 @@ import { KIND_HE, today } from '@/lib/utils';
 import type { ContentKind, GeneratedVariant, Platform } from '@/types';
 import { ArrowsClockwise, CalendarBlank, FilmSlate, MagicWand, Sparkle } from '@/components/ui/Icon';
 import { aiErrorMessage } from '@/lib/errors';
+import { ImageService, PRICE_PER_IMAGE } from '@/lib/services/image.service';
+import { ImageGlyph } from '@/components/ui/Icon';
 import type { RewriteMode } from '@/lib/services/prompts';
 
 const STEPS = ['מנתח את המותג שלך…', 'בונה זווית שיווקית…', 'כותב את הפתיח…', 'מנסח קריאה לפעולה…'];
@@ -19,7 +21,7 @@ const STEPS = ['מנתח את המותג שלך…', 'בונה זווית שיו
 export function CreateStudio() {
   const router = useRouter();
   const aiReady = useAiReady();
-  const { brand, addContent } = useApp();
+  const { brand, addContent, addMedia } = useApp();
   const [kind, setKind] = useState<ContentKind>('post');
   const [platform, setPlatform] = useState<Platform>('Instagram');
   const [goal, setGoal] = useState('יותר פניות');
@@ -30,6 +32,8 @@ export function CreateStudio() {
   const [error, setError] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [rewriting, setRewriting] = useState<RewriteMode | null>(null);
+  const [imaging, setImaging] = useState(false);
+  const [options, setOptions] = useState<string[]>([]);
   const [when, setWhen] = useState({ date: today(), time: '19:30' });
 
   // arriving from a calendar day (/create?date=…&time=…) pre-selects that slot
@@ -71,6 +75,30 @@ export function CreateStudio() {
     } catch (e: any) {
       setError(aiErrorMessage(e.code));
     } finally { setRewriting(null); }
+  }
+
+  /** Turns the visual direction the model already wrote into two real images to choose from. */
+  async function makeImages() {
+    const current = variants[picked];
+    if (!current) return;
+    setImaging(true); setError(null); setOptions([]);
+    try {
+      const urls = await ImageService.generate({
+        prompt: current.visual_direction || current.headline,
+        aspectRatio: kind === 'reel' || kind === 'story' ? '9:16' : '4:5',
+        count: 2,
+      });
+      setOptions(urls);
+    } catch (e: any) {
+      setError(e.code === 'insufficient_balance' ? 'אין יתרה בחשבון fal.' : 'יצירת התמונה נכשלה.');
+    } finally { setImaging(false); }
+  }
+
+  function chooseImage(url: string) {
+    const id = `img-${Date.now()}`;
+    addMedia({ id, url, name: variants[picked]?.headline || 'תמונה שנוצרה', kind: 'image', persistent: false });
+    setVariants((vs) => vs.map((x, i) => (i === picked ? { ...x, mediaId: id } : x)));
+    setOptions([]);
   }
 
   function save(status: 'draft' | 'scheduled') {
@@ -135,7 +163,23 @@ export function CreateStudio() {
               <Button size="sm" variant="ghost" onClick={generate}><ArrowsClockwise size={16} aria-hidden />ייצור מחדש</Button>
             </div>
             <div className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-              <Visual kind={kind} headline={v.headline} palette={v.palette} ratio={kind === 'reel' || kind === 'story' ? 'vertical' : 'square'} size="lg" />
+              <div>
+                <Visual kind={kind} headline={v.headline} palette={v.palette} mediaId={(v as any).mediaId}
+                  ratio={kind === 'reel' || kind === 'story' ? 'vertical' : 'square'} size="lg" />
+                <Button variant="ghost" className="mt-3 w-full" onClick={makeImages} disabled={imaging}>
+                  {imaging ? <><Spinner />מצייר…</> : <><ImageGlyph size={18} aria-hidden />יצירת תמונה · ${(PRICE_PER_IMAGE * 2).toFixed(2)}</>}
+                </Button>
+                {options.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {options.map((u) => (
+                      <button key={u} type="button" onClick={() => chooseImage(u)}
+                        className="overflow-hidden rounded-xl ring-2 ring-transparent transition hover:ring-primary">
+                        <img src={u} alt="" className="aspect-[4/5] w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Card>
                 <Pill tone="ai">{KIND_HE[kind]} · {platform}</Pill>
                 <h3 className="mb-4 mt-3 font-display text-xl font-extrabold">{v.headline}</h3>

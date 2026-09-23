@@ -22,6 +22,9 @@ export interface ReelScene {
   videoPrompt?: string;
   /** generated clip, once rendered */
   clipUrl?: string;
+  /** narration audio + captions, generated separately from the video */
+  voiceUrl?: string;
+  srt?: string;
 }
 
 export interface Storyboard {

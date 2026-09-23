@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AdDraft, BrandAnalysis, BrandProfile, ContentItem, Lead, MediaAsset } from '@/types';
 import { uid } from './utils';
+import type { VoiceStyle } from './services/voice/types';
+import type { Pronunciation } from './pronunciation';
 
 /**
  * Client store. Persisted to localStorage so the app is usable before a backend exists.
@@ -20,6 +22,10 @@ interface AppState {
   editingId: string | null;
   accessCode: string;
   setAccessCode: (c: string) => void;
+  voice: { voiceId: string; style: VoiceStyle; language: 'he' | 'en' };
+  setVoice: (v: Partial<{ voiceId: string; style: VoiceStyle; language: 'he' | 'en' }>) => void;
+  pronunciations: Pronunciation[];
+  setPronunciations: (p: Pronunciation[]) => void;
   openEditor: (id: string) => void;
   closeEditor: () => void;
   setBrand: (b: Partial<BrandProfile>) => void;
@@ -56,6 +62,10 @@ export const useApp = create<AppState>()(
       editingId: null,
       accessCode: '',
       setAccessCode: (accessCode) => set({ accessCode }),
+      voice: { voiceId: '', style: 'natural', language: 'he' },
+      setVoice: (v) => set((st) => ({ voice: { ...st.voice, ...v } })),
+      pronunciations: [],
+      setPronunciations: (pronunciations) => set({ pronunciations }),
       openEditor: (id) => set({ editingId: id }),
       closeEditor: () => set({ editingId: null }),
       setBrand: (b) => set((s) => ({ brand: { ...s.brand, ...b } })),

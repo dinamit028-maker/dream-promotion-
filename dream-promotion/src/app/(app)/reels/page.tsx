@@ -4,20 +4,23 @@ import { useApp } from '@/lib/store';
 import { AIService } from '@/lib/services';
 import { MediaService } from '@/lib/services/media.service';
 import { PRICE_PER_SECOND, VideoService, type ClipUpdate } from '@/lib/services/video.service';
+import { ImageService, PRICE_PER_IMAGE } from '@/lib/services/image.service';
 import { imageToDataUri, lastFrameDataUri } from '@/lib/media';
 import { videoErrorMessage, aiErrorMessage } from '@/lib/errors';
+import { VoiceService } from '@/lib/services/voice.service';
+import { VoicePanel, voiceErrorText } from '@/features/reels/VoicePanel';
 import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Card, Chip, Field, Input, PageHead, Pill, Textarea } from '@/components/ui/primitives';
 import { AdapterNote, AiUnavailable, CloseButton, EmptyState, GenerationState, Modal, Spinner } from '@/components/ui/feedback';
 import {
   FilmSlate, Sparkle, Play, ImageGlyph, Check, Warning, UploadSimple, ArrowsClockwise,
-  Trash, Plus, CaretLeft, CaretRight, MagicWand,
+  Trash, Plus, CaretLeft, CaretRight, MagicWand, PaperPlaneTilt,
 } from '@/components/ui/Icon';
 import { PALETTE, cx } from '@/lib/utils';
 import type { ReelScene, Storyboard } from '@/types';
 
 type Res = keyof typeof PRICE_PER_SECOND;
-type Clip = ClipUpdate & { startedAt?: number; code?: string };
+type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image' };
 
 const LENGTHS = [15, 30, 45];
 const ROLE_HE: Record<string, string> = {
@@ -35,7 +38,9 @@ function roleLabel(role: string | undefined, i: number) {
 
 export default function ReelsPage() {
   const aiReady = useAiReady();
-  const { brand, media, addMedia, addContent } = useApp();
+  const { brand, media, addMedia, addContent, voice, pronunciations } = useApp();
+  type Narr = { url?: string; srt?: string; busy?: boolean; error?: string };
+  const [narr, setNarr] = useState<Record<number, Narr>>({});
 
   const [videoReady, setVideoReady] = useState<boolean | null>(null);
   useEffect(() => { VideoService.available().then(setVideoReady); }, []);
@@ -49,6 +54,7 @@ export default function ReelsPage() {
   const [planError, setPlanError] = useState<string | null>(null);
 
   const [photos, setPhotos] = useState<Record<number, string | null>>({});
+  const [imageMode, setImageMode] = useState<Record<number, boolean>>({});
   const [clips, setClips] = useState<Record<number, Clip>>({});
   const [running, setRunning] = useState(false);
   const [rethinking, setRethinking] = useState<number | null>(null);
@@ -74,13 +80,39 @@ export default function ReelsPage() {
 
   const scenes = board?.scenes ?? [];
   const cost = useMemo(
-    () => scenes.reduce((s, sc) => s + (sc.seconds || 15), 0) * PRICE_PER_SECOND[res],
-    [scenes, res],
+    () => scenes.reduce((sum, sc, i) => sum + (imageMode[i] ? PRICE_PER_IMAGE : (sc.seconds || 15) * PRICE_PER_SECOND[res]), 0),
+    [scenes, res, imageMode],
   );
   const doneUrls = scenes.map((_, i) => clips[i]?.url).filter(Boolean) as string[];
   const allDone = scenes.length > 0 && doneUrls.length === scenes.length;
 
   const setScenes = (next: ReelScene[]) => setBoard((b) => (b ? { ...b, scenes: next } : b));
+
+  /** Reorder or remove scenes WITHOUT throwing away clips that were already paid for. */
+  function remap(order: (number | null)[]) {
+    const nextClips: Record<number, Clip> = {};
+    const nextPhotos: Record<number, string | null> = {};
+    const nextMode: Record<number, boolean> = {};
+    order.forEach((from, to) => {
+      if (from === null) return;
+      if (clips[from]) nextClips[to] = clips[from];
+      if (photos[from] !== undefined) nextPhotos[to] = photos[from];
+      if (imageMode[from] !== undefined) nextMode[to] = imageMode[from];
+    });
+    setClips(nextClips); setPhotos(nextPhotos); setImageMode(nextMode);
+  }
+
+  function swapScenes(i: number, j: number) {
+    const next = [...scenes];
+    [next[i], next[j]] = [next[j], next[i]];
+    const order = scenes.map((_, n) => (n === i ? j : n === j ? i : n));
+    setScenes(next); remap(order);
+  }
+
+  function removeScene(i: number) {
+    setScenes(scenes.filter((_, n) => n !== i));
+    remap(scenes.map((_, n) => n).filter((n) => n !== i));
+  }
   const clearClip = (i: number) => setClips((c) => { const { [i]: _drop, ...rest } = c; return rest; });
 
   async function plan() {
@@ -108,10 +140,51 @@ export default function ReelsPage() {
     } finally { setRethinking(null); }
   }
 
+  /** Narration is independent of the video: changing a word re-renders only the audio. */
+  async function narrateScene(i: number) {
+    const sc = scenes[i];
+    const text = (sc.voiceover || '').trim();
+    if (!text) { setNarr((n) => ({ ...n, [i]: { error: 'אין טקסט קריינות לסצנה הזו.' } })); return; }
+    if (!voice.voiceId) { setNarr((n) => ({ ...n, [i]: { error: 'בחרו קול בפאנל הקריינות.' } })); return; }
+    setNarr((n) => ({ ...n, [i]: { busy: true } }));
+    try {
+      const out = await VoiceService.narrate({
+        text, voiceId: voice.voiceId, style: voice.style, language: voice.language, pronunciations,
+      });
+      setNarr((n) => ({ ...n, [i]: { url: out.audioUrl, srt: out.srt } }));
+    } catch (e: any) {
+      setNarr((n) => ({ ...n, [i]: { error: voiceErrorText(e.code) } }));
+    }
+  }
+
+  const downloadText = (name: string, body: string) => {
+    const url = URL.createObjectURL(new Blob([body], { type: 'text/plain;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   async function renderScene(i: number, startImage?: string): Promise<string> {
     const sc = scenes[i];
     const startedAt = Date.now();
     const set = (u: ClipUpdate) => setClips((c) => ({ ...c, [i]: { ...c[i], ...u, startedAt } }));
+
+    // a still image costs 8 cents instead of 75 — enough for most scenes
+    if (imageMode[i]) {
+      set({ status: 'running' });
+      try {
+        const urls = await ImageService.generate({
+          prompt: sc.videoPrompt || sc.visual, aspectRatio: '9:16', count: 1,
+        }, undefined, abort.current?.signal);
+        setClips((c) => ({ ...c, [i]: { status: 'done', url: urls[0], kind: 'image', startedAt } }));
+        keepInLibrary(i, urls[0], 'image');
+        return urls[0];
+      } catch (e: any) {
+        setClips((c) => ({ ...c, [i]: { status: 'failed', error: e.message, code: e.code, kind: 'image', startedAt } }));
+        throw e;
+      }
+    }
+
     if (!startImage) {
       const url = photoUrl(i);
       if (url) startImage = await imageToDataUri(url);
@@ -123,11 +196,22 @@ export default function ReelsPage() {
         resolution: res,
         aspectRatio: '9:16',
         startImage,
-      }, set, abort.current?.signal);
+      }, (u) => { set(u); if (u.status === 'done' && u.url) keepInLibrary(i, u.url, 'video'); }, abort.current?.signal);
     } catch (e: any) {
       setClips((c) => ({ ...c, [i]: { ...c[i], status: 'failed', error: e.message, code: e.code, startedAt } }));
       throw e;
     }
+  }
+
+  /** Every finished asset lands in the media library immediately — no manual save. */
+  function keepInLibrary(i: number, url: string, kind: 'video' | 'image') {
+    addMedia({
+      id: `${kind}-${Date.now()}-${i}`,
+      url,
+      name: `${board?.title || 'reel'} · ${kind === 'video' ? 'קליפ' : 'תמונה'} ${i + 1}`,
+      kind: kind === 'video' ? 'video' : 'image',
+      persistent: false,
+    });
   }
 
   async function renderAll(only?: number) {
@@ -141,7 +225,7 @@ export default function ReelsPage() {
         for (let i = 0; i < scenes.length; i++) {
           if (clips[i]?.status === 'done' && clips[i].url) { prev = clips[i].url; continue; }
           let start: string | undefined;
-          if (prev && !photos[i]) {
+          if (prev && !photos[i] && !imageMode[i]) {
             try { start = await lastFrameDataUri(prev); } catch { start = undefined; }
           }
           prev = await renderScene(i, start);
@@ -171,7 +255,7 @@ export default function ReelsPage() {
     addContent({
       kind: 'reel', platform: 'Instagram', goal: '', headline: board.title, caption: board.caption || '',
       hashtags: board.hashtags || [], cta: brand.cta, emoji: '', palette: PALETTE.reel,
-      scenes: scenes.map((s, i) => ({ ...s, clipUrl: clips[i]?.url })),
+      scenes: scenes.map((s, i) => ({ ...s, clipUrl: clips[i]?.url, voiceUrl: narr[i]?.url, srt: narr[i]?.srt })),
       mediaId: photos[0] ?? null, status: 'draft', date: null, time: null,
     });
   }
@@ -211,7 +295,11 @@ export default function ReelsPage() {
           {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}
         </Card>
 
-        <div>
+        <div className="lg:col-start-1 lg:row-start-2">
+          <VoicePanel />
+        </div>
+
+        <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
           {planning && <GenerationState lines={['קורא את המותג…', 'מחלק לקליפים…', 'כותב כיוון ויזואלי לכל סצנה…']} step={1} />}
           {planError && <AdapterNote title="בניית התסריט נכשלה.">{planError}</AdapterNote>}
           {!planning && !board && !planError && (
@@ -239,7 +327,9 @@ export default function ReelsPage() {
                 </div>
               )}
 
-              {doneUrls.length > 0 && <SequencePlayer urls={doneUrls} />}
+              {doneUrls.length > 0 && (
+                <SequencePlayer items={scenes.map((_, i) => clips[i]).filter((c) => c?.url).map((c) => ({ url: c!.url!, kind: c!.kind ?? 'video' }))} />
+              )}
 
               <div className="mt-4 grid gap-3">
                 {scenes.map((sc, i) => {
@@ -253,7 +343,9 @@ export default function ReelsPage() {
                         <button type="button" onClick={() => setPicking(i)} disabled={running}
                           aria-label={pUrl ? 'החלפת תמונת פתיחה' : 'בחירת תמונת פתיחה'}
                           className="relative flex aspect-[9/16] w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.5px] border-dashed border-line bg-surface-2 text-muted hover:border-primary hover:text-primary sm:w-24">
-                          {c?.url ? <video src={c.url} muted playsInline className="absolute inset-0 h-full w-full object-cover" />
+                          {c?.url ? (c.kind === 'image'
+                              ? <img src={c.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                              : <video src={c.url} muted playsInline className="absolute inset-0 h-full w-full object-cover" />)
                             : pUrl ? <img src={pUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
                             : <span className="flex flex-col items-center gap-1 text-[11px] font-semibold"><ImageGlyph size={22} aria-hidden />תמונה</span>}
                         </button>
@@ -274,7 +366,17 @@ export default function ReelsPage() {
                             </div>
                           )}
 
-                          <div className="mt-3 flex flex-wrap gap-2">
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <div className="flex overflow-hidden rounded-full border border-line">
+                              {([[false, 'וידאו'], [true, 'תמונה']] as [boolean, string][]).map(([mode, label]) => (
+                                <button key={label} type="button" disabled={running}
+                                  onClick={() => { setImageMode((m) => ({ ...m, [i]: mode })); clearClip(i); }}
+                                  className={cx('px-3 py-1.5 text-xs font-semibold transition-colors',
+                                    Boolean(imageMode[i]) === mode ? 'bg-primary text-white' : 'hover:bg-surface-2')}>
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
                             <Button size="sm" variant="ghost" onClick={() => setEditing(i)} disabled={running}>עריכה</Button>
                             <Button size="sm" variant="ghost" onClick={() => rethinkScene(i)} disabled={running || rethinking === i || !aiReady}>
                               {rethinking === i ? <><Spinner />מחפש כיוון…</> : <><MagicWand size={16} aria-hidden />סצנה אחרת</>}
@@ -287,15 +389,15 @@ export default function ReelsPage() {
                             {scenes.length > 1 && (
                               <>
                                 <Button size="sm" variant="ghost" aria-label="הזזה אחורה" disabled={running || i === 0}
-                                  onClick={() => { const n = [...scenes]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; setScenes(n); setClips({}); }}>
+                                  onClick={() => swapScenes(i, i - 1)}>
                                   <CaretRight size={15} aria-hidden />
                                 </Button>
                                 <Button size="sm" variant="ghost" aria-label="הזזה קדימה" disabled={running || i === scenes.length - 1}
-                                  onClick={() => { const n = [...scenes]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; setScenes(n); setClips({}); }}>
+                                  onClick={() => swapScenes(i, i + 1)}>
                                   <CaretLeft size={15} aria-hidden />
                                 </Button>
                                 <Button size="sm" variant="ghost" className="text-[var(--danger)]" aria-label="מחיקת סצנה" disabled={running}
-                                  onClick={() => { setScenes(scenes.filter((_, n) => n !== i)); setClips({}); }}>
+                                  onClick={() => removeScene(i)}>
                                   <Trash size={15} aria-hidden />
                                 </Button>
                               </>
@@ -305,6 +407,30 @@ export default function ReelsPage() {
                           {i > 0 && seamless && !photos[i] && !c?.url && (
                             <p className="mt-2 text-xs text-muted">ימשיך מהפריים האחרון של קליפ {i}</p>
                           )}
+
+                          {/* ---- narration for this scene, generated and regenerated on its own ---- */}
+                          <div className="mt-3 rounded-2xl bg-surface-2 p-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button size="sm" variant="ghost" onClick={() => narrateScene(i)} disabled={narr[i]?.busy}>
+                                {narr[i]?.busy ? <><Spinner />מקריא…</>
+                                  : narr[i]?.url ? <><ArrowsClockwise size={15} aria-hidden />קריינות מחדש</>
+                                  : <><PaperPlaneTilt size={15} aria-hidden />יצירת קריינות</>}
+                              </Button>
+                              {narr[i]?.url && (
+                                <>
+                                  <audio src={narr[i].url} controls className="h-9 max-w-[220px]" />
+                                  <a href={narr[i].url} download={`clip-${i + 1}.mp3`}
+                                    className="text-xs font-semibold text-primary hover:underline">MP3</a>
+                                  <button type="button" onClick={() => downloadText(`clip-${i + 1}.srt`, narr[i].srt || '')}
+                                    className="text-xs font-semibold text-primary hover:underline">כתוביות SRT</button>
+                                </>
+                              )}
+                            </div>
+                            {narr[i]?.error && <p className="mt-2 text-sm text-warn">{narr[i].error}</p>}
+                            {!narr[i]?.error && !narr[i]?.url && (
+                              <p className="mt-2 text-xs text-muted">הקריינות נוצרת בנפרד מהווידאו — שינוי מילה לא מצריך רינדור מחדש של הסרטון.</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </Card>
@@ -366,8 +492,8 @@ export default function ReelsPage() {
               <Input value={scenes[editing].onScreen}
                 onChange={(e) => setScenes(scenes.map((s, n) => (n === editing ? { ...s, onScreen: e.target.value } : s)))} />
             </Field>
-            <Field label="קריינות">
-              <Textarea className="min-h-20" value={scenes[editing].voiceover}
+            <Field label="טקסט הקריינות — זה מה שייאמר בקול">
+              <Textarea className="min-h-24" value={scenes[editing].voiceover}
                 onChange={(e) => setScenes(scenes.map((s, n) => (n === editing ? { ...s, voiceover: e.target.value } : s)))} />
             </Field>
             <Field label="אורך הקליפ (שניות)">
@@ -433,21 +559,32 @@ function ClipBadge({ clip, elapsed }: { clip?: Clip; elapsed: number }) {
 }
 
 /** Plays finished clips back to back, so a 45s reel can be judged as one piece. */
-function SequencePlayer({ urls }: { urls: string[] }) {
+function SequencePlayer({ items }: { items: { url: string; kind: 'video' | 'image' }[] }) {
   const [i, setI] = useState(0);
-  useEffect(() => { if (i >= urls.length) setI(0); }, [urls.length, i]);
+  useEffect(() => { if (i >= items.length) setI(0); }, [items.length, i]);
+  // stills hold the screen for four seconds, the way they will in the finished reel
+  useEffect(() => {
+    if (items[i]?.kind !== 'image') return;
+    const t = setTimeout(() => setI((n) => (n + 1 < items.length ? n + 1 : n)), 4000);
+    return () => clearTimeout(t);
+  }, [i, items]);
+
+  const cur = items[i];
+  if (!cur) return null;
   return (
     <Card className="p-3">
       <div className="mx-auto w-full max-w-[300px]">
-        <video key={urls[i]} src={urls[i]} controls playsInline autoPlay={i > 0}
-          onEnded={() => setI((n) => (n + 1 < urls.length ? n + 1 : n))}
-          className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />
+        {cur.kind === 'image'
+          ? <img src={cur.url} alt="" className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />
+          : <video key={cur.url} src={cur.url} controls playsInline autoPlay={i > 0}
+              onEnded={() => setI((n) => (n + 1 < items.length ? n + 1 : n))}
+              className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />}
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-        {urls.map((u, n) => (
-          <div key={u} className="flex items-center gap-1">
-            <Chip on={n === i} onClick={() => setI(n)}>קליפ {n + 1}</Chip>
-            <a href={u} target="_blank" rel="noopener noreferrer" download
+        {items.map((it, n) => (
+          <div key={it.url} className="flex items-center gap-1">
+            <Chip on={n === i} onClick={() => setI(n)}>{it.kind === 'image' ? 'תמונה' : 'קליפ'} {n + 1}</Chip>
+            <a href={it.url} target="_blank" rel="noopener noreferrer" download
               className="text-xs font-semibold text-primary underline-offset-2 hover:underline">הורדה</a>
           </div>
         ))}
