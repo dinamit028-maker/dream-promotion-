@@ -7,6 +7,8 @@ import {
 import { accessDenied } from '@/lib/server/access';
 
 export const runtime = 'nodejs';
+// a full week of Hebrew captions takes longer than the default function limit
+export const maxDuration = 60;
 
 const KEY = process.env.ANTHROPIC_API_KEY;
 const MODEL = process.env.AI_MODEL || 'claude-sonnet-4-6';
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
 
     const res = await client.messages.create({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: task === 'weekly' || task === 'storyboard' ? 8000 : 3000,
       messages: [{ role: 'user', content: prompt }],
     });
 
@@ -58,7 +60,9 @@ export async function POST(req: Request) {
 
     if (!json) return NextResponse.json({ text });
 
-    const clean = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    // take the JSON object even if the model wrapped it in fences or a sentence
+    const start = text.indexOf('{'), end = text.lastIndexOf('}');
+    const clean = start >= 0 && end > start ? text.slice(start, end + 1) : text;
     try {
       return NextResponse.json(JSON.parse(clean));
     } catch {

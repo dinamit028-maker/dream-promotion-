@@ -1,5 +1,6 @@
 'use client';
 import { useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { MediaService } from '@/lib/services';
 import { Button, PageHead } from '@/components/ui/primitives';
@@ -11,6 +12,8 @@ export default function MediaPage() {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const router = useRouter();
 
   async function onFiles(files: FileList | null) {
     if (!files) return;
@@ -37,6 +40,7 @@ export default function MediaPage() {
         </div>
       )}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {media.length > 0 && <p className="mb-4 text-sm text-muted">כל תמונה כאן זמינה לשימוש חוזר: ביצירה, בעריכת טיוטה ובתוכנית השבועית.</p>}
       {media.length ? (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
           {media.map((m) => (
@@ -46,7 +50,17 @@ export default function MediaPage() {
                 : <img src={m.url} alt="" className="aspect-square w-full object-cover" />}
               <div className="p-2.5">
                 <p className="truncate text-sm">{m.name}</p>
-                <Button size="sm" variant="ghost" className="mt-2 w-full" onClick={() => removeMedia(m.id)}>הסרה</Button>
+                <Button size="sm" variant="primary" className="mt-2 w-full" onClick={() => router.push(`/create?media=${m.id}`)}>
+                  יצירת תוכן מהתמונה
+                </Button>
+                <a href={m.url} target="_blank" rel="noreferrer" download
+                  className="mt-2 block rounded-full py-1.5 text-center text-sm font-semibold text-ink-2 hover:bg-surface-2">הורדה</a>
+                {confirm === m.id ? (
+                  <Button size="sm" variant="ghost" className="mt-1 w-full text-[var(--danger)]"
+                    onClick={() => { removeMedia(m.id); setConfirm(null); }}>בטוח? מחיקה סופית</Button>
+                ) : (
+                  <Button size="sm" variant="ghost" className="mt-1 w-full text-muted" onClick={() => setConfirm(m.id)}>מחיקה</Button>
+                )}
               </div>
             </div>
           ))}

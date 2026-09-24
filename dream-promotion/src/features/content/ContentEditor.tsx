@@ -5,6 +5,7 @@ import { Button, Field, Input, Pill, Textarea } from '@/components/ui/primitives
 import { CloseButton, IntegrationDialog, Modal } from '@/components/ui/feedback';
 import { Visual } from '@/components/ui/Visual';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
+import { MediaPicker } from '@/features/media/MediaPicker';
 import { KIND_HE, today } from '@/lib/utils';
 
 /** One editor for every piece of content — opened from cards, calendar and strategy. */
@@ -13,6 +14,10 @@ export function ContentEditor() {
   const item = content.find((c) => c.id === editingId);
   const [headline, setHeadline] = useState('');
   const [caption, setCaption] = useState('');
+  const [hashtags, setHashtags] = useState('');
+  const [cta, setCta] = useState('');
+  const [mediaId, setMediaId] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const [when, setWhen] = useState({ date: '', time: '19:30' });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishDialog, setPublishDialog] = useState(false);
@@ -21,6 +26,9 @@ export function ContentEditor() {
     if (!item) return;
     setHeadline(item.headline);
     setCaption(item.caption);
+    setHashtags((item.hashtags || []).join(' '));
+    setCta(item.cta || '');
+    setMediaId(item.mediaId);
     setWhen({ date: item.date ?? '', time: item.time ?? '19:30' });
     setConfirmDelete(false);
   }, [editingId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -29,7 +37,8 @@ export function ContentEditor() {
 
   const save = () => {
     updateContent(item.id, {
-      headline, caption,
+      headline, caption, cta, mediaId,
+      hashtags: hashtags.split(/\s+/).filter(Boolean),
       date: when.date || null,
       time: when.date ? when.time : null,
       status: item.status === 'published' ? 'published' : when.date ? 'scheduled' : 'draft',
@@ -56,11 +65,21 @@ export function ContentEditor() {
         </div>
 
         <div className="grid items-start gap-6 md:grid-cols-[220px_minmax(0,1fr)]">
-          <Visual kind={item.kind} headline={headline} palette={item.palette} mediaId={item.mediaId}
-            ratio={item.kind === 'reel' || item.kind === 'story' ? 'vertical' : 'square'} className="max-md:mx-auto max-md:w-40" />
           <div>
-            <Field label="כותרת"><Input value={headline} onChange={(e) => setHeadline(e.target.value)} /></Field>
-            <Field label="טקסט"><Textarea className="min-h-36" value={caption} onChange={(e) => setCaption(e.target.value)} /></Field>
+            <Visual kind={item.kind} headline={headline} palette={item.palette} mediaId={mediaId}
+              ratio={item.kind === 'reel' || item.kind === 'story' ? 'vertical' : 'square'} className="max-md:mx-auto max-md:w-40" />
+            <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => setPicking(true)}>
+              {mediaId ? 'החלפת תמונה' : 'הוספת תמונה'}
+            </Button>
+            {mediaId && (
+              <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setMediaId(null)}>הסרת התמונה מהפוסט</Button>
+            )}
+          </div>
+          <div>
+            <Field label="טקסט על התמונה"><Input value={headline} onChange={(e) => setHeadline(e.target.value)} /></Field>
+            <Field label="טקסט הפוסט"><Textarea className="min-h-36" value={caption} onChange={(e) => setCaption(e.target.value)} /></Field>
+            <Field label="האשטגים"><Input value={hashtags} onChange={(e) => setHashtags(e.target.value)} /></Field>
+            <Field label="קריאה לפעולה"><Input value={cta} onChange={(e) => setCta(e.target.value)} /></Field>
             <div className="my-5 h-px bg-line" />
             <ScheduleFields date={when.date} time={when.time} onChange={setWhen} />
           </div>
@@ -83,6 +102,7 @@ export function ContentEditor() {
           <p className="mt-3 text-sm text-warn">התאריך שבחרת כבר עבר.</p>
         )}
       </Modal>
+      <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={setMediaId} selectedId={mediaId} />
       <IntegrationDialog open={publishDialog} onClose={() => setPublishDialog(false)} provider={item.platform} what="פרסום" />
     </>
   );

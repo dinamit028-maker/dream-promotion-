@@ -16,13 +16,15 @@ import { ImageService, PRICE_PER_IMAGE } from '@/lib/services/image.service';
 import { archiveAsset } from '@/lib/services/archive.service';
 import { ImageGlyph } from '@/components/ui/Icon';
 import type { RewriteMode } from '@/lib/services/prompts';
+import { MediaPicker } from '@/features/media/MediaPicker';
+import { MediaThumb } from '@/features/media/MediaThumb';
 
 const STEPS = ['מנתח את המותג שלך…', 'בונה זווית שיווקית…', 'כותב את הפתיח…', 'מנסח קריאה לפעולה…'];
 
 export function CreateStudio() {
   const router = useRouter();
   const aiReady = useAiReady();
-  const { brand, addContent, addMedia } = useApp();
+  const { brand, addContent, updateContent, addMedia } = useApp();
   const [kind, setKind] = useState<ContentKind>('post');
   const [platform, setPlatform] = useState<Platform>('Instagram');
   const [goal, setGoal] = useState('יותר פניות');
@@ -36,6 +38,10 @@ export function CreateStudio() {
   const [imaging, setImaging] = useState(false);
   const [options, setOptions] = useState<string[]>([]);
   const [when, setWhen] = useState({ date: today(), time: '19:30' });
+  const [picking, setPicking] = useState(false);
+  const [presetMedia, setPresetMedia] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [savedIds, setSavedIds] = useState<Record<number, string>>({});
 
   // arriving from a calendar day (/create?date=…&time=…) pre-selects that slot
   useEffect(() => {
@@ -45,17 +51,18 @@ export function CreateStudio() {
     const k = q.get('kind'); const b = q.get('brief');
     if (k && ['post', 'reel', 'story', 'ad'].includes(k)) setKind(k as ContentKind);
     if (b) setBrief(b);
+    const md = q.get('media'); if (md) setPresetMedia(md);
   }, []);
 
   const v = variants[picked];
 
   async function generate() {
-    setError(null); setVariants([]); setStep(0);
+    setError(null); setVariants([]); setStep(0); setSavedIds({}); setSavedMsg(null);
     const tick = setInterval(() => setStep((s) => Math.min(STEPS.length - 1, s + 1)), 900);
     try {
       const res = await AIService.generateContent(brand, { kind, platform, goal, brief });
       setVariants((res.variants || []).map((x) => ({
-        ...x, emoji: x.emoji || '✦', palette: (x.palette?.length ? x.palette : ['#6B3BF5', '#FF7FA8']) as [string, string],
+        ...x, mediaId: presetMedia ?? undefined, emoji: x.emoji || '✦', palette: (x.palette?.length ? x.palette : ['#6B3BF5', '#FF7FA8']) as [string, string],
       })));
       setPicked(0);
     } catch (e: any) {
@@ -109,15 +116,23 @@ export function CreateStudio() {
     setVariants((vs) => vs.map((x, i) => (i === picked ? { ...x, mediaId: id } : x)));
   }
 
-  function save(status: 'draft' | 'scheduled') {
+  function attach(id: string) {
+    setVariants((vs) => vs.map((x, i) => (i === picked ? { ...x, mediaId: id } : x)));
+  }
+
+  function save(status: 'draft' | 'scheduled', stay = false) {
     if (!v) return;
-    addContent({
+    const fields = {
       kind, platform, goal, headline: v.headline, caption: v.caption, hashtags: v.hashtags || [],
       cta: v.cta, emoji: v.emoji, palette: v.palette, visualDirection: v.visual_direction,
-      mediaId: null, status,
+      mediaId: (v as any).mediaId ?? null, status,
       date: status === 'scheduled' ? when.date : null,
       time: status === 'scheduled' ? when.time : null,
-    });
+    };
+    const existing = savedIds[picked];
+    if (existing) updateContent(existing, fields);
+    else { const item = addContent(fields); setSavedIds((m) => ({ ...m, [picked]: item.id })); }
+    if (stay) { setSavedMsg('נשמר בטיוטות. שינויים נוספים יעדכנו את אותה טיוטה.'); return; }
     router.push(status === 'scheduled' ? '/calendar' : '/content');
   }
 
@@ -141,6 +156,12 @@ export function CreateStudio() {
             {['יותר פניות', 'יותר תורים', 'יותר עוקבים', 'מודעות למותג', 'מכירות'].map((g) => <option key={g}>{g}</option>)}
           </Select>
         </Field>
+        {presetMedia && (
+          <div className="mb-4 flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
+            <div className="w-16 shrink-0"><MediaThumb mediaId={presetMedia} /></div>
+            <p className="text-sm text-muted">התמונה מהספרייה תשובץ בתוכן שייווצר.</p>
+          </div>
+        )}
         <Field label="בריף חופשי">
           <Textarea value={brief} onChange={(e) => setBrief(e.target.value)}
             placeholder="על מה התוכן? מבצע? שירות חדש? לקוחה מרוצה?" />
@@ -174,7 +195,10 @@ export function CreateStudio() {
               <div>
                 <Visual kind={kind} headline={v.headline} palette={v.palette} mediaId={(v as any).mediaId}
                   ratio={kind === 'reel' || kind === 'story' ? 'vertical' : 'square'} size="lg" />
-                <Button variant="ghost" className="mt-3 w-full" onClick={makeImages} disabled={imaging}>
+                <Button variant="ghost" className="mt-3 w-full" onClick={() => setPicking(true)}>
+                  <ImageGlyph size={18} aria-hidden />בחירה מהספרייה / העלאה
+                </Button>
+                <Button variant="ghost" className="mt-2 w-full" onClick={makeImages} disabled={imaging}>
                   {imaging ? <><Spinner />מצייר…</> : <><ImageGlyph size={18} aria-hidden />יצירת תמונה · ${(PRICE_PER_IMAGE * 2).toFixed(2)}</>}
                 </Button>
                 {options.length > 0 && (
@@ -200,7 +224,11 @@ export function CreateStudio() {
               </div>
               <Card>
                 <Pill tone="ai">{KIND_HE[kind]} · {platform}</Pill>
-                <h3 className="mb-4 mt-3 font-display text-xl font-extrabold">{v.headline}</h3>
+                <div className="mt-3" />
+                <Field label="טקסט על התמונה">
+                  <Input value={v.headline}
+                    onChange={(e) => setVariants((vs) => vs.map((x, i) => i === picked ? { ...x, headline: e.target.value } : x))} />
+                </Field>
                 <Field label="טקסט הפוסט">
                   <Textarea className="min-h-40" value={v.caption}
                     onChange={(e) => setVariants((vs) => vs.map((x, i) => i === picked ? { ...x, caption: e.target.value } : x))} />
@@ -228,8 +256,10 @@ export function CreateStudio() {
                   </div>
                 </div>
 
+                {savedMsg && <p className="mt-4 text-sm text-ok">{savedMsg}</p>}
                 <div className="mt-4 flex flex-wrap gap-3 border-t border-line pt-4">
                   <Button variant="primary" onClick={() => save('draft')}>שמירה כטיוטה</Button>
+                  <Button variant="ghost" onClick={() => save('draft', true)}>שמירה והמשך עריכה</Button>
                   <Button variant="ghost" onClick={() => setScheduling(true)}><CalendarBlank size={18} aria-hidden />תזמון ליומן</Button>
                   <Button variant="ghost"
                     onClick={() => router.push(`/reels?brief=${encodeURIComponent(brief || v.headline || '')}`)}>
@@ -242,6 +272,7 @@ export function CreateStudio() {
         )}
       </div>
 
+      <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={attach} selectedId={(v as any)?.mediaId} />
       <Modal open={scheduling} onClose={() => setScheduling(false)}>
         <h3 className="mb-5 font-display text-2xl font-extrabold">מתי לפרסם?</h3>
         <ScheduleFields date={when.date} time={when.time} onChange={setWhen} />

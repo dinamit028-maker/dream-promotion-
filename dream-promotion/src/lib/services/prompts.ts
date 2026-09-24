@@ -27,9 +27,10 @@ ${brandContext(b)}
 
 export const weeklyPlanPrompt = (b: BrandProfile) => `${brandContext(b)}
 
-בנה/י תוכנית תוכן שבועית. 5-6 פריטים על ימים שונים, עם גיוון בין סוגי תוכן.
-החזר/י JSON בלבד:
-{"items":[{"dayOffset":0,"time":"19:30","kind":"post|reel|story","platform":"Instagram|Facebook|TikTok","goal":"","idea":"","headline":"","caption":"","emoji":"","visual_direction":""}]}`;
+בנה/י תוכנית תוכן שבועית. 5 פריטים על ימים שונים (dayOffset בין 0 ל-6), עם גיוון בין סוגי תוכן.
+headline: טקסט קצר שיופיע על התמונה (עד 8 מילים). caption: עד 60 מילים. visual_direction: משפט אחד.
+החזר/י JSON תקין בלבד, בלי טקסט לפני או אחרי:
+{"items":[{"dayOffset":0,"time":"19:30","kind":"post|reel|story","platform":"Instagram|Facebook|TikTok","goal":"","headline":"","caption":"","hashtags":[""],"cta":"","emoji":"","visual_direction":""}]}`;
 
 export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number) => {
   const clips = Math.max(1, Math.round(duration / 15));

@@ -2,24 +2,19 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
-import { AIService } from '@/lib/services';
-import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Field, Input, Pill } from '@/components/ui/primitives';
-import { AiUnavailable, CloseButton, GenerationState, Modal } from '@/components/ui/feedback';
+import { CloseButton, Modal } from '@/components/ui/feedback';
 import { Swatch } from '@/components/ui/Visual';
+import { usePlanWeek } from './usePlanWeek';
 import { CaretLeft, CaretRight, Sparkle } from '@/components/ui/Icon';
-import { PALETTE, HE_DAYS, HE_MONTHS, KIND_HE, addDays, cx, dayName, fmtDay, iso, today } from '@/lib/utils';
-import type { ContentKind, Platform } from '@/types';
+import { HE_DAYS, HE_MONTHS, KIND_HE, cx, dayName, fmtDay, iso, today } from '@/lib/utils';
 
-const PLAN_STEPS = ['קורא את פרופיל המותג…', 'מאזן סוגי תוכן…', 'בוחר שעות פרסום…', 'כותב את הקאפשנים…'];
 
 export function ContentCalendar() {
   const router = useRouter();
-  const aiReady = useAiReady();
-  const { content, brand, addContent, updateContent, openEditor } = useApp();
+  const { content, updateContent, openEditor } = useApp();
   const [cursor, setCursor] = useState(new Date());
-  const [planning, setPlanning] = useState(false);
-  const [step, setStep] = useState(0);
+  const planner = usePlanWeek();
   const [drag, setDrag] = useState<string | null>(null);
   const [day, setDay] = useState<string | null>(null);   // the day sheet
   const [dayTime, setDayTime] = useState('19:30');
@@ -35,25 +30,6 @@ export function ContentCalendar() {
   function placeOnDay(id: string) {
     if (!day) return;
     updateContent(id, { date: day, time: dayTime, status: 'scheduled' });
-  }
-
-  async function planWeek() {
-    if (!aiReady) { setPlanning(true); return; }
-    setPlanning(true); setStep(0);
-    const tick = setInterval(() => setStep((s) => Math.min(PLAN_STEPS.length - 1, s + 1)), 850);
-    try {
-      const res = await AIService.weeklyPlan(brand);
-      (res.items || []).forEach((it: any) => {
-        addContent({
-          kind: (it.kind || 'post') as ContentKind,
-          platform: (it.platform || 'Instagram') as Platform,
-          goal: it.goal || '', headline: it.headline || it.idea || 'רעיון', caption: it.caption || '',
-          hashtags: [], cta: brand.cta, emoji: it.emoji || '', palette: PALETTE[it.kind] ?? PALETTE.post,
-          visualDirection: it.visual_direction, mediaId: null, status: 'scheduled',
-          date: addDays(today(), Math.max(0, Math.min(6, it.dayOffset ?? 0))), time: it.time || '19:30',
-        });
-      });
-    } finally { clearInterval(tick); setPlanning(false); }
   }
 
   return (
@@ -72,7 +48,7 @@ export function ContentCalendar() {
             <button type="button" onClick={() => setCursor(new Date(y, m + 1, 1))} aria-label="החודש הבא"
               className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-surface-2"><CaretLeft size={18} aria-hidden /></button>
           </div>
-          <Button variant="primary" size="sm" onClick={planWeek}><Sparkle size={16} weight="fill" aria-hidden />תכנן לי את השבוע</Button>
+          <Button variant="primary" size="sm" onClick={planner.run} disabled={planner.busy}><Sparkle size={16} weight="fill" aria-hidden />תכנן לי את השבוע</Button>
         </div>
       </div>
 
@@ -177,10 +153,7 @@ export function ContentCalendar() {
         )}
       </Modal>
 
-      <Modal open={planning} onClose={() => setPlanning(false)}>
-        <h3 className="mb-4 font-display text-xl font-extrabold">בונה לך שבוע שלם</h3>
-        {aiReady ? <GenerationState lines={PLAN_STEPS} step={step} /> : <AiUnavailable />}
-      </Modal>
+      {planner.dialog}
     </>
   );
 }

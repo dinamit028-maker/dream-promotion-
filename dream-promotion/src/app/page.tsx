@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/primitives';
 import { Visual } from '@/components/ui/Visual';
+import { AuthButton, LandingRedirect } from '@/features/auth/LandingAuth';
 import {
   Check, Sparkle, CalendarBlank, FilmSlate, Megaphone, UsersThree, PencilSimpleLine, Target,
   Diamond, Dress, ForkKnife, Barbell, HouseLine, Storefront,
@@ -43,6 +44,7 @@ function Logo() {
 export default function Landing() {
   return (
     <main className="overflow-x-hidden">
+      <LandingRedirect />
       <header className="safe-t sticky top-0 z-50 border-b border-line/70 bg-bg/85 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3">
           <Link href="/" className="flex items-center gap-2.5">
@@ -53,7 +55,10 @@ export default function Landing() {
             <a href="#who" className="hover:text-primary">למי זה</a>
             <a href="#features" className="hover:text-primary">מה בפנים</a>
           </nav>
-          <Link href="/onboarding"><Button variant="primary" size="sm">התחלה חינם</Button></Link>
+          <div className="flex items-center gap-2">
+            <AuthButton mode="in" variant="ghost">כניסה</AuthButton>
+            <AuthButton mode="up">התחלה חינם</AuthButton>
+          </div>
         </div>
       </header>
 
@@ -67,7 +72,7 @@ export default function Landing() {
             תארו את העסק, העלו כמה תמונות, וקבלו פוסטים, רילסים ושבוע שלם ביומן. בעברית שנשמעת כמוכם, בלי משרד פרסום.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/onboarding"><Button variant="primary" size="lg"><Sparkle size={20} weight="fill" aria-hidden />נסו עכשיו, בחינם</Button></Link>
+            <AuthButton mode="up" size="lg"><Sparkle size={20} weight="fill" aria-hidden />נסו עכשיו, בחינם</AuthButton>
             <a href="#how"><Button variant="ghost" size="lg">איך זה עובד</Button></a>
           </div>
           <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[15px] font-semibold text-ink-2">
@@ -155,7 +160,7 @@ export default function Landing() {
           <Storefront size={36} weight="fill" aria-hidden className="mx-auto opacity-90" />
           <h2 className="mt-4 font-display text-3xl font-extrabold sm:text-5xl">הפוסט הבא שלכם כבר כתוב.</h2>
           <p className="mx-auto mt-4 max-w-lg text-lg text-white/85">שלוש דקות של שאלות על העסק, ואתם רואים שבוע תוכן אמיתי.</p>
-          <Link href="/onboarding" className="mt-8 inline-block">
+          <Link href="/auth?mode=up" className="mt-8 inline-block">
             <Button size="lg" variant="ghost" className="!border-0 !text-primary">יצירת התוכן הראשון</Button>
           </Link>
         </div>

@@ -71,4 +71,5 @@ export interface ContentBrief {
 export interface GeneratedVariant {
   angle: string; headline: string; caption: string; hashtags: string[];
   cta: string; emoji: string; palette: [string, string]; visual_direction?: string;
+  mediaId?: string;
 }
