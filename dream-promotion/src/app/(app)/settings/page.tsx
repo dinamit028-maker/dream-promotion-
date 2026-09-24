@@ -4,13 +4,27 @@ import { useApp } from '@/lib/store';
 import { AIService, MediaService } from '@/lib/services';
 import { VideoService } from '@/lib/services/video.service';
 import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { useAiReady } from '@/hooks/useAiReady';
 import { Button, Card, Field, Input, PageHead, Pill, Select, Textarea } from '@/components/ui/primitives';
 import { Sparkle } from '@/components/ui/Icon';
 
 export default function SettingsPage() {
   const aiReady = useAiReady();
-  const { brand, setBrand, setAnalysis, reset, accessCode, setAccessCode } = useApp();
+  const router = useRouter();
+  const { brand, setBrand, setAnalysis, reset, accessCode, setAccessCode, userId, signOutLocal } = useApp();
+  const [email, setEmail] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isCloudConfigured) return;
+    supabase().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+  }, []);
+
+  async function signOut() {
+    if (isCloudConfigured) await supabase().auth.signOut();
+    signOutLocal();
+    router.replace('/auth');
+  }
   const [busy, setBusy] = useState(false);
   const [videoReady, setVideoReady] = useState<boolean | null>(null);
   useEffect(() => { VideoService.available().then(setVideoReady); }, []);
@@ -54,6 +68,23 @@ export default function SettingsPage() {
               {['מקצועי', 'יוקרתי', 'חברי', 'נועז', 'מינימלי', 'כיפי'].map((t) => <option key={t}>{t}</option>)}
             </Select></Field></div>
         </div>
+      </Card>
+
+      <Card className="mb-4">
+        <h3 className="font-display text-xl font-extrabold">החשבון שלך</h3>
+        {isCloudConfigured ? (
+          <>
+            <p className="mt-2 text-sm text-muted">
+              {email ? <>מחובר כ-<strong className="text-ink">{email}</strong>. כל מה שנוצר נשמר לחשבון הזה ויופיע בכל מכשיר.</>
+                     : 'מחובר.'}
+            </p>
+            <Button variant="ghost" size="sm" className="mt-3" onClick={signOut}>התנתקות</Button>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-muted">
+            חשבונות לא מוגדרים — הנתונים נשמרים בדפדפן הזה בלבד.
+          </p>
+        )}
       </Card>
 
       <Card className="mb-4">

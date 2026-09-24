@@ -7,6 +7,7 @@ import { PRICE_PER_SECOND, VideoService, type ClipUpdate } from '@/lib/services/
 import { ImageService, PRICE_PER_IMAGE } from '@/lib/services/image.service';
 import { imageToDataUri, lastFrameDataUri } from '@/lib/media';
 import { videoErrorMessage, aiErrorMessage } from '@/lib/errors';
+import { archiveAsset } from '@/lib/services/archive.service';
 import { VoiceService } from '@/lib/services/voice.service';
 import { VoicePanel, voiceErrorText } from '@/features/reels/VoicePanel';
 import { useAiReady } from '@/hooks/useAiReady';
@@ -177,7 +178,7 @@ export default function ReelsPage() {
           prompt: sc.videoPrompt || sc.visual, aspectRatio: '9:16', count: 1,
         }, undefined, abort.current?.signal);
         setClips((c) => ({ ...c, [i]: { status: 'done', url: urls[0], kind: 'image', startedAt } }));
-        keepInLibrary(i, urls[0], 'image');
+        void keepInLibrary(i, urls[0], 'image');
         return urls[0];
       } catch (e: any) {
         setClips((c) => ({ ...c, [i]: { status: 'failed', error: e.message, code: e.code, kind: 'image', startedAt } }));
@@ -196,7 +197,7 @@ export default function ReelsPage() {
         resolution: res,
         aspectRatio: '9:16',
         startImage,
-      }, (u) => { set(u); if (u.status === 'done' && u.url) keepInLibrary(i, u.url, 'video'); }, abort.current?.signal);
+      }, (u) => { set(u); if (u.status === 'done' && u.url) void keepInLibrary(i, u.url, 'video'); }, abort.current?.signal);
     } catch (e: any) {
       setClips((c) => ({ ...c, [i]: { ...c[i], status: 'failed', error: e.message, code: e.code, startedAt } }));
       throw e;
@@ -204,14 +205,12 @@ export default function ReelsPage() {
   }
 
   /** Every finished asset lands in the media library immediately — no manual save. */
-  function keepInLibrary(i: number, url: string, kind: 'video' | 'image') {
-    addMedia({
-      id: `${kind}-${Date.now()}-${i}`,
-      url,
-      name: `${board?.title || 'reel'} · ${kind === 'video' ? 'קליפ' : 'תמונה'} ${i + 1}`,
-      kind: kind === 'video' ? 'video' : 'image',
-      persistent: false,
-    });
+  async function keepInLibrary(i: number, url: string, kind: 'video' | 'image') {
+    const name = `${board?.title || 'reel'} · ${kind === 'video' ? 'קליפ' : 'תמונה'} ${i + 1}`;
+    // copied into the account's own storage, so a provider link expiring costs nothing
+    const saved = await archiveAsset(url, kind, name);
+    addMedia({ id: saved.id ?? crypto.randomUUID(), url: saved.url, name, kind, persistent: Boolean(saved.id) });
+    if (saved.url !== url) setClips((c) => ({ ...c, [i]: { ...c[i], url: saved.url } }));
   }
 
   async function renderAll(only?: number) {

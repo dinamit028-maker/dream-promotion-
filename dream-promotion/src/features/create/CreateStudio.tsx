@@ -8,11 +8,12 @@ import { Button, Card, Chip, Field, Input, Select, Textarea, Pill } from '@/comp
 import { AdapterNote, AiUnavailable, EmptyState, GenerationState, Modal, Spinner } from '@/components/ui/feedback';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { Visual } from '@/components/ui/Visual';
-import { KIND_HE, today } from '@/lib/utils';
+import { KIND_HE, cx, today } from '@/lib/utils';
 import type { ContentKind, GeneratedVariant, Platform } from '@/types';
 import { ArrowsClockwise, CalendarBlank, FilmSlate, MagicWand, Sparkle } from '@/components/ui/Icon';
 import { aiErrorMessage } from '@/lib/errors';
 import { ImageService, PRICE_PER_IMAGE } from '@/lib/services/image.service';
+import { archiveAsset } from '@/lib/services/archive.service';
 import { ImageGlyph } from '@/components/ui/Icon';
 import type { RewriteMode } from '@/lib/services/prompts';
 
@@ -88,17 +89,24 @@ export function CreateStudio() {
         aspectRatio: kind === 'reel' || kind === 'story' ? '9:16' : '4:5',
         count: 2,
       });
-      setOptions(urls);
+      // both were paid for, so both are copied to the account and kept in the library
+      const kept = await Promise.all(urls.map(async (u, n) => {
+        const saved = await archiveAsset(u, 'image', `${current.headline || 'תמונה'} ${n + 1}`);
+        addMedia({ id: saved.id ?? crypto.randomUUID(), url: saved.url, name: `${current.headline || 'תמונה'} ${n + 1}`, kind: 'image', persistent: Boolean(saved.id) });
+        return saved.url;
+      }));
+      setOptions((prev) => [...kept, ...prev]);
     } catch (e: any) {
       setError(e.code === 'insufficient_balance' ? 'אין יתרה בחשבון fal.' : 'יצירת התמונה נכשלה.');
     } finally { setImaging(false); }
   }
 
+  /** Picking an image never throws the alternatives away — you can switch back. */
   function chooseImage(url: string) {
-    const id = `img-${Date.now()}`;
-    addMedia({ id, url, name: variants[picked]?.headline || 'תמונה שנוצרה', kind: 'image', persistent: false });
+    const existing = useApp.getState().media.find((m) => m.url === url);
+    const id = existing?.id ?? crypto.randomUUID();
+    if (!existing) addMedia({ id, url, name: variants[picked]?.headline || 'תמונה שנוצרה', kind: 'image', persistent: false });
     setVariants((vs) => vs.map((x, i) => (i === picked ? { ...x, mediaId: id } : x)));
-    setOptions([]);
   }
 
   function save(status: 'draft' | 'scheduled') {
@@ -170,14 +178,24 @@ export function CreateStudio() {
                   {imaging ? <><Spinner />מצייר…</> : <><ImageGlyph size={18} aria-hidden />יצירת תמונה · ${(PRICE_PER_IMAGE * 2).toFixed(2)}</>}
                 </Button>
                 {options.length > 0 && (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {options.map((u) => (
-                      <button key={u} type="button" onClick={() => chooseImage(u)}
-                        className="overflow-hidden rounded-xl ring-2 ring-transparent transition hover:ring-primary">
-                        <img src={u} alt="" className="aspect-[4/5] w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
+                  <>
+                    <p className="mt-3 text-sm text-muted">כל האפשרויות נשמרות בספריית המדיה. אפשר להחליף בחירה בכל רגע.</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {options.map((u) => {
+                        const chosen = useApp.getState().media.find((m) => m.id === (v as any).mediaId)?.url === u;
+                        return (
+                          <button key={u} type="button" onClick={() => chooseImage(u)}
+                            className={cx('overflow-hidden rounded-xl ring-2 transition',
+                              chosen ? 'ring-primary' : 'ring-transparent hover:ring-line')}>
+                            <img src={u} alt="" className="aspect-[4/5] w-full object-cover" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={makeImages} disabled={imaging}>
+                      אפשרויות נוספות · ${(PRICE_PER_IMAGE * 2).toFixed(2)}
+                    </Button>
+                  </>
                 )}
               </div>
               <Card>

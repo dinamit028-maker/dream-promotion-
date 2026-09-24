@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ComponentType } from 'react';
 import { useApp } from '@/lib/store';
+import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { AIService } from '@/lib/services';
 import { cx } from '@/lib/utils';
 import { Button, Pill } from '@/components/ui/primitives';
@@ -46,6 +47,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
   const onboarded = useApp((s) => s.onboarded);
+  const userId = useApp((s) => s.userId);
+  const hydrate = useApp((s) => s.hydrate);
+  const [checking, setChecking] = useState(isCloudConfigured);
+
+  // with accounts configured, nothing renders until we know who this is
+  useEffect(() => {
+    if (!isCloudConfigured) return;
+    let alive = true;
+    supabase().auth.getSession().then(async ({ data }) => {
+      if (!alive) return;
+      const u = data.session?.user;
+      if (!u) { router.replace('/auth'); return; }
+      if (u.id !== userId) await hydrate(u.id);
+      setChecking(false);
+    });
+    const { data: sub } = supabase().auth.onAuthStateChange((_e, session) => {
+      if (!session?.user) router.replace('/auth');
+    });
+    return () => { alive = false; sub.subscription.unsubscribe(); };
+  }, [hydrate, router, userId]);
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [scrolled, setScrolled] = useState(false);
 
@@ -55,7 +76,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     addEventListener('scroll', h, { passive: true });
     return () => removeEventListener('scroll', h);
   }, []);
-  useEffect(() => { if (!onboarded) router.replace('/onboarding'); }, [onboarded, router]);
+  useEffect(() => { if (!checking && !onboarded) router.replace('/onboarding'); }, [checking, onboarded, router]);
 
   const sideItem = ({ href, label, Icon }: NavItem) => {
     const on = path === href;
@@ -82,6 +103,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   const current = [...NAV, ...NAV_BOTTOM].find((n) => n.href === path);
+
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center gap-3 text-muted">
+        <span className="spinner" aria-hidden />טוען את החשבון…
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen">
