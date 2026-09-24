@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const denied = accessDenied(req);
+  const denied = await accessDenied(req);
   if (denied) return denied;
   try {
     const { task, payload } = await req.json();

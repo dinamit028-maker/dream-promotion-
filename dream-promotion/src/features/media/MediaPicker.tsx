@@ -26,7 +26,7 @@ export function MediaPicker({
       addMedia(asset);
       onPick(asset.id);
       onClose();
-    } catch { setError('ההעלאה נכשלה. נסו שוב.'); }
+    } catch (e: any) { setError(`ההעלאה נכשלה: ${e?.message ?? 'שגיאה לא ידועה'}`); }
     finally { setBusy(false); if (input.current) input.current.value = ''; }
   }
 

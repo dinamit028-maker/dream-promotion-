@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   if (!KEY) {
     return NextResponse.json({ code: 'no_fal_key', message: 'FAL_KEY is not configured' }, { status: 503 });
   }
-  const denied = accessDenied(req);
+  const denied = await accessDenied(req);
   if (denied) return denied;
 
   let body: any;

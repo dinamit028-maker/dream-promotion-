@@ -53,7 +53,7 @@ export const VoiceService = {
   }): Promise<Narration> {
     const spokenText = applyPronunciations(opts.text, opts.pronunciations);
     const res = await fetch('/api/voice', {
-      method: 'POST', headers: authHeaders(),
+      method: 'POST', headers: await authHeaders(),
       body: JSON.stringify({
         text: spokenText, voiceId: opts.voiceId, style: opts.style,
         language: opts.language ?? 'he', speed: opts.speed,

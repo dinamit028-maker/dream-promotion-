@@ -33,7 +33,7 @@ export const VideoService = {
   },
 
   async submit(req: ClipRequest): Promise<{ requestId: string; model: string }> {
-    const res = await fetch('/api/video', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ action: 'submit', ...req }) });
+    const res = await fetch('/api/video', { method: 'POST', headers: await authHeaders(), body: JSON.stringify({ action: 'submit', ...req }) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || j.status === 'FAILED') throw new VideoError(j.code || 'submit_failed', j.error || j.message || 'submit failed');
     return { requestId: j.requestId, model: j.model };
@@ -48,7 +48,7 @@ export const VideoService = {
       if (signal?.aborted) throw new VideoError('aborted', 'cancelled');
       await sleep(5000);
       const res = await fetch('/api/video', {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({ action: 'status', requestId: job.requestId, model: job.model }),
       });
       const j = await res.json().catch(() => ({}));

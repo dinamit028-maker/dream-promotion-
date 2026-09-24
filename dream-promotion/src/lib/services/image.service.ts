@@ -27,7 +27,7 @@ export const ImageService = {
   /** Submits and polls. Images usually land in well under a minute. */
   async generate(req: ImageRequest, onTick?: (s: string) => void, signal?: AbortSignal): Promise<string[]> {
     const res = await fetch('/api/image', {
-      method: 'POST', headers: authHeaders(),
+      method: 'POST', headers: await authHeaders(),
       body: JSON.stringify({ action: 'submit', ...req }),
     });
     const j = await res.json().catch(() => ({}));
@@ -38,7 +38,7 @@ export const ImageService = {
       if (signal?.aborted) throw new ImageError('aborted', 'cancelled');
       await sleep(3000);
       const r = await fetch('/api/image', {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', headers: await authHeaders(),
         body: JSON.stringify({ action: 'status', requestId: j.requestId, model: j.model }),
       });
       const s = await r.json().catch(() => ({}));

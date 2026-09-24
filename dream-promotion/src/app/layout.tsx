@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from 'next';
 import { Assistant, Rubik } from 'next/font/google';
 import './globals.css';
+import { VersionWatcher } from '@/components/system/VersionWatcher';
+
+// every page is rendered fresh, so browsers never hold an old version of the app
+export const dynamic = 'force-dynamic';
 
 const body = Assistant({ subsets: ['hebrew', 'latin'], weight: ['400', '500', '600', '700'], variable: '--font-body' });
 const display = Rubik({ subsets: ['hebrew', 'latin'], weight: ['500', '700', '800'], variable: '--font-display' });
@@ -19,7 +23,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl" className={`${body.variable} ${display.variable}`}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased"><VersionWatcher />{children}</body>
     </html>
   );
 }

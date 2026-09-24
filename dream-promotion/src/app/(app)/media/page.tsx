@@ -20,7 +20,7 @@ export default function MediaPage() {
     setBusy(true); setError(null);
     for (const f of Array.from(files)) {
       try { addMedia(await MediaService.upload(f)); }
-      catch { setError(`העלאת "${f.name}" נכשלה. נסו שוב.`); }
+      catch (e: any) { setError(`העלאת "${f.name}" נכשלה: ${e?.message ?? 'שגיאה לא ידועה'}`); }
     }
     setBusy(false);
     if (input.current) input.current.value = '';

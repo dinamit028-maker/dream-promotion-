@@ -92,7 +92,8 @@ export function CreateStudio() {
     setImaging(true); setError(null); setOptions([]);
     try {
       const urls = await ImageService.generate({
-        prompt: current.visual_direction || current.headline,
+        // no lettering inside the picture: the headline is laid over it and stays editable
+        prompt: `${current.visual_direction || current.headline}. No text, no letters, no words, no captions, no logos anywhere in the image.`,
         aspectRatio: kind === 'reel' || kind === 'story' ? '9:16' : '4:5',
         count: 2,
       });

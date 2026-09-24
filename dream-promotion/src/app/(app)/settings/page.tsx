@@ -89,7 +89,7 @@ export default function SettingsPage() {
 
       <Card className="mb-4">
         <h3 className="font-display text-xl font-extrabold">קוד גישה</h3>
-        <p className="mt-1 text-sm text-muted">אם הוגדר APP_ACCESS_CODE בשרת, הקלידו אותו כאן. בלעדיו יצירת תוכן ווידאו תיחסם.</p>
+        <p className="mt-1 text-sm text-muted">משתמשים מחוברים לא צריכים קוד — החשבון מספיק. הקוד נחוץ רק לגישה בלי התחברות.</p>
         <div className="mt-3 max-w-sm">
           <Input type="password" autoComplete="off" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="קוד גישה" />
         </div>

@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   if (!provider.available()) {
     return NextResponse.json({ code: 'no_voice_key', message: 'Voice provider is not configured' }, { status: 503 });
   }
-  const denied = accessDenied(req);
+  const denied = await accessDenied(req);
   if (denied) return denied;
 
   try {

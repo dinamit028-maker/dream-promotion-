@@ -2,11 +2,22 @@ import type { MediaAsset } from '@/types';
 import { uid } from '@/lib/utils';
 import { supabase, isCloudConfigured } from '@/lib/supabase/client';
 
+async function api(token: string, body: Record<string, unknown>) {
+  const res = await fetch('/api/media', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.message || j.code || `media_${res.status}`);
+  return j;
+}
+
 /**
  * MediaService — upload adapter.
- * Signed in: the file goes straight from the browser into the private `assets`
- * bucket under the user's own folder, and a row is written to `media`.
- * Not signed in / no Supabase: browser-session object URL (lost on refresh).
+ * Signed in: the server hands out a one-time upload link into the user's folder,
+ * the browser uploads straight to storage, and the server registers the file.
+ * Not signed in: browser-session object URL (lost on refresh).
  */
 export const MediaService = {
   persistent: isCloudConfigured,
@@ -16,26 +27,15 @@ export const MediaService = {
 
     if (isCloudConfigured) {
       const sb = supabase();
-      const { data } = await sb.auth.getUser();
-      const user = data.user;
-      if (user) {
-        const ext = (file.name.split('.').pop() || (kind === 'video' ? 'mp4' : 'jpg')).toLowerCase();
-        const path = `${user.id}/upload/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-
-        const up = await sb.storage.from('assets').upload(path, file, { contentType: file.type, upsert: false });
-        if (up.error) throw new Error(`upload_failed: ${up.error.message}`);
-
-        const signed = await sb.storage.from('assets').createSignedUrl(path, 60 * 60 * 24 * 365);
-        if (!signed.data?.signedUrl) throw new Error('sign_failed');
-
-        const id = crypto.randomUUID();
-        const row = await sb.from('media').insert({
-          id, user_id: user.id, url: signed.data.signedUrl, storage_path: path,
-          name: file.name, kind, source: 'upload',
-        });
-        if (row.error) throw new Error(`row_failed: ${row.error.message}`);
-
-        return { id, url: signed.data.signedUrl, name: file.name, kind, persistent: true };
+      const { data } = await sb.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) {
+        const ext = file.name.includes('.') ? file.name.split('.').pop() : kind === 'video' ? 'mp4' : 'jpg';
+        const signed = await api(token, { action: 'sign', ext });
+        const up = await sb.storage.from('assets').uploadToSignedUrl(signed.path, signed.token, file, { contentType: file.type });
+        if (up.error) throw new Error(up.error.message);
+        const reg = await api(token, { action: 'register', path: signed.path, name: file.name, kind });
+        return { id: reg.id, url: reg.url, name: file.name, kind, persistent: true };
       }
     }
     return { id: uid(), url: URL.createObjectURL(file), name: file.name, kind, persistent: false };

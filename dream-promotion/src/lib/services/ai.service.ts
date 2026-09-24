@@ -14,7 +14,7 @@ export class AIServiceError extends Error {
 async function call<T>(task: string, payload: Record<string, unknown>): Promise<T> {
   const res = await fetch('/api/ai', {
     method: 'POST',
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: JSON.stringify({ task, payload }),
   });
   if (!res.ok) {
