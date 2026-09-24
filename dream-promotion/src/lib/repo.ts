@@ -67,7 +67,7 @@ export const Repo = {
         onboarded: b.onboarded, analysis: b.analysis,
       } : {},
       content: (content.data ?? []).map(rowToContent),
-      media: (media.data ?? []).map((r: any): MediaAsset => ({
+      media: (media.data ?? []).filter((r: any) => !String(r.url ?? '').startsWith('blob:')).map((r: any): MediaAsset => ({
         id: r.id, url: r.url, name: r.name ?? '', kind: r.kind, persistent: Boolean(r.storage_path),
       })),
       leads: (leads.data ?? []).map((r: any): Lead => ({
@@ -100,6 +100,9 @@ export const Repo = {
   },
 
   async saveMedia(userId: string, m: MediaAsset, storagePath?: string) {
+    // persistent assets were already written by the uploader / archive route —
+    // upserting here would wipe their storage_path. Blob URLs die on refresh, so never store them.
+    if (m.persistent || m.url.startsWith('blob:')) return;
     await supabase().from('media').upsert({
       id: m.id, user_id: userId, url: m.url, name: m.name, kind: m.kind,
       storage_path: storagePath ?? null, source: storagePath ? 'generated' : 'upload',
