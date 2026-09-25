@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './primitives';
 import { cx } from '@/lib/utils';
 import { Check, X } from './Icon';
@@ -15,21 +16,32 @@ export function CloseButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+// open dialogs, innermost last — Escape closes only the top one
+const modalStack: number[] = [];
+let modalSeq = 0;
+
 export function Modal({ open, onClose, children, wide }: { open: boolean; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useEffect(() => { setHost(document.body); }, []);
   useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    if (!open) return;
+    const id = ++modalSeq;
+    modalStack.push(id);
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === id) onClose(); };
     addEventListener('keydown', h);
-    return () => removeEventListener('keydown', h);
-  }, [onClose]);
-  if (!open) return null;
-  return (
+    return () => { removeEventListener('keydown', h); modalStack.splice(modalStack.indexOf(id), 1); };
+  }, [open, onClose]);
+  if (!open || !host) return null;
+  // portalled to <body>, so a dialog opened from inside another dialog is never clipped by it
+  return createPortal(
     <div onClick={(e) => e.target === e.currentTarget && onClose()}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(18,14,28,.46)] p-4 backdrop-blur-sm">
       <div role="dialog" aria-modal="true"
         className={cx('max-h-[90vh] w-full overflow-y-auto rounded-xl bg-surface p-5 shadow-lg animate-pop sm:p-8', wide ? 'max-w-4xl' : 'max-w-2xl')}>
         {children}
       </div>
-    </div>
+    </div>,
+    host,
   );
 }
 

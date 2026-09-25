@@ -9,6 +9,7 @@ import { cx } from '@/lib/utils';
 import { Button, Pill } from '@/components/ui/primitives';
 import { ContentEditor } from '@/features/content/ContentEditor';
 import { signOutEverywhere } from '@/lib/session';
+import { JobRunner } from '@/features/content/JobRunner';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
   UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut,
@@ -163,6 +164,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {MOBILE_RIGHT.map(tabItem)}
       </nav>
       <ContentEditor />
+      <JobRunner />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import { Visual } from '@/components/ui/Visual';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { MediaPicker } from '@/features/media/MediaPicker';
 import { AiMediaPanel } from './AiMediaPanel';
+import { PlatformPreview } from '@/features/preview/PlatformPreview';
 import { KIND_HE, today } from '@/lib/utils';
 
 /** One editor for every piece of content — opened from cards, calendar and strategy. */
@@ -19,6 +20,7 @@ export function ContentEditor() {
   const [cta, setCta] = useState('');
   const [mediaId, setMediaId] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [when, setWhen] = useState({ date: '', time: '19:30' });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishDialog, setPublishDialog] = useState(false);
@@ -69,14 +71,17 @@ export function ContentEditor() {
           <div>
             <Visual kind={item.kind} headline={headline} palette={item.palette} mediaId={mediaId}
               ratio={item.kind === 'reel' || item.kind === 'story' ? 'vertical' : 'square'} className="max-md:mx-auto max-md:w-40" />
-            <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => setPicking(true)}>
+            <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => setPreviewing(true)}>
+              תצוגה לפי פלטפורמה
+            </Button>
+            <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setPicking(true)}>
               {mediaId ? 'החלפה מהספרייה' : 'הוספה מהספרייה / העלאה'}
             </Button>
             {mediaId && (
               <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setMediaId(null)}>הסרת התמונה מהפוסט</Button>
             )}
-            <AiMediaPanel kind={item.kind} headline={headline} visualDirection={item.visualDirection}
-              mediaId={mediaId}
+            <AiMediaPanel contentId={item.id} kind={item.kind} platform={item.platform} headline={headline} caption={caption}
+              palette={item.palette} visualDirection={item.visualDirection} mediaId={mediaId}
               onAttach={(id) => { setMediaId(id); updateContent(item.id, { mediaId: id }); }} />
           </div>
           <div>
@@ -105,6 +110,14 @@ export function ContentEditor() {
         {when.date && when.date < today() && (
           <p className="mt-3 text-sm text-warn">התאריך שבחרת כבר עבר.</p>
         )}
+      </Modal>
+      <Modal open={previewing} onClose={() => setPreviewing(false)} wide>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="font-display text-xl font-extrabold">כך זה ייראה</h3>
+          <CloseButton onClick={() => setPreviewing(false)} />
+        </div>
+        <PlatformPreview mediaId={mediaId} headline={headline} caption={caption} palette={item.palette}
+          initial={item.platform === 'TikTok' ? 'tiktok' : item.kind === 'story' ? 'story' : item.kind === 'reel' ? 'ig-reel' : item.platform === 'Facebook' ? 'facebook' : 'ig-feed'} />
       </Modal>
       <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={setMediaId} selectedId={mediaId} />
       <IntegrationDialog open={publishDialog} onClose={() => setPublishDialog(false)} provider={item.platform} what="פרסום" />

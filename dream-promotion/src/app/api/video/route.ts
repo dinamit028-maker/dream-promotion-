@@ -75,6 +75,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: st.status, position: st.queue_position ?? null });
     }
 
+    if (body.action === 'cancel') {
+      const model = String(body.model ?? '');
+      const requestId = String(body.requestId ?? '');
+      if (!ALLOWED_MODELS.includes(model) || !requestId) {
+        return NextResponse.json({ code: 'bad_request', message: 'unknown job' }, { status: 400 });
+      }
+      // fal can only drop a job that is still waiting in the queue. Once rendering has
+      // started it runs to the end and is billed — the caller must then keep the result.
+      // fal accepts the cancel only while queued; for a running or finished job it refuses (throws).
+      // When unsure we report "not cancelled", so the client keeps tracking and saves the paid result.
+      try {
+        await fal.queue.cancel(model, { requestId });
+        return NextResponse.json({ cancelled: true });
+      } catch (e: any) {
+        return NextResponse.json({ cancelled: false, reason: String(e?.body?.detail ?? e?.message ?? 'refused').slice(0, 200) });
+      }
+    }
+
     return NextResponse.json({ code: 'bad_request', message: 'unknown action' }, { status: 400 });
   } catch (e: any) {
     // fal surfaces validation / safety / billing errors here — pass the reason through

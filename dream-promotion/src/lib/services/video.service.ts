@@ -39,13 +39,48 @@ export const VideoService = {
     return { requestId: j.requestId, model: j.model };
   },
 
+  /** One status check. COMPLETED carries the clip URL. */
+  async status(requestId: string, model: string): Promise<{ status: string; url?: string; position?: number | null; error?: string; code?: string }> {
+    const res = await fetch('/api/video', {
+      method: 'POST', headers: await authHeaders(),
+      body: JSON.stringify({ action: 'status', requestId, model }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok && !j.status) return { status: 'ERROR', error: j.message || `http_${res.status}` };
+    return j;
+  },
+
+  /** Asks fal to drop the job. True only if it was still queued — i.e. nothing will be billed. */
+  async cancel(requestId: string, model: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/video', {
+        method: 'POST', headers: await authHeaders(),
+        body: JSON.stringify({ action: 'cancel', requestId, model }),
+      });
+      const j = await res.json().catch(() => ({}));
+      return Boolean(j.cancelled);
+    } catch { return false; }
+  },
+
   /** Submit, then poll every 5s until the clip is ready or fails (15 min ceiling). */
   async generate(req: ClipRequest, onUpdate: (u: ClipUpdate) => void, signal?: AbortSignal): Promise<string> {
     onUpdate({ status: 'queued' });
     const job = await this.submit(req);
     const deadline = Date.now() + 15 * 60_000;
     while (Date.now() < deadline) {
-      if (signal?.aborted) throw new VideoError('aborted', 'cancelled');
+      if (signal?.aborted) {
+        const dropped = await this.cancel(job.requestId, job.model);
+        if (!dropped) {
+          // already rendering and billed — finish it in the background and keep it in the library
+          const { useJobs } = await import('@/lib/jobs');
+          useJobs.getState().add({
+            id: crypto.randomUUID(), requestId: job.requestId, model: job.model,
+            name: `סרטון · ${req.duration} שנ׳`, contentId: null, seconds: req.duration,
+            cost: 0, status: 'running', createdAt: Date.now(),
+          });
+        }
+        throw new VideoError('aborted', dropped ? 'cancelled_free' : 'cancelled_billed');
+      }
       await sleep(5000);
       const res = await fetch('/api/video', {
         method: 'POST', headers: await authHeaders(),

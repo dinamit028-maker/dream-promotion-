@@ -27,7 +27,7 @@ export function Visual({
     <div className={cx('relative isolate overflow-hidden rounded-md', ratios[ratio], className)}
       style={{ background: `linear-gradient(160deg, ${a} 0%, ${b} 100%)` }}>
       {media && (media.kind === 'video'
-        ? <video src={media.url} muted loop playsInline className="absolute inset-0 h-full w-full object-cover" />
+        ? <video src={media.url} autoPlay muted loop playsInline className="absolute inset-0 h-full w-full object-cover" />
         : <img src={media.url} alt="" className="absolute inset-0 h-full w-full object-cover" />)}
 
       {/* large faint format mark gives the field structure without an illustration */}
