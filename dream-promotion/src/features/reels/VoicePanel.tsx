@@ -9,6 +9,7 @@ import { Play, Plus, Trash, Sparkle } from '@/components/ui/Icon';
 import { cx } from '@/lib/utils';
 
 export function voiceErrorText(code?: string) {
+  if (code === 'quota_exceeded') return 'הגעתם למכסת הקריינות החודשית. היא מתאפסת בתחילת החודש.';
   if (code === 'no_voice_key') return 'מנוע הקול לא מוגדר — חסר ELEVENLABS_API_KEY בשרת.';
   if (code === 'bad_voice_key') return 'מפתח הקול נדחה. בדקו אותו בהגדרות הספק.';
   if (code === 'no_voice_credit') return 'נגמרו הקרדיטים בחשבון הקול.';

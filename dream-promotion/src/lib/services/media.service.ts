@@ -23,14 +23,14 @@ export const MediaService = {
   persistent: isCloudConfigured,
 
   async upload(file: File): Promise<MediaAsset> {
-    const kind: MediaAsset['kind'] = file.type.startsWith('video') ? 'video' : 'image';
+    const kind: MediaAsset['kind'] = file.type.startsWith('video') ? 'video' : file.type.startsWith('audio') ? 'audio' : 'image';
 
     if (isCloudConfigured) {
       const sb = supabase();
       const { data } = await sb.auth.getSession();
       const token = data.session?.access_token;
       if (token) {
-        const ext = file.name.includes('.') ? file.name.split('.').pop() : kind === 'video' ? 'mp4' : 'jpg';
+        const ext = file.name.includes('.') ? file.name.split('.').pop() : kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : 'jpg';
         const signed = await api(token, { action: 'sign', ext });
         const up = await sb.storage.from('assets').uploadToSignedUrl(signed.path, signed.token, file, { contentType: file.type });
         if (up.error) throw new Error(up.error.message);

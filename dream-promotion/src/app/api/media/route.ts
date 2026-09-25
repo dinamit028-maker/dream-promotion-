@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     if (body.action === 'register') {
       const path = String(body.path || '');
       if (!path.startsWith(`${user.id}/`)) return NextResponse.json({ code: 'forbidden', message: 'not your file' }, { status: 403 });
-      const kind = body.kind === 'video' ? 'video' : 'image';
+      const kind = body.kind === 'video' ? 'video' : body.kind === 'audio' ? 'audio' : 'image';
       const signed = await admin.storage.from('assets').createSignedUrl(path, 60 * 60 * 24 * 365);
       if (!signed.data?.signedUrl) return NextResponse.json({ code: 'read_link_failed', message: signed.error?.message ?? '' }, { status: 500 });
       const row = await admin.from('media').insert({

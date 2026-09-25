@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fal } from '@fal-ai/client';
 import { accessDenied } from '@/lib/server/access';
+import { quotaDenied, recordUsage, refundUsage, requestUser } from '@/lib/server/quota';
 
 export const runtime = 'nodejs';
 
@@ -44,6 +45,10 @@ export async function POST(req: Request) {
       const resolution = RESOLUTIONS.includes(body.resolution) ? body.resolution : '720p';
       const aspect_ratio = ASPECTS.includes(body.aspectRatio) ? body.aspectRatio : '9:16';
 
+      const userId = await requestUser(req);
+      const over = await quotaDenied(userId, 'video', duration);
+      if (over) return over;
+
       const mode = isImage(body.startImage) ? 'image' : 'text';
       const input: Record<string, unknown> = {
         prompt, duration, resolution, aspect_ratio,
@@ -56,6 +61,8 @@ export async function POST(req: Request) {
       }
 
       const queued = await fal.queue.submit(MODELS[mode], { input: input as any });
+      const perSec = resolution === '1080p' ? 0.2 : resolution === '480p' ? 0.05 : 0.1;
+      await recordUsage(userId, 'video', duration, duration * perSec, { requestId: queued.request_id, model: MODELS[mode], resolution });
       return NextResponse.json({ requestId: queued.request_id, model: MODELS[mode], duration, resolution });
     }
 
@@ -87,6 +94,9 @@ export async function POST(req: Request) {
       // When unsure we report "not cancelled", so the client keeps tracking and saves the paid result.
       try {
         await fal.queue.cancel(model, { requestId });
+        // dropped before rendering: nothing billed, so give the seconds back
+        const userId = await requestUser(req);
+        await refundUsage(userId, requestId);
         return NextResponse.json({ cancelled: true });
       } catch (e: any) {
         return NextResponse.json({ cancelled: false, reason: String(e?.body?.detail ?? e?.message ?? 'refused').slice(0, 200) });

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fal } from '@fal-ai/client';
 import { accessDenied } from '@/lib/server/access';
+import { quotaDenied, recordUsage, requestUser } from '@/lib/server/quota';
 
 export const runtime = 'nodejs';
 
@@ -38,16 +39,21 @@ export async function POST(req: Request) {
         ? body.imageUrls.filter((u: unknown) => typeof u === 'string' && (u.startsWith('data:image/') || u.startsWith('https://'))).slice(0, 4)
         : [];
       const mode = refs.length ? 'edit' : 'create';
+      const count = Math.min(4, Math.max(1, Math.round(Number(body.count) || 1)));
+      const userId = await requestUser(req);
+      const over = await quotaDenied(userId, 'image', count);
+      if (over) return over;
 
       const input: Record<string, unknown> = {
         prompt,
-        num_images: Math.min(4, Math.max(1, Math.round(Number(body.count) || 1))),
+        num_images: count,
         aspect_ratio: ASPECTS.includes(body.aspectRatio) ? body.aspectRatio : '4:5',
         output_format: 'jpeg',
       };
       if (refs.length) input.image_urls = refs;
 
       const queued = await fal.queue.submit(MODELS[mode], { input: input as any });
+      await recordUsage(userId, 'image', count, count * 0.08, { requestId: queued.request_id, model: MODELS[mode] });
       return NextResponse.json({ requestId: queued.request_id, model: MODELS[mode] });
     }
 

@@ -27,6 +27,30 @@ export interface ReelScene {
   srt?: string;
 }
 
+/** Narration for one scene, stored permanently: captions show originalText, the voice said spokenText. */
+export interface SceneNarration {
+  mediaId: string; url: string; originalText: string; spokenText: string;
+  cues: { start: number; end: number; text: string }[]; durationSec?: number;
+  voiceId: string; style: string; language: string;
+}
+
+/** Everything needed to reopen a reel exactly where it was left — lives in content.reel. */
+export interface ReelProject {
+  v: 1;
+  brief: string; total: number; res: '480p' | '720p' | '1080p'; seamless: boolean;
+  board: Storyboard;
+  /** per scene, same order as board.scenes */
+  clips: ({ url: string; kind: 'video' | 'image' } | null)[];
+  photos: (string | null)[];
+  imageMode: boolean[];
+  narration: (SceneNarration | null)[];
+  voice: { voiceId: string; style: string; language: string };
+  music: { mediaId: string; url: string; name: string; volume: number } | null;
+  captions: { enabled: boolean; position: 'bottom' | 'middle'; size: 'md' | 'lg' };
+  final: { mediaId: string; url: string; durationSec: number; renderedAt: number } | null;
+  updatedAt: number;
+}
+
 export interface Storyboard {
   title: string; scenes: ReelScene[]; caption: string; hashtags: string[];
 }
@@ -35,12 +59,12 @@ export interface ContentItem {
   id: string; kind: ContentKind; platform: Platform; goal: string;
   headline: string; caption: string; hashtags: string[]; cta: string;
   emoji: string; palette: [string, string]; visualDirection?: string;
-  mediaId: string | null; scenes?: ReelScene[];
+  mediaId: string | null; scenes?: ReelScene[]; reel?: ReelProject;
   status: ContentStatus; date: string | null; time: string | null; createdAt: number;
 }
 
 export interface MediaAsset {
-  id: string; url: string; name: string; kind: 'image' | 'video'; tags?: string[]; persistent: boolean;
+  id: string; url: string; name: string; kind: 'image' | 'video' | 'audio'; tags?: string[]; persistent: boolean;
 }
 
 export type LeadStatus = 'חדש' | 'נוצר קשר' | 'מעוניין' | 'נקבע תור' | 'נסגר' | 'לא רלוונטי';

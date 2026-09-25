@@ -42,6 +42,8 @@ interface AppState {
   removeContent: (id: string) => void;
   duplicateContent: (id: string) => void;
   addMedia: (m: MediaAsset) => void;
+  /** Saves and reports back — used where losing a save must be visible (reel projects). */
+  saveContentNow: (id: string, patch: Partial<ContentItem>) => Promise<string | null>;
   removeMedia: (id: string) => void;
   addLead: (l: Omit<Lead, 'id'>) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
@@ -151,6 +153,13 @@ export const useApp = create<AppState>()(
         const { userId, content } = get();
         const item = content.find((c) => c.id === id);
         if (userId && item) void Repo.saveContent(userId, item);
+      },
+      saveContentNow: async (id, patch) => {
+        set((s) => ({ content: s.content.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+        const { userId, content } = get();
+        const item = content.find((c) => c.id === id);
+        if (!userId || !item) return null;
+        try { return await Repo.saveContent(userId, item); } catch (e: any) { return e?.message ?? 'save_failed'; }
       },
       removeContent: (id) => {
         set((s) => ({ content: s.content.filter((c) => c.id !== id) }));

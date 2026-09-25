@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getVoiceProvider } from '@/lib/services/voice';
 import { accessDenied } from '@/lib/server/access';
+import { quotaDenied, recordUsage, requestUser } from '@/lib/server/quota';
 
 export const runtime = 'nodejs';
 
@@ -31,6 +32,9 @@ export async function POST(req: Request) {
     const body = await req.json();
     const text = String(body.text ?? '').trim().slice(0, 4000);
     if (!text) return NextResponse.json({ code: 'bad_request', message: 'text required' }, { status: 400 });
+    const userId = await requestUser(req);
+    const over = await quotaDenied(userId, 'voice', text.length);
+    if (over) return over;
 
     const out = await provider.speak({
       text,
@@ -39,6 +43,7 @@ export async function POST(req: Request) {
       language: body.language === 'en' ? 'en' : 'he',
       speed: typeof body.speed === 'number' ? body.speed : undefined,
     });
+    await recordUsage(userId, 'voice', text.length, 0, { voiceId: String(body.voiceId ?? '') });
     return NextResponse.json(out);
   } catch (e: any) {
     const msg = e?.message ?? 'voice_error';

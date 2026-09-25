@@ -1,6 +1,9 @@
 /** Turns provider error codes into something a marketer can act on. */
 export function videoErrorMessage(raw?: string, code?: string): { title: string; body: string } {
   const t = `${code ?? ''} ${raw ?? ''}`.toLowerCase();
+  if (t.includes('quota_exceeded')) {
+    return { title: 'הגעתם למכסת הווידאו החודשית', body: raw && !raw.startsWith('quota') ? raw : 'המכסה מתאפסת בתחילת החודש, או שאפשר להגדיל אותה במשתני הסביבה בשרת.' };
+  }
   if (t.includes('content_policy') || t.includes('flagged') || t.includes('safety') || t.includes('nsfw')) {
     return {
       title: 'המודל חסם את הסצנה',
@@ -28,6 +31,7 @@ export function videoErrorMessage(raw?: string, code?: string): { title: string;
 
 export function aiErrorMessage(code?: string): string {
   const t = (code ?? '').toLowerCase();
+  if (t.includes('quota_exceeded')) return 'הגעתם למכסה החודשית. היא מתאפסת בתחילת החודש.';
   if (t.includes('no_api_key')) return 'מנוע ה-AI לא מוגדר — חסר ANTHROPIC_API_KEY בשרת.';
   if (t.includes('access_denied')) return 'קוד הגישה שגוי. עדכנו אותו במסך ההגדרות.';
   if (t.includes('rate')) return 'יותר מדי בקשות כרגע. נסו שוב בעוד רגע.';

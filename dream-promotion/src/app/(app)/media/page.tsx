@@ -30,7 +30,7 @@ export default function MediaPage() {
     <>
       <PageHead title="ספריית המדיה" sub={`${media.length} קבצים`}
         action={<Button variant="primary" onClick={() => input.current?.click()} disabled={busy}>{busy ? 'מעלה…' : '+ העלאה'}</Button>} />
-      <input ref={input} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => onFiles(e.target.files)} />
+      <input ref={input} type="file" accept="image/*,video/*,audio/*" multiple hidden onChange={(e) => onFiles(e.target.files)} />
       {!MediaService.persistent && (
         <div className="mb-6">
           <AdapterNote>
@@ -45,7 +45,9 @@ export default function MediaPage() {
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
           {media.map((m) => (
             <div key={m.id} className="overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
-              {m.kind === 'video'
+              {m.kind === 'audio'
+                ? <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-surface-2 p-2"><span className="text-3xl">♪</span><audio src={m.url} controls className="w-full" /></div>
+                : m.kind === 'video'
                 ? <video src={m.url} muted playsInline controls className="aspect-square w-full bg-black object-cover" />
                 : <img src={m.url} alt="" className="aspect-square w-full object-cover" />}
               <div className="p-2.5">

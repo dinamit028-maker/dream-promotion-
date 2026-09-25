@@ -4,6 +4,13 @@ const BUILD_ID = process.env.VERCEL_GIT_COMMIT_SHA || String(Date.now());
 const nextConfig = {
   reactStrictMode: true,
   images: { remotePatterns: [{ protocol: 'https', hostname: '**' }] },
+  experimental: {
+    // the final-reel renderer runs the ffmpeg binary and burns captions with the bundled Hebrew font
+    serverComponentsExternalPackages: ['ffmpeg-static'],
+    outputFileTracingIncludes: {
+      '/api/reel/render': ['./node_modules/ffmpeg-static/ffmpeg', './assets/fonts/**'],
+    },
+  },
   // the client compares this with /api/version and reloads itself after every deploy
   env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID },
   async headers() {

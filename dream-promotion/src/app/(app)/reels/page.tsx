@@ -18,7 +18,8 @@ import {
   Trash, Plus, CaretLeft, CaretRight, MagicWand, PaperPlaneTilt,
 } from '@/components/ui/Icon';
 import { PALETTE, cx } from '@/lib/utils';
-import type { ReelScene, Storyboard } from '@/types';
+import type { ReelProject, ReelScene, SceneNarration, Storyboard } from '@/types';
+import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalReelPanel';
 
 type Res = keyof typeof PRICE_PER_SECOND;
 type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image' };
@@ -39,8 +40,8 @@ function roleLabel(role: string | undefined, i: number) {
 
 export default function ReelsPage() {
   const aiReady = useAiReady();
-  const { brand, media, addMedia, addContent, voice, pronunciations } = useApp();
-  type Narr = { url?: string; srt?: string; busy?: boolean; error?: string };
+  const { brand, media, addMedia, addContent, saveContentNow, content, voice, pronunciations } = useApp();
+  type Narr = Partial<SceneNarration> & { srt?: string; busy?: boolean; error?: string; persisted?: boolean };
   const [narr, setNarr] = useState<Record<number, Narr>>({});
 
   const [videoReady, setVideoReady] = useState<boolean | null>(null);
@@ -61,6 +62,12 @@ export default function ReelsPage() {
   const [rethinking, setRethinking] = useState<number | null>(null);
   const [picking, setPicking] = useState<number | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [music, setMusic] = useState<ReelProject['music']>(null);
+  const [captions, setCaptions] = useState<ReelProject['captions']>({ enabled: true, position: 'bottom', size: 'lg' });
+  const [finalReel, setFinalReel] = useState<ReelProject['final']>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'local' | 'no_migration' | 'error'>('idle');
+  const loadedRef = useRef(false);
   const [, tick] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -70,7 +77,28 @@ export default function ReelsPage() {
     const q = new URLSearchParams(window.location.search);
     const b = q.get('brief');
     if (b) setBrief(b);
+    const id = q.get('id');
+    if (id) setProjectId(id);
+    else loadedRef.current = true; // new project — nothing to load
   }, []);
+
+  // reopen a saved reel exactly where it was left (waits for the account data to arrive)
+  useEffect(() => {
+    if (loadedRef.current || !projectId) return;
+    const item = content.find((c) => c.id === projectId);
+    if (!item) return;
+    if (!item.reel) { loadedRef.current = true; return; } // an older reel saved before projects existed
+    const p = item.reel;
+    loadedRef.current = true;
+    setBrief(p.brief); setTotal(p.total); setRes(p.res); setSeamless(p.seamless); setBoard(p.board);
+    const toMap = <T,>(arr: (T | null)[]) => Object.fromEntries(arr.map((v, i) => [i, v]).filter(([, v]) => v !== null && v !== undefined));
+    setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind } : null]).filter(([, v]) => v)) as Record<number, Clip>);
+    setPhotos(toMap(p.photos) as Record<number, string | null>);
+    setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
+    setNarr(Object.fromEntries(p.narration.map((n, i) => [i, n ? { ...n, persisted: true } : null]).filter(([, v]) => v)) as Record<number, Narr>);
+    setMusic(p.music); setCaptions(p.captions); setFinalReel(p.final);
+    setSaveState('saved');
+  }, [content, projectId]);
 
   const anyActive = Object.values(clips).some((c) => c.status === 'queued' || c.status === 'running');
   useEffect(() => {
@@ -94,13 +122,15 @@ export default function ReelsPage() {
     const nextClips: Record<number, Clip> = {};
     const nextPhotos: Record<number, string | null> = {};
     const nextMode: Record<number, boolean> = {};
+    const nextNarr: Record<number, Narr> = {};
     order.forEach((from, to) => {
       if (from === null) return;
+      if (narr[from]) nextNarr[to] = narr[from];
       if (clips[from]) nextClips[to] = clips[from];
       if (photos[from] !== undefined) nextPhotos[to] = photos[from];
       if (imageMode[from] !== undefined) nextMode[to] = imageMode[from];
     });
-    setClips(nextClips); setPhotos(nextPhotos); setImageMode(nextMode);
+    setClips(nextClips); setPhotos(nextPhotos); setImageMode(nextMode); setNarr(nextNarr);
   }
 
   function swapScenes(i: number, j: number) {
@@ -117,7 +147,7 @@ export default function ReelsPage() {
   const clearClip = (i: number) => setClips((c) => { const { [i]: _drop, ...rest } = c; return rest; });
 
   async function plan() {
-    setPlanning(true); setPlanError(null); setClips({}); setPhotos({});
+    setPlanning(true); setPlanError(null); setClips({}); setPhotos({}); setNarr({}); setFinalReel(null);
     try { setBoard(await AIService.storyboard(brand, brief, total)); }
     catch (e: any) { setPlanError(aiErrorMessage(e.code)); }
     finally { setPlanning(false); }
@@ -152,7 +182,20 @@ export default function ReelsPage() {
       const out = await VoiceService.narrate({
         text, voiceId: voice.voiceId, style: voice.style, language: voice.language, pronunciations,
       });
-      setNarr((n) => ({ ...n, [i]: { url: out.audioUrl, srt: out.srt } }));
+      const base: Narr = {
+        url: out.audioUrl, srt: out.srt, cues: out.cues, originalText: out.originalText, spokenText: out.spokenText,
+        durationSec: out.durationSec, voiceId: voice.voiceId, style: voice.style, language: voice.language,
+      };
+      setNarr((n) => ({ ...n, [i]: base }));
+      // the audio lives in storage, not in this tab — a refresh must not cost another narration
+      try {
+        const file = new File([out.audioBlob], `${board?.title || 'reel'} · קריינות ${i + 1}.mp3`, { type: out.mimeType });
+        const asset = await MediaService.upload(file);
+        if (asset.persistent) {
+          addMedia(asset);
+          setNarr((n) => ({ ...n, [i]: { ...base, url: asset.url, mediaId: asset.id, persisted: true } }));
+        }
+      } catch { /* stays playable in this session; the save indicator shows it is not stored */ }
     } catch (e: any) {
       setNarr((n) => ({ ...n, [i]: { error: voiceErrorText(e.code) } }));
     }
@@ -249,15 +292,63 @@ export default function ReelsPage() {
     } catch { /* the media screen reports upload problems */ }
   }
 
-  function saveReel() {
-    if (!board) return;
-    addContent({
-      kind: 'reel', platform: 'Instagram', goal: '', headline: board.title, caption: board.caption || '',
-      hashtags: board.hashtags || [], cta: brand.cta, emoji: '', palette: PALETTE.reel,
-      scenes: scenes.map((s, i) => ({ ...s, clipUrl: clips[i]?.url, voiceUrl: narr[i]?.url, srt: narr[i]?.srt })),
-      mediaId: photos[0] ?? null, status: 'draft', date: null, time: null,
-    });
-  }
+  /** The whole project as stored in content.reel — only permanent URLs, never blob: links. */
+  const project: ReelProject | null = useMemo(() => {
+    if (!board) return null;
+    const perm = (u?: string) => Boolean(u && u.startsWith('https://'));
+    return {
+      v: 1, brief, total, res, seamless, board,
+      clips: scenes.map((_, i) => (clips[i]?.status === 'done' && perm(clips[i].url) ? { url: clips[i].url!, kind: clips[i].kind ?? 'video' } : null)),
+      photos: scenes.map((_, i) => photos[i] ?? null),
+      imageMode: scenes.map((_, i) => Boolean(imageMode[i])),
+      narration: scenes.map((_, i) => {
+        const n = narr[i];
+        return n?.persisted && n.mediaId && perm(n.url) ? {
+          mediaId: n.mediaId, url: n.url!, originalText: n.originalText ?? '', spokenText: n.spokenText ?? '',
+          cues: n.cues ?? [], durationSec: n.durationSec, voiceId: n.voiceId ?? '', style: n.style ?? '', language: n.language ?? 'he',
+        } : null;
+      }),
+      voice: { voiceId: voice.voiceId, style: voice.style, language: voice.language },
+      music, captions, final: finalReel, updatedAt: Date.now(),
+    };
+  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel]);
+
+  // autosave: every change is written to the account within a second
+  const saveKey = project ? JSON.stringify({ ...project, updatedAt: 0 }) : '';
+  useEffect(() => {
+    if (!project || !loadedRef.current) return;
+    const t = setTimeout(async () => {
+      setSaveState('saving');
+      const fields = {
+        kind: 'reel' as const, headline: project.board.title, caption: project.board.caption || '',
+        hashtags: project.board.hashtags || [],
+        scenes: project.board.scenes.map((s, i) => ({ ...s, clipUrl: project.clips[i]?.url, voiceUrl: project.narration[i]?.url })),
+        mediaId: project.final?.mediaId ?? null, reel: project,
+      };
+      let id = projectId;
+      if (!id) {
+        const item = addContent({
+          ...fields, platform: 'Instagram', goal: '', cta: brand.cta, emoji: '', palette: PALETTE.reel,
+          status: 'draft', date: null, time: null,
+        });
+        id = item.id; setProjectId(id);
+        history.replaceState(null, '', `/reels?id=${id}`);
+      }
+      const err = await saveContentNow(id, fields);
+      const unsaved = scenes.some((_, i) => narr[i]?.url && !narr[i]?.persisted);
+      setSaveState(err === 'reel_column_missing' ? 'no_migration' : err ? 'error' : !useApp.getState().userId ? 'local' : unsaved ? 'local' : 'saved');
+    }, 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveKey]);
+
+  const payload: RenderScenePayload[] = scenes.map((sc, i) => ({
+    url: clips[i]?.url ?? '', kind: clips[i]?.kind ?? 'video', seconds: sc.seconds,
+    narrationUrl: narr[i]?.persisted ? narr[i]?.url : undefined,
+    cues: narr[i]?.persisted ? narr[i]?.cues : undefined,
+  }));
+  const renderReady = scenes.length > 0 && payload.every((p) => p.url.startsWith('https://'));
+  const missingNarration = payload.filter((p) => !p.narrationUrl).length;
 
   return (
     <>
@@ -301,6 +392,18 @@ export default function ReelsPage() {
         <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
           {planning && <GenerationState lines={['קורא את המותג…', 'מחלק לקליפים…', 'כותב כיוון ויזואלי לכל סצנה…']} step={1} />}
           {planError && <AdapterNote title="בניית התסריט נכשלה.">{planError}</AdapterNote>}
+          {!planning && !board && !planError && content.some((c) => c.kind === 'reel' && c.reel) && (
+            <Card className="mb-4">
+              <strong className="block">פרויקטים שמורים</strong>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {content.filter((c) => c.kind === 'reel' && c.reel).slice(0, 8).map((c) => (
+                  <Chip key={c.id} onClick={() => { loadedRef.current = false; setProjectId(c.id); history.replaceState(null, '', `/reels?id=${c.id}`); }}>
+                    {c.headline || 'ריל'}{c.reel?.final ? ' · מוכן' : ''}
+                  </Chip>
+                ))}
+              </div>
+            </Card>
+          )}
           {!planning && !board && !planError && (
             <EmptyState icon={<FilmSlate />} title="אין עדיין תסריט"
               body="תארו את הסרטון, בחרו אורך, וה-AI יחלק אותו לקליפים של 15 שניות שמתחברים לרצף אחד." />
@@ -314,7 +417,7 @@ export default function ReelsPage() {
                   <Button size="sm" variant="ghost" onClick={plan} disabled={running}>
                     <ArrowsClockwise size={16} aria-hidden />תסריט חדש
                   </Button>
-                  {doneUrls.length > 0 && <Button size="sm" variant="primary" onClick={saveReel}>שמירה לתוכן</Button>}
+                  <SaveBadge state={saveState} />
                 </div>
               </div>
 
@@ -330,7 +433,7 @@ export default function ReelsPage() {
                 <SequencePlayer items={scenes.map((_, i) => clips[i]).filter((c) => c?.url).map((c) => ({ url: c!.url!, kind: c!.kind ?? 'video' }))} />
               )}
 
-              <div className="mt-4 grid gap-3">
+              <div id="reel-scenes" className="mt-4 grid gap-3">
                 {scenes.map((sc, i) => {
                   const c = clips[i];
                   const elapsed = c?.startedAt ? Math.round((Date.now() - c.startedAt) / 1000) : 0;
@@ -426,6 +529,12 @@ export default function ReelsPage() {
                               )}
                             </div>
                             {narr[i]?.error && <p className="mt-2 text-sm text-warn">{narr[i].error}</p>}
+                            {narr[i]?.url && !narr[i]?.persisted && !narr[i]?.busy && (
+                              <p className="mt-2 text-xs text-warn">הקריינות לא נשמרה בחשבון ולא תיכנס לריל הסופי. התחברו ונסו שוב.</p>
+                            )}
+                            {narr[i]?.spokenText && narr[i]?.spokenText !== narr[i]?.originalText && (
+                              <p className="mt-2 text-xs text-muted">נהגה כ: <span dir="rtl">{narr[i].spokenText}</span> · בכתוביות: {narr[i].originalText}</p>
+                            )}
                             {!narr[i]?.error && !narr[i]?.url && (
                               <p className="mt-2 text-xs text-muted">הקריינות נוצרת בנפרד מהווידאו — שינוי מילה לא מצריך רינדור מחדש של הסרטון.</p>
                             )}
@@ -470,6 +579,11 @@ export default function ReelsPage() {
                   </div>
                 </div>
               </Card>
+
+              <FinalReelPanel projectId={projectId} title={board.title} caption={board.caption || ''}
+                payload={payload} ready={renderReady} missingNarration={missingNarration}
+                music={music} setMusic={setMusic} captions={captions} setCaptions={setCaptions}
+                final={finalReel} onRendered={(f) => setFinalReel(f)} />
 
               <p className="mt-3 text-xs text-muted">
                 הכיתובים והקריינות בעברית מתווספים בשלב החיבור לקובץ אחד — מודלי וידאו לא כותבים עברית באופן אמין, ולכן הם לא מתבקשים לכתוב טקסט בתוך התמונה.
@@ -590,4 +704,13 @@ function SequencePlayer({ items }: { items: { url: string; kind: 'video' | 'imag
       </div>
     </Card>
   );
+}
+
+function SaveBadge({ state }: { state: 'idle' | 'saving' | 'saved' | 'local' | 'no_migration' | 'error' }) {
+  if (state === 'idle') return null;
+  if (state === 'saving') return <Pill><Spinner />שומר…</Pill>;
+  if (state === 'saved') return <Pill tone="ok"><Check size={13} weight="bold" aria-hidden />נשמר בחשבון</Pill>;
+  if (state === 'no_migration') return <Pill tone="warn">הפרויקט לא נשמר — צריך להריץ את המיגרציה ב-Supabase</Pill>;
+  if (state === 'local') return <Pill tone="warn">חלק מהקבצים לא נשמרו בחשבון</Pill>;
+  return <Pill tone="warn">השמירה נכשלה</Pill>;
 }

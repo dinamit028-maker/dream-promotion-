@@ -1,12 +1,14 @@
 import { authHeaders } from './http';
-import { applyPronunciations, type Pronunciation } from '@/lib/pronunciation';
-import { cuesFromAlignment, toSrt, toVtt, type Cue } from '@/lib/subtitles';
+import { pronounceWithMap, type Pronunciation } from '@/lib/pronunciation';
+import { cuesFromOriginal, toSrt, toVtt, type Cue } from '@/lib/subtitles';
 import type { VoiceOption, VoiceStyle } from './voice/types';
 
 export type { VoiceOption, VoiceStyle };
 
 export interface Narration {
   audioUrl: string;      // object URL for playback / download
+  audioBlob: Blob;       // the file itself, so it can be stored permanently
+  originalText: string;  // what the captions show
   mimeType: string;
   durationSec?: number;
   cues: Cue[];
@@ -51,7 +53,7 @@ export const VoiceService = {
     text: string; voiceId: string; style: VoiceStyle; language?: 'he' | 'en';
     pronunciations?: Pronunciation[]; speed?: number;
   }): Promise<Narration> {
-    const spokenText = applyPronunciations(opts.text, opts.pronunciations);
+    const { spoken: spokenText, segments } = pronounceWithMap(opts.text, opts.pronunciations);
     const res = await fetch('/api/voice', {
       method: 'POST', headers: await authHeaders(),
       body: JSON.stringify({
@@ -63,10 +65,10 @@ export const VoiceService = {
     if (!res.ok || j.code) throw new VoiceError(j.code || 'voice_error', j.message || 'voice failed');
 
     const blob = b64ToBlob(j.audioBase64, j.mimeType || 'audio/mpeg');
-    // captions carry the ORIGINAL text; only the spoken version was rewritten
-    const cues = j.alignment ? cuesFromAlignment(j.alignment) : [];
+    // captions carry the ORIGINAL text; the timing comes from what was actually spoken
+    const cues = j.alignment ? cuesFromOriginal(segments, j.alignment, spokenText.length) : [];
     return {
-      audioUrl: URL.createObjectURL(blob),
+      audioUrl: URL.createObjectURL(blob), audioBlob: blob, originalText: opts.text,
       mimeType: j.mimeType || 'audio/mpeg',
       durationSec: j.durationSec,
       cues, srt: toSrt(cues), vtt: toVtt(cues),

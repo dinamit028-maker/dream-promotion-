@@ -15,7 +15,7 @@ const rowToContent = (r: any): ContentItem => ({
   headline: r.headline ?? '', caption: r.caption ?? '', hashtags: r.hashtags ?? [],
   cta: r.cta ?? '', emoji: '', palette: (r.palette ?? ['#6B3BF5', '#A96BF8']) as [string, string],
   visualDirection: r.visual_direction ?? undefined, mediaId: r.media_id ?? null,
-  scenes: r.scenes ?? undefined, status: r.status, date: r.date, time: r.time,
+  scenes: r.scenes ?? undefined, reel: r.reel ?? undefined, status: r.status, date: r.date, time: r.time,
   createdAt: new Date(r.created_at).getTime(),
 });
 
@@ -24,6 +24,7 @@ const contentToRow = (userId: string, c: ContentItem) => ({
   headline: c.headline, caption: c.caption, hashtags: c.hashtags, cta: c.cta,
   palette: c.palette, visual_direction: c.visualDirection ?? null,
   media_id: c.mediaId, scenes: c.scenes ?? null, status: c.status,
+  ...(c.reel ? { reel: c.reel } : {}),
   date: c.date, time: c.time,
 });
 
@@ -92,8 +93,16 @@ export const Repo = {
     });
   },
 
-  async saveContent(userId: string, item: ContentItem) {
-    await supabase().from('content').upsert(contentToRow(userId, item));
+  /** Returns an error code when a reel project could not be stored (missing migration). */
+  async saveContent(userId: string, item: ContentItem): Promise<string | null> {
+    const { error } = await supabase().from('content').upsert(contentToRow(userId, item));
+    if (error && item.reel && /reel/.test(error.message)) {
+      // database not migrated yet: keep the post itself, report that the reel project was not stored
+      const { reel: _skip, ...rest } = item;
+      await supabase().from('content').upsert(contentToRow(userId, rest as ContentItem));
+      return 'reel_column_missing';
+    }
+    return error ? error.message : null;
   },
   async deleteContent(id: string) {
     await supabase().from('content').delete().eq('id', id);

@@ -11,9 +11,10 @@ import { cx } from '@/lib/utils';
  * or upload a new one. The same picker is used in Create, the editor and the week plan.
  */
 export function MediaPicker({
-  open, onClose, onPick, selectedId,
-}: { open: boolean; onClose: () => void; onPick: (mediaId: string) => void; selectedId?: string | null }) {
-  const { media, addMedia } = useApp();
+  open, onClose, onPick, selectedId, accept = 'visual',
+}: { open: boolean; onClose: () => void; onPick: (mediaId: string) => void; selectedId?: string | null; accept?: 'visual' | 'audio' }) {
+  const { media: all, addMedia } = useApp();
+  const media = all.filter((m) => (accept === 'audio' ? m.kind === 'audio' : m.kind !== 'audio'));
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,12 +34,12 @@ export function MediaPicker({
   return (
     <Modal open={open} onClose={onClose} wide>
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h3 className="font-display text-2xl font-extrabold">בחירה מספריית המדיה</h3>
+        <h3 className="font-display text-2xl font-extrabold">{accept === 'audio' ? 'בחירת מוזיקה' : 'בחירה מספריית המדיה'}</h3>
         <CloseButton onClick={onClose} />
       </div>
-      <input ref={input} type="file" accept="image/*,video/*" hidden onChange={(e) => onFiles(e.target.files)} />
+      <input ref={input} type="file" accept={accept === 'audio' ? 'audio/*' : 'image/*,video/*'} hidden onChange={(e) => onFiles(e.target.files)} />
       <Button variant="primary" className="mb-5" onClick={() => input.current?.click()} disabled={busy}>
-        {busy ? <><Spinner />מעלה…</> : '+ העלאת תמונה חדשה'}
+        {busy ? <><Spinner />מעלה…</> : accept === 'audio' ? '+ העלאת קובץ מוזיקה' : '+ העלאת תמונה חדשה'}
       </Button>
       {error && <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>}
       {media.length ? (
@@ -47,7 +48,9 @@ export function MediaPicker({
             <button key={m.id} type="button" onClick={() => { onPick(m.id); onClose(); }}
               className={cx('overflow-hidden rounded-xl text-start ring-2 transition',
                 m.id === selectedId ? 'ring-primary' : 'ring-transparent hover:ring-line')}>
-              {m.kind === 'video'
+              {m.kind === 'audio'
+                ? <span className="flex aspect-square w-full items-center justify-center bg-surface-2 text-3xl">♪</span>
+                : m.kind === 'video'
                 ? <video src={m.url} muted playsInline className="aspect-square w-full bg-black object-cover" />
                 : <img src={m.url} alt="" className="aspect-square w-full object-cover" />}
               <p className="truncate bg-surface-2 px-2 py-1.5 text-xs">{m.name}</p>
