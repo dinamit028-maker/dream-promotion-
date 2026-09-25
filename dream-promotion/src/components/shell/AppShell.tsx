@@ -8,9 +8,10 @@ import { AIService } from '@/lib/services';
 import { cx } from '@/lib/utils';
 import { Button, Pill } from '@/components/ui/primitives';
 import { ContentEditor } from '@/features/content/ContentEditor';
+import { signOutEverywhere } from '@/lib/session';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
-  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus,
+  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut,
 } from '@/components/ui/Icon';
 
 type NavItem = { href: string; label: string; Icon: ComponentType<any> };
@@ -63,7 +64,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setChecking(false);
     });
     const { data: sub } = supabase().auth.onAuthStateChange((_e, session) => {
-      if (!session?.user) router.replace('/auth');
+      if (!session?.user && location.pathname !== '/') router.replace('/auth');
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, [hydrate, router, userId]);
@@ -102,6 +103,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   };
 
+  const signOut = signOutEverywhere;
+
   const current = [...NAV, ...NAV_BOTTOM].find((n) => n.href === path);
 
   if (checking) {
@@ -120,7 +123,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Logo /><span className="font-display text-[17px] font-bold max-lg:sr-only">Dream Promotion</span>
         </div>
         <nav className="flex flex-col gap-1">{NAV.map(sideItem)}</nav>
-        <div className="mt-auto flex flex-col gap-1 border-t border-line pt-4">{NAV_BOTTOM.map(sideItem)}</div>
+        <div className="mt-auto flex flex-col gap-1 border-t border-line pt-4">
+          {NAV_BOTTOM.map(sideItem)}
+          <button type="button" onClick={signOut}
+            className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-[var(--danger)] max-lg:justify-center">
+            <SignOut size={22} aria-hidden /><span className="max-lg:sr-only">יציאה</span>
+          </button>
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -132,6 +141,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-2">
             {aiReady !== null && <Pill tone={aiReady ? 'ai' : 'warn'}>{aiReady ? 'AI פעיל' : 'AI לא מוגדר'}</Pill>}
+            <button type="button" onClick={signOut} aria-label="יציאה מהחשבון"
+              className="flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-2 hover:bg-surface-2 md:hidden">
+              <SignOut size={18} aria-hidden />יציאה
+            </button>
             <Link href="/create" className="max-md:hidden">
               <Button variant="primary" size="sm"><Plus size={16} weight="bold" aria-hidden />יצירה</Button>
             </Link>

@@ -6,6 +6,7 @@ import { CloseButton, IntegrationDialog, Modal } from '@/components/ui/feedback'
 import { Visual } from '@/components/ui/Visual';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { MediaPicker } from '@/features/media/MediaPicker';
+import { AiMediaPanel } from './AiMediaPanel';
 import { KIND_HE, today } from '@/lib/utils';
 
 /** One editor for every piece of content — opened from cards, calendar and strategy. */
@@ -69,11 +70,14 @@ export function ContentEditor() {
             <Visual kind={item.kind} headline={headline} palette={item.palette} mediaId={mediaId}
               ratio={item.kind === 'reel' || item.kind === 'story' ? 'vertical' : 'square'} className="max-md:mx-auto max-md:w-40" />
             <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => setPicking(true)}>
-              {mediaId ? 'החלפת תמונה' : 'הוספת תמונה'}
+              {mediaId ? 'החלפה מהספרייה' : 'הוספה מהספרייה / העלאה'}
             </Button>
             {mediaId && (
               <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setMediaId(null)}>הסרת התמונה מהפוסט</Button>
             )}
+            <AiMediaPanel kind={item.kind} headline={headline} visualDirection={item.visualDirection}
+              mediaId={mediaId}
+              onAttach={(id) => { setMediaId(id); updateContent(item.id, { mediaId: id }); }} />
           </div>
           <div>
             <Field label="טקסט על התמונה"><Input value={headline} onChange={(e) => setHeadline(e.target.value)} /></Field>

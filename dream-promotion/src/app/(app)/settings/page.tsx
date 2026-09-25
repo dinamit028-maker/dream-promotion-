@@ -1,4 +1,5 @@
 'use client';
+import { signOutEverywhere } from '@/lib/session';
 import { useState } from 'react';
 import { useApp } from '@/lib/store';
 import { AIService, MediaService } from '@/lib/services';
@@ -20,11 +21,7 @@ export default function SettingsPage() {
     supabase().auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
   }, []);
 
-  async function signOut() {
-    if (isCloudConfigured) await supabase().auth.signOut();
-    signOutLocal();
-    router.replace('/auth');
-  }
+  const signOut = signOutEverywhere;
   const [busy, setBusy] = useState(false);
   const [videoReady, setVideoReady] = useState<boolean | null>(null);
   useEffect(() => { VideoService.available().then(setVideoReady); }, []);
