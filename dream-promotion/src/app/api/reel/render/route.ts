@@ -38,6 +38,7 @@ export async function POST(req: Request) {
     scenes: scenes.map((s: any) => ({
       url: s.url, kind: s.kind === 'image' ? 'image' : 'video', seconds: Number(s.seconds) || undefined,
       narrationUrl: s.narrationUrl || undefined,
+      text: typeof s.text === 'string' ? s.text.slice(0, 2000) : undefined,
       cues: Array.isArray(s.cues) ? s.cues.slice(0, 200).map((c: any) => ({ start: +c.start || 0, end: +c.end || 0, text: String(c.text ?? '').slice(0, 200) })) : [],
     })),
     music: body.music && isHttps(body.music.url) ? { url: body.music.url, volume: Number(body.music.volume ?? 0.25) } : null,
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
       const send = (o: object) => ctrl.enqueue(enc.encode(JSON.stringify(o) + '\n'));
       const dir = path.join(os.tmpdir(), `reel-${user.id.slice(0, 8)}-${Date.now()}`);
       try {
-        const { file, durationSec } = await renderReel(job, dir, (p) => send(p));
+        const { file, durationSec, captionLines } = await renderReel(job, dir, (p) => send(p));
         send({ stage: 'upload', pct: 0 });
         const buf = await readFile(file);
         const storagePath = `${user.id}/reel/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
         if (row.error) throw new Error(`media_row_failed: ${row.error.message}`);
         // link the finished file to its reel so it opens with the project
         if (contentId) await admin.from('content').update({ media_id: row.data.id }).eq('id', contentId).eq('user_id', user.id);
-        send({ done: true, mediaId: row.data.id, url: signed.data.signedUrl, durationSec, sizeMb: +(buf.length / 1e6).toFixed(1) });
+        send({ done: true, mediaId: row.data.id, url: signed.data.signedUrl, durationSec, captionLines, sizeMb: +(buf.length / 1e6).toFixed(1) });
       } catch (e: any) {
         send({ error: String(e?.message ?? e).slice(0, 600) });
       } finally {

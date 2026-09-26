@@ -1,13 +1,14 @@
 import type { Metadata, Viewport } from 'next';
-import { Assistant, Rubik } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { VersionWatcher } from '@/components/system/VersionWatcher';
 
 // every page is rendered fresh, so browsers never hold an old version of the app
 export const dynamic = 'force-dynamic';
 
-const body = Assistant({ subsets: ['hebrew', 'latin'], weight: ['400', '500', '600', '700'], variable: '--font-body' });
-const display = Rubik({ subsets: ['hebrew', 'latin'], weight: ['500', '700', '800'], variable: '--font-display' });
+// fonts ship with the app: the build never depends on reaching Google Fonts
+const body = localFont({ src: '../../assets/fonts/Assistant.ttf', weight: '200 800', variable: '--font-body', display: 'swap' });
+const display = localFont({ src: '../../assets/fonts/Rubik.ttf', weight: '300 900', variable: '--font-display', display: 'swap' });
 
 export const metadata: Metadata = {
   title: 'Dream Promotion — מחלקת השיווק שלך, מונעת AI',

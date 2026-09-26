@@ -48,13 +48,16 @@ export default function MediaPage() {
               {m.kind === 'audio'
                 ? <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-surface-2 p-2"><span className="text-3xl">♪</span><audio src={m.url} controls className="w-full" /></div>
                 : m.kind === 'video'
-                ? <video src={m.url} muted playsInline controls className="aspect-square w-full bg-black object-cover" />
+                ? <video src={`${m.url}#t=1`} preload="metadata" muted playsInline controls className="aspect-square w-full bg-black object-cover" />
                 : <img src={m.url} alt="" className="aspect-square w-full object-cover" />}
               <div className="p-2.5">
-                <p className="truncate text-sm">{m.name}</p>
-                <Button size="sm" variant="primary" className="mt-2 w-full" onClick={() => router.push(`/create?media=${m.id}`)}>
-                  יצירת תוכן מהתמונה
-                </Button>
+                <span className="mb-1 inline-block rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-ink-2">{mediaType(m)}</span>
+                <p className="truncate text-sm" title={m.name}>{m.name}</p>
+                {m.kind !== 'audio' && (
+                  <Button size="sm" variant="primary" className="mt-2 w-full" onClick={() => router.push(`/create?media=${m.id}`)}>
+                    {m.kind === 'video' ? 'יצירת פוסט מהסרטון' : 'יצירת תוכן מהתמונה'}
+                  </Button>
+                )}
                 <a href={m.url} target="_blank" rel="noreferrer" download
                   className="mt-2 block rounded-full py-1.5 text-center text-sm font-semibold text-ink-2 hover:bg-surface-2">הורדה</a>
                 {confirm === m.id ? (
@@ -73,4 +76,12 @@ export default function MediaPage() {
       )}
     </>
   );
+}
+
+/** What a file is, at a glance — names of a project's files all start the same. */
+function mediaType(m: { kind: string; name: string }) {
+  if (m.name.includes('ריל סופי')) return 'ריל סופי';
+  if (m.kind === 'audio') return m.name.includes('קריינות') ? 'קריינות' : 'מוזיקה';
+  if (m.kind === 'video') return 'קליפ';
+  return 'תמונה';
 }

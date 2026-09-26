@@ -7,11 +7,14 @@ import { Button, Card, Chip, Field } from '@/components/ui/primitives';
 import { AdapterNote, CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { MediaPicker } from '@/features/media/MediaPicker';
 import { PlatformPreview } from '@/features/preview/PlatformPreview';
+import { ScheduleFields } from '@/features/calendar/ScheduleFields';
+import { today } from '@/lib/utils';
 import type { ReelProject } from '@/types';
 
 export interface RenderScenePayload {
   url: string; kind: 'video' | 'image'; seconds?: number; narrationUrl?: string;
   cues?: { start: number; end: number; text: string }[];
+  text?: string;
 }
 
 const STAGE_HE = { download: 'אוסף את הקליפים והקריינות…', render: 'מרכיב את הריל…', upload: 'שומר בספריית המדיה…' } as const;
@@ -31,15 +34,32 @@ export function FinalReelPanel({
   final: ReelProject['final']; onRendered: (f: NonNullable<ReelProject['final']>) => void;
 }) {
   const router = useRouter();
-  const { media, addMedia, duplicateContent, openEditor, content } = useApp();
+  const { media, addMedia, duplicateContent, updateContent, content } = useApp();
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<{ stage: keyof typeof STAGE_HE; pct?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [captionNote, setCaptionNote] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [when, setWhen] = useState({ date: today(), time: '19:30' });
+  const [scheduledMsg, setScheduledMsg] = useState<string | null>(null);
+
+  function openSchedule() {
+    const item = content.find((c) => c.id === projectId);
+    setWhen({ date: item?.date || today(), time: item?.time || '19:30' });
+    setScheduling(true);
+  }
+  function saveSchedule() {
+    if (!projectId || !final) return;
+    // the reel goes into the calendar with the finished MP4 attached
+    updateContent(projectId, { date: when.date, time: when.time, status: 'scheduled', mediaId: final.mediaId });
+    setScheduling(false);
+    setScheduledMsg(`מתוזמן ל-${when.date.split('-').reverse().join('.')} בשעה ${when.time}. מופיע ביומן.`);
+  }
 
   async function render() {
-    setBusy(true); setError(null); setStage({ stage: 'download', pct: 0 });
+    setBusy(true); setError(null); setCaptionNote(null); setStage({ stage: 'download', pct: 0 });
     try {
       if (!isCloudConfigured) throw new Error('יצירת הריל הסופי דורשת חשבון מחובר.');
       const { data } = await supabase().auth.getSession();
@@ -71,6 +91,11 @@ export function FinalReelPanel({
         }
       }
       if (!result) throw new Error('הרינדור הסתיים בלי קובץ.');
+      if (captions.enabled) {
+        setCaptionNote(result.captionLines > 0
+          ? `נצרבו ${result.captionLines} שורות כתוביות.`
+          : 'לא נצרבו כתוביות: אין קריינות שמורה בסצנות. צרו קריינות ואז את הריל מחדש.');
+      }
       addMedia({ id: result.mediaId, url: result.url, name: `${title} · ריל סופי`, kind: 'video', persistent: true });
       onRendered({ mediaId: result.mediaId, url: result.url, durationSec: result.durationSec, renderedAt: Date.now() });
     } catch (e: any) {
@@ -118,9 +143,11 @@ export function FinalReelPanel({
 
         <Field label="כתוביות">
           <div className="flex flex-wrap gap-2">
-            <Chip on={captions.enabled} onClick={() => setCaptions({ ...captions, enabled: !captions.enabled })}>
-              {captions.enabled ? 'כתוביות פעילות' : 'בלי כתוביות'}
-            </Chip>
+            <label className="flex w-full cursor-pointer items-center gap-2 text-sm font-semibold">
+              <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={captions.enabled}
+                onChange={(e) => setCaptions({ ...captions, enabled: e.target.checked })} />
+              הוספת כתוביות לריל
+            </label>
             {captions.enabled && (
               <>
                 <Chip on={captions.position === 'bottom'} onClick={() => setCaptions({ ...captions, position: 'bottom' })}>למטה</Chip>
@@ -161,13 +188,15 @@ export function FinalReelPanel({
           <div>
             <p className="font-semibold">הריל מוכן · {Math.round(final.durationSec)} שנ׳</p>
             <p className="mt-1 text-sm text-muted">נשמר בספריית המדיה ומשויך לפרויקט הזה.</p>
+            {captionNote && <p className="mt-1 text-sm">{captionNote}</p>}
+            {scheduledMsg && <p className="mt-1 text-sm text-ok">{scheduledMsg}</p>}
             <div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant="primary" onClick={() => setPreviewing(true)}>תצוגה לפי פלטפורמה</Button>
               <a href={final.url} download={`${title}.mp4`} target="_blank" rel="noreferrer"
                 className="inline-flex h-9 items-center rounded-full border border-line px-4 text-sm font-semibold hover:bg-surface-2">הורדה</a>
               <Button size="sm" variant="ghost" onClick={() => document.getElementById('reel-scenes')?.scrollIntoView({ behavior: 'smooth' })}>עריכה</Button>
               <Button size="sm" variant="ghost" onClick={duplicate} disabled={!projectId}>שכפול</Button>
-              <Button size="sm" variant="ghost" onClick={() => projectId && openEditor(projectId)} disabled={!projectId}>תזמון</Button>
+              <Button size="sm" variant="ghost" onClick={openSchedule} disabled={!projectId}>תזמון</Button>
             </div>
           </div>
         </div>
@@ -178,6 +207,18 @@ export function FinalReelPanel({
           const m = useApp.getState().media.find((x) => x.id === id);
           if (m) setMusic({ mediaId: m.id, url: m.url, name: m.name, volume: music?.volume ?? 0.25 });
         }} selectedId={music?.mediaId} />
+
+      <Modal open={scheduling} onClose={() => setScheduling(false)}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="font-display text-xl font-extrabold">תזמון הריל</h3>
+          <CloseButton onClick={() => setScheduling(false)} />
+        </div>
+        <ScheduleFields date={when.date} time={when.time} onChange={setWhen} />
+        <div className="mt-5 flex gap-3 border-t border-line pt-4">
+          <Button variant="primary" onClick={saveSchedule}>שמירה ביומן</Button>
+          <Button variant="ghost" onClick={() => setScheduling(false)}>ביטול</Button>
+        </div>
+      </Modal>
 
       <Modal open={previewing} onClose={() => setPreviewing(false)} wide>
         <div className="mb-4 flex items-center justify-between gap-3">

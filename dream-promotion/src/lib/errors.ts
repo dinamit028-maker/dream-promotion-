@@ -22,8 +22,11 @@ export function videoErrorMessage(raw?: string, code?: string): { title: string;
   if (t.includes('rate') || t.includes('429')) {
     return { title: 'יותר מדי בקשות', body: 'המנוע עמוס כרגע. המתינו דקה ונסו שוב.' };
   }
+  if (t.includes('timeout_cancelled')) {
+    return { title: 'התור של fal עמוס מדי', body: 'הקליפ לא יצא מהתור ובוטל — לא חויבתם. נסו שוב מאוחר יותר, או בחרו תמונה לסצנה.' };
+  }
   if (t.includes('timeout')) {
-    return { title: 'היצירה ארכה יותר מדי', body: 'הבקשה לא חזרה בזמן. אם היא הסתיימה בצד של fal היא תופיע בחשבון שלכם שם.' };
+    return { title: 'הקליפ עדיין ברינדור', body: 'הוא ימשיך ברקע ויישמר בספריית המדיה כשיסתיים. אפשר לשבץ אותו משם בסצנה.' };
   }
   if (t.includes('aborted')) return { title: 'היצירה בוטלה', body: '' };
   return { title: 'היצירה נכשלה', body: raw ? raw.slice(0, 220) : 'שגיאה לא מזוהה מהמנוע.' };

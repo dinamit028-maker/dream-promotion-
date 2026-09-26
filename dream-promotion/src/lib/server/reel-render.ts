@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -16,6 +17,7 @@ export interface RenderCue { start: number; end: number; text: string }
 export interface RenderScene {
   url: string; kind: 'video' | 'image'; seconds?: number;
   narrationUrl?: string; cues?: RenderCue[];
+  text?: string; // the original narration text — used for captions if no timing came back
 }
 export interface RenderJob {
   scenes: RenderScene[];
@@ -33,7 +35,33 @@ export function ffmpegBin(): string {
   if (!p) throw new Error('ffmpeg binary not found');
   return p;
 }
-export const fontsDir = () => process.env.REEL_FONTS_DIR || path.join(process.cwd(), 'assets', 'fonts');
+const FONT_FILE = 'Rubik.ttf';
+const FONT_URL = 'https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik%5Bwght%5D.ttf';
+
+/**
+ * The caption font, copied next to the subtitle file. Without a font libass draws
+ * nothing — so we look in every place the bundled font can land on the server and,
+ * as a last resort, download it. Never renders silently without captions.
+ */
+async function prepareFont(dir: string): Promise<string> {
+  const cwd = process.cwd();
+  const candidates = [
+    process.env.REEL_FONTS_DIR,
+    path.join(cwd, 'assets', 'fonts'),
+    path.join(cwd, 'dream-promotion', 'assets', 'fonts'),
+    '/var/task/assets/fonts',
+    '/var/task/dream-promotion/assets/fonts',
+  ].filter(Boolean) as string[];
+  const fontDir = path.join(dir, 'fonts');
+  await mkdir(fontDir, { recursive: true });
+  const target = path.join(fontDir, FONT_FILE);
+  for (const c of candidates) {
+    const f = path.join(c, FONT_FILE);
+    if (existsSync(f)) { await copyFile(f, target); return fontDir; }
+  }
+  await download(FONT_URL, target);
+  return fontDir;
+}
 
 function run(args: string[], onLine?: (l: string) => void): Promise<{ code: number; err: string }> {
   return new Promise((resolve, reject) => {
@@ -96,7 +124,7 @@ ${cues.map((c) => `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,
 `;
 }
 
-export async function renderReel(job: RenderJob, dir: string, onProgress: Progress): Promise<{ file: string; durationSec: number }> {
+export async function renderReel(job: RenderJob, dir: string, onProgress: Progress): Promise<{ file: string; durationSec: number; captionLines: number }> {
   if (!job.scenes.length) throw new Error('no_scenes');
   await mkdir(dir, { recursive: true });
 
@@ -118,10 +146,12 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
 
   // ---- 2. timing: narration sets the pace --------------------------------
   const lengths: number[] = [];
+  const voiceLen: number[] = [];
   for (let i = 0; i < job.scenes.length; i++) {
     const s = job.scenes[i];
     const clip = s.kind === 'video' ? await probeDuration(files[i].media) : (s.seconds || 4);
     const voice = files[i].voice ? await probeDuration(files[i].voice!) : 0;
+    voiceLen.push(voice);
     const L = voice > 0 ? Math.max(voice + 0.4, Math.min(clip || 3, 3)) : (clip || s.seconds || 4);
     lengths.push(Math.round(L * 100) / 100);
   }
@@ -130,6 +160,15 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
 
   // captions on the reel timeline, in the original wording
   const cues: RenderCue[] = [];
+  // no word timing for a narrated scene: spread its original text evenly over the voice
+  job.scenes.forEach((s, i) => {
+    if ((s.cues && s.cues.length) || !s.text?.trim() || !voiceLen[i]) return;
+    const words = s.text.trim().split(/\s+/);
+    const groups: string[] = [];
+    for (let k = 0; k < words.length; k += 5) groups.push(words.slice(k, k + 5).join(' '));
+    const per = voiceLen[i] / groups.length;
+    s.cues = groups.map((t, k) => ({ start: k * per, end: (k + 1) * per, text: t }));
+  });
   job.scenes.forEach((s, i) => (s.cues || []).forEach((c) => {
     const st = starts[i] + c.start, en = Math.min(starts[i] + c.end + 0.15, starts[i] + lengths[i]);
     if (en > st && c.text.trim()) cues.push({ start: st, end: en, text: c.text.trim() });
@@ -139,7 +178,11 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
   for (let i = 0; i < cues.length - 1; i++) cues[i].end = Math.min(cues[i].end, cues[i + 1].start - 0.02);
   const assFile = path.join(dir, 'captions.ass');
   const burn = job.captions.enabled && cues.length > 0;
-  if (burn) await writeFile(assFile, buildAss(cues, job.captions), 'utf8');
+  let fontDir = '';
+  if (burn) {
+    await writeFile(assFile, buildAss(cues, job.captions), 'utf8');
+    fontDir = await prepareFont(dir);
+  }
 
   // ---- 3. one ffmpeg graph ------------------------------------------------
   const args: string[] = ['-hide_banner', '-y'];
@@ -168,7 +211,7 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
   f.push(`${job.scenes.map((_, i) => `[a${i}]`).join('')}concat=n=${n}:v=0:a=1[narr]`);
 
   const fadeOut = Math.max(0, T - FADE);
-  const subs = burn ? `ass='${assFile.replace(/'/g, "\\'")}':fontsdir='${fontsDir().replace(/'/g, "\\'")}',` : '';
+  const subs = burn ? `ass='${assFile.replace(/'/g, "\\'")}':fontsdir='${fontDir.replace(/'/g, "\\'")}',` : '';
   f.push(`[vcat]${subs}fade=t=in:st=0:d=${FADE},fade=t=out:st=${fadeOut}:d=${FADE}[vout]`);
 
   if (musicIn !== null) {
@@ -196,5 +239,5 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
   });
   if (code !== 0) throw new Error(`ffmpeg_failed: ${err.split('\n').filter(Boolean).slice(-6).join(' | ')}`);
   onProgress({ stage: 'render', pct: 100 });
-  return { file: out, durationSec: T };
+  return { file: out, durationSec: T, captionLines: burn ? cues.length : 0 };
 }

@@ -22,6 +22,7 @@ export function VoicePanel() {
   const { voice, setVoice, pronunciations, setPronunciations } = useApp();
   const [status, setStatus] = useState<{ available: boolean; provider: string; voices: VoiceOption[] } | null>(null);
   const [previewing, setPreviewing] = useState<string | null>(null);
+  const [gender, setGender] = useState<'all' | 'male' | 'female'>('all');
   const [error, setError] = useState<string | null>(null);
   const [showTerms, setShowTerms] = useState(false);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -84,16 +85,27 @@ export function VoicePanel() {
       </Field>
 
       <Field label="קול">
+        <div className="mb-2 flex gap-2">
+          {([['all', 'הכל'], ['male', 'גבר'], ['female', 'אישה']] as const).map(([id, label]) => (
+            <Chip key={id} on={gender === id} onClick={() => setGender(id)}>{label}</Chip>
+          ))}
+        </div>
         {!status ? <Spinner /> : (
           <div className="max-h-64 space-y-2 overflow-y-auto pe-1">
-            {status.voices.slice(0, 24).map((v) => (
+            {status.voices.filter((v) => gender === 'all' || v.gender === gender).slice(0, 40).map((v) => (
               <div key={v.id}
                 className={cx('flex items-center gap-2 rounded-2xl border-[1.5px] p-2.5 transition-colors',
                   voice.voiceId === v.id ? 'border-primary bg-primary-soft' : 'border-line')}>
                 <button type="button" onClick={() => setVoice({ voiceId: v.id })} className="min-w-0 flex-1 text-start">
-                  <strong className="block truncate text-sm">
-                    {v.name}{v.gender !== 'unknown' && <span className="text-muted"> · {v.gender === 'female' ? 'אישה' : 'גבר'}</span>}
-                  </strong>
+                  <span className="flex items-center gap-2">
+                    {v.gender !== 'unknown' && (
+                      <span className={cx('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold',
+                        v.gender === 'female' ? 'bg-[#FDE7F0] text-[#B4236A]' : 'bg-[#E4EEFF] text-[#2352B4]')}>
+                        {v.gender === 'female' ? 'אישה' : 'גבר'}
+                      </span>
+                    )}
+                    <strong className="block truncate text-sm">{v.name}</strong>
+                  </span>
                   {v.description && <span className="block truncate text-xs text-muted">{v.description}</span>}
                 </button>
                 <Button size="sm" variant="ghost" aria-label={`השמעת ${v.name}`} onClick={() => preview(v)} disabled={previewing === v.id}>

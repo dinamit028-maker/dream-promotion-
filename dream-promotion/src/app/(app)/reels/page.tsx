@@ -346,6 +346,7 @@ export default function ReelsPage() {
     url: clips[i]?.url ?? '', kind: clips[i]?.kind ?? 'video', seconds: sc.seconds,
     narrationUrl: narr[i]?.persisted ? narr[i]?.url : undefined,
     cues: narr[i]?.persisted ? narr[i]?.cues : undefined,
+    text: narr[i]?.persisted ? (narr[i]?.originalText || sc.voiceover) : undefined,
   }));
   const renderReady = scenes.length > 0 && payload.every((p) => p.url.startsWith('https://'));
   const missingNarration = payload.filter((p) => !p.narrationUrl).length;

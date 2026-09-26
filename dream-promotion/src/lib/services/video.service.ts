@@ -95,6 +95,17 @@ export const VideoService = {
       }
       onUpdate({ status: j.status === 'IN_QUEUE' ? 'queued' : 'running', position: j.position });
     }
-    throw new VideoError('timeout', 'generation took too long');
+    // gave up waiting — but fal may still render (and bill) it. Drop it if it is still
+    // queued; otherwise keep tracking it in the background so the clip lands in the library.
+    const dropped = await this.cancel(job.requestId, job.model);
+    if (!dropped) {
+      const { useJobs } = await import('@/lib/jobs');
+      useJobs.getState().add({
+        id: crypto.randomUUID(), requestId: job.requestId, model: job.model,
+        name: `סרטון · ${req.duration} שנ׳`, contentId: null, seconds: req.duration,
+        cost: 0, status: 'running', createdAt: Date.now(),
+      });
+    }
+    throw new VideoError('timeout', dropped ? 'timeout_cancelled' : 'timeout_background');
   },
 };
