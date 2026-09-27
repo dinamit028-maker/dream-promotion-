@@ -16,6 +16,7 @@ export {
   ArrowsClockwise, SunHorizon, CalendarPlus, Play, FilmReel, DeviceMobile, Warning, ChatCircleDots,
   Storefront, Diamond, ForkKnife, Barbell, Dress, HouseLine, Clock, Trash, Copy, PaperPlaneTilt,
   UploadSimple, Lightning, ShieldCheck, WhatsappLogo, Target, UserCircle, MagicWand, TrendUp, SignOut,
+  CashRegister, AddressBook, IdentificationBadge, ShoppingBag, Robot, CalendarCheck, TiktokLogo,
 } from '@phosphor-icons/react/dist/ssr';
 export { ImageGlyph };
 
