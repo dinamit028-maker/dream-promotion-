@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { Button, Field, Input, Pill, Textarea } from '@/components/ui/primitives';
 import { CloseButton, IntegrationDialog, Modal } from '@/components/ui/feedback';
+import { TikTokSend } from '@/features/social/TikTokSend';
 import { Visual } from '@/components/ui/Visual';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { MediaPicker } from '@/features/media/MediaPicker';
@@ -24,6 +25,7 @@ export function ContentEditor() {
   const [when, setWhen] = useState({ date: '', time: '19:30' });
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishDialog, setPublishDialog] = useState(false);
+  const [tiktokOpen, setTiktokOpen] = useState(false);
 
   useEffect(() => {
     if (!item) return;
@@ -98,6 +100,9 @@ export function ContentEditor() {
           <Button variant="primary" onClick={save}>{when.date ? 'שמירה ותזמון' : 'שמירה כטיוטה'}</Button>
           {item.date && <Button variant="ghost" onClick={unschedule}>הוצאה מהיומן</Button>}
           <Button variant="ghost" onClick={() => { duplicateContent(item.id); closeEditor(); }}>שכפול</Button>
+          {useApp.getState().media.find((m) => m.id === mediaId)?.kind === 'video' && (
+            <Button variant="ghost" onClick={() => setTiktokOpen(true)}>שליחה ל-TikTok</Button>
+          )}
           <Button variant="ghost" onClick={() => setPublishDialog(true)}>פרסום עכשיו</Button>
           {confirmDelete ? (
             <Button variant="ghost" className="text-[var(--danger)]" onClick={() => { removeContent(item.id); closeEditor(); }}>
@@ -120,6 +125,8 @@ export function ContentEditor() {
           initial={item.platform === 'TikTok' ? 'tiktok' : item.kind === 'story' ? 'story' : item.kind === 'reel' ? 'ig-reel' : item.platform === 'Facebook' ? 'facebook' : 'ig-feed'} />
       </Modal>
       <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={setMediaId} selectedId={mediaId} />
+      <TikTokSend open={tiktokOpen} onClose={() => setTiktokOpen(false)} mediaId={mediaId} contentId={item.id}
+        caption={[headline, caption, hashtags.split(/\s+/).filter(Boolean).map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' '), cta].filter(Boolean).join('\n\n')} />
       <IntegrationDialog open={publishDialog} onClose={() => setPublishDialog(false)} provider={item.platform} what="פרסום" />
     </>
   );

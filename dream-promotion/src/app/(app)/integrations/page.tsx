@@ -1,31 +1,98 @@
 'use client';
-import { useState } from 'react';
-import { SocialPublishingService } from '@/lib/services';
+import { useEffect, useState } from 'react';
+import { SocialService, type SocialAccount } from '@/lib/services/social.service';
 import { Button, Card, PageHead, Pill } from '@/components/ui/primitives';
-import { AdapterNote, IntegrationDialog } from '@/components/ui/feedback';
+import { AdapterNote, IntegrationDialog, Spinner } from '@/components/ui/feedback';
+
+const REASONS: Record<string, string> = {
+  access_denied: 'החיבור בוטל ב-TikTok.',
+  expired: 'עבר יותר מדי זמן. נסו שוב.',
+};
 
 export default function IntegrationsPage() {
   const [dialog, setDialog] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<SocialAccount[] | null>(null);
+  const [configured, setConfigured] = useState<{ tiktok: boolean }>({ tiktok: true });
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmOff, setConfirmOff] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = await SocialService.accounts();
+      setAccounts(r.accounts); setConfigured(r.configured);
+    } catch (e: any) { setAccounts([]); setNotice({ ok: false, text: e.message }); }
+  }
+
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    if (q.get('tiktok') === 'connected') setNotice({ ok: true, text: 'חשבון TikTok חובר בהצלחה.' });
+    if (q.get('tiktok') === 'error') {
+      const r = q.get('reason') || '';
+      setNotice({ ok: false, text: `החיבור ל-TikTok לא הושלם. ${REASONS[r] ?? r}` });
+    }
+    if (q.get('tiktok')) history.replaceState(null, '', '/integrations');
+    load();
+  }, []);
+
+  async function connect() {
+    setBusy(true); setNotice(null);
+    try { await SocialService.connectTikTok(); }
+    catch (e: any) {
+      setBusy(false);
+      setNotice({ ok: false, text: e.code === 'not_configured' ? 'מפתחות TikTok עוד לא הוגדרו בשרת (TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET ב-Vercel).' : e.message });
+    }
+  }
+  async function disconnect(id: string) {
+    await SocialService.disconnect(id).catch((e) => setNotice({ ok: false, text: e.message }));
+    setConfirmOff(null); load();
+  }
+
+  const tiktok = (accounts ?? []).filter((a) => a.provider === 'tiktok');
+
   return (
     <>
-      <PageHead title="חיבורים" sub="כל חיבור מחייב OAuth אמיתי. אין כאן חיבור מדומה." />
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(250px,1fr))]">
-        {SocialPublishingService.providers.map((p) => (
+      <PageHead title="חיבורים" sub="כל חיבור נעשה דרך אישור אמיתי אצל הרשת. הסיסמאות והמפתחות לא עוברים דרכנו." />
+      {notice && (
+        <p className={`mb-5 rounded-2xl p-3 text-sm ${notice.ok ? 'bg-[var(--ok-soft,#e8f7ee)]' : 'bg-[var(--danger-soft,#fdecec)] text-[var(--danger)]'}`}>{notice.text}</p>
+      )}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+        <Card>
+          <div className="flex items-center justify-between">
+            <strong className="text-[17px]">TikTok</strong>
+            {accounts === null ? <Spinner /> : tiktok.length ? <Pill tone="ok">מחובר</Pill> : <Pill tone="warn">לא מחובר</Pill>}
+          </div>
+          <p className="my-2.5 text-sm text-muted">שליחת רילים לטיוטות ב-TikTok. מסיימים ומפרסמים באפליקציה.</p>
+          {tiktok.map((a) => (
+            <div key={a.id} className="mb-2 flex items-center gap-2 rounded-xl bg-surface-2 p-2 text-sm">
+              {a.avatar ? <img src={a.avatar} alt="" className="h-8 w-8 rounded-full" /> : <span className="h-8 w-8 rounded-full bg-line" />}
+              <span className="flex-1 truncate">{a.name || 'חשבון TikTok'}{a.needsReconnect && <span className="text-[var(--danger)]"> · צריך לחבר מחדש</span>}</span>
+              {confirmOff === a.id
+                ? <button type="button" className="text-xs font-semibold text-[var(--danger)]" onClick={() => disconnect(a.id)}>בטוח?</button>
+                : <button type="button" className="text-xs text-muted hover:underline" onClick={() => setConfirmOff(a.id)}>ניתוק</button>}
+            </div>
+          ))}
+          <Button variant={tiktok.length ? 'ghost' : 'primary'} size="sm" onClick={connect} disabled={busy || !configured.tiktok}>
+            {busy ? <><Spinner />מעביר ל-TikTok…</> : tiktok.length ? 'חיבור חשבון נוסף' : 'חיבור TikTok'}
+          </Button>
+          {!configured.tiktok && <p className="mt-2 text-xs text-muted">ממתין למפתחות TikTok בשרת.</p>}
+        </Card>
+
+        {(['Instagram', 'Facebook', 'WhatsApp'] as const).map((p) => (
           <Card key={p}>
             <div className="flex items-center justify-between">
-              <strong className="text-[17px]">{p}</strong><Pill tone="warn">לא מחובר</Pill>
+              <strong className="text-[17px]">{p}</strong><Pill tone="warn">בקרוב</Pill>
             </div>
             <p className="my-2.5 text-sm text-muted">
-              {p === 'WhatsApp' ? 'קבלת לידים ושליחת הודעות דרך WhatsApp Business API' : 'פרסום, תזמון ומשיכת נתוני ביצועים'}
+              {p === 'WhatsApp' ? 'קבלת לידים ושליחת הודעות דרך WhatsApp Business API' : 'פרסום ותזמון ישירים דרך Meta'}
             </p>
-            <Button variant="ghost" size="sm" onClick={() => setDialog(p)}>חיבור חשבון</Button>
+            <Button variant="ghost" size="sm" onClick={() => setDialog(p)}>פרטים</Button>
           </Card>
         ))}
       </div>
       <div className="mt-6">
-        <AdapterNote title="מה נדרש לפרודקשן:">
-          Meta App עם <code>instagram_content_publish</code>, <code>pages_manage_posts</code>,{' '}
-          <code>ads_management</code>, <code>leads_retrieval</code>, וחשבון WhatsApp Business.
+        <AdapterNote title="איך זה עובד ב-TikTok:">
+          הסרטון נשלח לתיבת ההתראות באפליקציה, ומשם מפרסמים. פרסום ישיר מתוך האתר ייפתח אחרי שהאפליקציה תאושר בביקורת של TikTok.
         </AdapterNote>
       </div>
       <IntegrationDialog open={!!dialog} onClose={() => setDialog(null)} provider={dialog || ''} what="חיבור החשבון" />

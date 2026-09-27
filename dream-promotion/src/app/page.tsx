@@ -169,6 +169,8 @@ export default function Landing() {
 
       <footer className="border-t border-line py-10 text-center text-sm text-muted">
         © {new Date().getFullYear()} Dream Promotion · <VersionTag />
+        <span className="mx-2">·</span><a href="/privacy" className="hover:underline">מדיניות פרטיות</a>
+        <span className="mx-2">·</span><a href="/terms" className="hover:underline">תנאי שימוש</a>
       </footer>
     </main>
   );
