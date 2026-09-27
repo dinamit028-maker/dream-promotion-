@@ -177,6 +177,37 @@ export default function ReelsPage() {
     finally { setPlanning(false); }
   }
 
+  /**
+   * Narration for a video (or image) you already have — no script, no AI, no generation cost.
+   * One scene with your file; the narration text starts from the brief and can be edited.
+   */
+  async function quickBoard() {
+    const v = presetVideo ? media.find((m) => m.id === presetVideo) : undefined;
+    const img = !v && presetImage ? media.find((m) => m.id === presetImage) : undefined;
+    if (!v && !img) return;
+    let seconds = 10;
+    if (v) {
+      seconds = await new Promise<number>((res) => {
+        const el = document.createElement('video');
+        const t = setTimeout(() => res(10), 6000);
+        el.preload = 'metadata';
+        el.onloadedmetadata = () => { clearTimeout(t); res(Number.isFinite(el.duration) && el.duration > 0 ? Math.round(el.duration) : 10); };
+        el.onerror = () => { clearTimeout(t); res(10); };
+        el.src = v.url;
+      });
+    }
+    const text = brief.trim();
+    setBoard({
+      title: text.split('\n')[0].slice(0, 60) || 'ריל',
+      caption: text, hashtags: [],
+      scenes: [{ role: 'hook', seconds, onScreen: '', voiceover: text, visual: '', videoPrompt: '' }],
+    } as Storyboard);
+    setNarr({}); setFinalReel(null); setPhotos({});
+    if (v) { setClips({ 0: { status: 'done', url: v.url, kind: 'video' } as Clip }); setImageMode({}); }
+    else if (img) { setClips({ 0: { status: 'done', url: img.url, kind: 'image' } as Clip }); setImageMode({ 0: true }); }
+    setPresetVideo(null); setPresetImage(null);
+  }
+
   const photoUrl = (i: number) => {
     const id = photos[i];
     return id ? media.find((m) => m.id === id)?.url : undefined;
@@ -407,7 +438,7 @@ export default function ReelsPage() {
           )}
           {presetVideo && (
             <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">
-              הסרטון מהספרייה ישובץ בסצנה הראשונה — בלי עלות יצירה. כתבו על מה הריל ולחצו "בניית תסריט".
+              הסרטון מהספרייה ישובץ בסצנה הראשונה — בלי עלות יצירה. כתבו למעלה את טקסט הקריינות, או בנו תסריט מלא.
             </p>
           )}
           <Field label="אורך">
@@ -429,8 +460,18 @@ export default function ReelsPage() {
               עלות משוערת: <strong className="text-ink">${(total * PRICE_PER_SECOND[res]).toFixed(2)}</strong> · לא כולל ניסיונות חוזרים
             </p>
           </Field>
-          <Button variant="primary" size="lg" className="w-full" onClick={plan} disabled={!aiReady || planning}>
-            <Sparkle size={20} weight="fill" aria-hidden />בניית תסריט
+          {(presetVideo || presetImage) && (
+            <>
+              <Button variant="primary" size="lg" className="mb-2 w-full" onClick={quickBoard} disabled={!brief.trim()}>
+                {presetVideo ? 'קריינות לסרטון הזה, בלי תסריט' : 'קריינות על התמונה הזו, בלי תסריט'}
+              </Button>
+              <p className="mb-3 text-xs text-muted">
+                הטקסט שכתבתם למעלה יהיה טקסט הקריינות (אפשר לערוך אחר כך). בלי AI ובלי עלות וידאו — רק הקול.
+              </p>
+            </>
+          )}
+          <Button variant={presetVideo || presetImage ? 'ghost' : 'primary'} size="lg" className="w-full" onClick={plan} disabled={!aiReady || planning}>
+            <Sparkle size={20} weight="fill" aria-hidden />{presetVideo || presetImage ? 'או: תסריט מלא עם כמה סצנות' : 'בניית תסריט'}
           </Button>
           {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}
         </Card>
