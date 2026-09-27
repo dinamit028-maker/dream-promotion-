@@ -36,7 +36,7 @@ export function FinalReelPanel({
   final: ReelProject['final']; onRendered: (f: NonNullable<ReelProject['final']>) => void;
 }) {
   const router = useRouter();
-  const { media, addMedia, duplicateContent, updateContent, content } = useApp();
+  const { media, addMedia, duplicateContent, updateContent, content, openEditor } = useApp();
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<{ stage: keyof typeof STAGE_HE; pct?: number } | null>(null);
@@ -215,6 +215,7 @@ export function FinalReelPanel({
               <Button size="sm" variant="ghost" onClick={() => document.getElementById('reel-scenes')?.scrollIntoView({ behavior: 'smooth' })}>עריכה</Button>
               <Button size="sm" variant="ghost" onClick={duplicate} disabled={!projectId}>שכפול</Button>
               <Button size="sm" variant="ghost" onClick={saveDraft} disabled={!projectId}>שמירה בטיוטות</Button>
+              <Button size="sm" variant="ghost" onClick={() => projectId && openEditor(projectId)} disabled={!projectId}>כל האפשרויות</Button>
               <Button size="sm" variant="ghost" onClick={openSchedule} disabled={!projectId}>תזמון ביומן</Button>
             </div>
           </div>

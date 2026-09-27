@@ -170,12 +170,11 @@ export function AiMediaPanel({
       {note && <p className="mt-2 text-xs text-muted">{note}</p>}
       {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
 
-      {(kind === 'reel' || kind === 'story') && (
-        <button type="button" className="mt-3 text-xs font-semibold text-primary hover:underline"
-          onClick={() => router.push(`/reels?id=${contentId}`)}>
-          פתיחה באולפן הרילס: אורך, קליפים, קריינות וריל סופי
-        </button>
-      )}
+      <Button size="sm" variant="primary" className="mt-3 w-full"
+        onClick={() => { useApp.getState().closeEditor(); router.push(`/reels?id=${contentId}`); }}>
+        {kind === 'reel' || kind === 'story' ? 'אולפן הרילס: קריינות, אורך וריל סופי' : 'הפיכה לריל עם קריינות'}
+      </Button>
+      <p className="mt-1 text-[11px] text-muted">סרטון ארוך יותר, קול, כתוביות ומוזיקה. {attached ? 'המדיה של הפוסט תשובץ בסצנה הראשונה.' : ''}</p>
 
       <Modal open={!!review} onClose={() => setReview(null)} wide>
         <div className="mb-4 flex items-center justify-between gap-3">

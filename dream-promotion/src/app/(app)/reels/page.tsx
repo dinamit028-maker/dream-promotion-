@@ -64,6 +64,7 @@ export default function ReelsPage() {
   const [editing, setEditing] = useState<number | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [presetVideo, setPresetVideo] = useState<string | null>(null);
+  const [presetImage, setPresetImage] = useState<string | null>(null);
   const [newScriptAsk, setNewScriptAsk] = useState(false);
   const [pickTab, setPickTab] = useState<'image' | 'video'>('image');
   const [music, setMusic] = useState<ReelProject['music']>(null);
@@ -97,6 +98,10 @@ export default function ReelsPage() {
       // and the project is saved into this same item (keeps its date and time)
       loadedRef.current = true;
       setBrief([item.headline, item.caption].filter(Boolean).join('\n'));
+      // the post's own image or video comes along into scene 1
+      const m = item.mediaId ? useApp.getState().media.find((x) => x.id === item.mediaId) : undefined;
+      if (m?.kind === 'video') setPresetVideo(m.id);
+      if (m?.kind === 'image') setPresetImage(m.id);
       return;
     }
     const p = item.reel;
@@ -166,6 +171,7 @@ export default function ReelsPage() {
       setBoard({ ...b, scenes: b.scenes.map((sc) => ({ ...sc, seconds: per })) });
       const v = presetVideo ? media.find((m) => m.id === presetVideo && m.kind === 'video') : undefined;
       if (v) { setClips({ 0: { status: 'done', url: v.url, kind: 'video' } as Clip }); setPresetVideo(null); }
+      if (presetImage) { setPhotos({ 0: presetImage }); setPresetImage(null); }
     }
     catch (e: any) { setPlanError(aiErrorMessage(e.code)); }
     finally { setPlanning(false); }
@@ -394,6 +400,11 @@ export default function ReelsPage() {
             <Textarea value={brief} onChange={(e) => setBrief(e.target.value)}
               placeholder="למשל: טיפול פנים לפני החורף — לפני ואחרי, בקליניקה ברמת אביב" />
           </Field>
+          {presetImage && !presetVideo && (
+            <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">
+              התמונה של הפוסט תשמש כפריים הפתיחה של הסצנה הראשונה.
+            </p>
+          )}
           {presetVideo && (
             <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">
               הסרטון מהספרייה ישובץ בסצנה הראשונה — בלי עלות יצירה. כתבו על מה הריל ולחצו "בניית תסריט".
