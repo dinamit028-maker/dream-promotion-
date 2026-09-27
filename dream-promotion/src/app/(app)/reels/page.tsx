@@ -87,7 +87,13 @@ export default function ReelsPage() {
     if (loadedRef.current || !projectId) return;
     const item = content.find((c) => c.id === projectId);
     if (!item) return;
-    if (!item.reel) { loadedRef.current = true; return; } // an older reel saved before projects existed
+    if (!item.reel) {
+      // a reel from the weekly plan or the editor: open it here with its idea as the brief,
+      // and the project is saved into this same item (keeps its date and time)
+      loadedRef.current = true;
+      setBrief([item.headline, item.caption].filter(Boolean).join('\n'));
+      return;
+    }
     const p = item.reel;
     loadedRef.current = true;
     setBrief(p.brief); setTotal(p.total); setRes(p.res); setSeamless(p.seamless); setBoard(p.board);
@@ -97,6 +103,7 @@ export default function ReelsPage() {
     setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
     setNarr(Object.fromEntries(p.narration.map((n, i) => [i, n ? { ...n, persisted: true } : null]).filter(([, v]) => v)) as Record<number, Narr>);
     setMusic(p.music); setCaptions(p.captions); setFinalReel(p.final);
+    if (p.voice?.voiceId) useApp.getState().setVoice({ voiceId: p.voice.voiceId, style: p.voice.style as any, language: p.voice.language as any });
     setSaveState('saved');
   }, [content, projectId]);
 
@@ -342,6 +349,19 @@ export default function ReelsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saveKey]);
 
+  // a narration made before the voice or style was changed
+  const narrOutdated = (i: number) => {
+    const n = narr[i];
+    return Boolean(n?.url && ((n.voiceId && n.voiceId !== voice.voiceId) || (n.style && n.style !== voice.style)));
+  };
+  const outdatedCount = scenes.filter((_, i) => narrOutdated(i)).length;
+  const [renarrating, setRenarrating] = useState(false);
+  async function renarrateAll() {
+    setRenarrating(true);
+    for (let i = 0; i < scenes.length; i++) if (narrOutdated(i)) await narrateScene(i);
+    setRenarrating(false);
+  }
+
   const payload: RenderScenePayload[] = scenes.map((sc, i) => ({
     url: clips[i]?.url ?? '', kind: clips[i]?.kind ?? 'video', seconds: sc.seconds,
     narrationUrl: narr[i]?.persisted ? narr[i]?.url : undefined,
@@ -434,6 +454,14 @@ export default function ReelsPage() {
                 <SequencePlayer items={scenes.map((_, i) => clips[i]).filter((c) => c?.url).map((c) => ({ url: c!.url!, kind: c!.kind ?? 'video' }))} />
               )}
 
+              {outdatedCount > 0 && (
+                <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--warn-soft,#fff4e0)] p-3 text-sm">
+                  <span className="flex-1">בחרתם קול או סגנון חדש. {outdatedCount} סצנות עדיין בקול הקודם.</span>
+                  <Button size="sm" variant="primary" onClick={renarrateAll} disabled={renarrating}>
+                    {renarrating ? <><Spinner />מקריא…</> : 'קריינות מחדש בקול החדש'}
+                  </Button>
+                </div>
+              )}
               <div id="reel-scenes" className="mt-4 grid gap-3">
                 {scenes.map((sc, i) => {
                   const c = clips[i];
@@ -511,6 +539,9 @@ export default function ReelsPage() {
                             <p className="mt-2 text-xs text-muted">ימשיך מהפריים האחרון של קליפ {i}</p>
                           )}
 
+                          {narr[i]?.url && !narr[i]?.busy && narrOutdated(i) && (
+                            <p className="mt-3 text-xs text-warn">הקריינות הזו נוצרה בקול או בסגנון אחר ממה שנבחר עכשיו. לחצו "קריינות מחדש" כדי להחליף.</p>
+                          )}
                           {/* ---- narration for this scene, generated and regenerated on its own ---- */}
                           <div className="mt-3 rounded-2xl bg-surface-2 p-3">
                             <div className="flex flex-wrap items-center gap-2">

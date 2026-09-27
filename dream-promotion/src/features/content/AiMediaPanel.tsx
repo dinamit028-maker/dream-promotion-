@@ -170,10 +170,10 @@ export function AiMediaPanel({
       {note && <p className="mt-2 text-xs text-muted">{note}</p>}
       {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
 
-      {kind === 'reel' && (
+      {(kind === 'reel' || kind === 'story') && (
         <button type="button" className="mt-3 text-xs font-semibold text-primary hover:underline"
-          onClick={() => router.push(`/reels?brief=${encodeURIComponent(headline)}`)}>
-          ריל מלא עם תסריט וקריינות ← אולפן הרילס
+          onClick={() => router.push(`/reels?id=${contentId}`)}>
+          פתיחה באולפן הרילס: אורך, קליפים, קריינות וריל סופי
         </button>
       )}
 
