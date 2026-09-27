@@ -10,6 +10,7 @@ import { Button, Pill } from '@/components/ui/primitives';
 import { ContentEditor } from '@/features/content/ContentEditor';
 import { signOutEverywhere } from '@/lib/session';
 import { JobRunner } from '@/features/content/JobRunner';
+import { VersionTag } from '@/components/system/VersionTag';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
   UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut,
@@ -130,6 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-[var(--danger)] max-lg:justify-center">
             <SignOut size={22} aria-hidden /><span className="max-lg:sr-only">יציאה</span>
           </button>
+          <VersionTag className="px-3 pt-2 text-[11px] text-muted max-lg:hidden" />
         </div>
       </aside>
 

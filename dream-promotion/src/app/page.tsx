@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/primitives';
 import { Visual } from '@/components/ui/Visual';
 import { AuthButton, LandingRedirect } from '@/features/auth/LandingAuth';
+import { VersionTag } from '@/components/system/VersionTag';
 import {
   Check, Sparkle, CalendarBlank, FilmSlate, Megaphone, UsersThree, PencilSimpleLine, Target,
   Diamond, Dress, ForkKnife, Barbell, HouseLine, Storefront,
@@ -167,7 +168,7 @@ export default function Landing() {
       </section>
 
       <footer className="border-t border-line py-10 text-center text-sm text-muted">
-        © {new Date().getFullYear()} Dream Promotion
+        © {new Date().getFullYear()} Dream Promotion · <VersionTag />
       </footer>
     </main>
   );

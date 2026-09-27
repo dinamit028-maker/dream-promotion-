@@ -208,6 +208,11 @@ export default function ReelsPage() {
     setPresetVideo(null); setPresetImage(null);
   }
 
+  // a video the user already has (from the library or the post) sits in scene 1 — it is never charged
+  const hasExistingVideo = Boolean(presetVideo || (clips[0]?.status === 'done' && clips[0]?.kind === 'video'));
+  const perScene = Math.round(total / Math.max(1, Math.round(total / 15)));
+  const newVideoCost = Math.max(0, total - (hasExistingVideo ? perScene : 0)) * PRICE_PER_SECOND[res];
+
   const photoUrl = (i: number) => {
     const id = photos[i];
     return id ? media.find((m) => m.id === id)?.url : undefined;
@@ -379,7 +384,13 @@ export default function ReelsPage() {
         kind: 'reel' as const, headline: project.board.title, caption: project.board.caption || '',
         hashtags: project.board.hashtags || [],
         scenes: project.board.scenes.map((s, i) => ({ ...s, clipUrl: project.clips[i]?.url, voiceUrl: project.narration[i]?.url })),
-        mediaId: project.final?.mediaId ?? null, reel: project,
+        // what the post shows: the finished reel; before that, the first ready clip;
+        // and never wipe the media the post already had
+        mediaId: project.final?.mediaId
+          ?? media.find((m) => m.url === project.clips[0]?.url)?.id
+          ?? (projectId ? useApp.getState().content.find((c) => c.id === projectId)?.mediaId : null)
+          ?? null,
+        reel: project,
       };
       let id = projectId;
       if (!id) {
@@ -457,9 +468,21 @@ export default function ReelsPage() {
               ))}
             </div>
             <p className="mt-2 text-sm text-muted">
-              עלות משוערת: <strong className="text-ink">${(total * PRICE_PER_SECOND[res]).toFixed(2)}</strong> · לא כולל ניסיונות חוזרים
+              עלות וידאו משוערת: <strong className="text-ink">${newVideoCost.toFixed(2)}</strong>
+              <span className="mt-1 block text-xs">
+                בניית התסריט עצמה חינמית. משלמים רק כשלוחצים "יצירת הסרטון", ורק על קליפים שעוד לא מוכנים.
+              </span>
             </p>
           </Field>
+          {hasExistingVideo && (
+            <div className="mb-3 rounded-2xl border border-[var(--ok,#16a34a)]/40 bg-[var(--ok-soft,#e8f7ee)] p-3 text-sm">
+              <strong className="block">יש כבר סרטון בפרויקט — עליו לא משלמים.</strong>
+              <span className="text-ink-2">
+                משלמים רק על הקריינות (ElevenLabs){Math.max(1, Math.round(total / 15)) > 1 ? ' ועל הסצנות הנוספות שייווצרו' : ''}.
+                הריל הסופי, הכתוביות והמוזיקה חינם.
+              </span>
+            </div>
+          )}
           {(presetVideo || presetImage) && (
             <>
               <Button variant="primary" size="lg" className="mb-2 w-full" onClick={quickBoard} disabled={!brief.trim()}>
@@ -470,7 +493,7 @@ export default function ReelsPage() {
               </p>
             </>
           )}
-          <Button variant={presetVideo || presetImage ? 'ghost' : 'primary'} size="lg" className="w-full" onClick={plan} disabled={!aiReady || planning}>
+          <Button variant={presetVideo || presetImage ? 'ghost' : 'primary'} size="lg" className="w-full" onClick={() => (board && (Object.keys(clips).length || Object.keys(narr).length || finalReel) ? setNewScriptAsk(true) : plan())} disabled={!aiReady || planning}>
             <Sparkle size={20} weight="fill" aria-hidden />{presetVideo || presetImage ? 'או: תסריט מלא עם כמה סצנות' : 'בניית תסריט'}
           </Button>
           {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}

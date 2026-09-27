@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
 /** @type {import('next').NextConfig} */
 const BUILD_ID = process.env.VERCEL_GIT_COMMIT_SHA || String(Date.now());
+const APP_VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
+const BUILD_DATE = new Date().toISOString().slice(0, 10);
 
 const nextConfig = {
   reactStrictMode: true,
@@ -12,7 +15,7 @@ const nextConfig = {
     },
   },
   // the client compares this with /api/version and reloads itself after every deploy
-  env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID },
+  env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID, NEXT_PUBLIC_APP_VERSION: APP_VERSION, NEXT_PUBLIC_BUILD_DATE: BUILD_DATE },
   async headers() {
     return [
       {

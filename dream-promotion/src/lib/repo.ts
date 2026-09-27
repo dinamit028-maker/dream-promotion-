@@ -117,8 +117,12 @@ export const Repo = {
       storage_path: storagePath ?? null, source: storagePath ? 'generated' : 'upload',
     });
   },
+  /** Removes the row and the stored file itself, so deleted media stops taking space. */
   async deleteMedia(id: string) {
-    await supabase().from('media').delete().eq('id', id);
+    const sb = supabase();
+    const { data } = await sb.from('media').select('storage_path').eq('id', id).maybeSingle();
+    if (data?.storage_path) { try { await sb.storage.from('assets').remove([data.storage_path]); } catch { /* row still goes */ } }
+    await sb.from('media').delete().eq('id', id);
   },
 
   async saveLead(userId: string, l: Lead) {

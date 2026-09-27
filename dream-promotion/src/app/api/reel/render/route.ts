@@ -53,6 +53,7 @@ export async function POST(req: Request) {
   };
   const title = String(body.title || 'ריל').slice(0, 120);
   const contentId = typeof body.contentId === 'string' ? body.contentId : null;
+  const replaceMediaId = typeof body.replaceMediaId === 'string' ? body.replaceMediaId : null;
 
   const enc = new TextEncoder();
   const stream = new ReadableStream({
@@ -75,6 +76,14 @@ export async function POST(req: Request) {
         if (row.error) throw new Error(`media_row_failed: ${row.error.message}`);
         // link the finished file to its reel so it opens with the project
         if (contentId) await admin.from('content').update({ media_id: row.data.id }).eq('id', contentId).eq('user_id', user.id);
+        // a re-render replaces the previous final of this reel instead of piling up copies
+        if (replaceMediaId && replaceMediaId !== row.data.id) {
+          const old = await admin.from('media').select('id, storage_path, name').eq('id', replaceMediaId).eq('user_id', user.id).maybeSingle();
+          if (old.data && String(old.data.name || '').includes('ריל סופי')) {
+            if (old.data.storage_path) await admin.storage.from('assets').remove([old.data.storage_path]).catch(() => {});
+            await admin.from('media').delete().eq('id', old.data.id).eq('user_id', user.id);
+          }
+        }
         send({ done: true, mediaId: row.data.id, url: signed.data.signedUrl, durationSec, captionLines, sizeMb: +(buf.length / 1e6).toFixed(1) });
       } catch (e: any) {
         send({ error: String(e?.message ?? e).slice(0, 600) });

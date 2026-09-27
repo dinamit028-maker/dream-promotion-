@@ -86,7 +86,7 @@ export function FinalReelPanel({
       const res = await fetch('/api/reel/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ contentId: projectId, title, scenes, music: music ? { url: music.url, volume: music.volume } : null, captions }),
+        body: JSON.stringify({ contentId: projectId, replaceMediaId: final?.mediaId ?? null, title, scenes, music: music ? { url: music.url, volume: music.volume } : null, captions }),
       });
       if (!res.ok || !res.body) {
         const j = await res.json().catch(() => ({}));
@@ -113,6 +113,10 @@ export function FinalReelPanel({
         setCaptionNote(result.captionLines > 0
           ? `נצרבו ${result.captionLines} שורות כתוביות.`
           : 'לא נצרבו כתוביות: אין קריינות שמורה בסצנות. צרו קריינות ואז את הריל מחדש.');
+      }
+      // the server already removed the previous final of this reel — drop it from the library view too
+      if (final?.mediaId && final.mediaId !== result.mediaId) {
+        useApp.setState((st) => ({ media: st.media.filter((m) => m.id !== final.mediaId) }));
       }
       addMedia({ id: result.mediaId, url: result.url, name: `${title} · ריל סופי`, kind: 'video', persistent: true });
       onRendered({ mediaId: result.mediaId, url: result.url, durationSec: result.durationSec, renderedAt: Date.now() });

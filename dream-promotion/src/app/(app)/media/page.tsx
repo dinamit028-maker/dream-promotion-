@@ -48,6 +48,19 @@ export default function MediaPage() {
     if (input.current) input.current.value = '';
   }
 
+  // old renders of the same reel: finals nobody uses any more, with a newer copy of the same name
+  const content = useApp((s) => s.content);
+  const used = new Set(content.flatMap((c) => [c.mediaId, c.reel?.final?.mediaId]).filter(Boolean) as string[]);
+  // per reel name: keep every copy a post uses; if none is used, keep the newest; the rest are old renders
+  const groups = new Map<string, MediaAsset[]>();
+  media.filter((m) => typeOf(m) === 'reel').forEach((m) => groups.set(m.name, [...(groups.get(m.name) ?? []), m]));
+  const oldCopies = [...groups.values()].flatMap((g) => {
+    if (g.length < 2) return [];
+    const anyUsed = g.some((m) => used.has(m.id));
+    return g.filter((m, i) => !used.has(m.id) && (anyUsed || i > 0));
+  });
+  const [cleanAsk, setCleanAsk] = useState(false);
+
   const counts = Object.fromEntries(FILTERS.map((f) => [f.id, f.id === 'all' ? media.length : media.filter((m) => typeOf(m) === f.id).length]));
   const shown = filter === 'all' ? media : media.filter((m) => typeOf(m) === filter);
 
@@ -69,6 +82,19 @@ export default function MediaPage() {
         <div className="mb-6"><AdapterNote>אחסון קבצים מתמיד לא מוגדר, לכן הקבצים חיים בדפדפן עד רענון.</AdapterNote></div>
       )}
       {error && <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>}
+
+      {oldCopies.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2 p-3 text-sm">
+          <span className="flex-1">יש {oldCopies.length} גרסאות ישנות של רילים שכבר רונדרו מחדש. הן לא בשימוש בשום פוסט.</span>
+          {cleanAsk ? (
+            <Button size="sm" variant="primary" onClick={() => { oldCopies.forEach((m) => removeMedia(m.id)); setCleanAsk(false); }}>
+              בטוח? מחיקת {oldCopies.length} קבצים
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" onClick={() => setCleanAsk(true)}>ניקוי גרסאות ישנות</Button>
+          )}
+        </div>
+      )}
 
       {media.length > 0 && (
         <div className="mb-5 flex flex-wrap gap-2">
