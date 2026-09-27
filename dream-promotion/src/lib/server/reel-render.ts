@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { existsSync } from 'node:fs';
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -13,7 +12,8 @@ import { pipeline } from 'node:stream/promises';
  * automatically under the voice.
  */
 
-export interface RenderCue { start: number; end: number; text: string }
+/** png: the caption line already drawn by the browser (transparent PNG, 720px wide, data URL). */
+export interface RenderCue { start: number; end: number; text: string; png?: string }
 export interface RenderScene {
   url: string; kind: 'video' | 'image'; seconds?: number;
   narrationUrl?: string; cues?: RenderCue[];
@@ -35,34 +35,6 @@ export function ffmpegBin(): string {
   if (!p) throw new Error('ffmpeg binary not found');
   return p;
 }
-const FONT_FILE = 'Rubik.ttf';
-const FONT_URL = 'https://raw.githubusercontent.com/google/fonts/main/ofl/rubik/Rubik%5Bwght%5D.ttf';
-
-/**
- * The caption font, copied next to the subtitle file. Without a font libass draws
- * nothing — so we look in every place the bundled font can land on the server and,
- * as a last resort, download it. Never renders silently without captions.
- */
-async function prepareFont(dir: string): Promise<string> {
-  const cwd = process.cwd();
-  const candidates = [
-    process.env.REEL_FONTS_DIR,
-    path.join(cwd, 'assets', 'fonts'),
-    path.join(cwd, 'dream-promotion', 'assets', 'fonts'),
-    '/var/task/assets/fonts',
-    '/var/task/dream-promotion/assets/fonts',
-  ].filter(Boolean) as string[];
-  const fontDir = path.join(dir, 'fonts');
-  await mkdir(fontDir, { recursive: true });
-  const target = path.join(fontDir, FONT_FILE);
-  for (const c of candidates) {
-    const f = path.join(c, FONT_FILE);
-    if (existsSync(f)) { await copyFile(f, target); return fontDir; }
-  }
-  await download(FONT_URL, target);
-  return fontDir;
-}
-
 function run(args: string[], onLine?: (l: string) => void): Promise<{ code: number; err: string }> {
   return new Promise((resolve, reject) => {
     const p = spawn(ffmpegBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -90,38 +62,6 @@ async function download(url: string, file: string) {
   const res = await fetch(url);
   if (!res.ok || !res.body) throw new Error(`download_failed ${res.status}: ${url.slice(0, 80)}`);
   await pipeline(Readable.fromWeb(res.body as any), createWriteStream(file));
-}
-
-const assTime = (s: number) => {
-  const cs = Math.max(0, Math.round(s * 100));
-  const h = Math.floor(cs / 360000), m = Math.floor((cs % 360000) / 6000), sec = Math.floor((cs % 6000) / 100), c = cs % 100;
-  return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(c).padStart(2, '0')}`;
-};
-const assEscape = (t: string) => t.replace(/\\/g, '\\\\').replace(/[{}]/g, '').replace(/\n/g, '\\N');
-// Hebrew lines start with a right-to-left mark, so mixed lines ("ה-eSIM של Tasimli", "252 מדינות!")
-// keep their word order and punctuation on the correct side.
-const rtl = (t: string) => (/[\u0590-\u05FF]/.test(t) ? `\u200F${t}` : t);
-
-/** ASS subtitle file — keeps the script's own wording; right-to-left handled by libass/fribidi. */
-export function buildAss(cues: RenderCue[], opt: RenderJob['captions']): string {
-  const size = opt.size === 'lg' ? 64 : 52;
-  const align = opt.position === 'middle' ? 5 : 2;
-  const marginV = opt.position === 'middle' ? 0 : 250; // clear of TikTok / Reels buttons
-  return `[Script Info]
-ScriptType: v4.00+
-PlayResX: ${W}
-PlayResY: ${H}
-WrapStyle: 0
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Rubik,${size},&H00FFFFFF,&H00FFFFFF,&H00141028,&H64000000,-1,0,0,0,100,100,0,0,1,5,2,${align},60,60,${marginV},-1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-${cues.map((c) => `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,${rtl(assEscape(c.text))}`).join('\n')}
-`;
 }
 
 export async function renderReel(job: RenderJob, dir: string, onProgress: Progress): Promise<{ file: string; durationSec: number; captionLines: number }> {
@@ -171,17 +111,19 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
   });
   job.scenes.forEach((s, i) => (s.cues || []).forEach((c) => {
     const st = starts[i] + c.start, en = Math.min(starts[i] + c.end + 0.15, starts[i] + lengths[i]);
-    if (en > st && c.text.trim()) cues.push({ start: st, end: en, text: c.text.trim() });
+    if (en > st && c.text.trim()) cues.push({ start: st, end: en, text: c.text.trim(), png: c.png });
   }));
   // one caption at a time: each line ends before the next begins, never stacked
   cues.sort((x, y) => x.start - y.start);
   for (let i = 0; i < cues.length - 1; i++) cues[i].end = Math.min(cues[i].end, cues[i + 1].start - 0.02);
-  const assFile = path.join(dir, 'captions.ass');
-  const burn = job.captions.enabled && cues.length > 0;
-  let fontDir = '';
-  if (burn) {
-    await writeFile(assFile, buildAss(cues, job.captions), 'utf8');
-    fontDir = await prepareFont(dir);
+  // captions arrive already drawn by the browser (real Hebrew shaping, the app's own font),
+  // so the server only places images on the timeline — no fonts, no text engine involved
+  const capCues = job.captions.enabled ? cues.filter((c) => c.png?.startsWith('data:image/png')) : [];
+  const capFiles: string[] = [];
+  for (const [k, c] of capCues.entries()) {
+    const f = path.join(dir, `cap${k}.png`);
+    await writeFile(f, Buffer.from(c.png!.slice(c.png!.indexOf(',') + 1), 'base64'));
+    capFiles.push(f);
   }
 
   // ---- 3. one ffmpeg graph ------------------------------------------------
@@ -195,6 +137,7 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
     sceneIn.push(idx++);
   });
   files.forEach((fl) => { if (fl.voice) { args.push('-i', fl.voice); voiceIn.push(idx++); } else voiceIn.push(null); });
+  const capIn: number[] = capFiles.map((f) => { args.push('-i', f); return idx++; });
   let musicIn: number | null = null;
   if (musicFile) { args.push('-stream_loop', '-1', '-i', musicFile); musicIn = idx++; }
 
@@ -211,8 +154,13 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
   f.push(`${job.scenes.map((_, i) => `[a${i}]`).join('')}concat=n=${n}:v=0:a=1[narr]`);
 
   const fadeOut = Math.max(0, T - FADE);
-  const subs = burn ? `ass='${assFile.replace(/'/g, "\\'")}':fontsdir='${fontDir.replace(/'/g, "\\'")}',` : '';
-  f.push(`[vcat]${subs}fade=t=in:st=0:d=${FADE},fade=t=out:st=${fadeOut}:d=${FADE}[vout]`);
+  let last = 'vcat';
+  capCues.forEach((c, k) => {
+    const y = job.captions.position === 'middle' ? '(H-h)/2' : 'H-260-h';
+    f.push(`[${last}][${capIn[k]}:v]overlay=x=(W-w)/2:y=${y}:eof_action=repeat:enable='between(t,${c.start.toFixed(2)},${c.end.toFixed(2)})'[cap${k}]`);
+    last = `cap${k}`;
+  });
+  f.push(`[${last}]fade=t=in:st=0:d=${FADE},fade=t=out:st=${fadeOut}:d=${FADE}[vout]`);
 
   if (musicIn !== null) {
     const vol = Math.min(1, Math.max(0, job.music!.volume ?? 0.25));
@@ -239,5 +187,5 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
   });
   if (code !== 0) throw new Error(`ffmpeg_failed: ${err.split('\n').filter(Boolean).slice(-6).join(' | ')}`);
   onProgress({ stage: 'render', pct: 100 });
-  return { file: out, durationSec: T, captionLines: burn ? cues.length : 0 };
+  return { file: out, durationSec: T, captionLines: capCues.length };
 }

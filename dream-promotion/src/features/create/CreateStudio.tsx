@@ -160,7 +160,15 @@ export function CreateStudio() {
         {presetMedia && (
           <div className="mb-4 flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
             <div className="w-16 shrink-0"><MediaThumb mediaId={presetMedia} /></div>
-            <p className="text-sm text-muted">התמונה מהספרייה תשובץ בתוכן שייווצר.</p>
+            <div className="text-sm text-muted">
+              <p>{useApp.getState().media.find((m) => m.id === presetMedia)?.kind === 'video' ? 'הסרטון' : 'התמונה'} מהספרייה ישובץ בתוכן שייווצר.</p>
+              {useApp.getState().media.find((m) => m.id === presetMedia)?.kind === 'video' && (
+                <button type="button" className="mt-1 font-semibold text-primary hover:underline"
+                  onClick={() => router.push(`/reels?media=${presetMedia}`)}>
+                  להוספת קריינות, כתוביות ומוזיקה לסרטון ← ריל עם קריינות
+                </button>
+              )}
+            </div>
           </div>
         )}
         <Field label="בריף חופשי">

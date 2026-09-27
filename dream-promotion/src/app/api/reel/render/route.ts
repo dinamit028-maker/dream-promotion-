@@ -39,7 +39,10 @@ export async function POST(req: Request) {
       url: s.url, kind: s.kind === 'image' ? 'image' : 'video', seconds: Number(s.seconds) || undefined,
       narrationUrl: s.narrationUrl || undefined,
       text: typeof s.text === 'string' ? s.text.slice(0, 2000) : undefined,
-      cues: Array.isArray(s.cues) ? s.cues.slice(0, 200).map((c: any) => ({ start: +c.start || 0, end: +c.end || 0, text: String(c.text ?? '').slice(0, 200) })) : [],
+      cues: Array.isArray(s.cues) ? s.cues.slice(0, 200).map((c: any) => ({
+        start: +c.start || 0, end: +c.end || 0, text: String(c.text ?? '').slice(0, 200),
+        png: typeof c.png === 'string' && c.png.startsWith('data:image/png') && c.png.length < 600_000 ? c.png : undefined,
+      })) : [],
     })),
     music: body.music && isHttps(body.music.url) ? { url: body.music.url, volume: Number(body.music.volume ?? 0.25) } : null,
     captions: {

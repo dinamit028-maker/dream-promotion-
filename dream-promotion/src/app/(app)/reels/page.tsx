@@ -24,7 +24,7 @@ import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalR
 type Res = keyof typeof PRICE_PER_SECOND;
 type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image' };
 
-const LENGTHS = [15, 30, 45];
+const LENGTHS = [10, 15, 30, 45];
 const ROLE_HE: Record<string, string> = {
   hook: 'הוק', problem: 'בעיה', solution: 'פתרון', proof: 'הוכחה', cta: 'קריאה לפעולה',
 };
@@ -63,6 +63,9 @@ export default function ReelsPage() {
   const [picking, setPicking] = useState<number | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [presetVideo, setPresetVideo] = useState<string | null>(null);
+  const [newScriptAsk, setNewScriptAsk] = useState(false);
+  const [pickTab, setPickTab] = useState<'image' | 'video'>('image');
   const [music, setMusic] = useState<ReelProject['music']>(null);
   const [captions, setCaptions] = useState<ReelProject['captions']>({ enabled: true, position: 'bottom', size: 'lg' });
   const [finalReel, setFinalReel] = useState<ReelProject['final']>(null);
@@ -77,6 +80,8 @@ export default function ReelsPage() {
     const q = new URLSearchParams(window.location.search);
     const b = q.get('brief');
     if (b) setBrief(b);
+    const md = q.get('media');
+    if (md) setPresetVideo(md);
     const id = q.get('id');
     if (id) setProjectId(id);
     else loadedRef.current = true; // new project — nothing to load
@@ -116,8 +121,8 @@ export default function ReelsPage() {
 
   const scenes = board?.scenes ?? [];
   const cost = useMemo(
-    () => scenes.reduce((sum, sc, i) => sum + (imageMode[i] ? PRICE_PER_IMAGE : (sc.seconds || 15) * PRICE_PER_SECOND[res]), 0),
-    [scenes, res, imageMode],
+    () => scenes.reduce((sum, sc, i) => sum + (clips[i]?.status === 'done' ? 0 : imageMode[i] ? PRICE_PER_IMAGE : (sc.seconds || 15) * PRICE_PER_SECOND[res]), 0),
+    [scenes, res, imageMode, clips],
   );
   const doneUrls = scenes.map((_, i) => clips[i]?.url).filter(Boolean) as string[];
   const allDone = scenes.length > 0 && doneUrls.length === scenes.length;
@@ -155,7 +160,13 @@ export default function ReelsPage() {
 
   async function plan() {
     setPlanning(true); setPlanError(null); setClips({}); setPhotos({}); setNarr({}); setFinalReel(null);
-    try { setBoard(await AIService.storyboard(brand, brief, total)); }
+    try {
+      const b = await AIService.storyboard(brand, brief, total);
+      const per = Math.round(total / Math.max(1, Math.round(total / 15)));
+      setBoard({ ...b, scenes: b.scenes.map((sc) => ({ ...sc, seconds: per })) });
+      const v = presetVideo ? media.find((m) => m.id === presetVideo && m.kind === 'video') : undefined;
+      if (v) { setClips({ 0: { status: 'done', url: v.url, kind: 'video' } as Clip }); setPresetVideo(null); }
+    }
     catch (e: any) { setPlanError(aiErrorMessage(e.code)); }
     finally { setPlanning(false); }
   }
@@ -294,7 +305,8 @@ export default function ReelsPage() {
     try {
       const asset = await MediaService.upload(files[0]);
       addMedia(asset);
-      setPhotos((p) => ({ ...p, [target]: asset.id }));
+      if (asset.kind === 'video') setClips((c) => ({ ...c, [target]: { status: 'done', url: asset.url, kind: 'video' } as Clip }));
+      else setPhotos((p) => ({ ...p, [target]: asset.id }));
       setPicking(null);
     } catch { /* the media screen reports upload problems */ }
   }
@@ -367,6 +379,7 @@ export default function ReelsPage() {
     narrationUrl: narr[i]?.persisted ? narr[i]?.url : undefined,
     cues: narr[i]?.persisted ? narr[i]?.cues : undefined,
     text: narr[i]?.persisted ? (narr[i]?.originalText || sc.voiceover) : undefined,
+    durationSec: narr[i]?.persisted ? narr[i]?.durationSec : undefined,
   }));
   const renderReady = scenes.length > 0 && payload.every((p) => p.url.startsWith('https://'));
   const missingNarration = payload.filter((p) => !p.narrationUrl).length;
@@ -381,11 +394,16 @@ export default function ReelsPage() {
             <Textarea value={brief} onChange={(e) => setBrief(e.target.value)}
               placeholder="למשל: טיפול פנים לפני החורף — לפני ואחרי, בקליניקה ברמת אביב" />
           </Field>
+          {presetVideo && (
+            <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">
+              הסרטון מהספרייה ישובץ בסצנה הראשונה — בלי עלות יצירה. כתבו על מה הריל ולחצו "בניית תסריט".
+            </p>
+          )}
           <Field label="אורך">
             <div className="flex flex-wrap gap-2">
               {LENGTHS.map((d) => (
                 <Chip key={d} on={total === d} onClick={() => setTotal(d)}>
-                  {d} שנ׳ · {d / 15} {d === 15 ? 'קליפ' : 'קליפים'}
+                  {d} שנ׳ · {Math.max(1, Math.round(d / 15))} {d <= 15 ? 'קליפ' : 'קליפים'}
                 </Chip>
               ))}
             </div>
@@ -435,7 +453,8 @@ export default function ReelsPage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="font-display text-xl font-bold">{board.title}</h3>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="ghost" onClick={plan} disabled={running}>
+                  <Button size="sm" variant="ghost" disabled={running}
+                    onClick={() => (Object.keys(clips).length || Object.keys(narr).length || finalReel ? setNewScriptAsk(true) : plan())}>
                     <ArrowsClockwise size={16} aria-hidden />תסריט חדש
                   </Button>
                   <SaveBadge state={saveState} />
@@ -657,33 +676,75 @@ export default function ReelsPage() {
         )}
       </Modal>
 
+      <Modal open={newScriptAsk} onClose={() => setNewScriptAsk(false)}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-display text-xl font-bold">תסריט חדש</h3>
+          <CloseButton onClick={() => setNewScriptAsk(false)} />
+        </div>
+        <p className="mb-5 text-sm text-muted">בפרויקט הזה כבר יש קליפים וקריינות. הקבצים עצמם שמורים בספריית המדיה בכל מקרה.</p>
+        <div className="grid gap-3">
+          <Button variant="primary" onClick={() => {
+            // a fresh project; the current one stays saved exactly as it is
+            setNewScriptAsk(false);
+            setProjectId(null); loadedRef.current = true;
+            history.replaceState(null, '', '/reels');
+            setMusic(null); setFinalReel(null);
+            plan();
+          }}>פרויקט חדש (הנוכחי נשמר)</Button>
+          <Button variant="ghost" onClick={() => { setNewScriptAsk(false); plan(); }}>
+            החלפת התסריט בפרויקט הזה
+          </Button>
+        </div>
+      </Modal>
+
       {/* ---------- photo picker, with upload built in ---------- */}
-      <Modal open={picking !== null} onClose={() => setPicking(null)}>
+      <Modal open={picking !== null} onClose={() => setPicking(null)} wide>
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-display text-xl font-bold">תמונת פתיחה לקליפ {(picking ?? 0) + 1}</h3>
+          <h3 className="font-display text-xl font-bold">מדיה לקליפ {(picking ?? 0) + 1}</h3>
           <CloseButton onClick={() => setPicking(null)} />
         </div>
-        <input ref={fileInput} type="file" accept="image/*" hidden onChange={(e) => onFiles(e.target.files)} />
+        <div className="mb-4 flex gap-2">
+          <Chip on={pickTab === 'image'} onClick={() => setPickTab('image')}>
+            תמונות ({media.filter((m) => m.kind === 'image').length})
+          </Chip>
+          <Chip on={pickTab === 'video'} onClick={() => setPickTab('video')}>
+            סרטונים ({media.filter((m) => m.kind === 'video').length})
+          </Chip>
+        </div>
+        <input ref={fileInput} type="file" accept={pickTab === 'video' ? 'video/*' : 'image/*'} hidden onChange={(e) => onFiles(e.target.files)} />
         <Button variant="ghost" className="mb-4 w-full" onClick={() => fileInput.current?.click()}>
-          <UploadSimple size={18} aria-hidden />העלאת תמונה מהמחשב
+          <UploadSimple size={18} aria-hidden />{pickTab === 'video' ? 'העלאת סרטון מהמחשב' : 'העלאת תמונה מהמחשב'}
         </Button>
-        {media.filter((m) => m.kind === 'image').length ? (
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {media.filter((m) => m.kind === 'image').map((m) => (
+        <p className="mb-3 text-xs text-muted">
+          {pickTab === 'video'
+            ? 'סרטון שנבחר ישובץ כקליפ של הסצנה כמו שהוא — בלי לייצר מחדש ובלי עלות.'
+            : 'תמונה שנבחרה תשמש כפריים הפתיחה של הקליפ שייווצר.'}
+        </p>
+        {media.filter((m) => m.kind === pickTab).length ? (
+          <div className="grid max-h-[55vh] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
+            {media.filter((m) => m.kind === pickTab).map((m) => (
               <button key={m.id} type="button"
-                onClick={() => { setPhotos((p) => ({ ...p, [picking!]: m.id })); setPicking(null); }}
-                className={cx('aspect-square overflow-hidden rounded-xl ring-2 ring-offset-2 ring-offset-surface',
-                  photos[picking ?? -1] === m.id ? 'ring-primary' : 'ring-transparent hover:ring-line')}>
-                <img src={m.url} alt={m.name} className="h-full w-full object-cover" />
+                onClick={() => {
+                  if (pickTab === 'video') {
+                    setClips((c) => ({ ...c, [picking!]: { status: 'done', url: m.url, kind: 'video' } as Clip }));
+                  } else setPhotos((p) => ({ ...p, [picking!]: m.id }));
+                  setPicking(null);
+                }}
+                className={cx('overflow-hidden rounded-xl text-start ring-2 ring-offset-2 ring-offset-surface',
+                  (pickTab === 'image' ? photos[picking ?? -1] === m.id : clips[picking ?? -1]?.url === m.url) ? 'ring-primary' : 'ring-transparent hover:ring-line')}>
+                {m.kind === 'video'
+                  ? <video src={`${m.url}#t=1`} preload="metadata" muted playsInline className="aspect-[9/16] w-full bg-black object-cover" />
+                  : <img src={m.url} alt={m.name} className="aspect-square w-full object-cover" />}
+                <p className="truncate bg-surface-2 px-2 py-1 text-[11px]" title={m.name}>{m.name}</p>
               </button>
             ))}
           </div>
         ) : (
           <p className="rounded-2xl bg-surface-2 p-4 text-sm text-muted">
-            אין עדיין תמונות בספרייה. העלו אחת מכאן, או השאירו בלי תמונה והמנוע ייצר את הסצנה מאפס.
+            {pickTab === 'video' ? 'אין עדיין סרטונים בספרייה.' : 'אין עדיין תמונות בספרייה. העלו אחת מכאן, או השאירו בלי תמונה והמנוע ייצר את הסצנה מאפס.'}
           </p>
         )}
-        {picking !== null && photos[picking] && (
+        {picking !== null && photos[picking] && pickTab === 'image' && (
           <Button variant="ghost" className="mt-4 w-full"
             onClick={() => { setPhotos((p) => ({ ...p, [picking]: null })); setPicking(null); }}>
             בלי תמונה — לייצר מטקסט בלבד

@@ -10,11 +10,13 @@ import { PlatformPreview } from '@/features/preview/PlatformPreview';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { today } from '@/lib/utils';
 import type { ReelProject } from '@/types';
+import { audioDuration, captionPng, sceneCues } from './captionImages';
 
 export interface RenderScenePayload {
   url: string; kind: 'video' | 'image'; seconds?: number; narrationUrl?: string;
   cues?: { start: number; end: number; text: string }[];
   text?: string;
+  durationSec?: number;
 }
 
 const STAGE_HE = { download: 'אוסף את הקליפים והקריינות…', render: 'מרכיב את הריל…', upload: 'שומר בספריית המדיה…' } as const;
@@ -50,6 +52,11 @@ export function FinalReelPanel({
     setWhen({ date: item?.date || today(), time: item?.time || '19:30' });
     setScheduling(true);
   }
+  function saveDraft() {
+    if (!projectId || !final) return;
+    updateContent(projectId, { status: 'draft', date: null, time: null, mediaId: final.mediaId });
+    setScheduledMsg('נשמר בטיוטות. נמצא במסך "תוכן" תחת "טיוטות", ואפשר לתזמן אותו מכאן או משם בכל רגע.');
+  }
   function saveSchedule() {
     if (!projectId || !final) return;
     // the reel goes into the calendar with the finished MP4 attached
@@ -62,13 +69,24 @@ export function FinalReelPanel({
     setBusy(true); setError(null); setCaptionNote(null); setStage({ stage: 'download', pct: 0 });
     try {
       if (!isCloudConfigured) throw new Error('יצירת הריל הסופי דורשת חשבון מחובר.');
+      // draw every caption here, in the browser, with the app's own Hebrew font
+      let scenes = payload;
+      if (captions.enabled) {
+        await document.fonts.ready;
+        scenes = await Promise.all(payload.map(async (p) => {
+          if (!p.narrationUrl) return p;
+          const dur = p.durationSec || (p.cues?.length ? 0 : await audioDuration(p.narrationUrl));
+          const cues = sceneCues(p.cues, p.text, dur).map((c) => ({ ...c, png: captionPng(c.text, captions.size) }));
+          return { ...p, cues };
+        }));
+      }
       const { data } = await supabase().auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error('צריך להתחבר מחדש.');
       const res = await fetch('/api/reel/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ contentId: projectId, title, scenes: payload, music: music ? { url: music.url, volume: music.volume } : null, captions }),
+        body: JSON.stringify({ contentId: projectId, title, scenes, music: music ? { url: music.url, volume: music.volume } : null, captions }),
       });
       if (!res.ok || !res.body) {
         const j = await res.json().catch(() => ({}));
@@ -196,7 +214,8 @@ export function FinalReelPanel({
                 className="inline-flex h-9 items-center rounded-full border border-line px-4 text-sm font-semibold hover:bg-surface-2">הורדה</a>
               <Button size="sm" variant="ghost" onClick={() => document.getElementById('reel-scenes')?.scrollIntoView({ behavior: 'smooth' })}>עריכה</Button>
               <Button size="sm" variant="ghost" onClick={duplicate} disabled={!projectId}>שכפול</Button>
-              <Button size="sm" variant="ghost" onClick={openSchedule} disabled={!projectId}>תזמון</Button>
+              <Button size="sm" variant="ghost" onClick={saveDraft} disabled={!projectId}>שמירה בטיוטות</Button>
+              <Button size="sm" variant="ghost" onClick={openSchedule} disabled={!projectId}>תזמון ביומן</Button>
             </div>
           </div>
         </div>
