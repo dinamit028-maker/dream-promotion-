@@ -18,15 +18,18 @@ export default function Dashboard() {
 
   return (
     <>
-      <div className="mb-6">
-        <h1 className="font-display text-3xl font-extrabold tracking-tight sm:text-5xl">
-          {greeting()}{brand.name ? `, ${brand.name.split(' ')[0]}` : ''}
+      <div className="mb-8 pt-2 sm:pt-6">
+        <h1 className="font-display text-[40px] font-black leading-[1.02] tracking-tight sm:text-7xl">
+          {greeting()}{brand.name ? `, ${brand.name.split(' ')[0]}` : ''}.
         </h1>
-        <p className="mt-1.5 text-lg text-muted">מה ניצור היום?</p>
+        <p className="mt-3 text-lg text-ink-2 sm:text-xl">מה ניצור היום?</p>
       </div>
 
-      <div className="mb-8 rounded-lg bg-brand-soft p-4">
-        <Textarea className="min-h-[74px] bg-surface" value={prompt} onChange={(e) => setPrompt(e.target.value)}
+      {/* the command bar: one sentence in, content out */}
+      <div className="relative mb-10">
+        <div aria-hidden className="pointer-events-none absolute -inset-6 rounded-[40px] bg-[#8B66FF]/15 blur-3xl" />
+        <div className="relative rounded-[26px] border border-[#8B66FF]/30 bg-[color:var(--glass)] p-4 shadow-[0_24px_70px_rgba(0,0,0,.45)] backdrop-blur-xl sm:p-5">
+        <Textarea className="min-h-[84px] border-line bg-[color:var(--glass-bg)] text-[17px]" value={prompt} onChange={(e) => setPrompt(e.target.value)}
           placeholder="תארו מה בא לכם לפרסם — למשל: ריל שמסביר את הטיפול החדש שלנו" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
@@ -38,10 +41,11 @@ export default function Dashboard() {
           </div>
           <Button variant="primary" onClick={() => router.push(`/create?brief=${encodeURIComponent(prompt)}`)}><Sparkle size={18} weight="fill" aria-hidden />צרו עכשיו</Button>
         </div>
+        </div>
       </div>
 
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-display text-xl font-extrabold">התוכן של היום</h3>
+        <h3 className="font-display text-2xl font-black">התוכן של היום</h3>
         <Link href="/calendar"><Button variant="ghost" size="sm">ליומן</Button></Link>
       </div>
       {todays.length ? (
@@ -56,7 +60,7 @@ export default function Dashboard() {
       )}
 
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-display text-xl font-extrabold">בהמשך השבוע</h3>
+        <h3 className="font-display text-2xl font-black">בהמשך השבוע</h3>
         <Link href="/calendar"><Button variant="ghost" size="sm"><Sparkle size={18} weight="fill" aria-hidden />תכנון שבועי</Button></Link>
       </div>
       {upcoming.length ? (
@@ -70,7 +74,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <h3 className="mb-3 font-display text-xl font-extrabold">תובנות המותג</h3>
+      <h3 className="mb-3 font-display text-2xl font-black">תובנות המותג</h3>
       {analysis ? (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
           <Card><Pill tone="ai">טון</Pill><p className="mt-2.5">{analysis.voice}</p></Card>

@@ -18,7 +18,7 @@ function Node({ p, from, to, label, range, tone }: {
     <motion.span
       style={{ x, y, opacity, scale }}
       className={`block whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-semibold sm:text-[15px] ${
-        tone === 'in' ? 'border border-white/15 bg-white/[.06] text-white/85' : 'bg-[#8B66FF] text-white shadow-[0_8px_30px_rgba(139,102,255,.5)]'}`}
+        tone === 'in' ? 'border border-line bg-surface-2 text-ink' : 'bg-[#8B66FF] text-white shadow-[0_8px_30px_rgba(139,102,255,.5)]'}`}
     >
       {label}
     </motion.span>
@@ -47,9 +47,9 @@ export function Brain() {
     <section id="brain" ref={ref} className="relative h-[260vh] scroll-mt-10">
       <div className="sticky top-0 flex h-[100svh] flex-col items-center justify-center overflow-hidden px-5">
         <h2 className="text-center font-display text-4xl font-black leading-tight sm:text-6xl">ה-AI שמכיר את העסק שלכם</h2>
-        <p className="mt-4 flex items-center gap-3 text-lg text-white/60">
+        <p className="mt-4 flex items-center gap-3 text-lg text-muted">
           <motion.span style={{ opacity: inOpacity }}>העסק</motion.span><span aria-hidden>←</span>
-          <span className="text-[#B9A2FF]">AI</span><span aria-hidden>←</span>
+          <span className="text-primary">AI</span><span aria-hidden>←</span>
           <motion.span style={{ opacity: outOpacity }}>שיווק</motion.span>
         </p>
 
@@ -62,7 +62,7 @@ export function Brain() {
           >
             <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_40%_35%,#E5DBFF_0%,#8B66FF_35%,#3A1F9E_70%,transparent_72%)] blur-[1px]" />
             <div className="absolute -inset-10 rounded-full bg-[#8B66FF]/30 blur-3xl" />
-            <div className="absolute inset-3 animate-[spin_18s_linear_infinite] rounded-full border border-dashed border-white/25 motion-reduce:animate-none" />
+            <div className="absolute inset-3 animate-[spin_18s_linear_infinite] rounded-full border border-dashed border-line motion-reduce:animate-none" />
           </motion.div>
 
           {reduce ? (

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { AuthButton, LandingRedirect } from '@/features/auth/LandingAuth';
 import { VersionTag } from '@/components/system/VersionTag';
+import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { Hero } from '@/features/landing/Hero';
 import { Brain } from '@/features/landing/Brain';
 import { CreateDemo } from '@/features/landing/CreateDemo';
@@ -10,7 +11,6 @@ import { CalendarAuto } from '@/features/landing/CalendarAuto';
 import { Campaigns } from '@/features/landing/Campaigns';
 import { Leads } from '@/features/landing/Leads';
 import { FinalScene } from '@/features/landing/FinalScene';
-import { LANDING_THEME } from '@/features/landing/theme';
 import {
   CalendarBlank, FilmSlate, Megaphone, UsersThree, PencilSimpleLine, TiktokLogo,
   Robot, CalendarCheck, AddressBook, CashRegister, ShoppingBag, IdentificationBadge,
@@ -40,20 +40,21 @@ const NAV = [
 
 export default function Landing() {
   return (
-    <main style={LANDING_THEME} className="min-h-screen overflow-x-clip bg-[#0A0814] text-[#F4F1FA]">
+    <main className="min-h-screen overflow-x-clip text-ink">
       <LandingRedirect />
 
       {/* floating glass navigation */}
       <header className="safe-t sticky top-3 z-50 px-3">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-full border border-white/10 bg-[#0A0814]/70 px-3 py-2 shadow-[0_10px_40px_rgba(0,0,0,.4)] backdrop-blur-xl sm:px-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-full border border-line bg-[color:var(--glass-bg)] px-3 py-2 shadow-[0_10px_40px_rgba(0,0,0,.4)] backdrop-blur-xl sm:px-4">
           <Link href="/" className="flex items-center gap-2.5 ps-1">
             <span aria-hidden className="relative h-8 w-8 shrink-0 rounded-[11px] bg-[#8B66FF]"><span className="absolute inset-[27%] rounded-[5px] bg-white/90" /></span>
             <span className="whitespace-nowrap font-display text-lg font-bold">Dream Promotion</span>
           </Link>
-          <nav aria-label="ניווט" className="hidden gap-6 text-[14px] font-semibold text-white/65 lg:flex">
-            {NAV.map((n) => <a key={n.h} href={n.h} className="transition-colors hover:text-white">{n.t}</a>)}
+          <nav aria-label="ניווט" className="hidden gap-6 text-[14px] font-semibold text-ink-2 lg:flex">
+            {NAV.map((n) => <a key={n.h} href={n.h} className="transition-colors hover:text-ink">{n.t}</a>)}
           </nav>
           <div className="flex items-center gap-2">
+            <ThemeToggle className="max-sm:hidden" />
             <AuthButton mode="in" variant="ghost">כניסה</AuthButton>
             <AuthButton mode="up">הרשמה</AuthButton>
           </div>
@@ -72,28 +73,28 @@ export default function Landing() {
       {/* the bigger vision: an honest status on every tool */}
       <section id="toolbox" className="mx-auto max-w-6xl scroll-mt-20 px-5 py-28">
         <h2 className="max-w-3xl font-display text-4xl font-black leading-tight sm:text-6xl">ארגז כלים לעסק של אדם אחד</h2>
-        <p className="mt-4 max-w-2xl text-lg leading-relaxed text-white/65">
+        <p className="mt-4 max-w-2xl text-lg leading-relaxed text-ink-2">
           כל מה שצריך כדי לפתוח עסק מחר בבוקר ולנהל אותו לבד, בבית אחד. חלק מהכלים כבר עובדים, והשאר בדרך.
         </p>
         <div className="mt-12 grid gap-12 lg:grid-cols-2 lg:gap-16">
           <div>
             <h3 className="flex items-center gap-2 font-display text-xl font-bold"><span className="h-2.5 w-2.5 rounded-full bg-[#43D2AE]" aria-hidden />כבר בארגז</h3>
-            <ul className="mt-5 divide-y divide-white/10 border-y border-white/10">
+            <ul className="mt-5 divide-y divide-line border-y border-line">
               {TOOLS_NOW.map(({ I, t, d }) => (
                 <li key={t} className="flex items-start gap-4 py-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-[#8B66FF]/15 text-[#B9A2FF]"><I size={22} aria-hidden /></span>
-                  <div><p className="font-display text-lg font-bold">{t}</p><p className="mt-0.5 leading-relaxed text-white/65">{d}</p></div>
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-[#8B66FF]/15 text-primary"><I size={22} aria-hidden /></span>
+                  <div><p className="font-display text-lg font-bold">{t}</p><p className="mt-0.5 leading-relaxed text-ink-2">{d}</p></div>
                 </li>
               ))}
             </ul>
           </div>
           <div>
-            <h3 className="flex items-center gap-2 font-display text-xl font-bold text-white/75"><span className="h-2.5 w-2.5 rounded-full border-2 border-white/40" aria-hidden />נכנס בקרוב</h3>
-            <ul className="mt-5 divide-y divide-dashed divide-white/10 border-y border-dashed border-white/10">
+            <h3 className="flex items-center gap-2 font-display text-xl font-bold text-ink-2"><span className="h-2.5 w-2.5 rounded-full border-2 border-[color:var(--muted)]" aria-hidden />נכנס בקרוב</h3>
+            <ul className="mt-5 divide-y divide-dashed divide-line border-y border-dashed border-line">
               {TOOLS_NEXT.map(({ I, t, d }) => (
                 <li key={t} className="flex items-start gap-4 py-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-dashed border-white/20 text-white/50"><I size={22} aria-hidden /></span>
-                  <div><p className="font-display text-lg font-bold text-white/80">{t}</p><p className="mt-0.5 leading-relaxed text-white/50">{d}</p></div>
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-dashed border-line text-muted"><I size={22} aria-hidden /></span>
+                  <div><p className="font-display text-lg font-bold text-ink">{t}</p><p className="mt-0.5 leading-relaxed text-muted">{d}</p></div>
                 </li>
               ))}
             </ul>
@@ -103,12 +104,13 @@ export default function Landing() {
 
       <FinalScene />
 
-      <footer className="border-t border-white/10 py-10 text-sm text-white/50">
+      <footer className="border-t border-line py-10 text-sm text-muted">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-6 gap-y-2 px-5">
           <span>© {new Date().getFullYear()} Dream Promotion</span>
           <VersionTag />
-          <a href="/privacy" className="hover:text-white">מדיניות פרטיות</a>
-          <a href="/terms" className="hover:text-white">תנאי שימוש</a>
+          <a href="/privacy" className="hover:text-ink">מדיניות פרטיות</a>
+          <a href="/terms" className="hover:text-ink">תנאי שימוש</a>
+          <ThemeToggle />
         </div>
       </footer>
     </main>

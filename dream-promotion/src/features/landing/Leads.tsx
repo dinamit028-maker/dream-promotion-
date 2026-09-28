@@ -29,19 +29,19 @@ export function Leads() {
   return (
     <section ref={ref} className="mx-auto max-w-6xl px-5 py-28">
       <h2 className="max-w-2xl font-display text-4xl font-black leading-tight sm:text-6xl">כל פנייה.<br />עד שהיא הופכת ללקוח.</h2>
-      <p className="mt-4 max-w-xl text-lg text-white/65">לידים מאינסטגרם, פייסבוק, וואטסאפ והאתר נכנסים ללוח אחד, וכל אחד מתקדם בשלבים.</p>
+      <p className="mt-4 max-w-xl text-lg text-ink-2">לידים מאינסטגרם, פייסבוק, וואטסאפ והאתר נכנסים ללוח אחד, וכל אחד מתקדם בשלבים.</p>
 
       <LayoutGroup>
         <div className="scrollbar-thin mt-12 flex gap-3 overflow-x-auto pb-2">
           {STAGES.map((stage, si) => (
-            <div key={stage} className={`min-w-[150px] flex-1 rounded-2xl border p-3 ${si === 4 ? 'border-[#43D2AE]/30 bg-[#43D2AE]/5' : 'border-white/10 bg-white/[.02]'}`}>
-              <p className={`mb-3 text-sm font-semibold ${si === 4 ? 'text-[#43D2AE]' : 'text-white/60'}`}>{stage}</p>
+            <div key={stage} className={`min-w-[150px] flex-1 rounded-2xl border p-3 ${si === 4 ? 'border-[#43D2AE]/30 bg-[#43D2AE]/5' : 'border-line bg-surface-2'}`}>
+              <p className={`mb-3 text-sm font-semibold ${si === 4 ? 'text-ok' : 'text-muted'}`}>{stage}</p>
               <div className="min-h-[180px] space-y-2">
                 {LEADS.map((l, li) => at[li] === si && (
                   <motion.div key={l.id} layoutId={reduce ? undefined : l.id} transition={{ type: 'spring', stiffness: 200, damping: 24 }}
-                    className="rounded-xl border border-white/10 bg-[#171230] p-2.5">
+                    className="rounded-xl border border-line bg-surface p-2.5">
                     <p className="font-semibold">{l.n}</p>
-                    <p className="mt-0.5 flex items-center gap-1 text-[12px] text-white/55"><l.I size={13} aria-hidden />{l.src}</p>
+                    <p className="mt-0.5 flex items-center gap-1 text-[12px] text-muted"><l.I size={13} aria-hidden />{l.src}</p>
                   </motion.div>
                 ))}
               </div>

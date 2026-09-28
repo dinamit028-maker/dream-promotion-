@@ -30,15 +30,15 @@ export function CalendarAuto() {
     <section id="calendar" ref={ref} className="mx-auto max-w-6xl scroll-mt-20 px-5 py-28">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <h2 className="font-display text-4xl font-black leading-tight sm:text-6xl">השבוע שלכם<br />כבר מתוכנן.</h2>
-        <p className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold ${ready ? 'border-[#43D2AE]/40 text-[#43D2AE]' : 'border-white/10 text-white/70'}`} aria-live="polite">
-          {ready ? <><Check size={16} weight="bold" aria-hidden />השבוע מוכן</> : <><Sparkle size={16} weight="fill" className="animate-pulse text-[#B9A2FF]" aria-hidden />ה-AI בונה את השבוע שלכם…</>}
+        <p className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold ${ready ? 'border-[#43D2AE]/40 text-ok' : 'border-line text-ink-2'}`} aria-live="polite">
+          {ready ? <><Check size={16} weight="bold" aria-hidden />השבוע מוכן</> : <><Sparkle size={16} weight="fill" className="animate-pulse text-primary" aria-hidden />ה-AI בונה את השבוע שלכם…</>}
         </p>
       </div>
 
       <ol className="mt-12 grid grid-cols-1 gap-3 sm:grid-cols-5">
         {DAYS.map(({ d, item, I, c }, i) => (
-          <li key={d} className="flex min-h-[64px] items-center gap-3 rounded-2xl border border-dashed border-white/12 bg-white/[.02] p-3 sm:min-h-[170px] sm:flex-col sm:items-stretch">
-            <span className="w-14 shrink-0 text-sm text-white/55 sm:w-auto">{d}</span>
+          <li key={d} className="flex min-h-[64px] items-center gap-3 rounded-2xl border border-dashed border-line bg-surface-2 p-3 sm:min-h-[170px] sm:flex-col sm:items-stretch">
+            <span className="w-14 shrink-0 text-sm text-muted sm:w-auto">{d}</span>
             {i < filled && (
               <motion.div
                 initial={reduce ? false : { opacity: 0, y: -60, scale: 0.8, rotate: -6 }}

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import './globals.css';
 import { VersionWatcher } from '@/components/system/VersionWatcher';
+import { THEME_BOOT } from '@/lib/theme';
 
 // every page is rendered fresh, so browsers never hold an old version of the app
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="he" dir="rtl" className={`${body.variable} ${display.variable}`}>
+    <html lang="he" dir="rtl" data-theme="dark" suppressHydrationWarning className={`${body.variable} ${display.variable}`}>
+      <head><script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} /></head>
       <body className="font-sans antialiased"><VersionWatcher />{children}</body>
     </html>
   );

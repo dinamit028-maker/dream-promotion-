@@ -11,6 +11,7 @@ import { ContentEditor } from '@/features/content/ContentEditor';
 import { signOutEverywhere } from '@/lib/session';
 import { JobRunner } from '@/features/content/JobRunner';
 import { VersionTag } from '@/components/system/VersionTag';
+import { ThemeToggle } from '@/components/system/ThemeToggle';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
   UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut,
@@ -86,8 +87,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <Link key={href} href={href} aria-current={on ? 'page' : undefined} title={label}
         className={cx('flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-[15px] font-semibold transition-colors max-lg:justify-center',
-          on ? 'bg-primary-soft text-primary' : 'text-ink-2 hover:bg-surface-2 hover:text-ink')}>
-        <Icon size={21} weight={on ? 'fill' : 'regular'} aria-hidden className="shrink-0" />
+          on ? 'bg-primary-soft text-ink shadow-[inset_0_0_0_1px_rgba(139,102,255,.35),0_8px_24px_rgba(107,59,245,.25)]' : 'text-ink-2 hover:bg-surface-2 hover:text-ink')}>
+        <Icon size={21} weight={on ? 'fill' : 'regular'} aria-hidden className={cx('shrink-0', on && 'text-primary')} />
         <span className="max-lg:sr-only">{label}</span>
       </Link>
     );
@@ -120,9 +121,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <aside aria-label="ניווט ראשי"
-        className="sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col gap-1 overflow-y-auto border-s border-line bg-surface p-4 md:flex max-lg:w-[76px]">
+        className="sticky top-3 m-3 me-0 hidden h-[calc(100vh-24px)] w-[240px] shrink-0 flex-col gap-1 overflow-y-auto rounded-[24px] border border-line bg-[color:var(--glass)] p-4 shadow-[0_20px_60px_rgba(0,0,0,.35)] backdrop-blur-xl md:flex max-lg:w-[76px]">
         <div className="flex items-center gap-2.5 px-2 pb-6 max-lg:justify-center">
-          <Logo /><span className="font-display text-[17px] font-bold max-lg:sr-only">Dream Promotion</span>
+          <Logo /><span className="whitespace-nowrap font-display text-[16px] font-bold max-lg:sr-only">Dream Promotion</span>
         </div>
         <nav className="flex flex-col gap-1">{NAV.map(sideItem)}</nav>
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-4">
@@ -137,12 +138,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className={cx('safe-t sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-2.5 backdrop-blur-xl transition-colors sm:px-6',
-          scrolled ? 'border-b border-line bg-bg/85' : 'border-b border-transparent bg-bg/70')}>
+          scrolled ? 'border-b border-line bg-[color:var(--glass-bg)]' : 'border-b border-transparent bg-transparent')}>
           <div className="flex items-center gap-2.5">
             <span className="md:hidden"><Logo small /></span>
             <strong className="font-display text-[17px] font-bold">{current?.label ?? ''}</strong>
           </div>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             {aiReady !== null && <Pill tone={aiReady ? 'ai' : 'warn'}>{aiReady ? 'AI פעיל' : 'AI לא מוגדר'}</Pill>}
             <button type="button" onClick={signOut} aria-label="יציאה מהחשבון"
               className="flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-2 hover:bg-surface-2 md:hidden">
@@ -157,7 +159,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="mx-auto w-full max-w-[1240px] px-4 pb-32 pt-6 sm:px-6">{children}</main>
       </div>
 
-      <nav aria-label="ניווט" className="safe-b fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-line bg-surface/92 px-2 pt-1 backdrop-blur-xl md:hidden">
+      <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-[color:var(--glass)] px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
         {MOBILE_LEFT.map(tabItem)}
         <Link href="/create" aria-label="יצירת תוכן חדש"
           className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">

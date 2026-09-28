@@ -28,8 +28,8 @@ export function Button({
 export function Card({ children, className, hover }: { children: ReactNode; className?: string; hover?: boolean }) {
   return (
     <div className={cx(
-      'rounded-lg border border-line bg-surface p-6 shadow-sm transition-all duration-300',
-      hover && 'hover:-translate-y-0.5 hover:shadow-md',
+      'rounded-lg border border-line bg-[color:var(--glass)] p-6 shadow-sm backdrop-blur transition-all duration-300',
+      hover && 'hover:-translate-y-0.5 hover:border-[#8B66FF]/30 hover:shadow-md',
       className,
     )}>{children}</div>
   );

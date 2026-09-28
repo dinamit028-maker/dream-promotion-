@@ -28,7 +28,7 @@ export function ImageStudio() {
     <section id="studio" className="scroll-mt-20 overflow-hidden py-28">
       <div className="mx-auto max-w-6xl px-5 text-center">
         <h2 className="font-display text-4xl font-black leading-tight sm:text-6xl">רעיון אחד.<br />עולם שלם של תוכן.</h2>
-        <p className="mx-auto mt-4 max-w-xl text-lg text-white/65">
+        <p className="mx-auto mt-4 max-w-xl text-lg text-ink-2">
           אותו מסר, בכל מקום שתבחרו. אלה פריימים אמיתיים מסרטונים שנוצרו במערכת, מאותו תיאור של עסק.
         </p>
       </div>
@@ -48,11 +48,11 @@ export function ImageStudio() {
                 aria-label={`להציג: ${s.t}`}
                 animate={{ x: -d * w, rotateY: d * 28, scale: 1 - Math.abs(d) * 0.14, opacity: Math.abs(d) > 1 ? 0.35 : 1 }}
                 transition={reduce ? { duration: 0 } : { type: 'spring', stiffness: 90, damping: 18 }}
-                className="relative block h-[300px] w-[170px] overflow-hidden rounded-[20px] border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,.6)] sm:h-[400px] sm:w-[225px]"
+                className="relative block h-[300px] w-[170px] overflow-hidden rounded-[20px] border border-line shadow-[0_30px_80px_rgba(0,0,0,.6)] sm:h-[400px] sm:w-[225px]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={s.img} alt="" className="h-full w-full object-cover" />
-                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-10 text-right text-sm font-semibold">{s.t}</span>
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-10 text-right text-sm font-semibold text-white">{s.t}</span>
               </motion.button>
             </div>
           );

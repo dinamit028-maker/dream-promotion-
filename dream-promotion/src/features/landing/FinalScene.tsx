@@ -28,7 +28,7 @@ export function FinalScene() {
             initial={reduce ? false : { x, y, opacity: 1, scale: 1 }}
             animate={gather ? { x: 0, y: 0, opacity: 0, scale: 0.5 } : undefined}
             transition={{ duration: 1.1, delay: i * 0.06, ease: [0.22, 0.8, 0.3, 1] }}
-            className="absolute left-1/2 top-1/2 z-10 -ml-12 -mt-5 hidden items-center gap-1.5 rounded-full border border-white/10 bg-[#171230] px-3 py-2 text-sm sm:flex">
+            className="absolute left-1/2 top-1/2 z-10 -ml-12 -mt-5 hidden items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-2 text-sm sm:flex">
             <I size={15} />{t}
           </motion.span>
         ))}
@@ -45,7 +45,7 @@ export function FinalScene() {
 
       <div className="relative mt-16 text-center">
         <h2 className="font-display text-4xl font-black leading-tight sm:text-6xl">מחלקת השיווק שלכם<br />כבר מוכנה.</h2>
-        <p className="mx-auto mt-5 max-w-md text-lg text-white/70">אתם מנהלים את העסק.<br />Dream Promotion מנהלת את השיווק.</p>
+        <p className="mx-auto mt-5 max-w-md text-lg text-ink-2">אתם מנהלים את העסק.<br />Dream Promotion מנהלת את השיווק.</p>
         <div className="relative mt-9 inline-flex">
           <span aria-hidden className="absolute -inset-4 animate-pulse rounded-full bg-[#8B66FF]/35 blur-2xl motion-reduce:animate-none" />
           <AuthButton mode="up" size="lg">התחילו בחינם</AuthButton>

@@ -41,57 +41,57 @@ export function Campaigns() {
   return (
     <section id="campaigns" ref={ref} className="mx-auto max-w-6xl scroll-mt-20 px-5 py-28">
       <h2 className="max-w-2xl font-display text-4xl font-black leading-tight sm:text-6xl">קמפיין שמרכיב את עצמו</h2>
-      <p className="mt-4 max-w-xl text-lg text-white/65">בוחרים שלושה דברים. ה-AI כותב, מעצב ומחלק את התקציב.</p>
+      <p className="mt-4 max-w-xl text-lg text-ink-2">בוחרים שלושה דברים. ה-AI כותב, מעצב ומחלק את התקציב.</p>
 
       <div className="mt-12 grid gap-6 lg:grid-cols-[.8fr_1.2fr]">
         <ul className="space-y-3">
           {CHOICES.map(({ I, k, v }, i) => (
-            <li key={k} className={`flex items-center gap-3 rounded-2xl border p-4 transition-colors duration-300 ${step > i ? 'border-[#8B66FF]/50 bg-[#8B66FF]/10' : 'border-white/10 bg-white/[.02]'}`}>
-              <I size={22} className={step > i ? 'text-[#B9A2FF]' : 'text-white/35'} aria-hidden />
+            <li key={k} className={`flex items-center gap-3 rounded-2xl border p-4 transition-colors duration-300 ${step > i ? 'border-[#8B66FF]/50 bg-[#8B66FF]/10' : 'border-line bg-surface-2'}`}>
+              <I size={22} className={step > i ? 'text-primary' : 'text-muted'} aria-hidden />
               <div>
-                <p className="text-[12px] text-white/50">{k}</p>
-                <p className={`font-semibold ${step > i ? 'text-white' : 'text-white/35'}`}>{v}</p>
+                <p className="text-[12px] text-muted">{k}</p>
+                <p className={`font-semibold ${step > i ? 'text-ink' : 'text-muted'}`}>{v}</p>
               </div>
             </li>
           ))}
         </ul>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <motion.div {...rise(0)} className="col-span-2 row-span-2 overflow-hidden rounded-2xl border border-white/10 bg-[#15112A] sm:col-span-1">
+          <motion.div {...rise(0)} className="col-span-2 row-span-2 overflow-hidden rounded-2xl border border-line bg-surface sm:col-span-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={REELS[1].poster} alt="" className="h-40 w-full object-cover sm:h-52" />
             <div className="p-3">
-              <p className="text-[11px] text-white/50">קריאייטיב וכותרת</p>
+              <p className="text-[11px] text-muted">קריאייטיב וכותרת</p>
               <p className="font-display font-bold leading-snug">הקיץ שלכם כבר מחכה בשער 4.</p>
             </div>
           </motion.div>
-          <motion.div {...rise(1)} className="rounded-2xl border border-white/10 bg-[#15112A] p-3">
-            <p className="text-[11px] text-white/50">טקסט</p>
+          <motion.div {...rise(1)} className="rounded-2xl border border-line bg-surface p-3">
+            <p className="text-[11px] text-muted">טקסט</p>
             <p className="mt-1 text-[13px] leading-snug">חבילה אחת: טיסה, מלון והעברות. אתם רק אורזים.</p>
           </motion.div>
-          <motion.div {...rise(2)} className="rounded-2xl border border-white/10 bg-[#15112A] p-3">
-            <p className="text-[11px] text-white/50">קריאה לפעולה</p>
-            <span className="mt-2 inline-block rounded-full bg-white px-3 py-1.5 text-[12px] font-bold text-[#0A0814]">לבדיקת מחיר</span>
+          <motion.div {...rise(2)} className="rounded-2xl border border-line bg-surface p-3">
+            <p className="text-[11px] text-muted">קריאה לפעולה</p>
+            <span className="mt-2 inline-block rounded-full bg-ink px-3 py-1.5 text-[12px] font-bold text-bg">לבדיקת מחיר</span>
           </motion.div>
-          <motion.div {...rise(3)} className="rounded-2xl border border-white/10 bg-[#15112A] p-3">
-            <p className="text-[11px] text-white/50">קהל</p>
+          <motion.div {...rise(3)} className="rounded-2xl border border-line bg-surface p-3">
+            <p className="text-[11px] text-muted">קהל</p>
             <p className="mt-1 text-[13px]">זוגות 25–40 · מתעניינים בטיסות</p>
           </motion.div>
-          <motion.div {...rise(4)} className="rounded-2xl border border-white/10 bg-[#15112A] p-3">
-            <p className="text-[11px] text-white/50">חלוקת תקציב</p>
+          <motion.div {...rise(4)} className="rounded-2xl border border-line bg-surface p-3">
+            <p className="text-[11px] text-muted">חלוקת תקציב</p>
             <div className="mt-2 flex h-2.5 overflow-hidden rounded-full">
               <span className="w-[60%] bg-[#8B66FF]" /><span className="w-[40%] bg-[#FF7FA8]" />
             </div>
-            <p className="mt-1.5 flex justify-between text-[11px] text-white/60"><span>רילס 60%</span><span>סטורי 40%</span></p>
+            <p className="mt-1.5 flex justify-between text-[11px] text-muted"><span>רילס 60%</span><span>סטורי 40%</span></p>
           </motion.div>
         </div>
       </div>
 
       <dl className="mt-10 grid gap-3 sm:grid-cols-4">
         {LEDGER.map((l) => (
-          <div key={l.t} className="rounded-2xl border border-white/10 p-4">
+          <div key={l.t} className="rounded-2xl border border-line p-4">
             <dt className="font-display font-bold">{l.t}</dt>
-            <dd className="mt-1 text-sm leading-relaxed text-white/60">{l.d}</dd>
+            <dd className="mt-1 text-sm leading-relaxed text-muted">{l.d}</dd>
           </div>
         ))}
       </dl>

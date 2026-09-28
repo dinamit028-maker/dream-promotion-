@@ -4,6 +4,9 @@ import { useApp } from '@/lib/store';
 import { cx } from '@/lib/utils';
 import type { MediaAsset } from '@/types';
 
+/** The phone mimics the real networks, which are light: its inside keeps light tokens even in the dark app. */
+const LIGHT_PHONE = { '--ink': '#1A1530', '--ink-2': '#463F5A', '--muted': '#6B6579', '--line': '#E5E0EF', '--surface': '#FFFFFF', '--surface-2': '#F4F2F9' } as import('react').CSSProperties;
+
 export type PreviewPlatform = 'ig-feed' | 'ig-reel' | 'story' | 'tiktok' | 'facebook';
 export const PREVIEW_TABS: { id: PreviewPlatform; label: string }[] = [
   { id: 'ig-feed', label: 'Instagram פיד' },
@@ -49,7 +52,7 @@ export function PlatformPreview({
         ))}
       </div>
 
-      <div className={cx('mx-auto overflow-hidden rounded-[28px] border-[6px] border-ink bg-white text-ink shadow-xl', vertical ? 'w-[260px]' : 'w-[320px]')}>
+      <div style={LIGHT_PHONE} className={cx('mx-auto overflow-hidden rounded-[28px] border-[6px] border-[#2A2350] bg-white text-[#1A1530] shadow-xl', vertical ? 'w-[260px]' : 'w-[320px]')}>
         {!vertical && (
           <div className="flex items-center gap-2 px-3 py-2">
             <span className="h-7 w-7 rounded-full" style={{ background: `linear-gradient(135deg, ${palette[0]}, ${palette[1]})` }} />
@@ -81,7 +84,7 @@ export function PlatformPreview({
               )}
               <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-10 text-white">
                 {tab === 'story'
-                  ? <div className="mx-auto w-fit rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-ink">שלחו הודעה</div>
+                  ? <div className="mx-auto w-fit rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-[#1A1530]">שלחו הודעה</div>
                   : <p className="line-clamp-2 text-xs">{caption}</p>}
               </div>
             </>
