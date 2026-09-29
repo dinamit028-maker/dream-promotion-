@@ -12,6 +12,7 @@ import { today } from '@/lib/utils';
 import type { ReelProject } from '@/types';
 import { audioDuration, captionPng, sceneCues } from './captionImages';
 import { TikTokSend } from '@/features/social/TikTokSend';
+import { MetaSend } from '@/features/social/MetaSend';
 
 export interface RenderScenePayload {
   url: string; kind: 'video' | 'image'; seconds?: number; narrationUrl?: string;
@@ -48,6 +49,7 @@ export function FinalReelPanel({
   const [when, setWhen] = useState({ date: today(), time: '19:30' });
   const [scheduledMsg, setScheduledMsg] = useState<string | null>(null);
   const [tiktokOpen, setTiktokOpen] = useState(false);
+  const [metaOpen, setMetaOpen] = useState(false);
 
   function openSchedule() {
     const item = content.find((c) => c.id === projectId);
@@ -222,6 +224,7 @@ export function FinalReelPanel({
               <Button size="sm" variant="ghost" onClick={duplicate} disabled={!projectId}>שכפול</Button>
               <Button size="sm" variant="ghost" onClick={saveDraft} disabled={!projectId}>שמירה בטיוטות</Button>
               <Button size="sm" variant="ghost" onClick={() => setTiktokOpen(true)}>שליחה ל-TikTok</Button>
+              <Button size="sm" variant="ghost" onClick={() => setMetaOpen(true)}>פרסום באינסטגרם ובפייסבוק</Button>
               <Button size="sm" variant="ghost" onClick={() => projectId && openEditor(projectId)} disabled={!projectId}>כל האפשרויות</Button>
               <Button size="sm" variant="ghost" onClick={openSchedule} disabled={!projectId}>תזמון ביומן</Button>
             </div>
@@ -236,6 +239,8 @@ export function FinalReelPanel({
         }} selectedId={music?.mediaId} />
 
       <TikTokSend open={tiktokOpen} onClose={() => setTiktokOpen(false)} mediaId={final?.mediaId ?? null} contentId={projectId}
+        caption={[title, caption, (content.find((c) => c.id === projectId)?.hashtags ?? []).map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' ')].filter(Boolean).join('\n\n')} />
+      <MetaSend open={metaOpen} onClose={() => setMetaOpen(false)} mediaId={final?.mediaId ?? null}
         caption={[title, caption, (content.find((c) => c.id === projectId)?.hashtags ?? []).map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' ')].filter(Boolean).join('\n\n')} />
       <Modal open={scheduling} onClose={() => setScheduling(false)}>
         <div className="mb-4 flex items-center justify-between gap-3">

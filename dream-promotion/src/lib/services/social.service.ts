@@ -8,7 +8,7 @@ export class IntegrationRequiredError extends Error {
 
 export interface SocialAccount {
   id: string; provider: 'tiktok' | 'instagram' | 'facebook';
-  name: string | null; avatar: string | null; connectedAt: string; needsReconnect: boolean;
+  name: string | null; avatar: string | null; connectedAt: string; needsReconnect: boolean; readOnly?: boolean;
 }
 
 async function authed(path: string, init: RequestInit = {}) {
@@ -29,12 +29,28 @@ async function authed(path: string, init: RequestInit = {}) {
 export const SocialService = {
   providers: ['TikTok', 'Instagram', 'Facebook', 'WhatsApp'] as const,
 
-  async accounts(): Promise<{ configured: { tiktok: boolean }; accounts: SocialAccount[] }> {
+  async accounts(): Promise<{ configured: { tiktok: boolean; meta?: boolean }; accounts: SocialAccount[] }> {
     return authed('/api/social/accounts');
   },
   async connectTikTok() {
     const { url } = await authed('/api/tiktok/connect', { method: 'POST' });
     window.location.href = url;
+  },
+  /** mode "full": publish + read. mode "read": read only — Meta refuses any publish call for it. */
+  async connectMeta(mode: 'full' | 'read') {
+    const { url } = await authed('/api/meta/connect', { method: 'POST', body: JSON.stringify({ mode }) });
+    window.location.href = url;
+  },
+  /** Facebook Page: published at once. Instagram: returns a container that is published by polling metaStatus. */
+  async sendToMeta(accountId: string, mediaId: string, caption: string, target: 'feed' | 'story'): Promise<{ state: string; containerId?: string; id?: string }> {
+    return authed('/api/meta/publish', { method: 'POST', body: JSON.stringify({ accountId, mediaId, caption, target }) });
+  },
+  async metaStatus(accountId: string, containerId: string): Promise<{ state: 'processing' | 'published' | 'failed'; reason?: string }> {
+    return authed('/api/meta/publish/status', { method: 'POST', body: JSON.stringify({ accountId, containerId }) });
+  },
+  /** Live Instagram stories → media library. Without accountId: every connected Instagram account. */
+  async importStories(accountId?: string): Promise<{ added: { id: string; url: string; name: string; kind: 'image' | 'video' }[]; already: number; noFile: number; failed: number; live: number; errors: string[] }> {
+    return authed('/api/meta/stories', { method: 'POST', body: JSON.stringify({ accountId }) });
   },
   async disconnect(id: string) {
     await authed(`/api/social/accounts?id=${encodeURIComponent(id)}`, { method: 'DELETE' });

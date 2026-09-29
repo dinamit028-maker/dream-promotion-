@@ -4,6 +4,7 @@ import { useApp } from '@/lib/store';
 import { Button, Field, Input, Pill, Textarea } from '@/components/ui/primitives';
 import { CloseButton, IntegrationDialog, Modal } from '@/components/ui/feedback';
 import { TikTokSend } from '@/features/social/TikTokSend';
+import { MetaSend } from '@/features/social/MetaSend';
 import { Visual } from '@/components/ui/Visual';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { MediaPicker } from '@/features/media/MediaPicker';
@@ -26,6 +27,7 @@ export function ContentEditor() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishDialog, setPublishDialog] = useState(false);
   const [tiktokOpen, setTiktokOpen] = useState(false);
+  const [metaOpen, setMetaOpen] = useState(false);
 
   useEffect(() => {
     if (!item) return;
@@ -103,7 +105,9 @@ export function ContentEditor() {
           {useApp.getState().media.find((m) => m.id === mediaId)?.kind === 'video' && (
             <Button variant="ghost" onClick={() => setTiktokOpen(true)}>שליחה ל-TikTok</Button>
           )}
-          <Button variant="ghost" onClick={() => setPublishDialog(true)}>פרסום עכשיו</Button>
+          {/Instagram|Facebook/.test(item.platform) || !item.platform
+            ? <Button variant="ghost" onClick={() => setMetaOpen(true)}>פרסום באינסטגרם ובפייסבוק</Button>
+            : <Button variant="ghost" onClick={() => setPublishDialog(true)}>פרסום עכשיו</Button>}
           {confirmDelete ? (
             <Button variant="ghost" className="text-[var(--danger)]" onClick={() => { removeContent(item.id); closeEditor(); }}>
               בטוח? מחיקה סופית
@@ -126,6 +130,8 @@ export function ContentEditor() {
       </Modal>
       <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={setMediaId} selectedId={mediaId} />
       <TikTokSend open={tiktokOpen} onClose={() => setTiktokOpen(false)} mediaId={mediaId} contentId={item.id}
+        caption={[headline, caption, hashtags.split(/\s+/).filter(Boolean).map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' '), cta].filter(Boolean).join('\n\n')} />
+      <MetaSend open={metaOpen} onClose={() => setMetaOpen(false)} mediaId={mediaId}
         caption={[headline, caption, hashtags.split(/\s+/).filter(Boolean).map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' '), cta].filter(Boolean).join('\n\n')} />
       <IntegrationDialog open={publishDialog} onClose={() => setPublishDialog(false)} provider={item.platform} what="פרסום" />
     </>

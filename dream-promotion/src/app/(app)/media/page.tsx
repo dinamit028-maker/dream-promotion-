@@ -1,18 +1,20 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { MediaService } from '@/lib/services';
+import { SocialService } from '@/lib/services/social.service';
 import { Button, Chip, PageHead } from '@/components/ui/primitives';
 import { AdapterNote, CloseButton, EmptyState, Modal } from '@/components/ui/feedback';
 import { Images } from '@/components/ui/Icon';
 import { cx } from '@/lib/utils';
 import type { MediaAsset } from '@/types';
 
-type Filter = 'all' | 'reel' | 'clip' | 'image' | 'audio';
+type Filter = 'all' | 'reel' | 'story' | 'clip' | 'image' | 'audio';
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'הכל' },
   { id: 'reel', label: 'רילים סופיים' },
+  { id: 'story', label: 'סטוריז מאינסטגרם' },
   { id: 'clip', label: 'קליפים' },
   { id: 'image', label: 'תמונות' },
   { id: 'audio', label: 'קריינות ומוזיקה' },
@@ -21,10 +23,11 @@ const FILTERS: { id: Filter; label: string }[] = [
 /** What a file is, at a glance — names of a project's files all start the same. */
 function typeOf(m: MediaAsset): Exclude<Filter, 'all'> {
   if (m.kind === 'audio') return 'audio';
+  if (m.name.startsWith('סטורי ·')) return 'story';
   if (m.kind === 'video') return m.name.includes('ריל סופי') ? 'reel' : 'clip';
   return 'image';
 }
-const TYPE_HE: Record<Exclude<Filter, 'all'>, string> = { reel: 'ריל סופי', clip: 'קליפ', image: 'תמונה', audio: 'אודיו' };
+const TYPE_HE: Record<Exclude<Filter, 'all'>, string> = { reel: 'ריל סופי', story: 'סטורי', clip: 'קליפ', image: 'תמונה', audio: 'אודיו' };
 
 export default function MediaPage() {
   const { media, addMedia, removeMedia } = useApp();
@@ -36,6 +39,32 @@ export default function MediaPage() {
   const [menu, setMenu] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [open, setOpen] = useState<MediaAsset | null>(null);
+
+  const [storyBusy, setStoryBusy] = useState(false);
+  const [storyNote, setStoryNote] = useState<string | null>(null);
+
+  /** Live Instagram stories → library. Silent when run automatically; stories vanish after 24 hours. */
+  async function pullStories(quiet = false) {
+    setStoryBusy(true); if (!quiet) setStoryNote(null);
+    try {
+      const r = await SocialService.importStories();
+      const have = new Set(useApp.getState().media.map((m) => m.id));
+      r.added.filter((a) => !have.has(a.id)).forEach((a) => addMedia({ ...a, tags: ['סטורי', 'אינסטגרם'], persistent: true }));
+      if (!quiet || r.added.length) {
+        const bits = [r.added.length ? `נוספו ${r.added.length} סטוריז מאינסטגרם.` : r.live ? 'כל הסטוריז הפעילים כבר שמורים.' : 'אין כרגע סטוריז פעילים באינסטגרם.'];
+        if (r.noFile) bits.push(`${r.noFile} עם מוזיקה מספריית אינסטגרם, ואותם Meta לא מאפשרת להוריד.`);
+        setStoryNote(bits.join(' '));
+      }
+    } catch (e: any) {
+      if (!quiet) setStoryNote(e.code === 'no_instagram' ? 'אין עדיין חשבון אינסטגרם מחובר. מחברים במסך החיבורים.' : `הייבוא נכשל: ${e.message}`);
+    } finally { setStoryBusy(false); }
+  }
+  // once per visit to the app: catch new stories before they expire
+  useEffect(() => {
+    try { if (sessionStorage.getItem('dp-stories-synced')) return; sessionStorage.setItem('dp-stories-synced', '1'); } catch { /* ignore */ }
+    void pullStories(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onFiles(files: FileList | null) {
     if (!files) return;
@@ -67,7 +96,8 @@ export default function MediaPage() {
   /** The one thing you most likely want to do with this file. */
   function primary(m: MediaAsset) {
     const t = typeOf(m);
-    if (t === 'clip') return { label: 'ריל עם קריינות', go: () => router.push(`/reels?media=${m.id}`) };
+    if (t === 'clip' || (t === 'story' && m.kind === 'video')) return { label: 'ריל עם קריינות', go: () => router.push(`/reels?media=${m.id}`) };
+    if (t === 'story') return { label: 'יצירת תוכן', go: () => router.push(`/create?media=${m.id}`) };
     if (t === 'reel') return { label: 'יצירת פוסט', go: () => router.push(`/create?media=${m.id}`) };
     if (t === 'image') return { label: 'יצירת תוכן', go: () => router.push(`/create?media=${m.id}`) };
     return null;
@@ -76,7 +106,11 @@ export default function MediaPage() {
   return (
     <>
       <PageHead title="ספריית המדיה" sub={`${media.length} קבצים`}
-        action={<Button variant="primary" onClick={() => input.current?.click()} disabled={busy}>{busy ? 'מעלה…' : '+ העלאה'}</Button>} />
+        action={<div className="flex flex-wrap gap-2">
+          <Button variant="ghost" onClick={() => pullStories()} disabled={storyBusy}>{storyBusy ? 'מייבא סטוריז…' : 'ייבוא סטוריז מאינסטגרם'}</Button>
+          <Button variant="primary" onClick={() => input.current?.click()} disabled={busy}>{busy ? 'מעלה…' : '+ העלאה'}</Button>
+        </div>} />
+      {storyNote && <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">{storyNote}</p>}
       <input ref={input} type="file" accept="image/*,video/*,audio/*" multiple hidden onChange={(e) => onFiles(e.target.files)} />
       {!MediaService.persistent && (
         <div className="mb-6"><AdapterNote>אחסון קבצים מתמיד לא מוגדר, לכן הקבצים חיים בדפדפן עד רענון.</AdapterNote></div>

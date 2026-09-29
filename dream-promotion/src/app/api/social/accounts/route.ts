@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { open } from '@/lib/server/secrets';
 import { revoke, tiktokConfigured } from '@/lib/server/tiktok';
+import { metaConfigured } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,13 +12,14 @@ export async function GET(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
   const { data, error } = await adminDb().from('social_accounts')
-    .select('id, provider, display_name, avatar_url, created_at, refresh_expires_at').eq('user_id', userId).order('created_at');
-  if (error) return NextResponse.json({ code: 'db', message: error.message, configured: { tiktok: tiktokConfigured() }, accounts: [] });
+    .select('id, provider, display_name, avatar_url, created_at, refresh_expires_at, scope').eq('user_id', userId).order('created_at');
+  if (error) return NextResponse.json({ code: 'db', message: error.message, configured: { tiktok: tiktokConfigured(), meta: metaConfigured() }, accounts: [] });
   return NextResponse.json({
-    configured: { tiktok: tiktokConfigured() },
+    configured: { tiktok: tiktokConfigured(), meta: metaConfigured() },
     accounts: (data ?? []).map((a) => ({
       id: a.id, provider: a.provider, name: a.display_name, avatar: a.avatar_url, connectedAt: a.created_at,
       needsReconnect: a.refresh_expires_at ? new Date(a.refresh_expires_at).getTime() < Date.now() : false,
+      readOnly: a.provider !== 'tiktok' && a.scope === 'read',
     })),
   });
 }
