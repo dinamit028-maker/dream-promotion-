@@ -1,16 +1,19 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
-import { Button, Card, Chip, Field } from '@/components/ui/primitives';
+import { AIService } from '@/lib/services';
+import { TranscribeService } from '@/lib/services/transcribe.service';
+import { Button, Card, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { AdapterNote, CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { MediaPicker } from '@/features/media/MediaPicker';
 import { PlatformPreview } from '@/features/preview/PlatformPreview';
 import { ScheduleFields } from '@/features/calendar/ScheduleFields';
 import { today } from '@/lib/utils';
-import type { ReelProject } from '@/types';
-import { audioDuration, captionPng, sceneCues } from './captionImages';
+import type { CaptionCue, CaptionStyle, ReelProject } from '@/types';
+import { PRESETS, audioDuration, cueFrames, linesFromWords, loadCaptionFont, presetStyle, sceneCues, styleOf } from './captionImages';
+import { CaptionEditor, type EditorScene } from './CaptionEditor';
 import { TikTokSend } from '@/features/social/TikTokSend';
 import { MetaSend } from '@/features/social/MetaSend';
 
@@ -19,26 +22,47 @@ export interface RenderScenePayload {
   cues?: { start: number; end: number; text: string }[];
   text?: string;
   durationSec?: number;
+  /** the scene's label in the studio ("הוק", "קליפ 2") */
+  label?: string;
 }
 
-const STAGE_HE = { download: 'אוסף את הקליפים והקריינות…', render: 'מרכיב את הריל…', upload: 'שומר בספריית המדיה…' } as const;
+const STAGE_HE = {
+  captions: 'מכין את הכתוביות…', download: 'אוסף את הקליפים והקריינות…', render: 'מרכיב את הריל…', upload: 'שומר בספריית המדיה…',
+} as const;
+
+/** A request body is capped at 4.5 MB on Vercel — caption images beyond that go through storage. */
+async function parkInStorage(token: string, json: string): Promise<string> {
+  const res = await fetch('/api/media', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action: 'sign', ext: 'json' }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.message || 'sign_failed');
+  const up = await supabase().storage.from('assets').uploadToSignedUrl(j.path, j.token, new Blob([json], { type: 'application/json' }), { contentType: 'application/json' });
+  if (up.error) throw new Error(up.error.message);
+  return j.path as string;
+}
 
 /**
- * The last step of the reel studio: background music, caption style, and one button
- * that turns the scenes into a single finished 9:16 MP4 — stored, in the media
- * library, and linked to this reel.
+ * The last step of the reel studio: background music, the clips' own sound, captions (style +
+ * editor), and one button that turns the scenes into a single finished 9:16 MP4 — stored, in the
+ * media library, and linked to this reel. Then the post text and hashtags, and publishing.
  */
 export function FinalReelPanel({
-  projectId, title, caption, payload, ready, missingNarration, music, setMusic, captions, setCaptions, final, onRendered,
+  projectId, title, brief, payload, ready, missingNarration, music, setMusic, captions, setCaptions,
+  sceneCaptions, setSceneCaption, originalAudio, setOriginalAudio, social, setSocial, final, onRendered,
 }: {
-  projectId: string | null; title: string; caption: string;
+  projectId: string | null; title: string; brief: string;
   payload: RenderScenePayload[]; ready: boolean; missingNarration: number;
   music: ReelProject['music']; setMusic: (m: ReelProject['music']) => void;
   captions: ReelProject['captions']; setCaptions: (c: ReelProject['captions']) => void;
+  sceneCaptions: (CaptionCue[] | null)[]; setSceneCaption: (i: number, lines: CaptionCue[] | null) => void;
+  originalAudio: boolean; setOriginalAudio: (v: boolean) => void;
+  social: { caption: string; hashtags: string[] }; setSocial: (s: { caption: string; hashtags: string[] }) => void;
   final: ReelProject['final']; onRendered: (f: NonNullable<ReelProject['final']>) => void;
 }) {
   const router = useRouter();
-  const { media, addMedia, duplicateContent, updateContent, content, openEditor } = useApp();
+  const { media, addMedia, duplicateContent, updateContent, content, openEditor, brand } = useApp();
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<{ stage: keyof typeof STAGE_HE; pct?: number } | null>(null);
@@ -50,6 +74,27 @@ export function FinalReelPanel({
   const [scheduledMsg, setScheduledMsg] = useState<string | null>(null);
   const [tiktokOpen, setTiktokOpen] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [socialBusy, setSocialBusy] = useState(false);
+  const [socialError, setSocialError] = useState<string | null>(null);
+  const [newTag, setNewTag] = useState('');
+  const autoSocial = useRef(false);
+
+  const style = styleOf(captions);
+  const setStyle = (s: CaptionStyle) => setCaptions({ ...captions, style: s });
+
+  /** The caption lines of every scene, as they will be burned: edited, else from the narration. */
+  const scenesForEditor: EditorScene[] = useMemo(() => payload.map((p, i) => {
+    const edited = sceneCaptions[i];
+    const fromNarration = p.narrationUrl ? sceneCues(p.cues, p.text, p.durationSec) : [];
+    return {
+      index: i, label: p.label || `סצנה ${i + 1}`, clipUrl: p.url, kind: p.kind, narrationUrl: p.narrationUrl,
+      lines: edited ?? fromNarration,
+      source: edited ? 'edited' : fromNarration.length ? 'narration' : 'none',
+    } as EditorScene;
+  }), [payload, sceneCaptions]);
+
+  const spokenText = scenesForEditor.flatMap((s) => s.lines.map((c) => c.text)).join(' ').slice(0, 3000);
 
   function openSchedule() {
     const item = content.find((c) => c.id === projectId);
@@ -63,40 +108,104 @@ export function FinalReelPanel({
   }
   function saveSchedule() {
     if (!projectId || !final) return;
-    // the reel goes into the calendar with the finished MP4 attached
     updateContent(projectId, { date: when.date, time: when.time, status: 'scheduled', mediaId: final.mediaId });
     setScheduling(false);
     setScheduledMsg(`מתוזמן ל-${when.date.split('-').reverse().join('.')} בשעה ${when.time}. מופיע ביומן.`);
   }
 
+  // ---------------------------------------------------------------- post text + hashtags --
+  /** auto: only fills what is missing — a post text the user wrote stays */
+  async function makeSocial(auto = false) {
+    setSocialBusy(true); setSocialError(null);
+    try {
+      const r = await AIService.social(brand, { title, brief, spoken: spokenText });
+      const tags = Array.from(new Set((r.hashtags ?? []).map((h) => `#${String(h).replace(/^#+/, '').replace(/\s+/g, '')}`).filter((h) => h.length > 1))).slice(0, 25);
+      const written = social.caption.trim();
+      const keep = auto && written && written !== brief.trim();
+      setSocial({ caption: keep ? written : String(r.caption ?? '').trim(), hashtags: tags });
+    } catch (e: any) {
+      setSocialError(e.code === 'no_api_key' ? 'ה-AI לא מוגדר (חסר ANTHROPIC_API_KEY).' : 'יצירת הטקסט נכשלה. נסו שוב.');
+    } finally { setSocialBusy(false); }
+  }
+  // a finished reel without hashtags gets post text + hashtags written for it, once
+  useEffect(() => {
+    if (!final || autoSocial.current || social.hashtags.length) return;
+    autoSocial.current = true;
+    void makeSocial(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [final]);
+  function addTag() {
+    const t = newTag.trim().replace(/^#+/, '').replace(/\s+/g, '_');
+    if (!t) return;
+    const tag = `#${t}`;
+    if (!social.hashtags.includes(tag)) setSocial({ ...social, hashtags: [...social.hashtags, tag] });
+    setNewTag('');
+  }
+  const postText = [social.caption.trim() || title, social.hashtags.join(' ')].filter(Boolean).join('\n\n');
+
+  // ---------------------------------------------------------------- render --
   async function render() {
-    setBusy(true); setError(null); setCaptionNote(null); setStage({ stage: 'download', pct: 0 });
+    setBusy(true); setError(null); setCaptionNote(null); setStage({ stage: 'captions' });
     try {
       if (!isCloudConfigured) throw new Error('יצירת הריל הסופי דורשת חשבון מחובר.');
-      // draw every caption here, in the browser, with the app's own Hebrew font
-      let scenes = payload;
-      if (captions.enabled) {
-        await document.fonts.ready;
-        scenes = await Promise.all(payload.map(async (p) => {
-          if (!p.narrationUrl) return p;
-          const dur = p.durationSec || (p.cues?.length ? 0 : await audioDuration(p.narrationUrl));
-          const cues = sceneCues(p.cues, p.text, dur).map((c) => ({ ...c, png: captionPng(c.text, captions.size) }));
-          return { ...p, cues };
-        }));
-      }
       const { data } = await supabase().auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error('צריך להתחבר מחדש.');
+
+      let transcribed = 0;
+      const scenes: any[] = [];
+      if (captions.enabled) {
+        await loadCaptionFont(style.font);
+        await document.fonts.ready;
+      }
+      const canvas = document.createElement('canvas');
+      for (let i = 0; i < payload.length; i++) {
+        const p = payload[i];
+        let lines: CaptionCue[] = [];
+        if (captions.enabled) {
+          lines = sceneCaptions[i] ?? [];
+          if (!sceneCaptions[i] && p.narrationUrl) {
+            const dur = p.durationSec || (p.cues?.length ? 0 : await audioDuration(p.narrationUrl));
+            lines = sceneCues(p.cues, p.text, dur);
+          }
+          // a video with someone talking and no narration: captions from its own sound, automatically
+          if (!lines.length && !p.narrationUrl && p.kind === 'video' && p.url.startsWith('https://') && originalAudio) {
+            try {
+              const r = await TranscribeService.file(p.url, [brand.name, brand.industry, brand.city].filter(Boolean).join(', '));
+              if (r.words.length) {
+                lines = linesFromWords(r.words, style.maxWords);
+                setSceneCaption(i, lines); // kept with the project — editable later, never transcribed twice
+                transcribed++;
+              }
+            } catch { /* no captions for this scene; the reel still renders */ }
+          }
+        }
+        const cues = lines.flatMap((c) => cueFrames(c, style, canvas));
+        scenes.push({
+          url: p.url, kind: p.kind, seconds: p.seconds, narrationUrl: p.narrationUrl,
+          text: undefined, keepAudio: originalAudio, cues,
+        });
+        setStage({ stage: 'captions', pct: Math.round(((i + 1) / payload.length) * 100) });
+      }
+
+      const body: Record<string, unknown> = {
+        contentId: projectId, replaceMediaId: final?.mediaId ?? null, title,
+        music: music ? { url: music.url, volume: music.volume } : null, captions, originalAudio,
+      };
+      const scenesJson = JSON.stringify(scenes);
+      if (scenesJson.length > 3_000_000) body.scenesPath = await parkInStorage(token, scenesJson);
+      else body.scenes = scenes;
+
+      setStage({ stage: 'download', pct: 0 });
       const res = await fetch('/api/reel/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ contentId: projectId, replaceMediaId: final?.mediaId ?? null, title, scenes, music: music ? { url: music.url, volume: music.volume } : null, captions }),
+        body: JSON.stringify(body),
       });
       if (!res.ok || !res.body) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || `השרת החזיר ${res.status}`);
       }
-      // progress arrives as JSON lines
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = '', result: any = null;
@@ -115,10 +224,9 @@ export function FinalReelPanel({
       if (!result) throw new Error('הרינדור הסתיים בלי קובץ.');
       if (captions.enabled) {
         setCaptionNote(result.captionLines > 0
-          ? `נצרבו ${result.captionLines} שורות כתוביות.`
-          : 'לא נצרבו כתוביות: אין קריינות שמורה בסצנות. צרו קריינות ואז את הריל מחדש.');
+          ? `נצרבו ${result.captionLines} שורות כתוביות${transcribed ? ` (${transcribed} סצנות תומללו אוטומטית מהקול בסרטון)` : ''}.`
+          : 'לא נצרבו כתוביות: אין קריינות ולא נשמע דיבור בסרטונים. אפשר להוסיף שורות ב"עריכת כתוביות".');
       }
-      // the server already removed the previous final of this reel — drop it from the library view too
       if (final?.mediaId && final.mediaId !== result.mediaId) {
         useApp.setState((st) => ({ media: st.media.filter((m) => m.id !== final.mediaId) }));
       }
@@ -138,6 +246,10 @@ export function FinalReelPanel({
   }
 
   const musicName = music ? (media.find((m) => m.id === music.mediaId)?.name ?? music.name) : null;
+  const totalLines = scenesForEditor.reduce((a, s) => a + s.lines.length, 0);
+  const talkingScenes = payload.filter((p) => p.kind === 'video' && !p.narrationUrl).length;
+  const barPct = !stage ? 0 : stage.stage === 'captions' ? (stage.pct ?? 0) * 0.1
+    : stage.stage === 'download' ? 10 + (stage.pct ?? 0) * 0.1 : stage.stage === 'render' ? 20 + (stage.pct ?? 0) * 0.77 : 98;
 
   return (
     <Card className="mt-4">
@@ -156,7 +268,7 @@ export function FinalReelPanel({
                   onChange={(e) => setMusic({ ...music, volume: +e.target.value / 100 })}
                   className="mt-1 w-full accent-[var(--primary)]" />
               </label>
-              <p className="mt-1 text-xs text-muted">המוזיקה יורדת אוטומטית כשהקריין מדבר.</p>
+              <p className="mt-1 text-xs text-muted">המוזיקה יורדת אוטומטית כשמדברים.</p>
               <div className="mt-2 flex gap-3 text-sm">
                 <button type="button" className="font-semibold text-primary" onClick={() => setPicking(true)}>החלפה</button>
                 <button type="button" className="text-muted" onClick={() => setMusic(null)}>בלי מוזיקה</button>
@@ -165,31 +277,41 @@ export function FinalReelPanel({
           ) : (
             <Button variant="ghost" className="w-full" onClick={() => setPicking(true)}>+ הוספת מוזיקה (MP3)</Button>
           )}
+          <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--primary)]" checked={originalAudio} onChange={(e) => setOriginalAudio(e.target.checked)} />
+            <span><strong>הקול המקורי של הסרטונים</strong><span className="block text-xs text-muted">דיבור מסטורי או מסרטון שצילמתם נשמר. מתחת לקריינות הוא נשמע בשקט.</span></span>
+          </label>
         </Field>
 
         <Field label="כתוביות">
-          <div className="flex flex-wrap gap-2">
-            <label className="flex w-full cursor-pointer items-center gap-2 text-sm font-semibold">
-              <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={captions.enabled}
-                onChange={(e) => setCaptions({ ...captions, enabled: e.target.checked })} />
-              הוספת כתוביות לריל
-            </label>
-            {captions.enabled && (
-              <>
-                <Chip on={captions.position === 'bottom'} onClick={() => setCaptions({ ...captions, position: 'bottom' })}>למטה</Chip>
-                <Chip on={captions.position === 'middle'} onClick={() => setCaptions({ ...captions, position: 'middle' })}>באמצע</Chip>
-                <Chip on={captions.size === 'lg'} onClick={() => setCaptions({ ...captions, size: 'lg' })}>גדול</Chip>
-                <Chip on={captions.size === 'md'} onClick={() => setCaptions({ ...captions, size: 'md' })}>רגיל</Chip>
-              </>
-            )}
-          </div>
-          <p className="mt-2 text-xs text-muted">הכתוביות מציגות את הטקסט כפי שנכתב (eSIM, Tasimli), גם כשהקריין הוגה אותו אחרת.</p>
+          <label className="mb-2 flex w-full cursor-pointer items-center gap-2 text-sm font-semibold">
+            <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={captions.enabled}
+              onChange={(e) => setCaptions({ ...captions, enabled: e.target.checked })} />
+            הוספת כתוביות לריל
+          </label>
+          {captions.enabled && (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {PRESETS.map((p) => (
+                  <Chip key={p.id} on={style.preset === p.id} onClick={() => setStyle(presetStyle(p.id, style.y))}>{p.label}</Chip>
+                ))}
+              </div>
+              <Button size="sm" variant="primary" className="mt-3" onClick={() => setEditorOpen(true)} disabled={!payload.length}>
+                עריכת כתוביות · גופן, צבע, טקסט
+              </Button>
+              <p className="mt-2 text-xs text-muted">
+                {totalLines ? `${totalLines} שורות מוכנות. ` : ''}
+                {talkingScenes > 0 && originalAudio ? 'סרטונים בלי קריינות יתומללו אוטומטית מהדיבור שבהם. ' : ''}
+                הכתוביות מציגות את הטקסט כפי שנכתב, גם כשהקריין הוגה אותו אחרת.
+              </p>
+            </>
+          )}
         </Field>
       </div>
 
       {!ready && <p className="mt-4 text-sm text-warn">כדי ליצור את הריל הסופי, כל הסצנות צריכות קליפ או תמונה מוכנים.</p>}
-      {ready && missingNarration > 0 && (
-        <p className="mt-4 text-sm text-muted">ל-{missingNarration} סצנות אין קריינות — הן יופיעו בלי קול ובלי כתוביות.</p>
+      {ready && missingNarration > 0 && !originalAudio && (
+        <p className="mt-4 text-sm text-muted">ל-{missingNarration} סצנות אין קריינות — הן יופיעו בלי קול.</p>
       )}
 
       <div className="mt-4 border-t border-line pt-4">
@@ -200,8 +322,7 @@ export function FinalReelPanel({
           <div className="mt-3">
             <p className="text-sm">{STAGE_HE[stage.stage]} {stage.pct !== undefined && <strong>{stage.pct}%</strong>}</p>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">
-              <div className="h-full bg-primary transition-[width]"
-                style={{ width: `${stage.stage === 'download' ? (stage.pct ?? 0) * 0.15 : stage.stage === 'render' ? 15 + (stage.pct ?? 0) * 0.8 : 97}%` }} />
+              <div className="h-full bg-primary transition-[width]" style={{ width: `${barPct}%` }} />
             </div>
           </div>
         )}
@@ -210,21 +331,50 @@ export function FinalReelPanel({
 
       {final && (
         <div className="mt-5 grid gap-4 border-t border-line pt-5 sm:grid-cols-[220px_1fr]">
-          <video key={final.url} src={final.url} controls playsInline className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />
-          <div>
+          <video key={final.url} src={`${final.url}#t=0.1`} preload="metadata" controls playsInline className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />
+          <div className="min-w-0">
             <p className="font-semibold">הריל מוכן · {Math.round(final.durationSec)} שנ׳</p>
             <p className="mt-1 text-sm text-muted">נשמר בספריית המדיה ומשויך לפרויקט הזה.</p>
             {captionNote && <p className="mt-1 text-sm">{captionNote}</p>}
             {scheduledMsg && <p className="mt-1 text-sm text-ok">{scheduledMsg}</p>}
+
+            {/* ---- post text + hashtags ---- */}
+            <div className="mt-4 rounded-2xl bg-surface-2 p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <strong className="text-sm">טקסט לפוסט והאשטגים</strong>
+                <Button size="sm" variant="ghost" onClick={() => makeSocial()} disabled={socialBusy}>
+                  {socialBusy ? <><Spinner />כותב…</> : social.caption || social.hashtags.length ? '✨ כתיבה מחדש' : '✨ יצירה עם AI'}
+                </Button>
+              </div>
+              <Textarea value={social.caption} onChange={(e) => setSocial({ ...social, caption: e.target.value })}
+                placeholder="הטקסט שיופיע מתחת לסרטון" className="min-h-[90px] bg-surface" />
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {social.hashtags.map((h) => (
+                  <button key={h} type="button" title="הסרה" onClick={() => setSocial({ ...social, hashtags: social.hashtags.filter((x) => x !== h) })}
+                    className="rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-primary hover:line-through" dir="auto">{h} ×</button>
+                ))}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Input value={newTag} onChange={(e) => setNewTag(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                  placeholder="#האשטג_נוסף" className="h-9 bg-surface py-1 text-sm" />
+                <Button size="sm" variant="ghost" onClick={addTag}>הוספה</Button>
+                {social.hashtags.length > 0 && (
+                  <Button size="sm" variant="ghost" onClick={() => navigator.clipboard?.writeText(postText)}>העתקה</Button>
+                )}
+              </div>
+              {socialError && <p className="mt-2 text-xs text-warn">{socialError}</p>}
+              <p className="mt-2 text-xs text-muted">{social.hashtags.length} האשטגים · נשלחים אוטומטית עם הפרסום.</p>
+            </div>
+
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button size="sm" variant="primary" onClick={() => setPreviewing(true)}>תצוגה לפי פלטפורמה</Button>
+              <Button size="sm" variant="primary" onClick={() => setMetaOpen(true)}>פרסום באינסטגרם ובפייסבוק</Button>
+              <Button size="sm" variant="ghost" onClick={() => setTiktokOpen(true)}>שליחה ל-TikTok</Button>
+              <Button size="sm" variant="ghost" onClick={() => setPreviewing(true)}>תצוגה לפי פלטפורמה</Button>
               <a href={final.url} download={`${title}.mp4`} target="_blank" rel="noreferrer"
                 className="inline-flex h-9 items-center rounded-full border border-line px-4 text-sm font-semibold hover:bg-surface-2">הורדה</a>
               <Button size="sm" variant="ghost" onClick={() => document.getElementById('reel-scenes')?.scrollIntoView({ behavior: 'smooth' })}>עריכה</Button>
               <Button size="sm" variant="ghost" onClick={duplicate} disabled={!projectId}>שכפול</Button>
               <Button size="sm" variant="ghost" onClick={saveDraft} disabled={!projectId}>שמירה בטיוטות</Button>
-              <Button size="sm" variant="ghost" onClick={() => setTiktokOpen(true)}>שליחה ל-TikTok</Button>
-              <Button size="sm" variant="ghost" onClick={() => setMetaOpen(true)}>פרסום באינסטגרם ובפייסבוק</Button>
               <Button size="sm" variant="ghost" onClick={() => projectId && openEditor(projectId)} disabled={!projectId}>כל האפשרויות</Button>
               <Button size="sm" variant="ghost" onClick={openSchedule} disabled={!projectId}>תזמון ביומן</Button>
             </div>
@@ -232,16 +382,17 @@ export function FinalReelPanel({
         </div>
       )}
 
+      <CaptionEditor open={editorOpen} onClose={() => setEditorOpen(false)} scenes={scenesForEditor}
+        style={style} onStyle={setStyle} onLines={setSceneCaption} brief={brief} />
+
       <MediaPicker open={picking} onClose={() => setPicking(false)} accept="audio"
         onPick={(id) => {
           const m = useApp.getState().media.find((x) => x.id === id);
           if (m) setMusic({ mediaId: m.id, url: m.url, name: m.name, volume: music?.volume ?? 0.25 });
         }} selectedId={music?.mediaId} />
 
-      <TikTokSend open={tiktokOpen} onClose={() => setTiktokOpen(false)} mediaId={final?.mediaId ?? null} contentId={projectId}
-        caption={[title, caption, (content.find((c) => c.id === projectId)?.hashtags ?? []).map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' ')].filter(Boolean).join('\n\n')} />
-      <MetaSend open={metaOpen} onClose={() => setMetaOpen(false)} mediaId={final?.mediaId ?? null}
-        caption={[title, caption, (content.find((c) => c.id === projectId)?.hashtags ?? []).map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' ')].filter(Boolean).join('\n\n')} />
+      <TikTokSend open={tiktokOpen} onClose={() => setTiktokOpen(false)} mediaId={final?.mediaId ?? null} contentId={projectId} caption={postText} />
+      <MetaSend open={metaOpen} onClose={() => setMetaOpen(false)} mediaId={final?.mediaId ?? null} caption={postText} />
       <Modal open={scheduling} onClose={() => setScheduling(false)}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="font-display text-xl font-extrabold">תזמון הריל</h3>
@@ -259,7 +410,7 @@ export function FinalReelPanel({
           <h3 className="font-display text-xl font-extrabold">כך הריל ייראה</h3>
           <CloseButton onClick={() => setPreviewing(false)} />
         </div>
-        {final && <PlatformPreview mediaId={final.mediaId} headline="" caption={caption} initial="ig-reel" />}
+        {final && <PlatformPreview mediaId={final.mediaId} headline="" caption={postText} initial="ig-reel" />}
       </Modal>
     </Card>
   );

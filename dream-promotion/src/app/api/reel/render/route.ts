@@ -30,6 +30,16 @@ export async function POST(req: Request) {
   let body: any;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad json', code: 'bad_request' }, { status: 400 }); }
 
+  // captions travel as images; when there are many, the browser parks them in storage first
+  // (a request body is capped at 4.5 MB on Vercel) and sends only the path
+  let packPath: string | null = null;
+  if (typeof body.scenesPath === 'string' && body.scenesPath.startsWith(`${user.id}/`) && body.scenesPath.endsWith('.json')) {
+    const pack: string = body.scenesPath;
+    packPath = pack;
+    const dl = await admin.storage.from('assets').download(pack);
+    if (dl.error || !dl.data) return Response.json({ error: `caption pack missing: ${dl.error?.message ?? ''}`, code: 'bad_request' }, { status: 400 });
+    try { body.scenes = JSON.parse(await dl.data.text()); } catch { return Response.json({ error: 'caption pack unreadable', code: 'bad_request' }, { status: 400 }); }
+  }
   const scenes = Array.isArray(body.scenes) ? body.scenes.slice(0, 12) : [];
   if (!scenes.length || !scenes.every((s: any) => isHttps(s.url) && (!s.narrationUrl || isHttps(s.narrationUrl)))) {
     return Response.json({ error: 'every scene needs a finished clip or image (https)', code: 'bad_request' }, { status: 400 });
@@ -39,9 +49,10 @@ export async function POST(req: Request) {
       url: s.url, kind: s.kind === 'image' ? 'image' : 'video', seconds: Number(s.seconds) || undefined,
       narrationUrl: s.narrationUrl || undefined,
       text: typeof s.text === 'string' ? s.text.slice(0, 2000) : undefined,
-      cues: Array.isArray(s.cues) ? s.cues.slice(0, 200).map((c: any) => ({
+      keepAudio: body.originalAudio !== false && s.keepAudio !== false,
+      cues: Array.isArray(s.cues) ? s.cues.slice(0, 800).map((c: any) => ({
         start: +c.start || 0, end: +c.end || 0, text: String(c.text ?? '').slice(0, 200),
-        png: typeof c.png === 'string' && c.png.startsWith('data:image/png') && c.png.length < 600_000 ? c.png : undefined,
+        png: typeof c.png === 'string' && c.png.startsWith('data:image/png') && c.png.length < 1_500_000 ? c.png : undefined,
       })) : [],
     })),
     music: body.music && isHttps(body.music.url) ? { url: body.music.url, volume: Number(body.music.volume ?? 0.25) } : null,
@@ -89,6 +100,7 @@ export async function POST(req: Request) {
         send({ error: String(e?.message ?? e).slice(0, 600) });
       } finally {
         await rm(dir, { recursive: true, force: true }).catch(() => {});
+        if (packPath) await admin.storage.from('assets').remove([packPath]).catch(() => {});
         ctrl.close();
       }
     },

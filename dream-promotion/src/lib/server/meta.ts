@@ -107,7 +107,7 @@ export async function metaAccount(userId: string, accountId: string): Promise<Me
 /** Facebook Page: photo or video post, published right away. */
 export async function publishToPage(acc: MetaAccount, media: { url: string; kind: string }, caption: string) {
   if (media.kind === 'video') {
-    const r = await graph(`/${acc.externalId}/videos`, { access_token: acc.token, file_url: media.url, description: caption }, 'POST');
+    const r = await graph(`/${acc.externalId}/videos`, { access_token: acc.token, file_url: media.url, description: caption, published: 'true' }, 'POST');
     return String(r.id);
   }
   const r = await graph(`/${acc.externalId}/photos`, { access_token: acc.token, url: media.url, caption }, 'POST');
@@ -117,13 +117,15 @@ export async function publishToPage(acc: MetaAccount, media: { url: string; kind
 export type IgTarget = 'feed' | 'reel' | 'story';
 
 /** Instagram, step 1: a media container. Instagram fetches the file from the URL itself. */
-export async function createIgContainer(acc: MetaAccount, media: { url: string; kind: string }, caption: string, target: IgTarget) {
+export async function createIgContainer(acc: MetaAccount, media: { url: string; kind: string }, caption: string, target: IgTarget, coverMs?: number) {
   const p: Record<string, string> = { access_token: acc.token };
   if (target === 'story') {
     p.media_type = 'STORIES';
     p[media.kind === 'video' ? 'video_url' : 'image_url'] = media.url;
   } else if (media.kind === 'video') {
     p.media_type = 'REELS'; p.video_url = media.url; p.caption = caption; p.share_to_feed = 'true';
+    // the cover: the frame at this point of the video (Instagram's default is the very first frame)
+    p.thumb_offset = String(Math.max(0, Math.round(coverMs ?? 500)));
   } else {
     p.image_url = media.url; p.caption = caption;
   }
@@ -184,4 +186,13 @@ export async function importStories(userId: string, acc: MetaAccount, limit = 10
     } catch { failed++; }
   }
   return { added, already, noFile, failed, live: stories.length };
+}
+
+/** Stories already in the library from the last two days — the browser merges them (the timer may have added some). */
+export async function recentStoryMedia(userId: string) {
+  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const { data } = await adminDb().from('media').select('id, url, name, kind, created_at')
+    .eq('user_id', userId).eq('source', 'instagram_story').gte('created_at', since)
+    .order('created_at', { ascending: false }).limit(50);
+  return (data ?? []).map((m) => ({ id: m.id as string, url: m.url as string, name: m.name as string, kind: m.kind as 'image' | 'video' }));
 }

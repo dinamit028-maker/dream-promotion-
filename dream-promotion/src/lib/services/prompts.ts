@@ -117,3 +117,38 @@ ${previous}
 
 החזר/י JSON בלבד:
 {"videoPrompt":"","visual":"תיאור קצר בעברית"}`;
+
+/** Post text + hashtags for a finished video, from what is actually said and shown in it. */
+export const socialPrompt = (b: BrandProfile, p: { title?: string; brief?: string; spoken?: string; platform?: string }) => `את/ה מנהל/ת סושיאל שכותב/ת בעברית טבעית (לא מתורגמת).
+${brandContext(b)}
+
+כתוב/י טקסט לפוסט ל-${p.platform || 'Instagram ו-TikTok'} עבור סרטון קצר.
+כותרת הסרטון: ${p.title || '—'}
+על מה הסרטון: ${p.brief || '—'}
+מה נאמר בסרטון: ${p.spoken || '—'}
+
+caption: 2–4 שורות קצרות. שורה ראשונה שעוצרת גלילה, תוכן אמיתי מהסרטון, וקריאה לפעולה בסוף (${b.cta || 'לפי העסק'}). אימוג'י אחד או שניים לכל היותר. בלי האשטגים בתוך ה-caption. בלי הבטחות רפואיות ובלי להמציא מחירים, מבצעים או נתונים.
+hashtags: 15–20 האשטגים, בלי כפילויות, כל אחד מתחיל ב-#, בלי רווחים בתוכם. שילוב של: עברית ואנגלית, תחום העסק, העיר והאזור (${b.city || 'לפי העסק'}), נושא הסרטון הספציפי, ו-3–4 כלליים ופופולריים.
+
+החזר/י JSON בלבד:
+{"caption":"","hashtags":["#..."]}`;
+
+/**
+ * Caption lines of a video, polished: transcription mistakes fixed, key words marked, optional emoji.
+ * The number of lines must stay the same — each line keeps its timing.
+ */
+export const captionPolishPrompt = (b: BrandProfile, p: { lines: string[]; brief?: string; emoji?: boolean; fix?: boolean }) => `${brandContext(b)}
+
+אלה שורות הכתוביות של סרטון (${p.lines.length} שורות), לפי הסדר${p.fix ? ', מתמלול אוטומטי שעלול לכלול טעויות' : ''}.
+על מה הסרטון: ${p.brief || '—'}
+
+${p.lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}
+
+לכל שורה החזר/י:
+- text: ${p.fix ? 'השורה מתוקנת — שגיאות תמלול, כתיב, שמות מותג ומונחים מקצועיים לפי העסק. בלי לשנות משמעות, בלי לקצר ובלי להוסיף תוכן.' : 'השורה בדיוק כפי שהיא.'}
+- hl: מספרי המילים (מ-0, לפי הסדר בשורה שהחזרת) שהן מילות המפתח — 0 עד 2 מילים בשורה, רק מילים שבאמת חשובות (מוצר, תוצאה, מספר, מקום).
+${p.emoji ? '- emoji: אימוג\'י אחד שמתאים לשורה, או מחרוזת ריקה. לא יותר מבשליש מהשורות.' : '- emoji: תמיד מחרוזת ריקה.'}
+
+חובה: בדיוק ${p.lines.length} פריטים, באותו סדר.
+החזר/י JSON בלבד:
+{"lines":[{"text":"","hl":[0],"emoji":""}]}`;

@@ -51,7 +51,7 @@ export function MediaPicker({
               {m.kind === 'audio'
                 ? <span className="flex aspect-square w-full items-center justify-center bg-surface-2 text-3xl">♪</span>
                 : m.kind === 'video'
-                ? <video src={m.url} muted playsInline className="aspect-square w-full bg-black object-cover" />
+                ? <video src={`${m.url}#t=0.5`} preload="metadata" muted playsInline className="aspect-square w-full bg-black object-cover" />
                 : <img src={m.url} alt="" className="aspect-square w-full object-cover" />}
               <p className="truncate bg-surface-2 px-2 py-1.5 text-xs">{m.name}</p>
             </button>

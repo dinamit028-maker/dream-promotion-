@@ -34,6 +34,31 @@ export interface SceneNarration {
   voiceId: string; style: string; language: string;
 }
 
+/** One word of a caption line, timed from the start of its scene. hl: a key word, drawn in the highlight colour. */
+export interface CaptionWord { text: string; start: number; end: number; hl?: boolean }
+/** One caption line, timed from the start of its scene. */
+export interface CaptionCue { start: number; end: number; text: string; words?: CaptionWord[]; emoji?: string }
+
+/** How captions look — drawn by the browser, burned into the reel as images. */
+export interface CaptionStyle {
+  preset: 'classic' | 'pop' | 'karaoke' | 'box' | 'neon' | 'minimal';
+  font: string;
+  /** text size at 720px frame width */
+  size: number;
+  color: string;
+  highlightColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  shadow: boolean;
+  background: 'none' | 'box';
+  backgroundColor: string;
+  /** vertical position of the line's centre, 0 (top) … 1 (bottom) */
+  y: number;
+  /** none: whole line at once · word: the spoken word lights up · karaoke: words fill in as they are spoken */
+  highlight: 'none' | 'word' | 'karaoke';
+  maxWords: number;
+}
+
 /** Everything needed to reopen a reel exactly where it was left — lives in content.reel. */
 export interface ReelProject {
   v: 1;
@@ -46,7 +71,11 @@ export interface ReelProject {
   narration: (SceneNarration | null)[];
   voice: { voiceId: string; style: string; language: string };
   music: { mediaId: string; url: string; name: string; volume: number } | null;
-  captions: { enabled: boolean; position: 'bottom' | 'middle'; size: 'md' | 'lg' };
+  captions: { enabled: boolean; position: 'bottom' | 'middle'; size: 'md' | 'lg'; style?: CaptionStyle };
+  /** per scene: caption lines edited in the caption editor or transcribed from the clip's own sound */
+  sceneCaptions?: (CaptionCue[] | null)[];
+  /** keep the clips' own sound (default on); under narration it plays quietly */
+  originalAudio?: boolean;
   final: { mediaId: string; url: string; durationSec: number; renderedAt: number } | null;
   updatedAt: number;
 }

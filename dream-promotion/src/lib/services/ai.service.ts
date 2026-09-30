@@ -46,6 +46,12 @@ export const AIService = {
     call<{ caption: string; cta: string }>('rewrite', { brand, mode, caption, cta }),
   sceneIdea: (brand: BrandProfile, role: string, onScreen: string, previous: string) =>
     call<{ videoPrompt: string; visual: string }>('scene', { brand, role, onScreen, previous }),
+  /** Post text + hashtags for a finished video. */
+  social: (brand: BrandProfile, p: { title?: string; brief?: string; spoken?: string; platform?: string }) =>
+    call<{ caption: string; hashtags: string[] }>('social', { brand, ...p }),
+  /** Caption lines: fixed transcription, key words (hl = word indexes), optional emoji. Same number of lines. */
+  polishCaptions: (brand: BrandProfile, p: { lines: string[]; brief?: string; emoji?: boolean; fix?: boolean }) =>
+    call<{ lines: { text: string; hl?: number[]; emoji?: string }[] }>('captions', { brand, ...p }),
   assistant: (brand: BrandProfile, recentContent: string, question: string) =>
     call<{ text: string }>('assistant', { brand, recentContent, question }),
 };

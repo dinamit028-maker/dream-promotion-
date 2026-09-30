@@ -49,9 +49,11 @@ export default function MediaPage() {
     try {
       const r = await SocialService.importStories();
       const have = new Set(useApp.getState().media.map((m) => m.id));
-      r.added.filter((a) => !have.has(a.id)).forEach((a) => addMedia({ ...a, tags: ['סטורי', 'אינסטגרם'], persistent: true }));
-      if (!quiet || r.added.length) {
-        const bits = [r.added.length ? `נוספו ${r.added.length} סטוריז מאינסטגרם.` : r.live ? 'כל הסטוריז הפעילים כבר שמורים.' : 'אין כרגע סטוריז פעילים באינסטגרם.'];
+      // new now + ones the background timer already saved while the app was closed
+      const fresh = [...r.added, ...(r.recent ?? [])].filter((a, k, all) => !have.has(a.id) && all.findIndex((x) => x.id === a.id) === k);
+      fresh.reverse().forEach((a) => addMedia({ ...a, tags: ['סטורי', 'אינסטגרם'], persistent: true }));
+      if (!quiet || fresh.length) {
+        const bits = [fresh.length ? `נוספו ${fresh.length} סטוריז מאינסטגרם.` : r.live ? 'כל הסטוריז הפעילים כבר שמורים.' : 'אין כרגע סטוריז פעילים באינסטגרם.'];
         if (r.noFile) bits.push(`${r.noFile} עם מוזיקה מספריית אינסטגרם, ואותם Meta לא מאפשרת להוריד.`);
         setStoryNote(bits.join(' '));
       }
@@ -59,10 +61,14 @@ export default function MediaPage() {
       if (!quiet) setStoryNote(e.code === 'no_instagram' ? 'אין עדיין חשבון אינסטגרם מחובר. מחברים במסך החיבורים.' : `הייבוא נכשל: ${e.message}`);
     } finally { setStoryBusy(false); }
   }
-  // once per visit to the app: catch new stories before they expire
+  // new stories show up on their own: on every visit, every 2 minutes while this screen is open,
+  // and whenever the tab comes back to the front (a timer on the server also saves them every 10 minutes)
   useEffect(() => {
-    try { if (sessionStorage.getItem('dp-stories-synced')) return; sessionStorage.setItem('dp-stories-synced', '1'); } catch { /* ignore */ }
     void pullStories(true);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') void pullStories(true); }, 120_000);
+    const onShow = () => { if (document.visibilityState === 'visible') void pullStories(true); };
+    document.addEventListener('visibilitychange', onShow);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onShow); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -96,7 +102,7 @@ export default function MediaPage() {
   /** The one thing you most likely want to do with this file. */
   function primary(m: MediaAsset) {
     const t = typeOf(m);
-    if (t === 'clip' || (t === 'story' && m.kind === 'video')) return { label: 'ריל עם קריינות', go: () => router.push(`/reels?media=${m.id}`) };
+    if (t === 'clip' || (t === 'story' && m.kind === 'video')) return { label: 'ריל עם כתוביות', go: () => router.push(`/reels?media=${m.id}`) };
     if (t === 'story') return { label: 'יצירת תוכן', go: () => router.push(`/create?media=${m.id}`) };
     if (t === 'reel') return { label: 'יצירת פוסט', go: () => router.push(`/create?media=${m.id}`) };
     if (t === 'image') return { label: 'יצירת תוכן', go: () => router.push(`/create?media=${m.id}`) };

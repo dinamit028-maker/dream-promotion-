@@ -24,10 +24,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ state: 'published', id });
     }
     const target: IgTarget = body.target === 'story' ? 'story' : media.kind === 'video' ? 'reel' : 'feed';
-    const containerId = await createIgContainer(acc, media, caption, target);
+    const coverMs = Number.isFinite(+body.coverMs) ? Math.max(0, +body.coverMs) : undefined;
+    const containerId = await createIgContainer(acc, media, caption, target, coverMs);
     return NextResponse.json({ state: 'processing', containerId });
   } catch (e: any) {
     const message = String(e?.message ?? e).slice(0, 300);
+    console.error('[meta/publish]', body.accountId, message);
     const status = /reconnect_required/.test(message) ? 401 : /permission_denied/.test(message) ? 403 : 502;
     return NextResponse.json({ code: message.split(':')[0], message }, { status });
   }

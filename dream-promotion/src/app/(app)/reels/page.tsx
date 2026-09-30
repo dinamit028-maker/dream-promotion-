@@ -18,7 +18,8 @@ import {
   Trash, Plus, CaretLeft, CaretRight, MagicWand, PaperPlaneTilt,
 } from '@/components/ui/Icon';
 import { PALETTE, cx } from '@/lib/utils';
-import type { ReelProject, ReelScene, SceneNarration, Storyboard } from '@/types';
+import type { CaptionCue, ReelProject, ReelScene, SceneNarration, Storyboard } from '@/types';
+import { MicButton } from '@/components/ui/MicButton';
 import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalReelPanel';
 
 type Res = keyof typeof PRICE_PER_SECOND;
@@ -70,6 +71,8 @@ export default function ReelsPage() {
   const [music, setMusic] = useState<ReelProject['music']>(null);
   const [captions, setCaptions] = useState<ReelProject['captions']>({ enabled: true, position: 'bottom', size: 'lg' });
   const [finalReel, setFinalReel] = useState<ReelProject['final']>(null);
+  const [sceneCaps, setSceneCaps] = useState<Record<number, CaptionCue[]>>({});
+  const [originalAudio, setOriginalAudio] = useState(true);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'local' | 'no_migration' | 'error'>('idle');
   const loadedRef = useRef(false);
   const [, tick] = useState(0);
@@ -113,6 +116,8 @@ export default function ReelsPage() {
     setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
     setNarr(Object.fromEntries(p.narration.map((n, i) => [i, n ? { ...n, persisted: true } : null]).filter(([, v]) => v)) as Record<number, Narr>);
     setMusic(p.music); setCaptions(p.captions); setFinalReel(p.final);
+    setSceneCaps(Object.fromEntries((p.sceneCaptions ?? []).map((c, i) => [i, c]).filter(([, c]) => c)) as Record<number, CaptionCue[]>);
+    setOriginalAudio(p.originalAudio !== false);
     if (p.voice?.voiceId) useApp.getState().setVoice({ voiceId: p.voice.voiceId, style: p.voice.style as any, language: p.voice.language as any });
     setSaveState('saved');
   }, [content, projectId]);
@@ -140,14 +145,16 @@ export default function ReelsPage() {
     const nextPhotos: Record<number, string | null> = {};
     const nextMode: Record<number, boolean> = {};
     const nextNarr: Record<number, Narr> = {};
+    const nextCaps: Record<number, CaptionCue[]> = {};
     order.forEach((from, to) => {
       if (from === null) return;
       if (narr[from]) nextNarr[to] = narr[from];
+      if (sceneCaps[from]) nextCaps[to] = sceneCaps[from];
       if (clips[from]) nextClips[to] = clips[from];
       if (photos[from] !== undefined) nextPhotos[to] = photos[from];
       if (imageMode[from] !== undefined) nextMode[to] = imageMode[from];
     });
-    setClips(nextClips); setPhotos(nextPhotos); setImageMode(nextMode); setNarr(nextNarr);
+    setClips(nextClips); setPhotos(nextPhotos); setImageMode(nextMode); setNarr(nextNarr); setSceneCaps(nextCaps);
   }
 
   function swapScenes(i: number, j: number) {
@@ -161,10 +168,16 @@ export default function ReelsPage() {
     setScenes(scenes.filter((_, n) => n !== i));
     remap(scenes.map((_, n) => n).filter((n) => n !== i));
   }
-  const clearClip = (i: number) => setClips((c) => { const { [i]: _drop, ...rest } = c; return rest; });
+  const clearClip = (i: number) => {
+    setClips((c) => { const { [i]: _drop, ...rest } = c; return rest; });
+    // captions transcribed from a clip belong to that clip
+    setSceneCaps((c) => { const { [i]: _drop, ...rest } = c; return rest; });
+  };
+  const setSceneCaption = (i: number, lines: CaptionCue[] | null) =>
+    setSceneCaps((c) => { const { [i]: _drop, ...rest } = c; return lines ? { ...rest, [i]: lines } : rest; });
 
   async function plan() {
-    setPlanning(true); setPlanError(null); setClips({}); setPhotos({}); setNarr({}); setFinalReel(null);
+    setPlanning(true); setPlanError(null); setClips({}); setPhotos({}); setNarr({}); setFinalReel(null); setSceneCaps({});
     try {
       const b = await AIService.storyboard(brand, brief, total);
       const per = Math.round(total / Math.max(1, Math.round(total / 15)));
@@ -202,7 +215,7 @@ export default function ReelsPage() {
       caption: text, hashtags: [],
       scenes: [{ role: 'hook', seconds, onScreen: '', voiceover: text, visual: '', videoPrompt: '' }],
     } as Storyboard);
-    setNarr({}); setFinalReel(null); setPhotos({});
+    setNarr({}); setFinalReel(null); setPhotos({}); setSceneCaps({});
     if (v) { setClips({ 0: { status: 'done', url: v.url, kind: 'video' } as Clip }); setImageMode({}); }
     else if (img) { setClips({ 0: { status: 'done', url: img.url, kind: 'image' } as Clip }); setImageMode({ 0: true }); }
     setPresetVideo(null); setPresetImage(null);
@@ -371,8 +384,10 @@ export default function ReelsPage() {
       }),
       voice: { voiceId: voice.voiceId, style: voice.style, language: voice.language },
       music, captions, final: finalReel, updatedAt: Date.now(),
+      sceneCaptions: scenes.map((_, i) => sceneCaps[i] ?? null),
+      originalAudio,
     };
-  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel]);
+  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel, sceneCaps, originalAudio]);
 
   // autosave: every change is written to the account within a second
   const saveKey = project ? JSON.stringify({ ...project, updatedAt: 0 }) : '';
@@ -428,6 +443,7 @@ export default function ReelsPage() {
     cues: narr[i]?.persisted ? narr[i]?.cues : undefined,
     text: narr[i]?.persisted ? (narr[i]?.originalText || sc.voiceover) : undefined,
     durationSec: narr[i]?.persisted ? narr[i]?.durationSec : undefined,
+    label: roleLabel(sc.role, i),
   }));
   const renderReady = scenes.length > 0 && payload.every((p) => p.url.startsWith('https://'));
   const missingNarration = payload.filter((p) => !p.narrationUrl).length;
@@ -441,6 +457,8 @@ export default function ReelsPage() {
           <Field label="על מה הסרטון?">
             <Textarea value={brief} onChange={(e) => setBrief(e.target.value)}
               placeholder="למשל: טיפול פנים לפני החורף — לפני ואחרי, בקליניקה ברמת אביב" />
+            <MicButton className="mt-2" label="לספר בקול במקום להקליד"
+              onText={(t) => setBrief((b) => (b.trim() ? `${b.trim()} ${t}` : t))} />
           </Field>
           {presetImage && !presetVideo && (
             <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">
@@ -485,11 +503,13 @@ export default function ReelsPage() {
           )}
           {(presetVideo || presetImage) && (
             <>
-              <Button variant="primary" size="lg" className="mb-2 w-full" onClick={quickBoard} disabled={!brief.trim()}>
-                {presetVideo ? 'קריינות לסרטון הזה, בלי תסריט' : 'קריינות על התמונה הזו, בלי תסריט'}
+              <Button variant="primary" size="lg" className="mb-2 w-full" onClick={quickBoard} disabled={!presetVideo && !brief.trim()}>
+                {presetVideo ? 'ריל מהסרטון הזה, בלי תסריט' : 'קריינות על התמונה הזו, בלי תסריט'}
               </Button>
               <p className="mb-3 text-xs text-muted">
-                הטקסט שכתבתם למעלה יהיה טקסט הקריינות (אפשר לערוך אחר כך). בלי AI ובלי עלות וידאו — רק הקול.
+                {presetVideo
+                  ? 'מדברים בסרטון? השאירו את השדה ריק — הכתוביות ייווצרו מהדיבור. כתבתם טקסט? הוא יהיה טקסט הקריינות. בלי עלות וידאו.'
+                  : 'הטקסט שכתבתם למעלה יהיה טקסט הקריינות (אפשר לערוך אחר כך). בלי AI ובלי עלות וידאו — רק הקול.'}
               </p>
             </>
           )}
@@ -570,7 +590,7 @@ export default function ReelsPage() {
                           className="relative flex aspect-[9/16] w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.5px] border-dashed border-line bg-surface-2 text-muted hover:border-primary hover:text-primary sm:w-24">
                           {c?.url ? (c.kind === 'image'
                               ? <img src={c.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                              : <video src={c.url} muted playsInline className="absolute inset-0 h-full w-full object-cover" />)
+                              : <video src={`${c.url}#t=0.5`} preload="metadata" muted playsInline className="absolute inset-0 h-full w-full object-cover" />)
                             : pUrl ? <img src={pUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
                             : <span className="flex flex-col items-center gap-1 text-[11px] font-semibold"><ImageGlyph size={22} aria-hidden />תמונה</span>}
                         </button>
@@ -706,9 +726,13 @@ export default function ReelsPage() {
                 </div>
               </Card>
 
-              <FinalReelPanel projectId={projectId} title={board.title} caption={board.caption || ''}
+              <FinalReelPanel projectId={projectId} title={board.title} brief={brief}
                 payload={payload} ready={renderReady} missingNarration={missingNarration}
                 music={music} setMusic={setMusic} captions={captions} setCaptions={setCaptions}
+                sceneCaptions={scenes.map((_, i) => sceneCaps[i] ?? null)} setSceneCaption={setSceneCaption}
+                originalAudio={originalAudio} setOriginalAudio={setOriginalAudio}
+                social={{ caption: board.caption || '', hashtags: board.hashtags || [] }}
+                setSocial={(v) => setBoard((b) => (b ? { ...b, caption: v.caption, hashtags: v.hashtags } : b))}
                 final={finalReel} onRendered={(f) => setFinalReel(f)} />
 
               <p className="mt-3 text-xs text-muted">
@@ -734,6 +758,8 @@ export default function ReelsPage() {
             <Field label="טקסט הקריינות — זה מה שייאמר בקול">
               <Textarea className="min-h-24" value={scenes[editing].voiceover}
                 onChange={(e) => setScenes(scenes.map((s, n) => (n === editing ? { ...s, voiceover: e.target.value } : s)))} />
+              <MicButton className="mt-2" label="הכתבה בקול"
+                onText={(t) => { const i = editing; setScenes(scenes.map((s, n) => (n === i ? { ...s, voiceover: s.voiceover?.trim() ? `${s.voiceover.trim()} ${t}` : t } : s))); }} />
             </Field>
             <Field label="אורך הקליפ (שניות)">
               <Input type="number" min={2} max={30} value={scenes[editing].seconds}

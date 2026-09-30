@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useApp } from '@/lib/store';
+import { AIService } from '@/lib/services';
 import { Button, Field, Input, Pill, Textarea } from '@/components/ui/primitives';
-import { CloseButton, IntegrationDialog, Modal } from '@/components/ui/feedback';
+import { CloseButton, IntegrationDialog, Modal, Spinner } from '@/components/ui/feedback';
 import { TikTokSend } from '@/features/social/TikTokSend';
 import { MetaSend } from '@/features/social/MetaSend';
 import { Visual } from '@/components/ui/Visual';
@@ -28,6 +29,21 @@ export function ContentEditor() {
   const [publishDialog, setPublishDialog] = useState(false);
   const [tiktokOpen, setTiktokOpen] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
+  const [tagBusy, setTagBusy] = useState(false);
+  const [tagError, setTagError] = useState<string | null>(null);
+  const brand = useApp((s) => s.brand);
+
+  /** Hashtags (and a post text, if there is none yet) from what this item is about. */
+  async function makeTags() {
+    setTagBusy(true); setTagError(null);
+    try {
+      const spoken = (item?.scenes ?? []).map((sc) => sc.voiceover).filter(Boolean).join(' ');
+      const r = await AIService.social(brand, { title: headline, brief: caption, spoken, platform: item?.platform });
+      setHashtags((r.hashtags ?? []).map((h) => `#${String(h).replace(/^#+/, '').replace(/\s+/g, '')}`).join(' '));
+      if (!caption.trim() && r.caption) setCaption(r.caption);
+    } catch { setTagError('יצירת ההאשטגים נכשלה. נסו שוב.'); }
+    finally { setTagBusy(false); }
+  }
 
   useEffect(() => {
     if (!item) return;
@@ -91,7 +107,15 @@ export function ContentEditor() {
           <div>
             <Field label="טקסט על התמונה"><Input value={headline} onChange={(e) => setHeadline(e.target.value)} /></Field>
             <Field label="טקסט הפוסט"><Textarea className="min-h-36" value={caption} onChange={(e) => setCaption(e.target.value)} /></Field>
-            <Field label="האשטגים"><Input value={hashtags} onChange={(e) => setHashtags(e.target.value)} /></Field>
+            <Field label="האשטגים">
+              <Input value={hashtags} onChange={(e) => setHashtags(e.target.value)} dir="auto" />
+              <div className="mt-2 flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={makeTags} disabled={tagBusy}>
+                  {tagBusy ? <><Spinner />יוצר…</> : hashtags.trim() ? '✨ האשטגים חדשים' : '✨ יצירת האשטגים עם AI'}
+                </Button>
+                {tagError && <span className="text-xs text-warn">{tagError}</span>}
+              </div>
+            </Field>
             <Field label="קריאה לפעולה"><Input value={cta} onChange={(e) => setCta(e.target.value)} /></Field>
             <div className="my-5 h-px bg-line" />
             <ScheduleFields date={when.date} time={when.time} onChange={setWhen} />

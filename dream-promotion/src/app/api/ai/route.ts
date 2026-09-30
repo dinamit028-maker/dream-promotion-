@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   adCopyPrompt, assistantPrompt, brandAnalysisPrompt,
   contentPrompt, rewritePrompt, scenePrompt, storyboardPrompt, weeklyPlanPrompt,
+  socialPrompt, captionPolishPrompt,
 } from '@/lib/services/prompts';
 import { accessDenied } from '@/lib/server/access';
 
@@ -28,6 +29,8 @@ function buildPrompt(task: string, p: any): { prompt: string; json: boolean } {
     case 'assistant':  return { prompt: assistantPrompt(p.brand, p.recentContent, p.question), json: false };
     case 'rewrite':    return { prompt: rewritePrompt(p.brand, p.mode, p.caption, p.cta), json: true };
     case 'scene':      return { prompt: scenePrompt(p.brand, p.role, p.onScreen, p.previous), json: true };
+    case 'social':     return { prompt: socialPrompt(p.brand, p), json: true };
+    case 'captions':   return { prompt: captionPolishPrompt(p.brand, p), json: true };
     default: throw new Error('unknown_task');
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { importStories, metaAccount } from '@/lib/server/meta';
+import { importStories, metaAccount, recentStoryMedia } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -23,5 +23,7 @@ export async function POST(req: Request) {
       total.added.push(...r.added); total.already += r.already; total.noFile += r.noFile; total.failed += r.failed; total.live += r.live;
     } catch (e: any) { total.errors.push(String(e?.message ?? e).slice(0, 160)); }
   }
-  return NextResponse.json(total);
+  // stories the timer saved in the background, so this screen shows them too
+  const recent = await recentStoryMedia(userId).catch(() => []);
+  return NextResponse.json({ ...total, recent });
 }
