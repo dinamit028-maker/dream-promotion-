@@ -18,8 +18,12 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const q = (url.searchParams.get('q') || 'background music').slice(0, 80);
   const page = Math.max(1, Math.min(10, Number(url.searchParams.get('page')) || 1));
+  // default: only CC0 / public domain — no copyright claims and no credit line needed.
+  // ?credit=1 widens to every license that allows commercial use (CC BY needs a credit).
+  const withCredit = url.searchParams.get('credit') === '1';
   const qs = new URLSearchParams({
-    q, page: String(page), page_size: '20', license_type: 'commercial', category: 'music', extension: 'mp3', mature: 'false',
+    q, page: String(page), page_size: '20', category: 'music', extension: 'mp3', mature: 'false',
+    ...(withCredit ? { license_type: 'commercial' } : { license: 'cc0,pdm' }),
   });
   try {
     const res = await fetch(`${API}?${qs}`, {

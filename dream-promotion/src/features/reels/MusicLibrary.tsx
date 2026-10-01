@@ -39,12 +39,14 @@ export function MusicLibrary({ open, onClose, onChoose }: {
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
+  // off (default): only music with no copyright at all (CC0 / public domain) — nothing to credit
+  const [withCredit, setWithCredit] = useState(false);
   const audio = useRef<HTMLAudioElement | null>(null);
 
-  async function search(query: string, p = 1) {
+  async function search(query: string, p = 1, credit = withCredit) {
     setBusy(true); setError(null);
     try {
-      const r = await fetch(`/api/music/search?q=${encodeURIComponent(query)}&page=${p}`, { headers: await authHeaders() });
+      const r = await fetch(`/api/music/search?q=${encodeURIComponent(query)}&page=${p}${credit ? '&credit=1' : ''}`, { headers: await authHeaders() });
       const j = await r.json();
       if (!r.ok) throw new Error(j.message || 'search failed');
       setTracks((t) => (p === 1 ? j.tracks : [...t, ...j.tracks]));
@@ -89,10 +91,16 @@ export function MusicLibrary({ open, onClose, onChoose }: {
         <h3 className="font-display text-xl font-extrabold">מוזיקת רקע חינם</h3>
         <CloseButton onClick={onClose} />
       </div>
-      <p className="mb-3 text-sm text-muted">
-        שירים ברישיון Creative Commons שמותר להשתמש בהם גם לפרסום עסקי (מ-Jamendo, Freesound ו-Wikimedia, דרך Openverse).
-        בשירים שמסומנים "צריך קרדיט" — שורת הקרדיט מתווספת אוטומטית לטקסט של הפוסט.
+      <p className="mb-2 text-sm text-muted">
+        {withCredit
+          ? 'כל השירים שמותר להשתמש בהם לפרסום עסקי. בשירים שמסומנים "צריך קרדיט" — שורת הקרדיט מתווספת אוטומטית לטקסט של הפוסט.'
+          : 'רק מוזיקה בלי זכויות יוצרים (CC0 / נחלת הכלל) — מותר לכל שימוש, גם מסחרי, בלי קרדיט ובלי רישום.'}
       </p>
+      <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-muted">
+        <input type="checkbox" className="h-4 w-4 accent-[var(--primary)]" checked={withCredit}
+          onChange={(e) => { setWithCredit(e.target.checked); void search(q, 1, e.target.checked); }} />
+        יותר בחירה: להציג גם שירים שדורשים קרדיט (הקרדיט נכנס לפוסט אוטומטית)
+      </label>
       <div className="mb-3 flex flex-wrap gap-2">
         {MOODS.map((m) => <Chip key={m.q} on={q === m.q} onClick={() => { setQ(m.q); void search(m.q); }}>{m.label}</Chip>)}
       </div>
@@ -126,6 +134,9 @@ export function MusicLibrary({ open, onClose, onChoose }: {
         {busy && <div className="flex justify-center p-3"><Spinner /></div>}
         {!busy && !tracks.length && !error && <p className="p-3 text-sm text-muted">אין תוצאות. נסו מילה אחרת.</p>}
         {!busy && more && <Button variant="ghost" onClick={() => search(q, page + 1)}>עוד שירים</Button>}
+        {!busy && !withCredit && tracks.length > 0 && tracks.length < 6 && (
+          <p className="p-2 text-xs text-muted">מעט תוצאות בלי זכויות יוצרים למילה הזו — נסו אווירה אחרת, או סמנו "יותר בחירה" למעלה.</p>
+        )}
       </div>
       <p className="mt-3 text-xs text-muted">
         הרישיון של כל שיר מגיע מהמקור. לפני קמפיין ממומן גדול כדאי לפתוח את דף השיר ולוודא.
