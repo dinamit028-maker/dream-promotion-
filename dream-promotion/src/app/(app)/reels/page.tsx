@@ -902,6 +902,9 @@ export default function ReelsPage() {
                       {missingVoice.length ? `${missingVoice.length} סצנות עוד בלי קריינות.` : 'לכל הסצנות יש קריינות.'}
                     </span>
                     {missingVoice.length > 0 && (
+                      <Button variant="ghost" onClick={() => setWithNarration(false)}>דילוג — בלי קריינות (מוזיקה וכיתוב)</Button>
+                    )}
+                    {missingVoice.length > 0 && (
                       <Button variant="primary" onClick={narrateMissing} disabled={scenes.some((_, i) => narr[i]?.busy)}>
                         {scenes.some((_, i) => narr[i]?.busy) ? <><Spinner />מקריא…</> : <><PaperPlaneTilt size={18} aria-hidden />קריינות לכל הסצנות</>}
                       </Button>
@@ -1138,7 +1141,9 @@ export default function ReelsPage() {
                 {step > 1 ? <Button variant="ghost" onClick={() => setStep((step - 1) as 1 | 2 | 3 | 4)}>→ חזרה ל{STEPS[step - 2].label}</Button> : <span />}
                 {step < 5 && (stepDone[step]
                   ? <Button variant="primary" onClick={() => setStep((step + 1) as 2 | 3 | 4 | 5)}>הבא: {STEPS[step].label} ←</Button>
-                  : <span className="text-sm text-muted">{STEPS[step - 1].hint}</span>)}
+                  : step === 3
+                    ? <Button variant="ghost" onClick={() => { setWithNarration(false); setStep(4); }}>בלי קריינות — הבא: ריל סופי ←</Button>
+                    : <span className="text-sm text-muted">{STEPS[step - 1].hint}</span>)}
               </div>
 
               {step === 4 && <p className="mt-3 text-xs text-muted">
