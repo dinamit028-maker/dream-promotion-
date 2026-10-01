@@ -61,10 +61,13 @@ export async function POST(req: Request) {
   } catch (e: any) {
     const msg = e?.message ?? 'voice_error';
     if (slot) await releaseUsage(slot, msg);
-    const code = /401|403/.test(msg) ? 'bad_voice_key'
+    // ElevenLabs answers 401 also when the account is out of characters ("quota_exceeded"),
+    // so credit is checked first — it used to show up as "the key was rejected"
+    const code = /quota_exceeded|quota|credit|insufficient|402/i.test(msg) ? 'no_voice_credit'
       : /429/.test(msg) ? 'rate_limited'
-      : /quota|credit|402/.test(msg) ? 'no_voice_credit'
+      : /401|403/.test(msg) ? 'bad_voice_key'
       : 'voice_error';
+    console.error('[voice]', msg.slice(0, 300));
     return NextResponse.json({ code, message: msg }, { status: 200 });
   }
 }

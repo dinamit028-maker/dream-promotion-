@@ -8,13 +8,15 @@ import { AdapterNote, Spinner } from '@/components/ui/feedback';
 import { Play, Plus, Trash, Sparkle } from '@/components/ui/Icon';
 import { cx } from '@/lib/utils';
 
-export function voiceErrorText(code?: string) {
-  if (code === 'quota_exceeded') return 'הגעתם למכסת הקריינות החודשית. היא מתאפסת בתחילת החודש.';
+export function voiceErrorText(code?: string, detail?: string) {
+  // ElevenLabs' own words, short — a generic line alone hid the real reason before
+  const why = detail ? ` (ElevenLabs: ${detail.replace(/^\d+:\s*/, '').slice(0, 160)})` : '';
+  if (code === 'quota_exceeded') return 'הגעתם למכסת הקריינות החודשית באפליקציה. היא מתאפסת בתחילת החודש.';
   if (code === 'no_voice_key') return 'מנוע הקול לא מוגדר — חסר ELEVENLABS_API_KEY בשרת.';
-  if (code === 'bad_voice_key') return 'מפתח הקול נדחה. בדקו אותו בהגדרות הספק.';
-  if (code === 'no_voice_credit') return 'נגמרו הקרדיטים בחשבון הקול.';
+  if (code === 'no_voice_credit') return `נגמרו התווים בחשבון ElevenLabs. בדקו את המנוי ב-elevenlabs.io (Usage), או שדרגו.${why}`;
+  if (code === 'bad_voice_key') return `ElevenLabs דחו את הבקשה — המפתח לא תקין או בלי הרשאת Text to Speech.${why}`;
   if (code === 'rate_limited') return 'יותר מדי בקשות קול. המתינו רגע ונסו שוב.';
-  return 'יצירת הקריינות נכשלה.';
+  return `הקריינות נכשלה.${why}`;
 }
 
 /** Voice selection, preview and pronunciation overrides. The engine behind it is swappable. */
@@ -43,7 +45,7 @@ export function VoicePanel() {
       audio.current?.pause();
       audio.current = new Audio(n.audioUrl);
       await audio.current.play();
-    } catch (e: any) { setError(voiceErrorText(e.code)); }
+    } catch (e: any) { setError(voiceErrorText(e.code, e.message)); }
     finally { setPreviewing(null); }
   }
 

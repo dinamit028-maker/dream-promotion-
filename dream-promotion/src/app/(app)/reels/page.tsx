@@ -385,7 +385,7 @@ export default function ReelsPage() {
         }
       } catch { /* stays playable in this session; the save indicator shows it is not stored */ }
     } catch (e: any) {
-      setNarr((n) => ({ ...n, [i]: { error: voiceErrorText(e.code) } }));
+      setNarr((n) => ({ ...n, [i]: { error: voiceErrorText(e.code, e.message) } }));
     }
   }
 
