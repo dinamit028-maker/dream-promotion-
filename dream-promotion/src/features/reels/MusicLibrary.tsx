@@ -14,9 +14,9 @@ export interface FreeTrack {
 
 /** Moods in Hebrew → search words the music index understands */
 const MOODS: { label: string; q: string }[] = [
-  { label: 'שמח', q: 'happy upbeat' }, { label: 'אנרגטי', q: 'energetic pop' }, { label: 'רגוע', q: 'calm chill' },
-  { label: 'יוקרתי', q: 'elegant piano' }, { label: 'מוטיבציה', q: 'inspiring motivational' }, { label: 'קיץ', q: 'summer tropical' },
-  { label: 'אלקטרוני', q: 'electronic background' }, { label: 'אקוסטי', q: 'acoustic guitar' },
+  { label: 'שמח', q: 'happy' }, { label: 'אנרגטי', q: 'energetic' }, { label: 'רגוע', q: 'calm' },
+  { label: 'יוקרתי', q: 'piano' }, { label: 'מוטיבציה', q: 'inspiring' }, { label: 'קיץ', q: 'summer' },
+  { label: 'אלקטרוני', q: 'electronic' }, { label: 'אקוסטי', q: 'guitar' }, { label: 'רקע', q: 'background' },
 ];
 const needsCredit = (license: string) => !['cc0', 'pdm'].includes(license);
 const fmt = (s: number | null) => (s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
@@ -30,7 +30,7 @@ export function MusicLibrary({ open, onClose, onChoose }: {
   onChoose: (m: { mediaId: string; url: string; name: string; attribution?: string; license?: string }) => void;
 }) {
   const addMedia = useApp((s) => s.addMedia);
-  const [q, setQ] = useState('happy upbeat');
+  const [q, setQ] = useState('happy');
   const [text, setText] = useState('');
   const [tracks, setTracks] = useState<FreeTrack[]>([]);
   const [page, setPage] = useState(1);
