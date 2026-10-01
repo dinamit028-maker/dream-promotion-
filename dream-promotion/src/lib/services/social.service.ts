@@ -53,6 +53,14 @@ export const SocialService = {
   async importStories(accountId?: string): Promise<{ added: { id: string; url: string; name: string; kind: 'image' | 'video' }[]; recent?: { id: string; url: string; name: string; kind: 'image' | 'video' }[]; already: number; noFile: number; failed: number; live: number; errors: string[] }> {
     return authed('/api/meta/stories', { method: 'POST', body: JSON.stringify({ accountId }) });
   },
+  /** One round of "pull every post and reel"; call again with state until done. */
+  async importPosts(state?: { account: number; after: string | null } | null): Promise<{
+    added: { id: string; url: string; name: string; kind: 'image' | 'video' }[];
+    already: number; noFile: number; failed: number; scanned: number; errors: string[];
+    done: boolean; state: { account: number; after: string | null } | null;
+  }> {
+    return authed('/api/meta/posts', { method: 'POST', body: JSON.stringify({ state }) });
+  },
   async disconnect(id: string) {
     await authed(`/api/social/accounts?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   },

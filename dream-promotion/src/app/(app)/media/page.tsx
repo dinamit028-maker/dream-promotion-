@@ -10,11 +10,12 @@ import { Images } from '@/components/ui/Icon';
 import { cx } from '@/lib/utils';
 import type { MediaAsset } from '@/types';
 
-type Filter = 'all' | 'reel' | 'story' | 'clip' | 'image' | 'audio';
+type Filter = 'all' | 'reel' | 'story' | 'insta' | 'clip' | 'image' | 'audio';
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'הכל' },
   { id: 'reel', label: 'רילים סופיים' },
   { id: 'story', label: 'סטוריז מאינסטגרם' },
+  { id: 'insta', label: 'פוסטים ורילס מאינסטגרם' },
   { id: 'clip', label: 'קליפים' },
   { id: 'image', label: 'תמונות' },
   { id: 'audio', label: 'קריינות ומוזיקה' },
@@ -24,10 +25,11 @@ const FILTERS: { id: Filter; label: string }[] = [
 function typeOf(m: MediaAsset): Exclude<Filter, 'all'> {
   if (m.kind === 'audio') return 'audio';
   if (m.name.startsWith('סטורי ·')) return 'story';
+  if (m.name.startsWith('אינסטגרם ·')) return 'insta';
   if (m.kind === 'video') return m.name.includes('ריל סופי') ? 'reel' : 'clip';
   return 'image';
 }
-const TYPE_HE: Record<Exclude<Filter, 'all'>, string> = { reel: 'ריל סופי', story: 'סטורי', clip: 'קליפ', image: 'תמונה', audio: 'אודיו' };
+const TYPE_HE: Record<Exclude<Filter, 'all'>, string> = { reel: 'ריל סופי', story: 'סטורי', insta: 'אינסטגרם', clip: 'קליפ', image: 'תמונה', audio: 'אודיו' };
 
 export default function MediaPage() {
   const { media, addMedia, removeMedia } = useApp();
@@ -61,6 +63,40 @@ export default function MediaPage() {
       if (!quiet) setStoryNote(e.code === 'no_instagram' ? 'אין עדיין חשבון אינסטגרם מחובר. מחברים במסך החיבורים.' : `הייבוא נכשל: ${e.message}`);
     } finally { setStoryBusy(false); }
   }
+  /**
+   * Everything Instagram lets us take, in one click: live stories, then every published post and
+   * reel (page after page until the whole profile is in). Stories older than 24 hours are gone
+   * from Instagram's API — only the ones the timer saved while they were live exist.
+   */
+  const [allBusy, setAllBusy] = useState(false);
+  async function pullEverything() {
+    setAllBusy(true); setStoryNote('מושך סטוריז פעילים…');
+    await pullStories(true);
+    let state: { account: number; after: string | null } | null = null;
+    let added = 0, already = 0, noFile = 0, failed = 0, scanned = 0;
+    const errors: string[] = [];
+    try {
+      for (let round = 0; round < 40; round++) {
+        setStoryNote(`מושך פוסטים ורילס… נסרקו ${scanned}, נוספו ${added}`);
+        const r = await SocialService.importPosts(state);
+        const have = new Set(useApp.getState().media.map((m) => m.id));
+        r.added.filter((a) => !have.has(a.id)).forEach((a) => addMedia({ ...a, tags: ['אינסטגרם'], persistent: true }));
+        added += r.added.length; already += r.already; noFile += r.noFile; failed += r.failed; scanned += r.scanned;
+        errors.push(...r.errors);
+        if (r.done || !r.state) break;
+        state = r.state;
+      }
+      const bits = [`נסרקו ${scanned} פוסטים ורילס. נוספו ${added} קבצים חדשים${already ? `, ${already} כבר היו בספרייה` : ''}.`];
+      if (noFile) bits.push(`${noFile} בלי קובץ (בדרך כלל ריל עם מוזיקה מספריית אינסטגרם) — Meta לא מאפשרת להוריד אותם.`);
+      if (failed) bits.push(`${failed} נכשלו בהורדה — לחיצה נוספת תנסה אותם שוב.`);
+      if (errors.length) bits.push(`שגיאה: ${errors[0]}`);
+      bits.push('סטוריז ישנים מ-24 שעות אינסטגרם כבר לא מוסרת — רק כאלה שנשמרו בזמן שהיו פעילים.');
+      setStoryNote(bits.join(' '));
+    } catch (e: any) {
+      setStoryNote(e.code === 'no_instagram' ? 'אין עדיין חשבון אינסטגרם מחובר. מחברים במסך החיבורים.' : `המשיכה נכשלה: ${e.message}`);
+    } finally { setAllBusy(false); }
+  }
+
   // new stories show up on their own: on every visit, every 2 minutes while this screen is open,
   // and whenever the tab comes back to the front (a timer on the server also saves them every 10 minutes)
   useEffect(() => {
@@ -102,8 +138,8 @@ export default function MediaPage() {
   /** The one thing you most likely want to do with this file. */
   function primary(m: MediaAsset) {
     const t = typeOf(m);
-    if (t === 'clip' || (t === 'story' && m.kind === 'video')) return { label: 'ריל עם כתוביות', go: () => router.push(`/reels?media=${m.id}`) };
-    if (t === 'story') return { label: 'יצירת תוכן', go: () => router.push(`/create?media=${m.id}`) };
+    if (t === 'clip' || ((t === 'story' || t === 'insta') && m.kind === 'video')) return { label: 'ריל עם כתוביות', go: () => router.push(`/reels?media=${m.id}`) };
+    if (t === 'story' || t === 'insta') return { label: 'יצירת תוכן', go: () => router.push(`/create?media=${m.id}`) };
     if (t === 'reel') return { label: 'יצירת פוסט', go: () => router.push(`/create?media=${m.id}`) };
     if (t === 'image') return { label: 'יצירת תוכן', go: () => router.push(`/create?media=${m.id}`) };
     return null;
@@ -113,7 +149,8 @@ export default function MediaPage() {
     <>
       <PageHead title="ספריית המדיה" sub={`${media.length} קבצים`}
         action={<div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={() => pullStories()} disabled={storyBusy}>{storyBusy ? 'מייבא סטוריז…' : 'ייבוא סטוריז מאינסטגרם'}</Button>
+          <Button variant="ghost" onClick={pullEverything} disabled={allBusy || storyBusy}>{allBusy ? 'מושך מאינסטגרם…' : 'משיכת הכל מאינסטגרם'}</Button>
+          <Button variant="ghost" onClick={() => pullStories()} disabled={storyBusy || allBusy}>{storyBusy && !allBusy ? 'מייבא סטוריז…' : 'סטוריז בלבד'}</Button>
           <Button variant="primary" onClick={() => input.current?.click()} disabled={busy}>{busy ? 'מעלה…' : '+ העלאה'}</Button>
         </div>} />
       {storyNote && <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">{storyNote}</p>}

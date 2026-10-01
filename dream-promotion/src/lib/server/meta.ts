@@ -196,3 +196,75 @@ export async function recentStoryMedia(userId: string) {
     .order('created_at', { ascending: false }).limit(50);
   return (data ?? []).map((m) => ({ id: m.id as string, url: m.url as string, name: m.name as string, kind: m.kind as 'image' | 'video' }));
 }
+
+// ------------------------------------------------------------ posts & reels --
+type IgMedia = {
+  id: string; media_type: string; media_product_type?: string; media_url?: string; thumbnail_url?: string;
+  timestamp?: string; caption?: string; children?: { data: { id: string; media_type: string; media_url?: string }[] };
+};
+
+/**
+ * Copies the account's published posts and reels (the whole profile, newest first) into the
+ * media library. Unlike stories they stay on the profile, so everything can be pulled — page by
+ * page: each call works until the deadline and returns the cursor to continue from.
+ * Carousel posts become one file per photo/video. Items Meta gives no file for (reels with
+ * licensed music, some copyright cases) are counted, not retried.
+ */
+export async function importPosts(userId: string, acc: MetaAccount, opts: { after?: string | null; deadline: number }) {
+  const db = adminDb();
+  const added: { id: string; url: string; name: string; kind: 'image' | 'video' }[] = [];
+  let already = 0, noFile = 0, failed = 0, scanned = 0;
+  let after = opts.after ?? null;
+
+  for (;;) {
+    if (Date.now() > opts.deadline) return { added, already, noFile, failed, scanned, after, done: false };
+    const res = await graph(`/${acc.externalId}/media`, {
+      access_token: acc.token, limit: '25',
+      fields: 'id,media_type,media_product_type,media_url,thumbnail_url,timestamp,caption,children{id,media_type,media_url}',
+      ...(after ? { after } : {}),
+    });
+    const items: IgMedia[] = res.data ?? [];
+    for (const m of items) {
+      scanned++;
+      const parts = m.media_type === 'CAROUSEL_ALBUM' && m.children?.data?.length
+        ? m.children.data.map((c, k) => ({ id: `${m.id}-${k + 1}`, media_type: c.media_type, media_url: c.media_url }))
+        : [{ id: m.id, media_type: m.media_type, media_url: m.media_url }];
+      const isReel = m.media_product_type === 'REELS';
+      const when = m.timestamp ? new Date(m.timestamp) : new Date();
+      const date = when.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' });
+      for (const [k, p] of parts.entries()) {
+        const isVideo = p.media_type === 'VIDEO';
+        const path = `${userId}/instagram-posts/${acc.externalId}/${p.id}.${isVideo ? 'mp4' : 'jpg'}`;
+        const { data: exists } = await db.from('media').select('id').eq('user_id', userId).eq('storage_path', path).maybeSingle();
+        if (exists) { already++; continue; }
+        if (!p.media_url) { noFile++; continue; }
+        try {
+          const file = await fetch(p.media_url, { signal: AbortSignal.timeout(40_000) });
+          if (!file.ok) throw new Error(String(file.status));
+          const buf = Buffer.from(await file.arrayBuffer());
+          const up = await db.storage.from('assets').upload(path, buf, { contentType: isVideo ? 'video/mp4' : 'image/jpeg', upsert: false });
+          if (up.error && !/exists/i.test(up.error.message)) throw new Error(up.error.message);
+          const signed = await db.storage.from('assets').createSignedUrl(path, 60 * 60 * 24 * 365);
+          if (!signed.data?.signedUrl) throw new Error('no_read_link');
+          const label = isReel ? 'ריל' : parts.length > 1 ? `פוסט ${k + 1}/${parts.length}` : 'פוסט';
+          const caption = (m.caption || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+          const name = `אינסטגרם · ${label} · ${acc.name ?? ''} · ${date}${caption ? ` · ${caption}` : ''}`;
+          const kind = isVideo ? 'video' : 'image';
+          const row = await db.from('media').insert({
+            user_id: userId, url: signed.data.signedUrl, storage_path: path, name, kind,
+            tags: ['אינסטגרם', isReel ? 'ריל' : 'פוסט'], source: 'instagram_post',
+          }).select('id').single();
+          if (row.error) throw new Error(row.error.message);
+          added.push({ id: row.data.id, url: signed.data.signedUrl, name, kind });
+        } catch { failed++; }
+        if (Date.now() > opts.deadline) break;
+      }
+      if (Date.now() > opts.deadline) {
+        // stop inside this page: the next call starts this page again (already-saved items are skipped)
+        return { added, already, noFile, failed, scanned, after, done: false };
+      }
+    }
+    after = res.paging?.next ? res.paging?.cursors?.after ?? null : null;
+    if (!after) return { added, already, noFile, failed, scanned, after: null, done: true };
+  }
+}
