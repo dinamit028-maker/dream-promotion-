@@ -32,7 +32,7 @@ headline: טקסט קצר שיופיע על התמונה (עד 8 מילים). ca
 החזר/י JSON תקין בלבד, בלי טקסט לפני או אחרי:
 {"items":[{"dayOffset":0,"time":"19:30","kind":"post|reel|story","platform":"Instagram|Facebook|TikTok","goal":"","headline":"","caption":"","hashtags":[""],"cta":"","emoji":"","visual_direction":""}]}`;
 
-export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number) => {
+export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number, avoid?: string[]) => {
   const count = Math.min(10, Math.max(3, Math.round(duration / 5)));
   const per = Math.round(duration / count);
   const videoBudget = Math.max(5, Math.round(duration * 0.35));
@@ -40,6 +40,7 @@ export const storyboardPrompt = (b: BrandProfile, brief: string, duration: numbe
 
 בנה/י תוכנית לסרטון אנכי (9:16) באורך ${duration} שניות, ב-${count} סצנות קצרות של בערך ${per} שניות (3–7 שניות כל אחת).
 נושא: ${brief || 'הצע/י נושא חזק לעסק'}
+${avoid?.length ? `תסריטים שכבר נבנו לנושא הזה ונדחו — בנה/י גרסה שונה בבירור (הוק אחר, מקומות אחרים, מהלך אחר):\n${avoid.map((t) => `- ${t}`).join('\n')}` : ''}
 מבנה כולל: הוק ובעיה ← פתרון ← הוכחה ← קריאה לפעולה. הסצנות נראות כמו סרטון אחד: אותו מקום, אותה תאורה, אותה דמות או מוצר.
 
 עקביות: אם יש בסרטון אדם — זה אותו אדם אחד לאורך כל הסרטון. הגדר/י אותו פעם אחת בשדה cast באנגלית (מגדר, גיל, מראה, שיער, לבוש מדויק, 15–30 מילים), ואל תשנה/י אותו בין סצנות. אותו מקום ואותה תאורה לכל אורך הסרטון.
@@ -112,20 +113,55 @@ ${caption}
 {"caption":"","cta":""}`;
 
 /** A fresh visual direction for one clip — used after a content-policy block or a weak result. */
-export const scenePrompt = (b: BrandProfile, role: string, onScreen: string, previous: string) =>
+/** Camera / story angles the "another scene" button rotates through, so each try is really different. */
+export const SCENE_ANGLES = [
+  'extreme close-up on hands and the product in use',
+  'wide establishing shot of the place, the person small in frame',
+  'over-the-shoulder point of view',
+  'the person reacting — face and emotion first',
+  'a different location that still fits the story (outdoors / street / home)',
+  'slow tracking shot following the person walking',
+  'top-down shot from above',
+  'low angle, the person looking confident',
+  'golden-hour backlight, warm and cinematic',
+  'clean studio look, bright background',
+];
+
+export const scenePrompt = (b: BrandProfile, role: string, onScreen: string, previous: string,
+  extra: { voiceover?: string; cast?: string; angle?: string } = {}) =>
   `${brandContext(b)}
 
 אנחנו מייצרים קליפ וידאו אנכי לסצנה "${role}" עם הכיתוב "${onScreen}".
-הכיוון הקודם לא התאים או נחסם:
+${extra.voiceover ? `מה נאמר בסצנה (הקריינות): ${extra.voiceover}\n` : ''}${extra.cast ? `הדמות הקבועה בסרטון (חובה לשמור): ${extra.cast}\n` : ''}
+הכיוונים שכבר נוסו ונדחו — אסור לחזור עליהם או על משהו דומה להם:
 ${previous}
 
-כתוב/י כיוון ויזואלי אחר לגמרי. חוקים:
+כתוב/י כיוון ויזואלי חדש ושונה בבירור מכל מה שלמעלה (מקום, פעולה, זווית או תאורה אחרים), שעדיין מספר את אותו רגע בסיפור.
+${extra.angle ? `זווית מחייבת לניסיון הזה: ${extra.angle}.` : ''}
+חוקים:
 - סצנה אנושית, מקום אמיתי או מוצר מוחשי. בלי מפות עולם, בלי רשתות נתונים ובלי מסכים שמציגים ממשקים — אלה נחסמים בבדיקת התוכן של מנוע הווידאו.
-- בלי טקסט, אותיות, לוגואים או כתוביות בתוך התמונה.
+- בלי טקסט, אותיות, לוגואים או כתוביות בתוך התמונה. אף אחד לא מדבר למצלמה.
 - אנגלית, זמן הווה, 40 עד 80 מילים: נושא, פעולה, תנועת מצלמה, תאורה, אווירה.
 
 החזר/י JSON בלבד:
 {"videoPrompt":"","visual":"תיאור קצר בעברית"}`;
+
+/** Video ideas for this business: varied formats, nothing the user already made. */
+export const ideasPrompt = (b: BrandProfile, p: { recent?: string[]; avoid?: string[]; count?: number }) => `${brandContext(b)}
+
+את/ה קריאייטיב של סושיאל לעסקים קטנים בישראל. הצע/י ${p.count ?? 6} רעיונות לסרטון קצר (ריל / TikTok) לעסק הזה, בעברית טבעית.
+כל רעיון בפורמט אחר — בחר/י מתוך: לפני ואחרי, טיפ מקצועי, מיתוס מול אמת, סיפור לקוח, מאחורי הקלעים, מבצע או הצעה, שאלה נפוצה, טרנד, יום בחיים, השוואה.
+הרעיונות חייבים להתאים לשירותים, לקהל ולטון של העסק — מוחשיים, לא כלליים.
+${p.recent?.length ? `תוכן שכבר נוצר (לא לחזור עליו):\n${p.recent.map((r) => `- ${r}`).join('\n')}\n` : ''}${p.avoid?.length ? `רעיונות שכבר הוצעו (להציע אחרים לגמרי):\n${p.avoid.map((r) => `- ${r}`).join('\n')}\n` : ''}
+לכל רעיון:
+- title: כותרת קצרה (עד 7 מילים)
+- format: שם הפורמט מהרשימה
+- hook: המשפט הראשון שעוצר גלילה (עד 12 מילים)
+- brief: 2–3 משפטים שמתארים מה רואים בסרטון, מההתחלה עד הסוף — הטקסט הזה ייכנס לתסריט
+- why: למה זה יעבוד לעסק הזה (משפט אחד)
+
+החזר/י JSON בלבד:
+{"ideas":[{"title":"","format":"","hook":"","brief":"","why":""}]}`;
 
 /** Post text + hashtags for a finished video, from what is actually said and shown in it. */
 export const socialPrompt = (b: BrandProfile, p: { title?: string; brief?: string; spoken?: string; platform?: string }) => `את/ה מנהל/ת סושיאל שכותב/ת בעברית טבעית (לא מתורגמת).

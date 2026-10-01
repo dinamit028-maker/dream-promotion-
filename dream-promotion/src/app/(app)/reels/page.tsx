@@ -21,6 +21,7 @@ import { PALETTE, cx } from '@/lib/utils';
 import type { CaptionCue, ReelProject, ReelScene, SceneMotion, SceneNarration, SceneSource, Storyboard } from '@/types';
 import { drawGraphicCard } from '@/features/reels/graphicCard';
 import { MediaPicker } from '@/features/media/MediaPicker';
+import { SCENE_ANGLES } from '@/lib/services/prompts';
 import { MicButton } from '@/components/ui/MicButton';
 import { setGenerationContext } from '@/lib/services/http';
 import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalReelPanel';
@@ -57,6 +58,15 @@ export default function ReelsPage() {
   const [shape, setShape] = useState<'scenes' | 'single'>('scenes');
   // the wizard: ① script ② video ③ narration ④ final reel ⑤ publish — one step on screen at a time
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  // AI ideas for "what is the video about?", from the brand profile
+  const [ideas, setIdeas] = useState<{ title: string; format: string; hook: string; brief: string; why: string }[]>([]);
+  const [ideasBusy, setIdeasBusy] = useState(false);
+  const [ideasError, setIdeasError] = useState<string | null>(null);
+  const shownIdeas = useRef<string[]>([]);
+  // every direction already tried per scene, so "another scene" never comes back to one of them
+  const sceneTries = useRef<Record<number, string[]>>({});
+  // scripts already built for this topic, so "new script" is really new
+  const pastScripts = useRef<string[]>([]);
   const autoStepFor = useRef<string | null>(null);
   // a real photo from the library (a person, a product) every AI still is made from
   const [anchorId, setAnchorId] = useState<string | null>(null);
@@ -211,7 +221,8 @@ export default function ReelsPage() {
   async function plan() {
     setPlanning(true); setPlanError(null); setClips({}); setPhotos({}); setNarr({}); setFinalReel(null); setSceneCaps({});
     try {
-      const b = await AIService.storyboard(brand, brief, total);
+      if (board) pastScripts.current = [`${board.title}: ${board.scenes.map((x) => x.onScreen).filter(Boolean).join(' / ')}`, ...pastScripts.current].slice(0, 5);
+      const b = await AIService.storyboard(brand, brief, total, pastScripts.current);
       const per = Math.round(total / Math.min(10, Math.max(3, Math.round(total / 5))));
       const SOURCES: SceneSource[] = ['ai_video', 'ai_image', 'graphic'];
       const MOTIONS: SceneMotion[] = ['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'none'];
@@ -319,12 +330,28 @@ export default function ReelsPage() {
   };
   const setMotion = (i: number, motion: SceneMotion) => setScenes(scenes.map((s, n) => (n === i ? { ...s, motion } : s)));
 
+  async function getIdeas(more = false) {
+    setIdeasBusy(true); setIdeasError(null);
+    try {
+      const recent = content.filter((c) => c.headline).slice(0, 15).map((c) => c.headline as string);
+      const r = await AIService.ideas(brand, { recent, avoid: more ? shownIdeas.current : [] });
+      const list = (r.ideas ?? []).filter((x) => x?.brief);
+      shownIdeas.current = [...list.map((x) => x.title), ...(more ? shownIdeas.current : [])].slice(0, 30);
+      setIdeas(list);
+    } catch (e: any) { setIdeasError(aiErrorMessage(e.code)); }
+    finally { setIdeasBusy(false); }
+  }
+
   /** Ask the model for a different visual direction for one clip. */
   async function rethinkScene(i: number) {
     const sc = scenes[i];
     setRethinking(i);
     try {
-      const idea = await AIService.sceneIdea(brand, sc.role || '', sc.onScreen || '', sc.videoPrompt || sc.visual || '');
+      const tried = [sc.videoPrompt || sc.visual || '', ...(sceneTries.current[i] ?? [])].filter(Boolean);
+      const angle = SCENE_ANGLES[(tried.length + Math.floor(Math.random() * SCENE_ANGLES.length)) % SCENE_ANGLES.length];
+      const idea = await AIService.sceneIdea(brand, sc.role || '', sc.onScreen || '', tried.slice(0, 6).map((t, k) => `${k + 1}. ${t}`).join('\n'),
+        { voiceover: sc.voiceover, cast: board?.cast, angle });
+      sceneTries.current[i] = tried.slice(0, 8);
       setScenes(scenes.map((s, n) => (n === i ? { ...s, videoPrompt: idea.videoPrompt, visual: idea.visual || s.visual } : s)));
       clearClip(i);
     } catch (e: any) {
@@ -394,6 +421,9 @@ export default function ReelsPage() {
     const set = (u: ClipUpdate) => setClips((c) => ({ ...c, [i]: { ...c[i], ...u, startedAt } }));
 
     const source = sourceOf(i);
+    // re-rendering a scene that already had a result: ask for a fresh take, not a near-copy
+    const vary = clips[i]?.url && !opts.final
+      ? ` Fresh take, different from the previous version: ${SCENE_ANGLES[Math.floor(Math.random() * SCENE_ANGLES.length)]}.` : '';
 
     // a branded card, drawn here — no AI, no cost
     if (source === 'graphic') {
@@ -426,7 +456,7 @@ export default function ReelsPage() {
       set({ status: 'running' });
       try {
         const anchor = opts.anchor ?? anchorFor(i);
-        const base = [board?.cast, sc.videoPrompt || sc.visual].filter(Boolean).join('\n');
+        const base = [board?.cast, sc.videoPrompt || sc.visual].filter(Boolean).join('\n') + vary;
         const urls = await ImageService.generate({
           prompt: anchor ? `${base}\n\n${CONSISTENT}` : base, aspectRatio: '9:16', count: 1,
           ...(anchor ? { imageUrls: [anchor] } : {}),
@@ -449,7 +479,7 @@ export default function ReelsPage() {
     try {
       return await VideoService.generate({
         // nobody talks on camera: the voice is the Hebrew narration (AI speech came out in English)
-        prompt: `${[board?.cast, sc.videoPrompt || sc.visual].filter(Boolean).join('. ')}. The person does not speak; no dialogue, no lip movement.`,
+        prompt: `${[board?.cast, sc.videoPrompt || sc.visual].filter(Boolean).join('. ')}. The person does not speak; no dialogue, no lip movement.${vary}`,
         duration: sc.seconds || 15,
         resolution: res,
         aspectRatio: '9:16',
@@ -694,6 +724,29 @@ export default function ReelsPage() {
 
       <div className={cx('grid items-start gap-6', (step === 1 || step === 3) && 'lg:grid-cols-[340px_minmax(0,1fr)]')}>
         {step === 1 && (<Card>
+          <div className="mb-4">
+            <Button variant="ghost" className="w-full" onClick={() => getIdeas(ideas.length > 0)} disabled={ideasBusy || aiReady === false}>
+              {ideasBusy ? <><Spinner />חושב על רעיונות…</> : ideas.length ? '✨ רעיונות אחרים' : '✨ אין רעיון? קבלו 6 רעיונות לסרטון'}
+            </Button>
+            {ideasError && <p className="mt-2 text-xs text-warn">{ideasError}</p>}
+            {ideas.length > 0 && (
+              <div className="mt-3 grid max-h-[420px] gap-2 overflow-y-auto pe-1">
+                {ideas.map((idea, k) => (
+                  <button key={k} type="button" onClick={() => { setBrief(idea.brief); setIdeas([]); }}
+                    className={cx('rounded-2xl border p-3 text-start transition-colors hover:border-primary hover:bg-primary-soft',
+                      brief === idea.brief ? 'border-primary bg-primary-soft' : 'border-line')}>
+                    <span className="flex items-center justify-between gap-2">
+                      <strong className="text-sm">{idea.title}</strong>
+                      <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-ink-2">{idea.format}</span>
+                    </span>
+                    <span className="mt-1 block text-sm">״{idea.hook}״</span>
+                    <span className="mt-1 block text-xs text-muted">{idea.why}</span>
+                  </button>
+                ))}
+                <p className="text-xs text-muted">לחיצה על רעיון מכניסה אותו לשדה למטה — אפשר לערוך לפני בניית התסריט.</p>
+              </div>
+            )}
+          </div>
           <Field label="על מה הסרטון?">
             <Textarea value={brief} onChange={(e) => setBrief(e.target.value)}
               placeholder="למשל: טיפול פנים לפני החורף — לפני ואחרי, בקליניקה ברמת אביב" />

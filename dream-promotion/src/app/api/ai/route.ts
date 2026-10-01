@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   adCopyPrompt, assistantPrompt, brandAnalysisPrompt,
   contentPrompt, rewritePrompt, scenePrompt, storyboardPrompt, weeklyPlanPrompt,
-  socialPrompt, captionPolishPrompt,
+  socialPrompt, captionPolishPrompt, ideasPrompt,
 } from '@/lib/services/prompts';
 import { accessDenied } from '@/lib/server/access';
 import { requestUser } from '@/lib/server/quota';
@@ -26,12 +26,13 @@ function buildPrompt(task: string, p: any): { prompt: string; json: boolean } {
   switch (task) {
     case 'content':    return { prompt: contentPrompt(p.brand, p.brief), json: true };
     case 'weekly':     return { prompt: weeklyPlanPrompt(p.brand), json: true };
-    case 'storyboard': return { prompt: storyboardPrompt(p.brand, p.brief, p.duration), json: true };
+    case 'storyboard': return { prompt: storyboardPrompt(p.brand, p.brief, p.duration, Array.isArray(p.avoid) ? p.avoid.slice(0, 6) : undefined), json: true };
     case 'analysis':   return { prompt: brandAnalysisPrompt(p.brand), json: true };
     case 'ad':         return { prompt: adCopyPrompt(p.brand, p), json: true };
     case 'assistant':  return { prompt: assistantPrompt(p.brand, p.recentContent, p.question), json: false };
     case 'rewrite':    return { prompt: rewritePrompt(p.brand, p.mode, p.caption, p.cta), json: true };
-    case 'scene':      return { prompt: scenePrompt(p.brand, p.role, p.onScreen, p.previous), json: true };
+    case 'scene':      return { prompt: scenePrompt(p.brand, p.role, p.onScreen, p.previous, { voiceover: p.voiceover, cast: p.cast, angle: p.angle }), json: true };
+    case 'ideas':      return { prompt: ideasPrompt(p.brand, { recent: p.recent, avoid: p.avoid, count: 6 }), json: true };
     case 'social':     return { prompt: socialPrompt(p.brand, p), json: true };
     case 'captions':   return { prompt: captionPolishPrompt(p.brand, p), json: true };
     default: throw new Error('unknown_task');

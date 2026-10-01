@@ -37,15 +37,18 @@ export const AIService = {
     call<{ variants: GeneratedVariant[] }>('content', { brand, brief }),
   weeklyPlan: (brand: BrandProfile) =>
     call<{ items: Record<string, any>[] }>('weekly', { brand }),
-  storyboard: (brand: BrandProfile, brief: string, duration: number) =>
-    call<Storyboard>('storyboard', { brand, brief, duration }),
+  storyboard: (brand: BrandProfile, brief: string, duration: number, avoid?: string[]) =>
+    call<Storyboard>('storyboard', { brand, brief, duration, avoid }),
   brandAnalysis: (brand: BrandProfile) => call<BrandAnalysis>('analysis', { brand }),
   adCopy: (brand: BrandProfile, p: { goal: string; audience: string; budget: number; contentCaption?: string }) =>
     call<{ headline: string; primary: string; description: string; cta: string; audienceSuggestion: string }>('ad', { brand, ...p }),
   rewrite: (brand: BrandProfile, mode: RewriteMode, caption: string, cta: string) =>
     call<{ caption: string; cta: string }>('rewrite', { brand, mode, caption, cta }),
-  sceneIdea: (brand: BrandProfile, role: string, onScreen: string, previous: string) =>
-    call<{ videoPrompt: string; visual: string }>('scene', { brand, role, onScreen, previous }),
+  sceneIdea: (brand: BrandProfile, role: string, onScreen: string, previous: string, extra: { voiceover?: string; cast?: string; angle?: string } = {}) =>
+    call<{ videoPrompt: string; visual: string }>('scene', { brand, role, onScreen, previous, ...extra }),
+  /** Video ideas fitted to the brand; recent = what was already made, avoid = ideas already shown. */
+  ideas: (brand: BrandProfile, p: { recent?: string[]; avoid?: string[] }) =>
+    call<{ ideas: { title: string; format: string; hook: string; brief: string; why: string }[] }>('ideas', { brand, ...p }),
   /** Post text + hashtags for a finished video. */
   social: (brand: BrandProfile, p: { title?: string; brief?: string; spoken?: string; platform?: string }) =>
     call<{ caption: string; hashtags: string[] }>('social', { brand, ...p }),
