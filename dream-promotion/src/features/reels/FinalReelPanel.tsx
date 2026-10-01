@@ -56,7 +56,7 @@ async function parkInStorage(token: string, json: string): Promise<string> {
  */
 export function FinalReelPanel({
   projectId, title, brief, payload, ready, missingNarration, music, setMusic, captions, setCaptions,
-  sceneCaptions, setSceneCaption, originalAudio, setOriginalAudio, social, setSocial, final, onRendered,
+  sceneCaptions, setSceneCaption, originalAudio, setOriginalAudio, social, setSocial, final, onRendered, section = 'all',
 }: {
   projectId: string | null; title: string; brief: string;
   payload: RenderScenePayload[]; ready: boolean; missingNarration: number;
@@ -66,6 +66,8 @@ export function FinalReelPanel({
   originalAudio: boolean; setOriginalAudio: (v: boolean) => void;
   social: { caption: string; hashtags: string[] }; setSocial: (s: { caption: string; hashtags: string[] }) => void;
   final: ReelProject['final']; onRendered: (f: NonNullable<ReelProject['final']>) => void;
+  /** wizard step: "render" = music, captions, make the file · "publish" = post text, publish, schedule */
+  section?: 'render' | 'publish' | 'all';
 }) {
   const router = useRouter();
   const { media, addMedia, duplicateContent, updateContent, content, openEditor, brand } = useApp();
@@ -366,9 +368,15 @@ export function FinalReelPanel({
 
   return (
     <Card className="mt-4">
-      <h3 className="font-display text-xl font-bold">הריל הסופי</h3>
-      <p className="mt-1 text-sm text-muted">כל הסצנות, הקריינות, הכתוביות והמוזיקה — בקובץ MP4 אנכי אחד.</p>
+      <h3 className="font-display text-xl font-bold">{section === 'publish' ? 'פרסום' : 'הריל הסופי'}</h3>
+      <p className="mt-1 text-sm text-muted">
+        {section === 'publish' ? 'הטקסט וההאשטגים, ואז פרסום עכשיו או בזמן מתוזמן.' : 'כל הסצנות, הקריינות, הכתוביות והמוזיקה — בקובץ MP4 אנכי אחד.'}
+      </p>
+      {section === 'publish' && !final && (
+        <p className="mt-4 rounded-2xl bg-surface-2 p-3 text-sm">עוד אין ריל סופי. חזרו לשלב "ריל סופי" ולחצו "יצירת הריל הסופי".</p>
+      )}
 
+      {section !== 'publish' && (<>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <Field label="מוזיקת רקע">
           {music ? (
@@ -441,6 +449,7 @@ export function FinalReelPanel({
         )}
         {error && <div className="mt-3"><AdapterNote title="הרינדור נכשל.">{error}</AdapterNote></div>}
       </div>
+      </>)}
 
       {final && (
         <div className="mt-5 grid gap-4 border-t border-line pt-5 sm:grid-cols-[220px_1fr]">
@@ -450,7 +459,7 @@ export function FinalReelPanel({
             <p className="mt-1 text-sm text-muted">נשמר בספריית המדיה ומשויך לפרויקט הזה.</p>
             {captionNote && <p className="mt-1 text-sm">{captionNote}</p>}
             {scheduledMsg && <p className="mt-1 text-sm text-ok">{scheduledMsg}</p>}
-            {schedule && (
+            {section !== 'render' && schedule && (
               <div className="mt-3 rounded-2xl border border-line p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <strong>
@@ -474,7 +483,7 @@ export function FinalReelPanel({
             )}
 
             {/* ---- post text + hashtags ---- */}
-            <div className="mt-4 rounded-2xl bg-surface-2 p-3">
+            {section !== 'render' && (<div className="mt-4 rounded-2xl bg-surface-2 p-3">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <strong className="text-sm">טקסט לפוסט והאשטגים</strong>
                 <Button size="sm" variant="ghost" onClick={() => makeSocial()} disabled={socialBusy}>
@@ -499,20 +508,23 @@ export function FinalReelPanel({
               </div>
               {socialError && <p className="mt-2 text-xs text-warn">{socialError}</p>}
               <p className="mt-2 text-xs text-muted">{social.hashtags.length} האשטגים · נשלחים אוטומטית עם הפרסום.</p>
-            </div>
+            </div>)}
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            {section === 'render' && (
+              <p className="mt-3 text-sm">הריל מוכן. אפשר לצפות בו כאן, ולהמשיך לשלב <strong>פרסום</strong>.</p>
+            )}
+            {section !== 'render' && (<div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant="primary" onClick={() => setMetaOpen(true)}>פרסום באינסטגרם ובפייסבוק</Button>
               <Button size="sm" variant="ghost" onClick={() => setTiktokOpen(true)}>שליחה ל-TikTok</Button>
               <Button size="sm" variant="ghost" onClick={() => setPreviewing(true)}>תצוגה לפי פלטפורמה</Button>
               <a href={final.url} download={`${title}.mp4`} target="_blank" rel="noreferrer"
                 className="inline-flex h-9 items-center rounded-full border border-line px-4 text-sm font-semibold hover:bg-surface-2">הורדה</a>
-              <Button size="sm" variant="ghost" onClick={() => document.getElementById('reel-scenes')?.scrollIntoView({ behavior: 'smooth' })}>עריכה</Button>
+              {section === 'all' && <Button size="sm" variant="ghost" onClick={() => document.getElementById('reel-scenes')?.scrollIntoView({ behavior: 'smooth' })}>עריכה</Button>}
               <Button size="sm" variant="ghost" onClick={duplicate} disabled={!projectId}>שכפול</Button>
               <Button size="sm" variant="ghost" onClick={saveDraft} disabled={!projectId}>שמירה בטיוטות</Button>
               <Button size="sm" variant="ghost" onClick={() => projectId && openEditor(projectId)} disabled={!projectId}>כל האפשרויות</Button>
-              <Button size="sm" variant="ghost" onClick={openSchedule} disabled={!projectId}>תזמון ביומן</Button>
-            </div>
+              <Button size="sm" variant={section === 'publish' ? 'primary' : 'ghost'} onClick={openSchedule} disabled={!projectId}>תזמון פרסום</Button>
+            </div>)}
           </div>
         </div>
       )}

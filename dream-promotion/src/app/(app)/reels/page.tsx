@@ -55,6 +55,9 @@ export default function ReelsPage() {
   const [total, setTotal] = useState(45);
   // "scenes": short mixed scenes (cheaper) · "single": one continuous AI video for the whole length
   const [shape, setShape] = useState<'scenes' | 'single'>('scenes');
+  // the wizard: ① script ② video ③ narration ④ final reel ⑤ publish — one step on screen at a time
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const autoStepFor = useRef<string | null>(null);
   // a real photo from the library (a person, a product) every AI still is made from
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const [anchorPicking, setAnchorPicking] = useState(false);
@@ -238,6 +241,7 @@ export default function ReelsPage() {
         setImageMode(Object.fromEntries(planned.map((sc, k) => [k, sc.source !== 'ai_video'])));
         setDraftMode(true);
       }
+      autoStepFor.current = null; // the new script opens on step 2
       const v = presetVideo ? media.find((m) => m.id === presetVideo && m.kind === 'video') : undefined;
       if (v) { setClips({ 0: { status: 'done', url: v.url, kind: 'video' } as Clip }); setPresetVideo(null); }
       if (presetImage) { setPhotos({ 0: presetImage }); setPresetImage(null); }
@@ -629,14 +633,67 @@ export default function ReelsPage() {
     keepAudio: !(sc.source === 'ai_video' || sc.source === 'ai_image' || sc.source === 'graphic'),
   }));
   const renderReady = scenes.length > 0 && payload.every((p) => p.url.startsWith('https://'));
+
+  // ---- wizard status: a step is done when what it makes exists
+  const stepDone = {
+    1: Boolean(board) && scenes.length > 0,
+    2: scenes.length > 0 && scenes.every((_, i) => clips[i]?.status === 'done' && clips[i]?.url && !clips[i]?.draft),
+    3: scenes.length > 0 && scenes.every((sc, i) => !sc.voiceover?.trim() || Boolean(narr[i]?.url)),
+    4: Boolean(finalReel),
+    5: false,
+  } as const;
+  const firstOpen = (!stepDone[1] ? 1 : !stepDone[2] ? 2 : !stepDone[3] ? 3 : !stepDone[4] ? 4 : 5) as 1 | 2 | 3 | 4 | 5;
+  // opening a saved reel (or a new script) lands on the first step that still needs work
+  useEffect(() => {
+    const key = board ? `${projectId ?? 'new'}:${board.title}` : null;
+    if (!key || autoStepFor.current === key) return;
+    autoStepFor.current = key;
+    setStep(firstOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board, projectId]);
+  const STEPS: { n: 1 | 2 | 3 | 4 | 5; label: string; hint: string }[] = [
+    { n: 1, label: 'תסריט', hint: 'כתבו על מה הסרטון, בחרו סוג ואורך, ולחצו "בניית תסריט".' },
+    { n: 2, label: 'וידאו', hint: 'לחצו "יצירת הסרטון" למטה. כל סצנה תסומן "מוכן" כשהיא גמורה.' },
+    { n: 3, label: 'קריינות', hint: 'בחרו קול, ולחצו "קריינות לכל הסצנות".' },
+    { n: 4, label: 'ריל סופי', hint: 'בחרו מוזיקה וכתוביות (לא חובה), ולחצו "יצירת הריל הסופי".' },
+    { n: 5, label: 'פרסום', hint: 'פרסמו עכשיו, או תזמנו לשעה מומלצת.' },
+  ];
+  // a step opens once everything before it is done (steps already done stay open for changes)
+  const canOpen = (n: number) => n <= firstOpen;
+  const missingVoice = scenes.map((_, i) => i).filter((i) => scenes[i].voiceover?.trim() && !narr[i]?.url && !narr[i]?.busy);
+  async function narrateMissing() { for (const i of missingVoice) await narrateScene(i); }
   const missingNarration = payload.filter((p) => !p.narrationUrl).length;
 
   return (
     <>
-      <PageHead title="אולפן הרילס" sub="תסריט מה-AI, קליפים מ-Wan 3.0, ורצף אחד מוכן לצפייה." />
+      <PageHead title="אולפן הרילס" sub="חמישה שלבים, אחד אחרי השני — המסך מראה רק את השלב שבו אתם נמצאים." />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <Card>
+      {/* ---------- the wizard: where you are, what is done, what comes next ---------- */}
+      <nav aria-label="שלבי יצירת הריל" className="sticky top-0 z-20 -mx-1 mb-5 rounded-2xl bg-[var(--bg)]/90 px-1 py-2 backdrop-blur">
+        <ol className="flex gap-1.5 overflow-x-auto">
+          {STEPS.map((st) => {
+            const on = step === st.n, done = stepDone[st.n], open = canOpen(st.n);
+            return (
+              <li key={st.n} className="min-w-[60px] flex-1">
+                <button type="button" disabled={!open} onClick={() => setStep(st.n)} aria-current={on ? 'step' : undefined}
+                  className={cx('flex w-full flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-xs font-semibold transition-colors',
+                    on ? 'border-primary bg-primary text-white' : done ? 'border-primary/40 bg-primary-soft text-ink' : open ? 'border-line bg-surface text-ink-2' : 'border-line bg-surface text-muted opacity-50')}>
+                  <span className={cx('flex h-6 w-6 items-center justify-center rounded-full text-[12px]', on ? 'bg-white/25' : done ? 'bg-primary text-white' : 'bg-surface-2')}>
+                    {done && !on ? '✓' : st.n}
+                  </span>
+                  {st.label}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+        <p className="mt-2 px-1 text-sm text-ink-2">
+          <strong>שלב {step}:</strong> {STEPS[step - 1].hint}
+        </p>
+      </nav>
+
+      <div className={cx('grid items-start gap-6', (step === 1 || step === 3) && 'lg:grid-cols-[340px_minmax(0,1fr)]')}>
+        {step === 1 && (<Card>
           <Field label="על מה הסרטון?">
             <Textarea value={brief} onChange={(e) => setBrief(e.target.value)}
               placeholder="למשל: טיפול פנים לפני החורף — לפני ואחרי, בקליניקה ברמת אביב" />
@@ -711,13 +768,15 @@ export default function ReelsPage() {
             <Sparkle size={20} weight="fill" aria-hidden />{presetVideo || presetImage ? 'או: תסריט מלא עם כמה סצנות' : 'בניית תסריט'}
           </Button>
           {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}
-        </Card>
+        </Card>)}
 
-        <div className="lg:col-start-1 lg:row-start-2">
-          <VoicePanel />
-        </div>
+        {step === 3 && (
+          <div>
+            <VoicePanel />
+          </div>
+        )}
 
-        <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <div className={cx('min-w-0', (step === 1 || step === 3) && 'lg:col-start-2 lg:row-start-1')}>
           {planning && <GenerationState lines={['קורא את המותג…', 'מחלק לקליפים…', 'כותב כיוון ויזואלי לכל סצנה…']} step={1} />}
           {planError && <AdapterNote title="בניית התסריט נכשלה.">{planError}</AdapterNote>}
           {!planning && !board && !planError && content.some((c) => c.kind === 'reel' && c.reel) && (
@@ -750,7 +809,7 @@ export default function ReelsPage() {
                 </div>
               </div>
 
-              {videoReady === false && (
+              {step === 2 && videoReady === false && (
                 <div className="mb-4">
                   <AdapterNote title="מנוע הווידאו לא מוגדר.">
                     הוסיפו <code>FAL_KEY</code> במשתני הסביבה של Vercel ובצעו פריסה מחדש. עד אז אפשר לבנות ולערוך תסריט, אבל לא לרנדר.
@@ -758,12 +817,26 @@ export default function ReelsPage() {
                 </div>
               )}
 
-              {doneUrls.length > 0 && (
+              {(step === 2 || step === 3) && doneUrls.length > 0 && (
                 <SequencePlayer items={scenes.map((sc, i) => ({ c: clips[i], sc, i })).filter(({ c }) => c?.url)
                   .map(({ c, sc, i }) => ({ url: c!.url!, kind: c!.kind ?? 'video', motion: motionOf(i), seconds: sc.seconds || 5 }))} />
               )}
 
-              {outdatedCount > 0 && (
+              {step === 3 && (
+                <Card className="mt-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-sm">
+                      {missingVoice.length ? `${missingVoice.length} סצנות עוד בלי קריינות.` : 'לכל הסצנות יש קריינות.'}
+                    </span>
+                    {missingVoice.length > 0 && (
+                      <Button variant="primary" onClick={narrateMissing} disabled={scenes.some((_, i) => narr[i]?.busy)}>
+                        {scenes.some((_, i) => narr[i]?.busy) ? <><Spinner />מקריא…</> : <><PaperPlaneTilt size={18} aria-hidden />קריינות לכל הסצנות</>}
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              )}
+              {step === 3 && outdatedCount > 0 && (
                 <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--warn-soft,#fff4e0)] p-3 text-sm">
                   <span className="flex-1">בחרתם קול או סגנון חדש. {outdatedCount} סצנות עדיין בקול הקודם.</span>
                   <Button size="sm" variant="primary" onClick={renarrateAll} disabled={renarrating}>
@@ -771,7 +844,7 @@ export default function ReelsPage() {
                   </Button>
                 </div>
               )}
-              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2 p-3 text-sm">
+              {step === 2 && (<div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2 p-3 text-sm">
                 {anchorId && media.find((m) => m.id === anchorId)
                   ? <img src={media.find((m) => m.id === anchorId)!.url} alt="" className="h-14 w-10 rounded-lg object-cover" />
                   : <span className="flex h-14 w-10 items-center justify-center rounded-lg border border-dashed border-line text-muted">?</span>}
@@ -783,8 +856,8 @@ export default function ReelsPage() {
                 </span>
                 <Button size="sm" variant="ghost" onClick={() => setAnchorPicking(true)}>{anchorId ? 'החלפה' : 'בחירה מהספרייה'}</Button>
                 {anchorId && <Button size="sm" variant="ghost" onClick={() => setAnchorId(null)}>הסרה</Button>}
-              </div>
-              <div id="reel-scenes" className="mt-4 grid gap-3">
+              </div>)}
+              {step <= 3 && (<div id="reel-scenes" className="mt-4 grid gap-3">
                 {scenes.map((sc, i) => {
                   const c = clips[i];
                   const elapsed = c?.startedAt ? Math.round((Date.now() - c.startedAt) / 1000) : 0;
@@ -807,13 +880,13 @@ export default function ReelsPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <Pill tone="ai">{roleLabel(sc.role, i)} · {sc.seconds || 5} שנ׳{c?.draft ? ' · טיוטה' : ''}</Pill>
-                            <ClipBadge clip={c} elapsed={elapsed} />
+                            {step === 2 && <ClipBadge clip={c} elapsed={elapsed} />}
                           </div>
                           <strong className="mt-2 block">{sc.onScreen}</strong>
                           <p className="mt-1 text-sm text-muted">קריינות: {sc.voiceover || '—'}</p>
                           <p className="mt-0.5 text-sm text-muted">{sc.visual}</p>
 
-                          {err && (
+                          {step === 2 && err && (
                             <div className="mt-3 rounded-2xl bg-[var(--warn-soft)] p-3">
                               <strong className="block text-sm text-warn">{err.title}</strong>
                               {err.body && <p className="mt-1 text-sm text-ink-2">{err.body}</p>}
@@ -821,7 +894,7 @@ export default function ReelsPage() {
                           )}
 
                           <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <div className="flex overflow-hidden rounded-full border border-line" role="radiogroup" aria-label="ממה עשויה הסצנה">
+                            {step !== 3 && (<div className="flex overflow-hidden rounded-full border border-line" role="radiogroup" aria-label="ממה עשויה הסצנה">
                               {([['ai_video', 'וידאו AI'], ['ai_image', 'תמונה בתנועה'], ['graphic', 'כרטיס']] as [SceneSource, string][]).map(([src, label]) => (
                                 <button key={src} type="button" role="radio" aria-checked={sourceOf(i) === src} disabled={running}
                                   onClick={() => sourceOf(i) !== src && setSource(i, src)}
@@ -830,17 +903,17 @@ export default function ReelsPage() {
                                   {label}
                                 </button>
                               ))}
-                            </div>
-                            <Button size="sm" variant="ghost" onClick={() => setEditing(i)} disabled={running}>עריכה</Button>
-                            <Button size="sm" variant="ghost" onClick={() => rethinkScene(i)} disabled={running || rethinking === i || !aiReady}>
+                            </div>)}
+                            <Button size="sm" variant="ghost" onClick={() => setEditing(i)} disabled={running}>{step === 3 ? 'עריכת הטקסט' : 'עריכה'}</Button>
+                            {step !== 3 && <Button size="sm" variant="ghost" onClick={() => rethinkScene(i)} disabled={running || rethinking === i || !aiReady}>
                               {rethinking === i ? <><Spinner />מחפש כיוון…</> : <><MagicWand size={16} aria-hidden />סצנה אחרת</>}
-                            </Button>
-                            {videoReady && c?.status !== 'running' && c?.status !== 'queued' && (
+                            </Button>}
+                            {step === 2 && videoReady && c?.status !== 'running' && c?.status !== 'queued' && (
                               <Button size="sm" variant="ghost" onClick={() => renderAll(i)} disabled={running}>
                                 {c?.url ? 'רינדור מחדש' : 'רינדור הקליפ'}
                               </Button>
                             )}
-                            {scenes.length > 1 && (
+                            {step !== 3 && scenes.length > 1 && (
                               <>
                                 <Button size="sm" variant="ghost" aria-label="הזזה אחורה" disabled={running || i === 0}
                                   onClick={() => swapScenes(i, i - 1)}>
@@ -858,7 +931,7 @@ export default function ReelsPage() {
                             )}
                           </div>
 
-                          {(sourceOf(i) === 'ai_image' || c?.draft) && (
+                          {step === 2 && (sourceOf(i) === 'ai_image' || c?.draft) && (
                             <div className="mt-2 flex flex-wrap items-center gap-1.5">
                               <span className="text-xs text-muted">תנועת מצלמה:</span>
                               {([['zoom_in', 'התקרבות'], ['zoom_out', 'התרחקות'], ['pan_right', 'ימינה'], ['pan_left', 'שמאלה'], ['none', 'בלי']] as [SceneMotion, string][]).map(([m, label]) => (
@@ -869,25 +942,25 @@ export default function ReelsPage() {
                               ))}
                             </div>
                           )}
-                          {c?.draft && (
+                          {step === 2 && c?.draft && (
                             <p className="mt-2 text-xs text-muted">טיוטה: תמונה במקום וידאו. ב"גרסה סופית" היא תהפוך לפריים הראשון של הווידאו.</p>
                           )}
-                          {c?.draft && c?.error && (
+                          {step === 2 && c?.draft && c?.error && (
                             <p className="mt-1 text-xs text-warn">הווידאו לא נוצר ({c.error}). התמונה נשמרה — אפשר לנסות שוב בגרסה הסופית.</p>
                           )}
-                          {sourceOf(i) === 'graphic' && !c?.url && (
+                          {step !== 3 && sourceOf(i) === 'graphic' && !c?.url && (
                             <p className="mt-2 text-xs text-muted">כרטיס בצבעי המותג עם הכיתוב של הסצנה וקריאה לפעולה. בלי עלות.</p>
                           )}
 
-                          {i > 0 && seamless && !draftMode && !photos[i] && !c?.url && sourceOf(i) === 'ai_video' && (
+                          {step === 2 && i > 0 && seamless && !draftMode && !photos[i] && !c?.url && sourceOf(i) === 'ai_video' && (
                             <p className="mt-2 text-xs text-muted">ימשיך מהפריים האחרון של קליפ {i}</p>
                           )}
 
-                          {narr[i]?.url && !narr[i]?.busy && narrOutdated(i) && (
+                          {step === 3 && narr[i]?.url && !narr[i]?.busy && narrOutdated(i) && (
                             <p className="mt-3 text-xs text-warn">הקריינות הזו נוצרה בקול או בסגנון אחר ממה שנבחר עכשיו. לחצו "קריינות מחדש" כדי להחליף.</p>
                           )}
                           {/* ---- narration for this scene, generated and regenerated on its own ---- */}
-                          <div className="mt-3 rounded-2xl bg-surface-2 p-3">
+                          {step === 3 && (<div className="mt-3 rounded-2xl bg-surface-2 p-3">
                             <div className="flex flex-wrap items-center gap-2">
                               <Button size="sm" variant="ghost" onClick={() => narrateScene(i)} disabled={narr[i]?.busy}>
                                 {narr[i]?.busy ? <><Spinner />מקריא…</>
@@ -914,23 +987,23 @@ export default function ReelsPage() {
                             {!narr[i]?.error && !narr[i]?.url && (
                               <p className="mt-2 text-xs text-muted">הקריינות נוצרת בנפרד מהווידאו — שינוי מילה לא מצריך רינדור מחדש של הסרטון.</p>
                             )}
-                          </div>
+                          </div>)}
                         </div>
                       </div>
                     </Card>
                   );
                 })}
 
-                <Button variant="ghost" className="w-full" disabled={running}
+                {step !== 3 && <Button variant="ghost" className="w-full" disabled={running}
                   onClick={() => setScenes([...scenes, {
                     role: 'cta', seconds: 5, onScreen: 'קריאה לפעולה', voiceover: '',
                     visual: 'סצנה נוספת', videoPrompt: '', source: 'graphic', motion: 'none',
                   }])}>
                   <Plus size={18} aria-hidden />הוספת סצנה
-                </Button>
-              </div>
+                </Button>}
+              </div>)}
 
-              <Card className="mt-4">
+              {step === 2 && (<Card className="mt-4">
                 <label className="mb-4 flex cursor-pointer items-start gap-3">
                   <input type="checkbox" checked={draftMode} onChange={(e) => setDraftMode(e.target.checked)} disabled={running}
                     className="mt-1 h-5 w-5 accent-[var(--primary)]" />
@@ -976,20 +1049,28 @@ export default function ReelsPage() {
                     )}
                   </div>
                 </div>
-              </Card>
+              </Card>)}
 
-              <FinalReelPanel projectId={projectId} title={board.title} brief={brief}
+              {(step === 4 || step === 5) && <FinalReelPanel section={step === 4 ? 'render' : 'publish'} projectId={projectId} title={board.title} brief={brief}
                 payload={payload} ready={renderReady} missingNarration={missingNarration}
                 music={music} setMusic={setMusic} captions={captions} setCaptions={setCaptions}
                 sceneCaptions={scenes.map((_, i) => sceneCaps[i] ?? null)} setSceneCaption={setSceneCaption}
                 originalAudio={originalAudio} setOriginalAudio={setOriginalAudio}
                 social={{ caption: board.caption || '', hashtags: board.hashtags || [] }}
                 setSocial={(v) => setBoard((b) => (b ? { ...b, caption: v.caption, hashtags: v.hashtags } : b))}
-                final={finalReel} onRendered={(f) => setFinalReel(f)} />
+                final={finalReel} onRendered={(f) => setFinalReel(f)} />}
 
-              <p className="mt-3 text-xs text-muted">
+              {/* ---------- back / next ---------- */}
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+                {step > 1 ? <Button variant="ghost" onClick={() => setStep((step - 1) as 1 | 2 | 3 | 4)}>→ חזרה ל{STEPS[step - 2].label}</Button> : <span />}
+                {step < 5 && (stepDone[step]
+                  ? <Button variant="primary" onClick={() => setStep((step + 1) as 2 | 3 | 4 | 5)}>הבא: {STEPS[step].label} ←</Button>
+                  : <span className="text-sm text-muted">{STEPS[step - 1].hint}</span>)}
+              </div>
+
+              {step === 4 && <p className="mt-3 text-xs text-muted">
                 הכיתובים והקריינות בעברית מתווספים בשלב החיבור לקובץ אחד — מודלי וידאו לא כותבים עברית באופן אמין, ולכן הם לא מתבקשים לכתוב טקסט בתוך התמונה.
-              </p>
+              </p>}
             </>
           )}
         </div>
