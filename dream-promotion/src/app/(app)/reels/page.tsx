@@ -20,6 +20,7 @@ import {
 import { PALETTE, cx } from '@/lib/utils';
 import type { CaptionCue, ReelProject, ReelScene, SceneMotion, SceneNarration, SceneSource, Storyboard } from '@/types';
 import { drawGraphicCard } from '@/features/reels/graphicCard';
+import { MediaPicker } from '@/features/media/MediaPicker';
 import { MicButton } from '@/components/ui/MicButton';
 import { setGenerationContext } from '@/lib/services/http';
 import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalReelPanel';
@@ -52,6 +53,11 @@ export default function ReelsPage() {
 
   const [brief, setBrief] = useState('');
   const [total, setTotal] = useState(45);
+  // "scenes": short mixed scenes (cheaper) · "single": one continuous AI video for the whole length
+  const [shape, setShape] = useState<'scenes' | 'single'>('scenes');
+  // a real photo from the library (a person, a product) every AI still is made from
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const [anchorPicking, setAnchorPicking] = useState(false);
   const [res, setRes] = useState<Res>('720p');
   const [seamless, setSeamless] = useState(true);
   const [board, setBoard] = useState<Storyboard | null>(null);
@@ -119,6 +125,7 @@ export default function ReelsPage() {
     const toMap = <T,>(arr: (T | null)[]) => Object.fromEntries(arr.map((v, i) => [i, v]).filter(([, v]) => v !== null && v !== undefined));
     setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind, draft: c.draft, still: c.still } : null]).filter(([, v]) => v)) as Record<number, Clip>);
     setDraftMode(p.draftMode ?? false);
+    setAnchorId(p.anchorId ?? null);
     setPhotos(toMap(p.photos) as Record<number, string | null>);
     setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
     setNarr(Object.fromEntries(p.narration.map((n, i) => [i, n ? { ...n, persisted: true } : null]).filter(([, v]) => v)) as Record<number, Narr>);
@@ -212,9 +219,25 @@ export default function ReelsPage() {
         const seconds = Number.isFinite(sc.seconds) && sc.seconds >= 2 && sc.seconds <= 15 ? Math.round(sc.seconds) : per;
         return { ...sc, source, motion, seconds };
       });
-      setBoard({ ...b, scenes: planned });
-      setImageMode(Object.fromEntries(planned.map((sc, k) => [k, sc.source !== 'ai_video'])));
-      setDraftMode(true);
+      if (shape === 'single') {
+        // one continuous AI shot: the planned moments become one prompt, the narration one text
+        const len = Math.min(30, total);
+        const moments = b.scenes.map((sc) => sc.videoPrompt || sc.visual).filter(Boolean);
+        const one: ReelScene = {
+          role: 'hook', seconds: len, source: 'ai_video', motion: 'none',
+          onScreen: b.scenes[0]?.onScreen ?? '', emoji: b.scenes[0]?.emoji,
+          voiceover: b.scenes.map((sc) => sc.voiceover).filter(Boolean).join(' '),
+          visual: b.scenes.map((sc) => sc.visual).filter(Boolean).join(' ← '),
+          videoPrompt: `One continuous shot, no cuts, ${len} seconds. ${moments.map((m, k) => `${k === 0 ? 'It starts' : 'Then'}: ${m}`).join(' ')}`,
+        } as ReelScene;
+        setBoard({ ...b, scenes: [one] });
+        setImageMode({ 0: false });
+        setDraftMode(false);
+      } else {
+        setBoard({ ...b, scenes: planned });
+        setImageMode(Object.fromEntries(planned.map((sc, k) => [k, sc.source !== 'ai_video'])));
+        setDraftMode(true);
+      }
       const v = presetVideo ? media.find((m) => m.id === presetVideo && m.kind === 'video') : undefined;
       if (v) { setClips({ 0: { status: 'done', url: v.url, kind: 'video' } as Clip }); setPresetVideo(null); }
       if (presetImage) { setPhotos({ 0: presetImage }); setPresetImage(null); }
@@ -257,7 +280,11 @@ export default function ReelsPage() {
   // a video the user already has (from the library or the post) sits in scene 1 — it is never charged
   const hasExistingVideo = Boolean(presetVideo || (clips[0]?.status === 'done' && clips[0]?.kind === 'video'));
   const perScene = Math.round(total / Math.max(1, Math.round(total / 15)));
-  const newVideoCost = Math.max(0, total - (hasExistingVideo ? perScene : 0)) * PRICE_PER_SECOND[res];
+  const newVideoCost = shape === 'single'
+    ? Math.max(0, Math.min(30, total) - (hasExistingVideo ? perScene : 0)) * PRICE_PER_SECOND[res]
+    // scenes: about a third is AI video, the rest stills (8¢ each) and a free card
+    : Math.max(0, Math.round(total * 0.35) - (hasExistingVideo ? perScene : 0)) * PRICE_PER_SECOND[res]
+      + Math.max(0, Math.round(total / 5) - 2) * PRICE_PER_IMAGE;
 
   const photoUrl = (i: number) => {
     const id = photos[i];
@@ -343,6 +370,8 @@ export default function ReelsPage() {
    * FROM it (as a reference image), so the same person, outfit and place carry through the reel.
    */
   const anchorFor = (i: number): string | undefined => {
+    const chosen = anchorId ? media.find((m) => m.id === anchorId && m.kind === 'image')?.url : undefined;
+    if (chosen) return chosen;
     for (let j = 0; j < scenes.length; j++) {
       if (j === i) continue;
       const c = clips[j], src = sourceOf(j);
@@ -522,6 +551,7 @@ export default function ReelsPage() {
       clips: scenes.map((_, i) => (clips[i]?.status === 'done' && perm(clips[i].url)
         ? { url: clips[i].url!, kind: clips[i].kind ?? 'video', ...(clips[i].draft ? { draft: true } : {}), ...(clips[i].still && perm(clips[i].still!) ? { still: clips[i].still } : {}) } : null)),
       draftMode,
+      anchorId,
       photos: scenes.map((_, i) => photos[i] ?? null),
       imageMode: scenes.map((_, i) => Boolean(imageMode[i])),
       narration: scenes.map((_, i) => {
@@ -536,7 +566,7 @@ export default function ReelsPage() {
       sceneCaptions: scenes.map((_, i) => sceneCaps[i] ?? null),
       originalAudio,
     };
-  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel, sceneCaps, originalAudio, draftMode]);
+  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel, sceneCaps, originalAudio, draftMode, anchorId]);
 
   // autosave: every change is written to the account within a second
   const saveKey = project ? JSON.stringify({ ...project, updatedAt: 0 }) : '';
@@ -623,11 +653,22 @@ export default function ReelsPage() {
               הסרטון מהספרייה ישובץ בסצנה הראשונה — בלי עלות יצירה. כתבו למעלה את טקסט הקריינות, או בנו תסריט מלא.
             </p>
           )}
+          <Field label="סוג הסרטון">
+            <div className="flex flex-wrap gap-2">
+              <Chip on={shape === 'scenes'} onClick={() => setShape('scenes')}>סצנות קצרות (חסכוני)</Chip>
+              <Chip on={shape === 'single'} onClick={() => { setShape('single'); if (total > 30) setTotal(15); }}>קליפ AI רציף אחד</Chip>
+            </div>
+            <p className="mt-1.5 text-xs text-muted">
+              {shape === 'single'
+                ? 'וידאו AI אחד לכל האורך, בלי חיתוכים — כמו קליפ מצולם. יקר יותר (כל השניות הן וידאו), עד 30 שניות.'
+                : 'כמה סצנות של 3–7 שניות: וידאו AI רק איפה שתנועה חשובה, תמונות בתנועה וכרטיס בשאר.'}
+            </p>
+          </Field>
           <Field label="אורך">
             <div className="flex flex-wrap gap-2">
-              {LENGTHS.map((d) => (
+              {LENGTHS.filter((d) => shape === 'scenes' || d <= 30).map((d) => (
                 <Chip key={d} on={total === d} onClick={() => setTotal(d)}>
-                  {d} שנ׳ · {Math.max(1, Math.round(d / 15))} {d <= 15 ? 'קליפ' : 'קליפים'}
+                  {d} שנ׳{shape === 'single' ? ' · קליפ אחד' : ` · כ-${Math.min(10, Math.max(3, Math.round(d / 5)))} סצנות`}
                 </Chip>
               ))}
             </div>
@@ -730,6 +771,19 @@ export default function ReelsPage() {
                   </Button>
                 </div>
               )}
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2 p-3 text-sm">
+                {anchorId && media.find((m) => m.id === anchorId)
+                  ? <img src={media.find((m) => m.id === anchorId)!.url} alt="" className="h-14 w-10 rounded-lg object-cover" />
+                  : <span className="flex h-14 w-10 items-center justify-center rounded-lg border border-dashed border-line text-muted">?</span>}
+                <span className="min-w-0 flex-1">
+                  <strong className="block">דמות / מוצר קבועים לכל הסצנות</strong>
+                  <span className="text-xs text-muted">
+                    {anchorId ? 'כל תמונות ה-AI בריל נוצרות מהתמונה הזו — אותו אדם, אותו מוצר.' : 'בחרו תמונה אמיתית מהספרייה (אתם, לקוח, מוצר). בלי בחירה — הסצנה הראשונה שנוצרת משמשת עוגן.'}
+                  </span>
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => setAnchorPicking(true)}>{anchorId ? 'החלפה' : 'בחירה מהספרייה'}</Button>
+                {anchorId && <Button size="sm" variant="ghost" onClick={() => setAnchorId(null)}>הסרה</Button>}
+              </div>
               <div id="reel-scenes" className="mt-4 grid gap-3">
                 {scenes.map((sc, i) => {
                   const c = clips[i];
@@ -997,6 +1051,12 @@ export default function ReelsPage() {
       </Modal>
 
       {/* ---------- photo picker, with upload built in ---------- */}
+      <MediaPicker open={anchorPicking} onClose={() => setAnchorPicking(false)} accept="visual"
+        onPick={(id) => {
+          // the anchor must be a photo (the image model takes stills as reference)
+          if (media.find((m) => m.id === id)?.kind === 'image') setAnchorId(id);
+          setAnchorPicking(false);
+        }} selectedId={anchorId} />
       <Modal open={picking !== null} onClose={() => setPicking(null)} wide>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-display text-xl font-bold">מדיה לקליפ {(picking ?? 0) + 1}</h3>

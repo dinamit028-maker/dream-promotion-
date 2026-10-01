@@ -6,6 +6,18 @@ export class IntegrationRequiredError extends Error {
   }
 }
 
+export type PostFormat = 'reel' | 'feed' | 'story' | 'tiktok' | 'facebook';
+export interface BestTimes {
+  research: Record<PostFormat, { days: number[]; time: string; why: string }[]>;
+  personal: Record<string, { name: string; error?: string; analyzed?: number; reel?: { hour: number; score: number; posts: number; bestDays: number[] }[]; feed?: { hour: number; score: number; posts: number; bestDays: number[] }[] }>;
+}
+
+export interface ScheduleView {
+  id: string; runAt: string; status: 'scheduled' | 'publishing' | 'done' | 'partial' | 'failed' | 'cancelled'; lastRunAt: string | null;
+  destinations: { accountId: string; provider: 'facebook' | 'instagram' | 'tiktok'; target?: 'feed' | 'story'; name: string;
+    result: { state: 'waiting' | 'processing' | 'published' | 'sent_to_drafts' | 'failed'; error?: string; at?: string } }[];
+}
+
 export interface SocialAccount {
   id: string; provider: 'tiktok' | 'instagram' | 'facebook';
   name: string | null; avatar: string | null; connectedAt: string; needsReconnect: boolean; readOnly?: boolean;
@@ -68,6 +80,24 @@ export const SocialService = {
   /** Removes the chosen library files (rows and stored files). */
   async removeMany(ids: string[]): Promise<{ removed: number }> {
     return authed('/api/media/imported', { method: 'DELETE', body: JSON.stringify({ ids }) });
+  },
+  /** Live check with Meta: which Instagram / Facebook connections actually work right now. */
+  async checkMeta(): Promise<{ results: { id: string; ok: boolean; reason?: string; reconnect?: boolean }[] }> {
+    return authed('/api/social/check');
+  },
+  /** Recommended posting times: research defaults + each Instagram account's own best hours. */
+  async bestTimes(): Promise<BestTimes> {
+    return authed('/api/insights/best-times');
+  },
+  // ---- scheduled publishing
+  async getSchedule(contentId: string): Promise<{ schedule: ScheduleView | null }> {
+    return authed(`/api/schedule?contentId=${encodeURIComponent(contentId)}`);
+  },
+  async schedule(p: { contentId: string | null; mediaId: string; caption: string; runAt: string; destinations: { accountId: string; target?: 'feed' | 'story'; coverMs?: number }[] }): Promise<{ id: string }> {
+    return authed('/api/schedule', { method: 'POST', body: JSON.stringify(p) });
+  },
+  async cancelSchedule(id: string): Promise<{ ok: boolean }> {
+    return authed(`/api/schedule?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
   async disconnect(id: string) {
     await authed(`/api/social/accounts?id=${encodeURIComponent(id)}`, { method: 'DELETE' });

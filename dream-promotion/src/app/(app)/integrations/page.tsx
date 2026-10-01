@@ -17,6 +17,7 @@ const META_REASONS: Record<string, string> = {
 };
 
 export default function IntegrationsPage() {
+  const [health, setHealth] = useState<Record<string, { ok: boolean; reason?: string; reconnect?: boolean }>>({});
   const [dialog, setDialog] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<SocialAccount[] | null>(null);
   const [configured, setConfigured] = useState<{ tiktok: boolean; meta?: boolean }>({ tiktok: true, meta: true });
@@ -29,6 +30,8 @@ export default function IntegrationsPage() {
   async function load() {
     try {
       const r = await SocialService.accounts();
+      // then ask Meta itself whether each connection still works
+      SocialService.checkMeta().then((c) => setHealth(Object.fromEntries(c.results.map((x) => [x.id, x])))).catch(() => {});
       setAccounts(r.accounts); setConfigured(r.configured);
     } catch (e: any) { setAccounts([]); setNotice({ ok: false, text: e.message }); }
   }
@@ -60,6 +63,10 @@ export default function IntegrationsPage() {
     }
   }
   async function connectMeta(mode: 'full' | 'read') {
+    if (mode === 'read' && !window.confirm(
+      'חשוב: אם מתחברים דרך אותו משתמש פייסבוק שכבר חיבר עמודים לפרסום (גם בחשבון Dream Promotion אחר), '
+      + 'בחלון של פייסבוק צריך לסמן את כל העמודים וחשבונות האינסטגרם — גם אלה שמשמשים לפרסום. '
+      + 'עמוד שלא יסומן יאבד את ההרשאה, והפרסום אליו ייחסם.\n\nלהמשיך?')) return;
     setMetaBusy(mode); setNotice(null);
     try { await SocialService.connectMeta(mode); }
     catch (e: any) {
@@ -118,7 +125,9 @@ export default function IntegrationsPage() {
         <Card>
           <div className="flex items-center justify-between">
             <strong className="text-[17px]">Instagram ו-Facebook</strong>
-            {accounts === null ? <Spinner /> : meta.length ? <Pill tone="ok">מחובר</Pill> : <Pill tone="warn">לא מחובר</Pill>}
+            {accounts === null ? <Spinner />
+              : meta.some((a) => health[a.id] && !health[a.id].ok) ? <Pill tone="warn">צריך חיבור מחדש</Pill>
+              : meta.length ? <Pill tone="ok">מחובר</Pill> : <Pill tone="warn">לא מחובר</Pill>}
           </div>
           <p className="my-2.5 text-sm text-muted">פרסום לעמוד ולאינסטגרם, ומשיכת הסטוריז שלכם לספריית המדיה.</p>
           {meta.map((a) => (
@@ -128,6 +137,9 @@ export default function IntegrationsPage() {
                 <span className="flex-1 truncate">
                   <span className="text-muted">{a.provider === 'instagram' ? 'Instagram' : 'Facebook'} · </span>{a.name}
                   {a.readOnly && <span className="text-muted"> · משיכה בלבד</span>}
+                  {health[a.id] && (health[a.id].ok
+                    ? <span className="block text-xs text-ok">✓ פעיל — Meta מאשרת את החיבור</span>
+                    : <span className="block text-xs text-[var(--danger)]">✗ לא פעיל: {health[a.id].reason}. לחצו "חיבור לפרסום ומשיכה" וסמנו את העמוד הזה.</span>)}
                 </span>
                 {confirmOff === a.id
                   ? <button type="button" className="text-xs font-semibold text-[var(--danger)]" onClick={() => disconnect(a.id)}>בטוח?</button>
@@ -148,7 +160,10 @@ export default function IntegrationsPage() {
               {metaBusy === 'read' ? <><Spinner />מעביר לפייסבוק…</> : 'חיבור למשיכה בלבד'}
             </Button>
           </div>
-          <p className="mt-2 text-xs text-muted">בחלון של פייסבוק מסמנים רק את העמודים שרוצים לחבר. "משיכה בלבד" לא מאפשר פרסום בכלל.</p>
+          <p className="mt-2 text-xs text-muted">
+            בחלון של פייסבוק מסמנים את העמודים שרוצים לחבר. "משיכה בלבד" לא מאפשר פרסום בכלל.
+            <strong className="block text-ink-2">חיבור חוזר מאותו משתמש פייסבוק מחליף את הבחירה הקודמת — סמנו תמיד את כל העמודים שבשימוש.</strong>
+          </p>
           {configured.meta === false && <p className="mt-1 text-xs text-muted">ממתין למפתחות Meta בשרת.</p>}
         </Card>
 

@@ -84,6 +84,8 @@ export interface ReelProject {
   imageMode: boolean[];
   /** draft first: AI-video scenes are made as stills until "final version" turns them into video */
   draftMode?: boolean;
+  /** a library photo every AI still of the reel is generated from (same person / product) */
+  anchorId?: string | null;
   narration: (SceneNarration | null)[];
   voice: { voiceId: string; style: string; language: string };
   music: { mediaId: string; url: string; name: string; volume: number } | null;

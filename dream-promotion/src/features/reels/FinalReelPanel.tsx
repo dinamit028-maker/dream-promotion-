@@ -16,6 +16,8 @@ import { PRESETS, audioDuration, cueFrames, linesFromWords, loadCaptionFont, pre
 import { CaptionEditor, type EditorScene } from './CaptionEditor';
 import { TikTokSend } from '@/features/social/TikTokSend';
 import { MetaSend } from '@/features/social/MetaSend';
+import { SocialService, type BestTimes, type PostFormat, type ScheduleView, type SocialAccount } from '@/lib/services/social.service';
+import { cx } from '@/lib/utils';
 
 export interface RenderScenePayload {
   url: string; kind: 'video' | 'image'; seconds?: number; narrationUrl?: string;
@@ -100,21 +102,128 @@ export function FinalReelPanel({
 
   const spokenText = scenesForEditor.flatMap((s) => s.lines.map((c) => c.text)).join(' ').slice(0, 3000);
 
+  // ---------------------------------------------------------------- scheduled publishing --
+  const [schedAccounts, setSchedAccounts] = useState<SocialAccount[] | null>(null);
+  const [schedPick, setSchedPick] = useState<Record<string, boolean>>({});
+  const [schedIgTarget, setSchedIgTarget] = useState<'feed' | 'story'>('feed');
+  const [schedule, setSchedule] = useState<ScheduleView | null>(null);
+  const [schedBusy, setSchedBusy] = useState(false);
+  const [schedError, setSchedError] = useState<string | null>(null);
+  const [best, setBest] = useState<BestTimes | null>(null);
+
+  async function loadSchedule() {
+    if (!projectId || !isCloudConfigured) return;
+    try { setSchedule((await SocialService.getSchedule(projectId)).schedule); } catch { /* no table yet */ }
+  }
+  useEffect(() => { void loadSchedule(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projectId]);
+  // while it is waiting or publishing, the status refreshes on its own
+  useEffect(() => {
+    if (!schedule || !['scheduled', 'publishing'].includes(schedule.status)) return;
+    const t = setInterval(() => void loadSchedule(), 30_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedule?.status]);
+
   function openSchedule() {
     const item = content.find((c) => c.id === projectId);
     setWhen({ date: item?.date || today(), time: item?.time || '19:30' });
+    setSchedError(null);
     setScheduling(true);
+    if (!best) SocialService.bestTimes().then(setBest).catch(() => {});
+    SocialService.accounts().then((r) => {
+      const usable = r.accounts.filter((a) => !a.readOnly);
+      setSchedAccounts(usable);
+      // already scheduled → keep its choice; otherwise every connected destination
+      const prev = schedule && schedule.status === 'scheduled' ? new Set(schedule.destinations.map((d) => d.accountId)) : null;
+      setSchedPick(Object.fromEntries(usable.map((a) => [a.id, prev ? prev.has(a.id) : a.provider !== 'tiktok'])));
+    }).catch(() => setSchedAccounts([]));
   }
   function saveDraft() {
     if (!projectId || !final) return;
     updateContent(projectId, { status: 'draft', date: null, time: null, mediaId: final.mediaId });
     setScheduledMsg('נשמר בטיוטות. נמצא במסך "תוכן" תחת "טיוטות", ואפשר לתזמן אותו מכאן או משם בכל רגע.');
   }
-  function saveSchedule() {
+  async function saveSchedule() {
     if (!projectId || !final) return;
-    updateContent(projectId, { date: when.date, time: when.time, status: 'scheduled', mediaId: final.mediaId });
-    setScheduling(false);
-    setScheduledMsg(`מתוזמן ל-${when.date.split('-').reverse().join('.')} בשעה ${when.time}. מופיע ביומן.`);
+    const chosen = (schedAccounts ?? []).filter((a) => schedPick[a.id]);
+    setSchedBusy(true); setSchedError(null);
+    try {
+      if (chosen.length) {
+        // the browser's local time (Israel) → an exact moment for the server timer
+        const runAt = new Date(`${when.date}T${when.time}:00`).toISOString();
+        await SocialService.schedule({
+          contentId: projectId, mediaId: final.mediaId, caption: postText, runAt,
+          destinations: chosen.map((a) => ({ accountId: a.id, ...(a.provider === 'instagram' ? { target: schedIgTarget } : {}) })),
+        });
+      }
+      updateContent(projectId, { date: when.date, time: when.time, status: 'scheduled', mediaId: final.mediaId });
+      setScheduling(false);
+      setScheduledMsg(chosen.length
+        ? `יתפרסם אוטומטית ב-${when.date.split('-').reverse().join('.')} בשעה ${when.time} — ${chosen.length} יעדים.`
+        : `נשמר ביומן ל-${when.date.split('-').reverse().join('.')} בשעה ${when.time} (בלי פרסום אוטומטי).`);
+      await loadSchedule();
+    } catch (e: any) {
+      setSchedError(e.message || 'התזמון נכשל');
+    } finally { setSchedBusy(false); }
+  }
+  /**
+   * The next good moments for the chosen destinations: the account's own best hours first
+   * (from its posts' likes and comments), then the research defaults. Upcoming only.
+   */
+  const suggestions = useMemo(() => {
+    if (!best || !schedAccounts) return [] as { at: Date; label: string; why: string; mine: boolean; format: PostFormat }[];
+    const chosen = schedAccounts.filter((a) => schedPick[a.id]);
+    const formats = new Set<PostFormat>();
+    for (const a of chosen) formats.add(a.provider === 'tiktok' ? 'tiktok' : a.provider === 'facebook' ? 'facebook' : schedIgTarget === 'story' ? 'story' : 'reel');
+    if (!formats.size) formats.add('reel');
+    const now = Date.now() + 15 * 60_000;
+    const next = (days: number[] | null, hh: number, mm: number) => {
+      for (let k = 0; k < 8; k++) {
+        const d = new Date(now + k * 864e5);
+        d.setHours(hh, mm, 0, 0);
+        if (+d > now && (!days || days.includes(d.getDay()))) return d;
+      }
+      return null;
+    };
+    const out: { at: Date; label: string; why: string; mine: boolean; format: PostFormat }[] = [];
+    for (const f of formats) {
+      // the account's own data (Instagram reels / posts)
+      if (f === 'reel' || f === 'feed') {
+        for (const a of chosen.filter((x) => x.provider === 'instagram')) {
+          const p = best.personal[a.id];
+          const slots = (f === 'reel' ? p?.reel : p?.feed) ?? [];
+          for (const sl of slots.slice(0, 2)) {
+            const at = next(sl.bestDays.length >= 2 ? sl.bestDays : null, sl.hour, 0);
+            if (at) out.push({ at, mine: true, format: f, label: '', why: `בנתונים שלך: ${sl.posts} פוסטים בשעות האלה קיבלו פי ${sl.score.toFixed(1)} מהרגיל` });
+          }
+        }
+      }
+      for (const sl of best.research[f] ?? []) {
+        const [hh, mm] = sl.time.split(':').map(Number);
+        const at = next(sl.days, hh, mm);
+        if (at) out.push({ at, mine: false, format: f, label: '', why: sl.why });
+      }
+    }
+    const seen = new Set<string>();
+    const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    const todayKey = new Date().toDateString(), tomorrowKey = new Date(Date.now() + 864e5).toDateString();
+    return out
+      .sort((a, b) => Number(b.mine) - Number(a.mine) || +a.at - +b.at)
+      .filter((s) => { const k = `${+s.at}`; if (seen.has(k)) return false; seen.add(k); return true; })
+      .slice(0, 5)
+      .map((s) => {
+        const hm = s.at.toTimeString().slice(0, 5);
+        const day = s.at.toDateString() === todayKey ? 'היום' : s.at.toDateString() === tomorrowKey ? 'מחר' : `יום ${DAY[s.at.getDay()]}`;
+        return { ...s, label: `${day} ${hm}` };
+      });
+  }, [best, schedAccounts, schedPick, schedIgTarget]);
+  const FORMAT_HE: Record<PostFormat, string> = { reel: 'רילס', feed: 'פוסט', story: 'סטורי', tiktok: 'TikTok', facebook: 'פייסבוק' };
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  async function cancelSchedule() {
+    if (!schedule) return;
+    try { await SocialService.cancelSchedule(schedule.id); await loadSchedule(); setScheduledMsg('הפרסום האוטומטי בוטל. הריל נשאר ביומן.'); }
+    catch (e: any) { setScheduledMsg(e.message); }
   }
 
   // ---------------------------------------------------------------- post text + hashtags --
@@ -341,6 +450,28 @@ export function FinalReelPanel({
             <p className="mt-1 text-sm text-muted">נשמר בספריית המדיה ומשויך לפרויקט הזה.</p>
             {captionNote && <p className="mt-1 text-sm">{captionNote}</p>}
             {scheduledMsg && <p className="mt-1 text-sm text-ok">{scheduledMsg}</p>}
+            {schedule && (
+              <div className="mt-3 rounded-2xl border border-line p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <strong>
+                    {schedule.status === 'scheduled' ? '⏰ מתוזמן לפרסום' : schedule.status === 'publishing' ? '⏳ מתפרסם…'
+                      : schedule.status === 'done' ? '✓ פורסם' : schedule.status === 'partial' ? '⚠ פורסם חלקית' : '✗ הפרסום נכשל'}
+                    {' · '}{new Date(schedule.runAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}
+                  </strong>
+                  {schedule.status === 'scheduled' && <button type="button" className="text-xs text-[var(--danger)] hover:underline" onClick={cancelSchedule}>ביטול הפרסום האוטומטי</button>}
+                </div>
+                <ul className="mt-2 grid gap-1">
+                  {schedule.destinations.map((d) => (
+                    <li key={d.accountId} className="text-xs">
+                      <span className={cx('font-semibold', d.result.state === 'failed' ? 'text-[var(--danger)]' : d.result.state === 'published' || d.result.state === 'sent_to_drafts' ? 'text-ok' : 'text-muted')}>
+                        {d.result.state === 'published' ? '✓ פורסם' : d.result.state === 'sent_to_drafts' ? '✓ נשלח לטיוטות' : d.result.state === 'processing' ? '⏳ בעיבוד' : d.result.state === 'failed' ? '✗ נכשל' : '· ממתין'}
+                      </span>{' '}{d.name}{d.target === 'story' ? ' (סטורי)' : ''}
+                      {d.result.error && <span className="block text-[var(--danger)]" dir="auto">{d.result.error}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* ---- post text + hashtags ---- */}
             <div className="mt-4 rounded-2xl bg-surface-2 p-3">
@@ -403,8 +534,61 @@ export function FinalReelPanel({
           <CloseButton onClick={() => setScheduling(false)} />
         </div>
         <ScheduleFields date={when.date} time={when.time} onChange={setWhen} />
+        <div className="mt-4">
+          <p className="mb-2 text-sm font-semibold">לפרסם אוטומטית ב:</p>
+          {schedAccounts === null ? <Spinner /> : !schedAccounts.length ? (
+            <p className="rounded-2xl bg-surface-2 p-3 text-sm">אין חשבון מחובר לפרסום — הריל יישמר ביומן בלבד. מחברים במסך החיבורים.</p>
+          ) : (
+            <div className="grid gap-2">
+              {schedAccounts.map((a) => (
+                <label key={a.id} className={cx('flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2 text-sm', schedPick[a.id] ? 'border-primary bg-primary-soft' : 'border-line')}>
+                  <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={Boolean(schedPick[a.id])}
+                    onChange={(e) => setSchedPick((p) => ({ ...p, [a.id]: e.target.checked }))} />
+                  {a.avatar && <img src={a.avatar} alt="" className="h-7 w-7 rounded-full" />}
+                  <span className="min-w-0 flex-1">
+                    <span className="text-muted">{a.provider === 'instagram' ? 'Instagram' : a.provider === 'facebook' ? 'Facebook' : 'TikTok'} · </span>{a.name}
+                    {a.provider === 'tiktok' && <span className="block text-xs text-muted">נשלח לטיוטות ב-TikTok בזמן שנקבע — מפרסמים משם בלחיצה.</span>}
+                  </span>
+                </label>
+              ))}
+              {schedAccounts.some((a) => a.provider === 'instagram' && schedPick[a.id]) && (
+                <div className="flex gap-2">
+                  <Chip on={schedIgTarget === 'feed'} onClick={() => setSchedIgTarget('feed')}>רילס באינסטגרם</Chip>
+                  <Chip on={schedIgTarget === 'story'} onClick={() => setSchedIgTarget('story')}>סטורי באינסטגרם</Chip>
+                </div>
+              )}
+            </div>
+          )}
+          {suggestions.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-sm font-semibold">שעות מומלצות</p>
+              <div className="grid gap-2">
+                {suggestions.map((s) => (
+                  <button key={`${+s.at}-${s.format}`} type="button"
+                    onClick={() => setWhen({ date: `${s.at.getFullYear()}-${pad(s.at.getMonth() + 1)}-${pad(s.at.getDate())}`, time: `${pad(s.at.getHours())}:${pad(s.at.getMinutes())}` })}
+                    className="flex items-start gap-3 rounded-2xl border border-line px-3 py-2 text-start text-sm hover:border-primary hover:bg-primary-soft">
+                    <span className="shrink-0 font-bold tabular-nums">{s.label}</span>
+                    <span className="min-w-0 flex-1 text-xs text-muted">
+                      <span className={cx('me-1 rounded-full px-1.5 py-0.5 font-semibold', s.mine ? 'bg-primary text-white' : 'bg-surface-2 text-ink-2')}>
+                        {s.mine ? '★ מהנתונים שלך' : 'מחקר'}
+                      </span>
+                      {FORMAT_HE[s.format]} · {s.why}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-muted">
+                "מחקר" = ממוצעים של מחקרי 2026, מותאמים לשעון ולשבוע בישראל. "מהנתונים שלך" = לייקים ותגובות של הפוסטים שלך לפי שעה — עדיף כשיש.
+              </p>
+            </div>
+          )}
+          <p className="mt-3 text-xs text-muted">הפרסום קורה בשרת, גם כשהאפליקציה סגורה (בדיקה כל 5 דקות). הטקסט וההאשטגים מהריל נשלחים איתו.</p>
+          {schedError && <p className="mt-2 text-sm text-warn">{schedError}</p>}
+        </div>
         <div className="mt-5 flex gap-3 border-t border-line pt-4">
-          <Button variant="primary" onClick={saveSchedule}>שמירה ביומן</Button>
+          <Button variant="primary" onClick={saveSchedule} disabled={schedBusy}>
+            {schedBusy ? <><Spinner />שומר…</> : Object.values(schedPick).some(Boolean) && schedAccounts?.length ? 'תזמון פרסום' : 'שמירה ביומן'}
+          </Button>
           <Button variant="ghost" onClick={() => setScheduling(false)}>ביטול</Button>
         </div>
       </Modal>

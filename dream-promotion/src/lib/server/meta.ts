@@ -275,3 +275,14 @@ export async function importPosts(userId: string, acc: MetaAccount, opts: { afte
     if (!after) return { added, already, noFile, failed, scanned, after: null, done: true };
   }
 }
+
+/** Asks Meta whether this connection still works (a cheap read with the stored token). */
+export async function checkMetaAccount(acc: MetaAccount): Promise<{ ok: true } | { ok: false; reason: string; reconnect: boolean }> {
+  try {
+    await graph(`/${acc.externalId}`, { access_token: acc.token, fields: 'id' });
+    return { ok: true };
+  } catch (e: any) {
+    const m = String(e?.message ?? e);
+    return { ok: false, reason: m.replace(/^[a-z_0-9]+:\s*/i, '').slice(0, 240), reconnect: /reconnect_required|permission_denied/.test(m) };
+  }
+}
