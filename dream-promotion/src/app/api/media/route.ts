@@ -12,6 +12,15 @@ const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
  *  action "register" → after the browser uploaded the file: a long-lived read link + a row in `media`
  * Works without any storage policies, because the server hands out the link.
  */
+/** Allowed upload types (by extension, then checked again against what storage recorded). */
+const EXT_FAMILY: Record<string, 'image' | 'video' | 'audio' | 'json'> = {
+  jpg: 'image', jpeg: 'image', png: 'image', webp: 'image', gif: 'image', heic: 'image', heif: 'image',
+  mp4: 'video', mov: 'video', webm: 'video', m4v: 'video',
+  mp3: 'audio', m4a: 'audio', aac: 'audio', wav: 'audio', ogg: 'audio',
+  json: 'json', // the caption pack of the reel renderer (never registered as media)
+};
+const MAX_BYTES = { image: 25 * 1024 * 1024, video: 200 * 1024 * 1024, audio: 50 * 1024 * 1024, json: 30 * 1024 * 1024 };
+
 export async function POST(req: Request) {
   if (!URL_ || !SERVICE) return NextResponse.json({ code: 'no_cloud', message: 'Supabase is not configured' }, { status: 503 });
   const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
@@ -26,6 +35,12 @@ export async function POST(req: Request) {
     const body = await req.json();
     if (body.action === 'sign') {
       const ext = String(body.ext || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'jpg';
+      const family = EXT_FAMILY[ext];
+      if (!family) return NextResponse.json({ code: 'bad_type', message: `סוג קובץ לא נתמך (.${ext})` }, { status: 400 });
+      const size = Number(body.size);
+      if (Number.isFinite(size) && size > MAX_BYTES[family]) {
+        return NextResponse.json({ code: 'too_large', message: `הקובץ גדול מדי. עד ${Math.round(MAX_BYTES[family] / 1024 / 1024)} MB.` }, { status: 413 });
+      }
       const path = `${user.id}/upload/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { data, error } = await admin.storage.from('assets').createSignedUploadUrl(path);
       if (error || !data) return NextResponse.json({ code: 'sign_failed', message: error?.message ?? 'no link' }, { status: 500 });
@@ -35,7 +50,24 @@ export async function POST(req: Request) {
     if (body.action === 'register') {
       const path = String(body.path || '');
       if (!path.startsWith(`${user.id}/`)) return NextResponse.json({ code: 'forbidden', message: 'not your file' }, { status: 403 });
-      const kind = body.kind === 'video' ? 'video' : body.kind === 'audio' ? 'audio' : 'image';
+      if (path.includes('..') || path.split('/').length !== 3 || path.split('/')[1] !== 'upload') {
+        return NextResponse.json({ code: 'forbidden', message: 'not an upload path' }, { status: 403 });
+      }
+      // what actually landed in storage — not what the browser says it is
+      const folder = path.slice(0, path.lastIndexOf('/'));
+      const fileName = path.slice(path.lastIndexOf('/') + 1);
+      const listed = await admin.storage.from('assets').list(folder, { search: fileName, limit: 5 });
+      const obj = listed.data?.find((o) => o.name === fileName);
+      if (!obj) return NextResponse.json({ code: 'not_uploaded', message: 'the file was not uploaded' }, { status: 400 });
+      const mime = String((obj.metadata as any)?.mimetype || '').toLowerCase();
+      const bytes = Number((obj.metadata as any)?.size || 0);
+      const family = mime.split('/')[0] as 'image' | 'video' | 'audio';
+      const extFamily = EXT_FAMILY[fileName.split('.').pop() || ''];
+      if (!['image', 'video', 'audio'].includes(family) || (extFamily && extFamily !== family) || bytes > MAX_BYTES[family]) {
+        await admin.storage.from('assets').remove([path]);
+        return NextResponse.json({ code: 'bad_file', message: 'הקובץ נדחה: סוג או גודל לא מתאימים.' }, { status: 400 });
+      }
+      const kind = family;
       const signed = await admin.storage.from('assets').createSignedUrl(path, 60 * 60 * 24 * 365);
       if (!signed.data?.signedUrl) return NextResponse.json({ code: 'read_link_failed', message: signed.error?.message ?? '' }, { status: 500 });
       const row = await admin.from('media').insert({

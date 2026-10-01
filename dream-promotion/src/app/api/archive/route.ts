@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { BlockedUrlError, safeFetch } from '@/lib/server/safe-fetch';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -30,11 +31,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ code: 'bad_request', message: 'url required' }, { status: 400 });
     }
 
-    const res = await fetch(url);
+    // only the AI providers' CDNs and this project's storage; checked on every redirect (SSRF)
+    let res: Response;
+    try { res = await safeFetch(url, { maxBytes: 300 * 1024 * 1024, timeoutMs: 50_000 }); }
+    catch (e: any) {
+      if (e instanceof BlockedUrlError) return NextResponse.json({ code: 'blocked_url', message: e.message }, { status: 400 });
+      throw e;
+    }
     if (!res.ok) return NextResponse.json({ code: 'fetch_failed', message: `source returned ${res.status}` }, { status: 200 });
     const buf = Buffer.from(await res.arrayBuffer());
-    const type = res.headers.get('content-type') || (kind === 'video' ? 'video/mp4' : 'image/jpeg');
-    const ext = type.includes('png') ? 'png' : type.includes('mp4') ? 'mp4' : type.includes('mpeg') ? 'mp3' : 'jpg';
+    const type = (res.headers.get('content-type') || (kind === 'video' ? 'video/mp4' : 'image/jpeg')).split(';')[0].trim().toLowerCase();
+    if (!/^(image|video|audio)\//.test(type)) return NextResponse.json({ code: 'bad_type', message: `not a media file (${type})` }, { status: 400 });
+    const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('mp4') ? 'mp4' : type.includes('mpeg') ? 'mp3' : type.includes('wav') ? 'wav' : 'jpg';
     const path = `${user.id}/${kind}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
     const up = await admin.storage.from('assets').upload(path, buf, { contentType: type, upsert: false });

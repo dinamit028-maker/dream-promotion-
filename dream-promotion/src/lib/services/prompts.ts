@@ -33,23 +33,29 @@ headline: טקסט קצר שיופיע על התמונה (עד 8 מילים). ca
 {"items":[{"dayOffset":0,"time":"19:30","kind":"post|reel|story","platform":"Instagram|Facebook|TikTok","goal":"","headline":"","caption":"","hashtags":[""],"cta":"","emoji":"","visual_direction":""}]}`;
 
 export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number) => {
-  const clips = Math.max(1, Math.round(duration / 15));
-  const per = Math.round(duration / clips);
+  const count = Math.min(10, Math.max(3, Math.round(duration / 5)));
+  const per = Math.round(duration / count);
+  const videoBudget = Math.max(5, Math.round(duration * 0.35));
   return `${brandContext(b)}
 
-בנה/י תוכנית לסרטון אנכי (9:16) באורך ${duration} שניות, מחולק ל-${clips} קליפים של ${per} שניות כל אחד.
+בנה/י תוכנית לסרטון אנכי (9:16) באורך ${duration} שניות, ב-${count} סצנות קצרות של בערך ${per} שניות (3–7 שניות כל אחת).
 נושא: ${brief || 'הצע/י נושא חזק לעסק'}
-הקליפים מתחברים ברצף לסרטון אחד, אז כל קליף ממשיך את הקודם: אותו מקום, אותה תאורה, אותה דמות או מוצר.
-מבנה כולל: הוק ובעיה ← פתרון ← הוכחה וקריאה לפעולה.
+מבנה כולל: הוק ובעיה ← פתרון ← הוכחה ← קריאה לפעולה. הסצנות נראות כמו סרטון אחד: אותו מקום, אותה תאורה, אותה דמות או מוצר.
 
-לכל קליף:
-- onScreen: טקסט קצר בעברית שיופיע כשכבת כיתוב (עד 8 מילים)
-- voiceover: קריינות בעברית לקליף
+החלטה חשובה — ממה עשויה כל סצנה (source). וידאו AI יקר פי 5–10 מתמונה, אז משתמשים בו רק איפה שתנועה אמיתית היא העיקר:
+- "ai_video": תנועה שהיא לב הסצנה — פעולה (מזיגה, טיפול, הנחת מוצר ביד, אדם שמסתובב), בדרך כלל ההוק. סך כל סצנות ai_video: עד ${videoBudget} שניות.
+- "ai_image": תמונה סטילס עם תנועת מצלמה עדינה (motion) — תוצאה, מוצר, מקום, לפני/אחרי, פרט. ברירת המחדל לרוב הסצנות.
+- "graphic": כרטיס טקסט ממותג — לקריאה לפעולה בסוף (תמיד הסצנה האחרונה), או לנתון/הצעה בולטים.
+motion לכל סצנה שאינה ai_video: "zoom_in" (התקרבות לפרט/רגש), "zoom_out" (חשיפה), "pan_left" / "pan_right" (מקום, מוצרים בשורה). ל-ai_video ול-graphic: "none".
+
+לכל סצנה:
+- onScreen: טקסט קצר בעברית שיופיע על המסך (עד 7 מילים)
+- voiceover: קריינות בעברית לסצנה — קצרה, בערך 2.2 מילים לכל שנייה של הסצנה
 - visual: תיאור קצר בעברית של מה רואים
-- videoPrompt: פרומפט באנגלית למודל וידאו — נושא, פעולה, תנועת מצלמה, תאורה, אווירה, עדשה. בלי שום טקסט, כתוביות, אותיות או לוגואים בתוך התמונה. כתוב/י בזמן הווה, 40–80 מילים.
+- videoPrompt: פרומפט באנגלית — ל-ai_video: נושא, פעולה, תנועת מצלמה, תאורה, אווירה, עדשה (40–80 מילים, זמן הווה). ל-ai_image: תיאור תמונה סטילס מצולמת, קומפוזיציה, תאורה, עדשה (30–60 מילים). בלי שום טקסט, אותיות או לוגואים בתוך התמונה. ל-graphic: מחרוזת ריקה.
 
 החזר/י JSON בלבד:
-{"title":"","scenes":[{"role":"","seconds":${per},"onScreen":"","voiceover":"","visual":"","videoPrompt":""}],"caption":"","hashtags":[]}`;
+{"title":"","scenes":[{"role":"","seconds":${per},"source":"ai_image","motion":"zoom_in","onScreen":"","voiceover":"","visual":"","videoPrompt":""}],"caption":"","hashtags":[]}`;
 };
 
 export const brandAnalysisPrompt = (b: BrandProfile) => `${brandContext(b)}

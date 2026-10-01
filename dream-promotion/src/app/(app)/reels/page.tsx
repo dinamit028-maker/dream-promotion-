@@ -18,12 +18,14 @@ import {
   Trash, Plus, CaretLeft, CaretRight, MagicWand, PaperPlaneTilt,
 } from '@/components/ui/Icon';
 import { PALETTE, cx } from '@/lib/utils';
-import type { CaptionCue, ReelProject, ReelScene, SceneNarration, Storyboard } from '@/types';
+import type { CaptionCue, ReelProject, ReelScene, SceneMotion, SceneNarration, SceneSource, Storyboard } from '@/types';
+import { drawGraphicCard } from '@/features/reels/graphicCard';
 import { MicButton } from '@/components/ui/MicButton';
+import { setGenerationContext } from '@/lib/services/http';
 import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalReelPanel';
 
 type Res = keyof typeof PRICE_PER_SECOND;
-type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image' };
+type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image'; draft?: boolean };
 
 const LENGTHS = [10, 15, 30, 45];
 const ROLE_HE: Record<string, string> = {
@@ -58,6 +60,8 @@ export default function ReelsPage() {
 
   const [photos, setPhotos] = useState<Record<number, string | null>>({});
   const [imageMode, setImageMode] = useState<Record<number, boolean>>({});
+  // draft first: AI-video scenes start as stills; "final version" turns only those into video
+  const [draftMode, setDraftMode] = useState(true);
   const [clips, setClips] = useState<Record<number, Clip>>({});
   const [running, setRunning] = useState(false);
   const [rethinking, setRethinking] = useState<number | null>(null);
@@ -71,6 +75,8 @@ export default function ReelsPage() {
   const [music, setMusic] = useState<ReelProject['music']>(null);
   const [captions, setCaptions] = useState<ReelProject['captions']>({ enabled: true, position: 'bottom', size: 'lg' });
   const [finalReel, setFinalReel] = useState<ReelProject['final']>(null);
+  // every AI call made here is counted toward this reel's cost
+  useEffect(() => { setGenerationContext(projectId); return () => setGenerationContext(null); }, [projectId]);
   const [sceneCaps, setSceneCaps] = useState<Record<number, CaptionCue[]>>({});
   const [originalAudio, setOriginalAudio] = useState(true);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'local' | 'no_migration' | 'error'>('idle');
@@ -111,7 +117,8 @@ export default function ReelsPage() {
     loadedRef.current = true;
     setBrief(p.brief); setTotal(p.total); setRes(p.res); setSeamless(p.seamless); setBoard(p.board);
     const toMap = <T,>(arr: (T | null)[]) => Object.fromEntries(arr.map((v, i) => [i, v]).filter(([, v]) => v !== null && v !== undefined));
-    setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind } : null]).filter(([, v]) => v)) as Record<number, Clip>);
+    setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind, draft: c.draft } : null]).filter(([, v]) => v)) as Record<number, Clip>);
+    setDraftMode(p.draftMode ?? false);
     setPhotos(toMap(p.photos) as Record<number, string | null>);
     setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
     setNarr(Object.fromEntries(p.narration.map((n, i) => [i, n ? { ...n, persisted: true } : null]).filter(([, v]) => v)) as Record<number, Narr>);
@@ -130,10 +137,25 @@ export default function ReelsPage() {
   }, [anyActive]);
 
   const scenes = board?.scenes ?? [];
-  const cost = useMemo(
-    () => scenes.reduce((sum, sc, i) => sum + (clips[i]?.status === 'done' ? 0 : imageMode[i] ? PRICE_PER_IMAGE : (sc.seconds || 15) * PRICE_PER_SECOND[res]), 0),
-    [scenes, res, imageMode, clips],
-  );
+  /** what is still to pay: now (draft or direct) and for the final version */
+  const costs = useMemo(() => {
+    let now = 0, final = 0, videoSec = 0;
+    scenes.forEach((sc, i) => {
+      const src = sc.source ?? (imageMode[i] ? 'ai_image' : 'ai_video');
+      const c = clips[i];
+      const sec = sc.seconds || 5;
+      if (src === 'ai_video') videoSec += sec;
+      if (c?.status === 'done' && !c.draft) return;
+      if (src === 'graphic' || src === 'user' || (src === 'ai_image' && photos[i])) return;
+      if (src === 'ai_image') { now += PRICE_PER_IMAGE; return; }
+      // AI video
+      if (c?.draft) { final += sec * PRICE_PER_SECOND[res]; return; }
+      if (draftMode) { now += PRICE_PER_IMAGE; final += sec * PRICE_PER_SECOND[res]; } else now += sec * PRICE_PER_SECOND[res];
+    });
+    const totalSec = scenes.reduce((a, x) => a + (x.seconds || 5), 0);
+    return { now, final, videoSec, totalSec };
+  }, [scenes, res, imageMode, clips, photos, draftMode]);
+  const cost = costs.now;
   const doneUrls = scenes.map((_, i) => clips[i]?.url).filter(Boolean) as string[];
   const allDone = scenes.length > 0 && doneUrls.length === scenes.length;
 
@@ -180,8 +202,19 @@ export default function ReelsPage() {
     setPlanning(true); setPlanError(null); setClips({}); setPhotos({}); setNarr({}); setFinalReel(null); setSceneCaps({});
     try {
       const b = await AIService.storyboard(brand, brief, total);
-      const per = Math.round(total / Math.max(1, Math.round(total / 15)));
-      setBoard({ ...b, scenes: b.scenes.map((sc) => ({ ...sc, seconds: per })) });
+      const per = Math.round(total / Math.min(10, Math.max(3, Math.round(total / 5))));
+      const SOURCES: SceneSource[] = ['ai_video', 'ai_image', 'graphic'];
+      const MOTIONS: SceneMotion[] = ['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'none'];
+      const planned = b.scenes.map((sc, k) => {
+        const source: SceneSource = SOURCES.includes(sc.source as SceneSource) ? sc.source! : 'ai_image';
+        const motion: SceneMotion = source === 'ai_video' || source === 'graphic' ? 'none'
+          : MOTIONS.includes(sc.motion as SceneMotion) && sc.motion !== 'none' ? sc.motion! : (k % 2 ? 'zoom_out' : 'zoom_in');
+        const seconds = Number.isFinite(sc.seconds) && sc.seconds >= 2 && sc.seconds <= 15 ? Math.round(sc.seconds) : per;
+        return { ...sc, source, motion, seconds };
+      });
+      setBoard({ ...b, scenes: planned });
+      setImageMode(Object.fromEntries(planned.map((sc, k) => [k, sc.source !== 'ai_video'])));
+      setDraftMode(true);
       const v = presetVideo ? media.find((m) => m.id === presetVideo && m.kind === 'video') : undefined;
       if (v) { setClips({ 0: { status: 'done', url: v.url, kind: 'video' } as Clip }); setPresetVideo(null); }
       if (presetImage) { setPhotos({ 0: presetImage }); setPresetImage(null); }
@@ -230,6 +263,18 @@ export default function ReelsPage() {
     const id = photos[i];
     return id ? media.find((m) => m.id === id)?.url : undefined;
   };
+
+  /** What a scene is made of (older projects: from the video / image switch). */
+  const sourceOf = (i: number): SceneSource => scenes[i]?.source ?? (imageMode[i] ? 'ai_image' : 'ai_video');
+  function setSource(i: number, source: SceneSource) {
+    setScenes(scenes.map((s, n) => (n === i ? {
+      ...s, source,
+      motion: source === 'ai_video' || source === 'graphic' ? 'none' : s.motion && s.motion !== 'none' ? s.motion : 'zoom_in',
+    } : s)));
+    setImageMode((m) => ({ ...m, [i]: source !== 'ai_video' }));
+    clearClip(i);
+  }
+  const setMotion = (i: number, motion: SceneMotion) => setScenes(scenes.map((s, n) => (n === i ? { ...s, motion } : s)));
 
   /** Ask the model for a different visual direction for one clip. */
   async function rethinkScene(i: number) {
@@ -281,19 +326,47 @@ export default function ReelsPage() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  async function renderScene(i: number, startImage?: string): Promise<string> {
+  async function renderScene(i: number, startImage?: string, opts: { final?: boolean } = {}): Promise<string> {
     const sc = scenes[i];
     const startedAt = Date.now();
     const set = (u: ClipUpdate) => setClips((c) => ({ ...c, [i]: { ...c[i], ...u, startedAt } }));
 
-    // a still image costs 8 cents instead of 75 — enough for most scenes
-    if (imageMode[i]) {
+    const source = sourceOf(i);
+
+    // a branded card, drawn here — no AI, no cost
+    if (source === 'graphic') {
+      set({ status: 'running' });
+      try {
+        const logo = brand.logoId ? media.find((m) => m.id === brand.logoId)?.url : undefined;
+        const file = await drawGraphicCard(brand, sc.onScreen, logo);
+        const asset = await MediaService.upload(file);
+        if (asset.persistent) addMedia(asset);
+        setClips((c) => ({ ...c, [i]: { status: 'done', url: asset.url, kind: 'image', startedAt } }));
+        return asset.url;
+      } catch (e: any) {
+        setClips((c) => ({ ...c, [i]: { status: 'failed', error: e.message, kind: 'image', startedAt } }));
+        throw e;
+      }
+    }
+
+    // the user's own photo as a moving still: free
+    const own = photoUrl(i);
+    if (own && (source === 'ai_image' || source === 'user')) {
+      setClips((c) => ({ ...c, [i]: { status: 'done', url: own, kind: 'image', startedAt } }));
+      return own;
+    }
+
+    // a still image costs 8 cents instead of 50+ — enough for most scenes.
+    // In draft mode an AI-video scene starts as a still too (draft: true): it becomes the first
+    // frame of the video in the final version, so the look you approved is the look you get.
+    const draftStill = draftMode && !opts.final && source === 'ai_video' && !own && !startImage;
+    if (imageMode[i] || draftStill) {
       set({ status: 'running' });
       try {
         const urls = await ImageService.generate({
           prompt: sc.videoPrompt || sc.visual, aspectRatio: '9:16', count: 1,
         }, undefined, abort.current?.signal);
-        setClips((c) => ({ ...c, [i]: { status: 'done', url: urls[0], kind: 'image', startedAt } }));
+        setClips((c) => ({ ...c, [i]: { status: 'done', url: urls[0], kind: 'image', startedAt, draft: draftStill || undefined } }));
         void keepInLibrary(i, urls[0], 'image');
         return urls[0];
       } catch (e: any) {
@@ -306,6 +379,8 @@ export default function ReelsPage() {
       const url = photoUrl(i);
       if (url) startImage = await imageToDataUri(url);
     }
+    // from here on this scene is a video: a draft still it replaces stops being "the clip"
+    setClips((c) => ({ ...c, [i]: { status: 'queued', kind: 'video', startedAt } }));
     try {
       return await VideoService.generate({
         prompt: sc.videoPrompt || sc.visual,
@@ -335,7 +410,7 @@ export default function ReelsPage() {
     setRunning(true);
     try {
       if (only !== undefined) { await renderScene(only).catch(() => {}); return; }
-      if (seamless) {
+      if (seamless && !draftMode) {
         let prev: string | undefined;
         for (let i = 0; i < scenes.length; i++) {
           if (clips[i]?.status === 'done' && clips[i].url) { prev = clips[i].url; continue; }
@@ -352,6 +427,31 @@ export default function ReelsPage() {
       }
     } catch { /* the failing clip shows its own message */ }
     finally { setRunning(false); }
+  }
+
+  /**
+   * Final version: only the AI-video scenes that are still drafts become video — each from its
+   * approved still as the first frame. Everything already final is kept as is (never paid twice).
+   */
+  const draftScenes = scenes.map((_, i) => i).filter((i) => clips[i]?.status === 'done' && clips[i]?.draft && sourceOf(i) === 'ai_video');
+  async function makeFinal() {
+    if (!draftScenes.length) { setDraftMode(false); return; }
+    abort.current = new AbortController();
+    setRunning(true);
+    setDraftMode(false);
+    try {
+      await Promise.allSettled(draftScenes.map(async (i) => {
+        const still = clips[i]?.url;
+        let start: string | undefined;
+        try { start = still ? await imageToDataUri(still) : undefined; } catch { start = still; }
+        try { return await renderScene(i, start ?? still, { final: true }); }
+        catch (e) {
+          // the approved still stays, so nothing is lost and "final version" can be tried again
+          if (still) setClips((c) => ({ ...c, [i]: { status: 'done', url: still, kind: 'image', draft: true, error: videoErrorMessage((e as any)?.message, (e as any)?.code)?.title } }));
+          throw e;
+        }
+      }));
+    } finally { setRunning(false); }
   }
 
   async function onFiles(files: FileList | null) {
@@ -372,7 +472,9 @@ export default function ReelsPage() {
     const perm = (u?: string) => Boolean(u && u.startsWith('https://'));
     return {
       v: 1, brief, total, res, seamless, board,
-      clips: scenes.map((_, i) => (clips[i]?.status === 'done' && perm(clips[i].url) ? { url: clips[i].url!, kind: clips[i].kind ?? 'video' } : null)),
+      clips: scenes.map((_, i) => (clips[i]?.status === 'done' && perm(clips[i].url)
+        ? { url: clips[i].url!, kind: clips[i].kind ?? 'video', ...(clips[i].draft ? { draft: true } : {}) } : null)),
+      draftMode,
       photos: scenes.map((_, i) => photos[i] ?? null),
       imageMode: scenes.map((_, i) => Boolean(imageMode[i])),
       narration: scenes.map((_, i) => {
@@ -387,7 +489,7 @@ export default function ReelsPage() {
       sceneCaptions: scenes.map((_, i) => sceneCaps[i] ?? null),
       originalAudio,
     };
-  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel, sceneCaps, originalAudio]);
+  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel, sceneCaps, originalAudio, draftMode]);
 
   // autosave: every change is written to the account within a second
   const saveKey = project ? JSON.stringify({ ...project, updatedAt: 0 }) : '';
@@ -439,6 +541,8 @@ export default function ReelsPage() {
 
   const payload: RenderScenePayload[] = scenes.map((sc, i) => ({
     url: clips[i]?.url ?? '', kind: clips[i]?.kind ?? 'video', seconds: sc.seconds,
+    // stills move (Ken Burns); a draft still of a video scene gets a gentle push-in
+    motion: clips[i]?.kind === 'image' ? (sc.motion && sc.motion !== 'none' ? sc.motion : clips[i]?.draft ? 'zoom_in' : sc.source === 'graphic' ? 'zoom_in' : sc.motion) : undefined,
     narrationUrl: narr[i]?.persisted ? narr[i]?.url : undefined,
     cues: narr[i]?.persisted ? narr[i]?.cues : undefined,
     text: narr[i]?.persisted ? (narr[i]?.originalText || sc.voiceover) : undefined,
@@ -540,7 +644,7 @@ export default function ReelsPage() {
           )}
           {!planning && !board && !planError && (
             <EmptyState icon={<FilmSlate />} title="אין עדיין תסריט"
-              body="תארו את הסרטון, בחרו אורך, וה-AI יחלק אותו לקליפים של 15 שניות שמתחברים לרצף אחד." />
+              body="תארו את הסרטון, בחרו אורך, וה-AI יחלק אותו לסצנות קצרות — וידאו רק איפה שתנועה באמת חשובה, ותמונות בתנועה בכל השאר." />
           )}
 
           {board && !planning && (
@@ -597,7 +701,7 @@ export default function ReelsPage() {
 
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <Pill tone="ai">{roleLabel(sc.role, i)} · {sc.seconds || 15} שנ׳</Pill>
+                            <Pill tone="ai">{roleLabel(sc.role, i)} · {sc.seconds || 5} שנ׳{c?.draft ? ' · טיוטה' : ''}</Pill>
                             <ClipBadge clip={c} elapsed={elapsed} />
                           </div>
                           <strong className="mt-2 block">{sc.onScreen}</strong>
@@ -612,12 +716,12 @@ export default function ReelsPage() {
                           )}
 
                           <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <div className="flex overflow-hidden rounded-full border border-line">
-                              {([[false, 'וידאו'], [true, 'תמונה']] as [boolean, string][]).map(([mode, label]) => (
-                                <button key={label} type="button" disabled={running}
-                                  onClick={() => { setImageMode((m) => ({ ...m, [i]: mode })); clearClip(i); }}
+                            <div className="flex overflow-hidden rounded-full border border-line" role="radiogroup" aria-label="ממה עשויה הסצנה">
+                              {([['ai_video', 'וידאו AI'], ['ai_image', 'תמונה בתנועה'], ['graphic', 'כרטיס']] as [SceneSource, string][]).map(([src, label]) => (
+                                <button key={src} type="button" role="radio" aria-checked={sourceOf(i) === src} disabled={running}
+                                  onClick={() => sourceOf(i) !== src && setSource(i, src)}
                                   className={cx('px-3 py-1.5 text-xs font-semibold transition-colors',
-                                    Boolean(imageMode[i]) === mode ? 'bg-primary text-white' : 'hover:bg-surface-2')}>
+                                    sourceOf(i) === src ? 'bg-primary text-white' : 'hover:bg-surface-2')}>
                                   {label}
                                 </button>
                               ))}
@@ -649,7 +753,28 @@ export default function ReelsPage() {
                             )}
                           </div>
 
-                          {i > 0 && seamless && !photos[i] && !c?.url && (
+                          {(sourceOf(i) === 'ai_image' || c?.draft) && (
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <span className="text-xs text-muted">תנועת מצלמה:</span>
+                              {([['zoom_in', 'התקרבות'], ['zoom_out', 'התרחקות'], ['pan_right', 'ימינה'], ['pan_left', 'שמאלה'], ['none', 'בלי']] as [SceneMotion, string][]).map(([m, label]) => (
+                                <button key={m} type="button" onClick={() => setMotion(i, m)}
+                                  className={cx('rounded-full px-2.5 py-1 text-xs', (sc.motion ?? 'zoom_in') === m ? 'bg-primary-soft font-bold text-ink' : 'bg-surface-2 text-ink-2')}>
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {c?.draft && (
+                            <p className="mt-2 text-xs text-muted">טיוטה: תמונה במקום וידאו. ב"גרסה סופית" היא תהפוך לפריים הראשון של הווידאו.</p>
+                          )}
+                          {c?.draft && c?.error && (
+                            <p className="mt-1 text-xs text-warn">הווידאו לא נוצר ({c.error}). התמונה נשמרה — אפשר לנסות שוב בגרסה הסופית.</p>
+                          )}
+                          {sourceOf(i) === 'graphic' && !c?.url && (
+                            <p className="mt-2 text-xs text-muted">כרטיס בצבעי המותג עם הכיתוב של הסצנה וקריאה לפעולה. בלי עלות.</p>
+                          )}
+
+                          {i > 0 && seamless && !draftMode && !photos[i] && !c?.url && sourceOf(i) === 'ai_video' && (
                             <p className="mt-2 text-xs text-muted">ימשיך מהפריים האחרון של קליפ {i}</p>
                           )}
 
@@ -693,14 +818,24 @@ export default function ReelsPage() {
 
                 <Button variant="ghost" className="w-full" disabled={running}
                   onClick={() => setScenes([...scenes, {
-                    role: 'cta', seconds: 15, onScreen: 'קריאה לפעולה', voiceover: '',
-                    visual: 'סצנה נוספת', videoPrompt: '',
+                    role: 'cta', seconds: 5, onScreen: 'קריאה לפעולה', voiceover: '',
+                    visual: 'סצנה נוספת', videoPrompt: '', source: 'graphic', motion: 'none',
                   }])}>
                   <Plus size={18} aria-hidden />הוספת סצנה
                 </Button>
               </div>
 
               <Card className="mt-4">
+                <label className="mb-4 flex cursor-pointer items-start gap-3">
+                  <input type="checkbox" checked={draftMode} onChange={(e) => setDraftMode(e.target.checked)} disabled={running}
+                    className="mt-1 h-5 w-5 accent-[var(--primary)]" />
+                  <span>
+                    <strong className="block">טיוטה קודם (מומלץ)</strong>
+                    <span className="text-sm text-muted">
+                      סצנות הווידאו נוצרות קודם כתמונות בתנועה — רואים את כל הריל בכמה סנטים. רק אחרי שאישרתם, "גרסה סופית" הופכת אותן לווידאו.
+                    </span>
+                  </span>
+                </label>
                 <label className="flex cursor-pointer items-start gap-3">
                   <input type="checkbox" checked={seamless} onChange={(e) => setSeamless(e.target.checked)} disabled={running}
                     className="mt-1 h-5 w-5 accent-[var(--primary)]" />
@@ -713,15 +848,27 @@ export default function ReelsPage() {
                 </label>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
                   <span className="text-sm text-muted">
-                    {scenes.length} קליפים · {scenes.reduce((s, x) => s + (x.seconds || 15), 0)} שנ׳ · {res} · <strong className="text-ink">${cost.toFixed(2)}</strong>
+                    {scenes.length} סצנות · {costs.totalSec} שנ׳ · מתוכן {costs.videoSec} שנ׳ וידאו AI · {res}
+                    <br />עכשיו: <strong className="text-ink">${costs.now.toFixed(2)}</strong>
+                    {costs.final > 0 && <> · גרסה סופית: <strong className="text-ink">+${costs.final.toFixed(2)}</strong></>}
                   </span>
                   <div className="flex gap-2">
                     {running && (
                       <Button variant="ghost" onClick={() => { abort.current?.abort(); setRunning(false); }}>עצירה</Button>
                     )}
-                    <Button variant="primary" onClick={() => renderAll()} disabled={!videoReady || running || allDone}>
-                      {running ? <><Spinner />מרנדר…</> : allDone ? <><Check size={18} aria-hidden />הכול מוכן</> : <><Play size={18} weight="fill" aria-hidden />יצירת הסרטון</>}
-                    </Button>
+                    {!allDone && (
+                      <Button variant="primary" onClick={() => renderAll()} disabled={!videoReady || running}>
+                        {running ? <><Spinner />יוצר…</> : <><Play size={18} weight="fill" aria-hidden />{draftMode ? 'יצירת טיוטה' : 'יצירת הסרטון'}</>}
+                      </Button>
+                    )}
+                    {allDone && draftScenes.length > 0 && (
+                      <Button variant="primary" onClick={makeFinal} disabled={!videoReady || running}>
+                        {running ? <><Spinner />יוצר וידאו…</> : <><Sparkle size={18} weight="fill" aria-hidden />גרסה סופית · {draftScenes.length} סצנות וידאו</>}
+                      </Button>
+                    )}
+                    {allDone && !draftScenes.length && (
+                      <Button variant="primary" disabled><Check size={18} aria-hidden />הכול מוכן</Button>
+                    )}
                   </div>
                 </div>
               </Card>

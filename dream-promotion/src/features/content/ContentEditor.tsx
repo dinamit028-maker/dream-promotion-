@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { AIService } from '@/lib/services';
+import { setGenerationContext } from '@/lib/services/http';
 import { Button, Field, Input, Pill, Textarea } from '@/components/ui/primitives';
 import { CloseButton, IntegrationDialog, Modal, Spinner } from '@/components/ui/feedback';
 import { TikTokSend } from '@/features/social/TikTokSend';
@@ -44,6 +45,13 @@ export function ContentEditor() {
     } catch { setTagError('יצירת ההאשטגים נכשלה. נסו שוב.'); }
     finally { setTagBusy(false); }
   }
+
+  // images / clips made while this item is open count toward its cost
+  useEffect(() => {
+    if (!editingId) return;
+    setGenerationContext(editingId);
+    return () => setGenerationContext(null);
+  }, [editingId]);
 
   useEffect(() => {
     if (!item) return;

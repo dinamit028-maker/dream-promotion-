@@ -6,6 +6,9 @@ import {
   socialPrompt, captionPolishPrompt,
 } from '@/lib/services/prompts';
 import { accessDenied } from '@/lib/server/access';
+import { requestUser } from '@/lib/server/quota';
+import { PRICES } from '@/lib/server/ai/config';
+import { contentIdFrom, logGeneration } from '@/lib/server/ai/ledger';
 
 export const runtime = 'nodejs';
 // a full week of Hebrew captions takes longer than the default function limit
@@ -49,10 +52,20 @@ export async function POST(req: Request) {
     const { prompt, json } = buildPrompt(task, payload);
     const client = new Anthropic({ apiKey: KEY });
 
+    const started = Date.now();
     const res = await client.messages.create({
       model: MODEL,
       max_tokens: task === 'weekly' || task === 'storyboard' ? 8000 : 3000,
       messages: [{ role: 'user', content: prompt }],
+    });
+    // ledger: tokens are reported by Anthropic, so this is the actual cost, not an estimate
+    const tin = res.usage?.input_tokens ?? 0, tout = res.usage?.output_tokens ?? 0;
+    const cost = (tin * PRICES.anthropicIn + tout * PRICES.anthropicOut) / 1e6;
+    const userId = await requestUser(req);
+    void logGeneration({
+      userId, contentId: await contentIdFrom(req, userId), type: 'text', provider: 'anthropic', model: MODEL,
+      status: 'succeeded', inputUnits: tin, outputUnits: tout, estimatedCostUsd: cost, actualCostUsd: cost,
+      latencyMs: Date.now() - started, meta: { task },
     });
 
     const text = res.content

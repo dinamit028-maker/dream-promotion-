@@ -16,8 +16,21 @@ export interface BrandAnalysis {
   firstMoves: string[];
 }
 
+/**
+ * What a scene is made of — the main lever on the cost of a reel:
+ *  ai_video  AI-generated motion (the expensive one — only where motion really matters)
+ *  ai_image  an AI still with a camera move made by ffmpeg (cents instead of dollars)
+ *  graphic   a branded text card drawn in the browser (free) — usually the call to action
+ *  user      the user's own photo or video from the library (free)
+ */
+export type SceneSource = 'ai_video' | 'ai_image' | 'graphic' | 'user';
+/** camera move over a still, made by ffmpeg (Ken Burns) */
+export type SceneMotion = 'zoom_in' | 'zoom_out' | 'pan_left' | 'pan_right' | 'none';
+
 export interface ReelScene {
   role: string; seconds: number; onScreen: string; voiceover: string; visual: string; emoji?: string;
+  source?: SceneSource;
+  motion?: SceneMotion;
   /** English motion/camera prompt sent to the video model — no on-screen text */
   videoPrompt?: string;
   /** generated clip, once rendered */
@@ -65,9 +78,12 @@ export interface ReelProject {
   brief: string; total: number; res: '480p' | '720p' | '1080p'; seamless: boolean;
   board: Storyboard;
   /** per scene, same order as board.scenes */
-  clips: ({ url: string; kind: 'video' | 'image' } | null)[];
+  /** draft: a still standing in for an AI-video scene until the final version */
+  clips: ({ url: string; kind: 'video' | 'image'; draft?: boolean } | null)[];
   photos: (string | null)[];
   imageMode: boolean[];
+  /** draft first: AI-video scenes are made as stills until "final version" turns them into video */
+  draftMode?: boolean;
   narration: (SceneNarration | null)[];
   voice: { voiceId: string; style: string; language: string };
   music: { mediaId: string; url: string; name: string; volume: number } | null;

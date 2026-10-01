@@ -2,7 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 import { readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { renderReel, type RenderJob } from '@/lib/server/reel-render';
+import { urlLooksAllowed } from '@/lib/server/safe-fetch';
+import { PRICES } from '@/lib/server/ai/config';
+import { logGeneration } from '@/lib/server/ai/ledger';
+import { MOTIONS, renderReel, type RenderJob } from '@/lib/server/reel-render';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +15,8 @@ export const maxDuration = 300;
 const URL_ = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const isHttps = (u: unknown): u is string => typeof u === 'string' && u.startsWith('https://');
+// only this project's storage and the AI providers' CDNs — never an arbitrary address (see safe-fetch)
+const isHttps = (u: unknown): u is string => urlLooksAllowed(u);
 
 /**
  * Renders the final reel and stores it. The response is a stream of JSON lines
@@ -50,6 +54,7 @@ export async function POST(req: Request) {
       narrationUrl: s.narrationUrl || undefined,
       text: typeof s.text === 'string' ? s.text.slice(0, 2000) : undefined,
       keepAudio: body.originalAudio !== false && s.keepAudio !== false,
+      motion: s.kind === 'image' && MOTIONS.includes(s.motion) ? s.motion : undefined,
       cues: Array.isArray(s.cues) ? s.cues.slice(0, 800).map((c: any) => ({
         start: +c.start || 0, end: +c.end || 0, text: String(c.text ?? '').slice(0, 200),
         png: typeof c.png === 'string' && c.png.startsWith('data:image/png') && c.png.length < 1_500_000 ? c.png : undefined,
@@ -71,6 +76,20 @@ export async function POST(req: Request) {
     async start(ctrl) {
       const send = (o: object) => ctrl.enqueue(enc.encode(JSON.stringify(o) + '\n'));
       const dir = path.join(os.tmpdir(), `reel-${user.id.slice(0, 8)}-${Date.now()}`);
+      const started = Date.now();
+      // the render's own cost (function time) goes into the reel's cost, like every AI call
+      const ownContent = contentId
+        ? (await admin.from('content').select('id').eq('id', contentId).eq('user_id', user.id).maybeSingle()).data?.id ?? null
+        : null;
+      const logRender = (status: 'succeeded' | 'failed', extra: { durationSec?: number; error?: string } = {}) => {
+        const minutes = (Date.now() - started) / 60_000;
+        return logGeneration({
+          userId: user.id, contentId: ownContent, type: 'render', provider: 'vercel', model: 'ffmpeg', status,
+          durationSeconds: Math.round((Date.now() - started) / 1000), outputUnits: extra.durationSec ?? null,
+          estimatedCostUsd: PRICES.renderPerMin == null ? null : minutes * PRICES.renderPerMin,
+          latencyMs: Date.now() - started, error: extra.error ?? null, meta: { scenes: job.scenes.length },
+        });
+      };
       try {
         const { file, durationSec, captionLines } = await renderReel(job, dir, (p) => send(p));
         send({ stage: 'upload', pct: 0 });
@@ -95,8 +114,10 @@ export async function POST(req: Request) {
             await admin.from('media').delete().eq('id', old.data.id).eq('user_id', user.id);
           }
         }
+        await logRender('succeeded', { durationSec });
         send({ done: true, mediaId: row.data.id, url: signed.data.signedUrl, durationSec, captionLines, sizeMb: +(buf.length / 1e6).toFixed(1) });
       } catch (e: any) {
+        await logRender('failed', { error: String(e?.message ?? e) });
         send({ error: String(e?.message ?? e).slice(0, 600) });
       } finally {
         await rm(dir, { recursive: true, force: true }).catch(() => {});

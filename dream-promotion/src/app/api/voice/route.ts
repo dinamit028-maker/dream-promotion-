@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getVoiceProvider } from '@/lib/services/voice';
 import { accessDenied } from '@/lib/server/access';
-import { quotaDenied, recordUsage, requestUser } from '@/lib/server/quota';
+import { commitUsage, releaseUsage, requestUser, reserveUsage, type Reservation } from '@/lib/server/quota';
+import { PRICES } from '@/lib/server/ai/config';
+import { contentIdFrom, logGeneration } from '@/lib/server/ai/ledger';
 
 export const runtime = 'nodejs';
 
@@ -28,14 +30,17 @@ export async function POST(req: Request) {
   const denied = await accessDenied(req);
   if (denied) return denied;
 
+  let slot: Reservation | null = null;
   try {
     const body = await req.json();
     const text = String(body.text ?? '').trim().slice(0, 4000);
     if (!text) return NextResponse.json({ code: 'bad_request', message: 'text required' }, { status: 400 });
     const userId = await requestUser(req);
-    const over = await quotaDenied(userId, 'voice', text.length);
-    if (over) return over;
+    const r = await reserveUsage(userId, 'voice', text.length, { voiceId: String(body.voiceId ?? '') });
+    if (r.denied) return r.denied;
+    slot = r.reservation;
 
+    const started = Date.now();
     const out = await provider.speak({
       text,
       voiceId: String(body.voiceId ?? ''),
@@ -43,10 +48,19 @@ export async function POST(req: Request) {
       language: body.language === 'en' ? 'en' : 'he',
       speed: typeof body.speed === 'number' ? body.speed : undefined,
     });
-    await recordUsage(userId, 'voice', text.length, 0, { voiceId: String(body.voiceId ?? '') });
+    // ElevenLabs bills by character; the price per character depends on the plan (VOICE_USD_PER_1K_CHARS)
+    const cost = PRICES.voicePer1k == null ? null : (text.length / 1000) * PRICES.voicePer1k;
+    await commitUsage(slot, { status: 'done', costUsd: cost ?? 0, meta: { provider: provider.id } });
+    void logGeneration({
+      userId, contentId: await contentIdFrom(req, userId), type: 'voice', provider: provider.id,
+      model: body.language === 'en' ? (process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2') : (process.env.ELEVENLABS_MODEL_HE || 'eleven_v3'),
+      status: 'succeeded', inputUnits: text.length, durationSeconds: (out as any).durationSec ?? null,
+      estimatedCostUsd: cost, latencyMs: Date.now() - started, meta: { voiceId: String(body.voiceId ?? ''), style: body.style ?? 'natural' },
+    });
     return NextResponse.json(out);
   } catch (e: any) {
     const msg = e?.message ?? 'voice_error';
+    if (slot) await releaseUsage(slot, msg);
     const code = /401|403/.test(msg) ? 'bad_voice_key'
       : /429/.test(msg) ? 'rate_limited'
       : /quota|credit|402/.test(msg) ? 'no_voice_credit'

@@ -1,27 +1,23 @@
 import { NextResponse } from 'next/server';
-import { fal } from '@fal-ai/client';
 import { accessDenied } from '@/lib/server/access';
-import { quotaDenied, recordUsage, requestUser } from '@/lib/server/quota';
+import { commitUsage, releaseUsage, requestUser, reserveUsage } from '@/lib/server/quota';
+import { AI_CONFIG, type ImageQuality } from '@/lib/server/ai/config';
+import { imageProvider, imageStatus, submitImage } from '@/lib/server/ai/router';
+import { contentIdFrom } from '@/lib/server/ai/ledger';
+import { ProviderError } from '@/lib/server/ai/types';
 
 export const runtime = 'nodejs';
 
-const KEY = process.env.FAL_KEY;
-if (KEY) fal.config({ credentials: KEY });
-
-/** Nano Banana 2 — $0.08 an image, which is why most posts should start here and not with video. */
-const MODELS = {
-  create: 'fal-ai/nano-banana-2',
-  edit: 'fal-ai/nano-banana-2/edit',
-} as const;
-const ALLOWED: string[] = Object.values(MODELS);
+/** Images, through the AI router (Nano Banana 2 on fal today; the mode decides the model later). */
 const ASPECTS = ['9:16', '4:5', '1:1', '16:9', '3:4', '4:3', 'auto'];
+const QUALITIES: ImageQuality[] = ['economy', 'standard', 'premium'];
 
 export async function GET() {
-  return NextResponse.json({ available: Boolean(KEY), engine: 'Nano Banana 2 · fal' });
+  return NextResponse.json({ available: Boolean(imageProvider()), engine: 'Nano Banana 2 · fal' });
 }
 
 export async function POST(req: Request) {
-  if (!KEY) return NextResponse.json({ code: 'no_fal_key', message: 'FAL_KEY is not configured' }, { status: 503 });
+  if (!imageProvider()) return NextResponse.json({ code: 'no_fal_key', message: 'FAL_KEY is not configured' }, { status: 503 });
   const denied = await accessDenied(req);
   if (denied) return denied;
 
@@ -34,52 +30,41 @@ export async function POST(req: Request) {
     if (body.action === 'submit') {
       const prompt = String(body.prompt ?? '').trim().slice(0, 4000);
       if (!prompt) return NextResponse.json({ code: 'bad_request', message: 'prompt required' }, { status: 400 });
-
-      const refs: string[] = Array.isArray(body.imageUrls)
+      const references: string[] = Array.isArray(body.imageUrls)
         ? body.imageUrls.filter((u: unknown) => typeof u === 'string' && (u.startsWith('data:image/') || u.startsWith('https://'))).slice(0, 4)
         : [];
-      const mode = refs.length ? 'edit' : 'create';
-      const count = Math.min(4, Math.max(1, Math.round(Number(body.count) || 1)));
+      const count = Math.min(AI_CONFIG.limits.maxImagesPerRequest, Math.max(1, Math.round(Number(body.count) || 1)));
+      const quality: ImageQuality = QUALITIES.includes(body.quality) ? body.quality : 'standard';
       const userId = await requestUser(req);
-      const over = await quotaDenied(userId, 'image', count);
-      if (over) return over;
-
-      const input: Record<string, unknown> = {
-        prompt,
-        num_images: count,
-        aspect_ratio: ASPECTS.includes(body.aspectRatio) ? body.aspectRatio : '4:5',
-        output_format: 'jpeg',
-      };
-      if (refs.length) input.image_urls = refs;
-
-      const queued = await fal.queue.submit(MODELS[mode], { input: input as any });
-      await recordUsage(userId, 'image', count, count * 0.08, { requestId: queued.request_id, model: MODELS[mode] });
-      return NextResponse.json({ requestId: queued.request_id, model: MODELS[mode] });
+      const r = await reserveUsage(userId, 'image', count, { quality });
+      if (r.denied) return r.denied;
+      const slot = r.reservation;
+      try {
+        const job = await submitImage({ userId, contentId: await contentIdFrom(req, userId) }, {
+          prompt, count, references, aspectRatio: ASPECTS.includes(body.aspectRatio) ? body.aspectRatio : '4:5',
+        }, quality);
+        await commitUsage(slot, { status: 'done', costUsd: job.estimate ?? 0, requestId: job.jobId, meta: { model: job.handle } });
+        return NextResponse.json({ requestId: job.jobId, model: job.handle });
+      } catch (e) {
+        await releaseUsage(slot, String((e as any)?.message ?? e));
+        throw e;
+      }
     }
 
     if (body.action === 'status') {
-      const model = String(body.model ?? '');
-      const requestId = String(body.requestId ?? '');
-      if (!ALLOWED.includes(model) || !requestId) {
-        return NextResponse.json({ code: 'bad_request', message: 'unknown job' }, { status: 400 });
-      }
-      const st: any = await fal.queue.status(model, { requestId, logs: false });
-      if (st.status === 'COMPLETED') {
-        const r: any = await fal.queue.result(model, { requestId });
-        const urls = (r?.data?.images ?? []).map((i: any) => i.url).filter(Boolean);
-        if (!urls.length) return NextResponse.json({ status: 'FAILED', error: 'no image in result' });
-        return NextResponse.json({ status: 'COMPLETED', urls });
-      }
-      return NextResponse.json({ status: st.status, position: st.queue_position ?? null });
+      const handle = String(body.model ?? ''), requestId = String(body.requestId ?? '');
+      const st = handle && requestId ? await imageStatus(handle, requestId) : null;
+      if (!st) return NextResponse.json({ code: 'bad_request', message: 'unknown job' }, { status: 400 });
+      if (st.state === 'succeeded') return NextResponse.json({ status: 'COMPLETED', urls: st.urls });
+      if (st.state === 'failed') return NextResponse.json({ status: 'FAILED', error: st.error });
+      return NextResponse.json({ status: st.state === 'queued' ? 'IN_QUEUE' : 'IN_PROGRESS' });
     }
 
     return NextResponse.json({ code: 'bad_request', message: 'unknown action' }, { status: 400 });
   } catch (e: any) {
-    const detail = e?.body?.detail ?? e?.message ?? 'unknown';
-    const code = e?.status === 402 ? 'insufficient_balance' : e?.status === 422 ? 'rejected_input' : 'image_error';
-    return NextResponse.json(
-      { status: 'FAILED', code, error: typeof detail === 'string' ? detail : JSON.stringify(detail).slice(0, 400) },
-      { status: 200 },
-    );
+    const code = e instanceof ProviderError
+      ? (e.kind === 'quota' ? 'insufficient_balance' : e.kind === 'input' ? 'rejected_input' : e.kind === 'policy' ? 'content_policy' : 'image_error')
+      : 'image_error';
+    return NextResponse.json({ status: 'FAILED', code, error: String(e?.message ?? e).slice(0, 400) }, { status: 200 });
   }
 }

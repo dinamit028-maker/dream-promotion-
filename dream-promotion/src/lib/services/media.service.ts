@@ -13,6 +13,12 @@ async function api(token: string, body: Record<string, unknown>) {
   return j;
 }
 
+const MIME_BY_EXT: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', heic: 'image/heic', heif: 'image/heif',
+  mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', m4v: 'video/x-m4v',
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg',
+};
+
 /**
  * MediaService — upload adapter.
  * Signed in: the server hands out a one-time upload link into the user's folder,
@@ -23,7 +29,10 @@ export const MediaService = {
   persistent: isCloudConfigured,
 
   async upload(file: File): Promise<MediaAsset> {
-    const kind: MediaAsset['kind'] = file.type.startsWith('video') ? 'video' : file.type.startsWith('audio') ? 'audio' : 'image';
+    // some phones hand over files with no type; the extension fills it in (storage only accepts media types)
+    const extOf = (file.name.includes('.') ? file.name.split('.').pop() : '')!.toLowerCase();
+    const type = file.type || MIME_BY_EXT[extOf] || '';
+    const kind: MediaAsset['kind'] = type.startsWith('video') ? 'video' : type.startsWith('audio') ? 'audio' : 'image';
 
     if (isCloudConfigured) {
       const sb = supabase();
@@ -31,8 +40,8 @@ export const MediaService = {
       const token = data.session?.access_token;
       if (token) {
         const ext = file.name.includes('.') ? file.name.split('.').pop() : kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : 'jpg';
-        const signed = await api(token, { action: 'sign', ext });
-        const up = await sb.storage.from('assets').uploadToSignedUrl(signed.path, signed.token, file, { contentType: file.type });
+        const signed = await api(token, { action: 'sign', ext: String(ext).toLowerCase(), size: file.size });
+        const up = await sb.storage.from('assets').uploadToSignedUrl(signed.path, signed.token, file, { contentType: type || undefined });
         if (up.error) throw new Error(up.error.message);
         const reg = await api(token, { action: 'register', path: signed.path, name: file.name, kind });
         return { id: reg.id, url: reg.url, name: file.name, kind, persistent: true };

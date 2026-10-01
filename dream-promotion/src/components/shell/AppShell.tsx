@@ -5,6 +5,7 @@ import { useEffect, useState, type ComponentType } from 'react';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { AIService } from '@/lib/services';
+import { authHeaders } from '@/lib/services/http';
 import { cx } from '@/lib/utils';
 import { Button, Pill } from '@/components/ui/primitives';
 import { ContentEditor } from '@/features/content/ContentEditor';
@@ -14,7 +15,7 @@ import { VersionTag } from '@/components/system/VersionTag';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
-  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut,
+  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck,
 } from '@/components/ui/Icon';
 
 type NavItem = { href: string; label: string; Icon: ComponentType<any> };
@@ -31,13 +32,16 @@ export const NAV: NavItem[] = [
   { href: '/leads', label: 'לידים', Icon: UsersThree },
   { href: '/analytics', label: 'ביצועים', Icon: ChartLineUp },
 ];
-const NAV_BOTTOM: NavItem[] = [
+const NAV_BOTTOM_ALL: NavItem[] = [
   { href: '/integrations', label: 'חיבורים', Icon: PlugsConnected },
   { href: '/settings', label: 'הגדרות', Icon: GearSix },
 ];
-// phones get the four destinations people open daily; everything else lives under "עוד"
-const MOBILE_LEFT = [NAV[0], NAV[4]];
-const MOBILE_RIGHT = [NAV[3], { ...NAV_BOTTOM[1], label: 'עוד' }];
+/** internal screen, only for ADMIN_EMAILS (the server checks again) */
+const NAV_ADMIN: NavItem = { href: '/admin', label: 'ניהול', Icon: ShieldCheck };
+// phones: the four screens opened daily sit in the tab bar; "עוד" opens a sheet with every other screen
+const MOBILE_LEFT = [NAV[0], NAV[5]];        // בית · מדיה
+const MOBILE_RIGHT = [NAV[2]];               // אולפן רילס (+ "עוד")
+const MOBILE_TABS = new Set([...MOBILE_LEFT, ...MOBILE_RIGHT].map((n) => n.href));
 
 function Logo({ small }: { small?: boolean }) {
   return (
@@ -72,6 +76,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, [hydrate, router, userId]);
   const [aiReady, setAiReady] = useState<boolean | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    if (!isCloudConfigured) return;
+    (async () => {
+      try { const r = await fetch('/api/admin/me', { headers: await authHeaders() }); setIsAdmin(Boolean((await r.json()).admin)); }
+      catch { /* not an admin */ }
+    })();
+  }, []);
+  const NAV_BOTTOM = isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
+  useEffect(() => { setMoreOpen(false); }, [path]);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
+    addEventListener('keydown', k);
+    return () => removeEventListener('keydown', k);
+  }, [moreOpen]);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => { AIService.available().then(setAiReady); }, []);
@@ -146,10 +167,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             {aiReady !== null && <Pill tone={aiReady ? 'ai' : 'warn'}>{aiReady ? 'AI פעיל' : 'AI לא מוגדר'}</Pill>}
-            <button type="button" onClick={signOut} aria-label="יציאה מהחשבון"
-              className="flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-2 hover:bg-surface-2 md:hidden">
-              <SignOut size={18} aria-hidden />יציאה
-            </button>
             <Link href="/create" className="max-md:hidden">
               <Button variant="primary" size="sm"><Plus size={16} weight="bold" aria-hidden />יצירה</Button>
             </Link>
@@ -166,7 +183,43 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Plus size={26} weight="bold" aria-hidden />
         </Link>
         {MOBILE_RIGHT.map(tabItem)}
+        <button type="button" onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen}
+          className={cx('flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold',
+            moreOpen || (current && !MOBILE_TABS.has(current.href)) ? 'text-primary' : 'text-muted')}>
+          <SquaresFour size={23} weight={moreOpen ? 'fill' : 'regular'} aria-hidden />
+          עוד
+        </button>
       </nav>
+
+      {/* phone: every screen, one tap away */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="כל המסכים">
+          <button type="button" aria-label="סגירה" onClick={() => setMoreOpen(false)} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
+          <div className="safe-b absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[28px] border-t border-line bg-surface px-4 pb-6 pt-3 shadow-[0_-20px_60px_rgba(0,0,0,.5)]">
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-line" />
+            <div className="grid grid-cols-3 gap-2">
+              {[...NAV, ...NAV_BOTTOM].map(({ href, label, Icon }) => {
+                const on = path === href;
+                return (
+                  <Link key={href} href={href} onClick={() => setMoreOpen(false)} aria-current={on ? 'page' : undefined}
+                    className={cx('flex min-h-[84px] flex-col items-center justify-center gap-1.5 rounded-2xl border text-[13px] font-semibold',
+                      on ? 'border-primary bg-primary-soft text-ink' : 'border-line bg-surface-2 text-ink-2 active:bg-primary-soft')}>
+                    <Icon size={26} weight={on ? 'fill' : 'regular'} aria-hidden className={on ? 'text-primary' : undefined} />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex items-center justify-between border-t border-line pt-4">
+              <button type="button" onClick={signOut}
+                className="flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold text-ink-2 hover:text-[var(--danger)]">
+                <SignOut size={20} aria-hidden />יציאה מהחשבון
+              </button>
+              <VersionTag className="text-[11px] text-muted" />
+            </div>
+          </div>
+        </div>
+      )}
       <ContentEditor />
       <JobRunner />
     </div>

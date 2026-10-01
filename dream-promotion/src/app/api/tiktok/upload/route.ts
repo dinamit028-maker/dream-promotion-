@@ -1,3 +1,4 @@
+import { safeFetch } from '@/lib/server/safe-fetch';
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { accessTokenFor, uploadToInbox } from '@/lib/server/tiktok';
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
 
   try {
     const token = await accessTokenFor(userId, body.accountId);
-    const file = await fetch(media.url);
+    const file = await safeFetch(media.url, { maxBytes: 500 * 1024 * 1024 });
     if (!file.ok) throw new Error(`video_download_${file.status}`);
     const buf = Buffer.from(await file.arrayBuffer());
     const publishId = await uploadToInbox(token, buf);

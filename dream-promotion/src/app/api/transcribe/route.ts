@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { fal } from '@fal-ai/client';
 import { accessDenied } from '@/lib/server/access';
+import { urlLooksAllowed } from '@/lib/server/safe-fetch';
+import { requestUser } from '@/lib/server/quota';
+import { AI_CONFIG, PRICES } from '@/lib/server/ai/config';
+import { contentIdFrom, logGeneration } from '@/lib/server/ai/ledger';
 
 export const runtime = 'nodejs';
 export const maxDuration = 180;
@@ -24,7 +28,7 @@ export async function POST(req: Request) {
 
   try {
     let audioUrl: string;
-    if (typeof body.url === 'string' && body.url.startsWith('https://')) {
+    if (urlLooksAllowed(body.url)) {
       audioUrl = body.url;
     } else if (typeof body.audio === 'string' && body.audio.startsWith('data:audio/')) {
       const comma = body.audio.indexOf(',');
@@ -38,7 +42,8 @@ export async function POST(req: Request) {
 
     const words = body.words !== false && Boolean(body.url);
     const language = typeof body.language === 'string' && /^[a-z]{2}$/.test(body.language) ? body.language : 'he';
-    const r: any = await fal.subscribe('fal-ai/whisper', {
+    const started = Date.now();
+    const r: any = await fal.subscribe(AI_CONFIG.models.falWhisper, {
       input: {
         audio_url: audioUrl, task: 'transcribe', language,
         chunk_level: words ? 'word' : 'segment',
@@ -53,6 +58,15 @@ export async function POST(req: Request) {
           .filter((w: any) => w.text && Number.isFinite(w.start))
           .map((w: any) => ({ ...w, end: Number.isFinite(w.end) && w.end > w.start ? w.end : w.start + 0.35 }))
       : [];
+    // ledger: audio length = end of the last word (Whisper reports no billable minutes per call)
+    const audioSec = out.length ? out[out.length - 1].end : null;
+    const userId = await requestUser(req);
+    void logGeneration({
+      userId, contentId: await contentIdFrom(req, userId), type: 'transcribe', provider: 'fal', model: AI_CONFIG.models.falWhisper,
+      status: 'succeeded', durationSeconds: audioSec, outputUnits: out.length || text.split(/\s+/).length,
+      estimatedCostUsd: PRICES.falWhisperPerMin != null && audioSec ? (audioSec / 60) * PRICES.falWhisperPerMin : null,
+      latencyMs: Date.now() - started, meta: { source: body.url ? 'file' : 'mic' },
+    });
     return NextResponse.json({ text, words: out });
   } catch (e: any) {
     const message = String(e?.body?.detail ? JSON.stringify(e.body.detail) : e?.message ?? e).slice(0, 400);

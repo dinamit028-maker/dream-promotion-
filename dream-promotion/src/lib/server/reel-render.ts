@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { deflateSync } from 'node:zlib';
+import { safeFetch } from './safe-fetch';
 import { pipeline } from 'node:stream/promises';
 
 /**
@@ -17,10 +18,31 @@ import { pipeline } from 'node:stream/promises';
  * into ONE transparent caption track and lays it over the video in a single overlay.
  */
 
+export type Motion = 'zoom_in' | 'zoom_out' | 'pan_left' | 'pan_right' | 'none';
+export const MOTIONS: Motion[] = ['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'none'];
+
+/**
+ * The zoompan expressions for one camera move over `frames` frames. The still is first scaled
+ * to twice the output size, so the slow move stays smooth (no 1-pixel jitter).
+ */
+function kenBurns(m: Motion, frames: number): string {
+  const D = Math.max(1, frames - 1);
+  const center = `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'`;
+  switch (m) {
+    case 'zoom_in':   return `z='1+0.14*on/${D}':${center}`;
+    case 'zoom_out':  return `z='1.14-0.14*on/${D}':${center}`;
+    case 'pan_left':  return `z='1.12':x='(iw-iw/zoom)*(1-on/${D})':y='ih/2-(ih/zoom/2)'`;
+    case 'pan_right': return `z='1.12':x='(iw-iw/zoom)*on/${D}':y='ih/2-(ih/zoom/2)'`;
+    default:          return `z='1':x='0':y='0'`;
+  }
+}
+
 /** png: one caption frame drawn by the browser (transparent PNG 720×1280, data URL). */
 export interface RenderCue { start: number; end: number; text: string; png?: string }
 export interface RenderScene {
   url: string; kind: 'video' | 'image'; seconds?: number;
+  /** stills only: camera move made by ffmpeg (Ken Burns) — motion without paying for AI video */
+  motion?: Motion;
   narrationUrl?: string; cues?: RenderCue[];
   text?: string; // the original narration text — used for captions if no timing came back
   /** keep the clip's own sound (a story, someone talking). Quieter under narration. */
@@ -91,7 +113,7 @@ async function download(url: string, file: string) {
     await writeFile(file, Buffer.from(b64, 'base64'));
     return;
   }
-  const res = await fetch(url);
+  const res = await safeFetch(url, { maxBytes: 400 * 1024 * 1024 });
   if (!res.ok || !res.body) throw new Error(`download_failed ${res.status}: ${url.slice(0, 80)}`);
   await pipeline(Readable.fromWeb(res.body as any), createWriteStream(file));
 }
@@ -181,7 +203,8 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
   let idx = 0;
   const sceneIn: number[] = [], voiceIn: (number | null)[] = [];
   job.scenes.forEach((s, i) => {
-    if (s.kind === 'image') args.push('-loop', '1', '-t', String(lengths[i]), '-i', files[i].media);
+    if (s.kind === 'image' && s.motion && s.motion !== 'none') args.push('-i', files[i].media); // one frame; zoompan makes the rest
+    else if (s.kind === 'image') args.push('-loop', '1', '-t', String(lengths[i]), '-i', files[i].media);
     else args.push('-i', files[i].media);
     sceneIn.push(idx++);
   });
@@ -193,8 +216,16 @@ export async function renderReel(job: RenderJob, dir: string, onProgress: Progre
 
   job.scenes.forEach((_, i) => {
     const L = lengths[i];
-    f.push(`[${sceneIn[i]}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${FPS},format=yuv420p,` +
-      `tpad=stop_mode=clone:stop_duration=${L},trim=duration=${L},setpts=PTS-STARTPTS[v${i}]`);
+    const sc = job.scenes[i];
+    if (sc.kind === 'image' && sc.motion && sc.motion !== 'none') {
+      const frames = Math.ceil(L * FPS) + 1;
+      f.push(`[${sceneIn[i]}:v]scale=${W * 2}:${H * 2}:force_original_aspect_ratio=increase,crop=${W * 2}:${H * 2},setsar=1,` +
+        `zoompan=${kenBurns(sc.motion, frames)}:d=${frames}:s=${W}x${H}:fps=${FPS},setsar=1,format=yuv420p,` +
+        `trim=duration=${L},setpts=PTS-STARTPTS[v${i}]`);
+    } else {
+      f.push(`[${sceneIn[i]}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${FPS},format=yuv420p,` +
+        `tpad=stop_mode=clone:stop_duration=${L},trim=duration=${L},setpts=PTS-STARTPTS[v${i}]`);
+    }
     const fmt = `aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=duration=${L},asetpts=PTS-STARTPTS`;
     if (voiceIn[i] !== null && clipAudio[i]) {
       // narration on top of the clip's own sound: the original stays, quietly, underneath

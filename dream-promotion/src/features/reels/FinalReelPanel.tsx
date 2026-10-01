@@ -24,6 +24,8 @@ export interface RenderScenePayload {
   durationSec?: number;
   /** the scene's label in the studio ("הוק", "קליפ 2") */
   label?: string;
+  /** stills: camera move made by the renderer */
+  motion?: 'zoom_in' | 'zoom_out' | 'pan_left' | 'pan_right' | 'none';
 }
 
 const STAGE_HE = {
@@ -182,7 +184,7 @@ export function FinalReelPanel({
         }
         const cues = lines.flatMap((c) => cueFrames(c, style, canvas));
         scenes.push({
-          url: p.url, kind: p.kind, seconds: p.seconds, narrationUrl: p.narrationUrl,
+          url: p.url, kind: p.kind, seconds: p.seconds, narrationUrl: p.narrationUrl, motion: p.motion,
           text: undefined, keepAudio: originalAudio, cues,
         });
         setStage({ stage: 'captions', pct: Math.round(((i + 1) / payload.length) * 100) });
