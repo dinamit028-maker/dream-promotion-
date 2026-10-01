@@ -690,7 +690,7 @@ export default function ReelsPage() {
   const STEPS: { n: 1 | 2 | 3 | 4 | 5; label: string; hint: string }[] = [
     { n: 1, label: 'תסריט', hint: 'כתבו על מה הסרטון, בחרו סוג ואורך, ולחצו "בניית תסריט".' },
     { n: 2, label: 'וידאו', hint: 'לחצו "יצירת הסרטון" למטה. כל סצנה תסומן "מוכן" כשהיא גמורה.' },
-    { n: 3, label: withNarration ? 'קריינות' : 'בלי קריינות', hint: withNarration ? 'בחרו קול, ולחצו "קריינות לכל הסצנות".' : 'הסרטון בלי קריינות — עוברים לריל הסופי ובוחרים מוזיקה.' },
+    { n: 3, label: withNarration ? 'קריינות' : 'בלי קריינות', hint: withNarration ? 'בחרו קול, ולחצו "קריינות לכל הסצנות".' : 'בלי קול מקריא — עוברים לריל הסופי, ושם בוחרים מוזיקה וכתוביות.' },
     { n: 4, label: 'ריל סופי', hint: 'בחרו מוזיקה וכתוביות (לא חובה), ולחצו "יצירת הריל הסופי".' },
     { n: 5, label: 'פרסום', hint: 'פרסמו עכשיו, או תזמנו לשעה מומלצת.' },
   ];
@@ -780,12 +780,16 @@ export default function ReelsPage() {
                 : 'כמה סצנות של 3–7 שניות: וידאו AI רק איפה שתנועה חשובה, תמונות בתנועה וכרטיס בשאר.'}
             </p>
           </Field>
-          <Field label="קול בסרטון">
+          <Field label="קריינות">
             <div className="flex flex-wrap gap-2">
-              <Chip on={withNarration} onClick={() => setWithNarration(true)}>עם קריינות</Chip>
-              <Chip on={!withNarration} onClick={() => setWithNarration(false)}>בלי — מוזיקה וכיתוב</Chip>
+              <Chip on={withNarration} onClick={() => setWithNarration(true)}>🎙 עם קריינות</Chip>
+              <Chip on={!withNarration} onClick={() => setWithNarration(false)}>🎵 בלי קריינות</Chip>
             </div>
-            {!withNarration && <p className="mt-1.5 text-xs text-muted">הכיתוב של כל סצנה יופיע על המסך, עם מוזיקת רקע (יש ספרייה חינם בשלב הריל הסופי). בלי עלות קריינות.</p>}
+            <p className="mt-1.5 text-xs text-muted">
+              {withNarration
+                ? 'קול מקריא את הטקסט, עם כתוביות ומוזיקת רקע.'
+                : 'בלי קול מקריא: מוזיקת רקע + כתוביות על המסך (הכיתוב של כל סצנה). בלי עלות קריינות.'}
+            </p>
           </Field>
           <Field label="אורך">
             <div className="flex flex-wrap gap-2">
