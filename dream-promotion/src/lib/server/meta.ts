@@ -38,7 +38,10 @@ async function graph(path: string, params: Record<string, string> = {}, method: 
   const j: any = await res.json().catch(() => ({}));
   if (j?.error) {
     const e = j.error;
-    if (e.code === 190 || (e.type === 'OAuthException' && /expired|invalid|session/i.test(e.message || ''))) throw new Error('reconnect_required');
+    // only a dead token means "reconnect" (code 190, or the session subcodes). Other OAuthException
+    // errors — "(#100) Invalid parameter" and friends — are request problems and keep Meta's own words.
+    const sessionDead = e.code === 190 || [458, 459, 460, 463, 464, 467].includes(Number(e.error_subcode));
+    if (sessionDead) throw new Error(`reconnect_required: ${e.error_user_msg || e.message || ''}`.slice(0, 300));
     if (e.code === 10 || e.code === 200) throw new Error(`permission_denied: ${e.message}`);
     throw new Error(`meta_${e.code ?? res.status}: ${e.error_user_msg || e.message || 'error'}`);
   }

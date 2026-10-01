@@ -79,7 +79,7 @@ export interface ReelProject {
   board: Storyboard;
   /** per scene, same order as board.scenes */
   /** draft: a still standing in for an AI-video scene until the final version */
-  clips: ({ url: string; kind: 'video' | 'image'; draft?: boolean } | null)[];
+  clips: ({ url: string; kind: 'video' | 'image'; draft?: boolean; still?: string } | null)[];
   photos: (string | null)[];
   imageMode: boolean[];
   /** draft first: AI-video scenes are made as stills until "final version" turns them into video */
@@ -98,6 +98,8 @@ export interface ReelProject {
 
 export interface Storyboard {
   title: string; scenes: ReelScene[]; caption: string; hashtags: string[];
+  /** the one main character, in English, repeated in every image / video prompt (consistency) */
+  cast?: string;
 }
 
 export interface ContentItem {

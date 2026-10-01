@@ -24,6 +24,8 @@ export interface RenderScenePayload {
   durationSec?: number;
   /** the scene's label in the studio ("הוק", "קליפ 2") */
   label?: string;
+  /** false: the clip's own sound is dropped (AI clips); true/undefined: kept when "original sound" is on */
+  keepAudio?: boolean;
   /** stills: camera move made by the renderer */
   motion?: 'zoom_in' | 'zoom_out' | 'pan_left' | 'pan_right' | 'none';
 }
@@ -185,7 +187,7 @@ export function FinalReelPanel({
         const cues = lines.flatMap((c) => cueFrames(c, style, canvas));
         scenes.push({
           url: p.url, kind: p.kind, seconds: p.seconds, narrationUrl: p.narrationUrl, motion: p.motion,
-          text: undefined, keepAudio: originalAudio, cues,
+          text: undefined, keepAudio: originalAudio && p.keepAudio !== false, cues,
         });
         setStage({ stage: 'captions', pct: Math.round(((i + 1) / payload.length) * 100) });
       }

@@ -9,7 +9,7 @@ import { cx } from '@/lib/utils';
 type Result = { state: 'waiting' | 'working' | 'done' | 'failed'; text: string };
 
 function errorText(m: string) {
-  return /reconnect_required/.test(m) ? 'החיבור ל-Meta פג. חברו מחדש במסך החיבורים.'
+  return /reconnect_required/.test(m) ? `החיבור ל-Meta פג. חברו מחדש במסך החיבורים.${m.split('reconnect_required:')[1]?.trim() ? ` (Meta: ${m.split('reconnect_required:')[1].trim()})` : ''}`
     : /read_only/.test(m) ? 'החשבון הזה מחובר למשיכה בלבד.'
     : /permission_denied/.test(m) ? 'אין הרשאת פרסום. חברו מחדש עם "חיבור לפרסום ומשיכה".'
     : m;

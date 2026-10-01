@@ -101,6 +101,24 @@ export default function MediaPage() {
     } finally { setAllBusy(false); }
   }
 
+  // choose several files and remove them together
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  async function removePicked() {
+    const ids = [...picked];
+    if (!ids.length || !window.confirm(`למחוק ${ids.length} קבצים מהספרייה? (באינסטגרם עצמו לא נמחק כלום)`)) return;
+    setRemoving(true);
+    try {
+      const r = await SocialService.removeMany(ids);
+      const gone = new Set(ids);
+      useApp.setState((st) => ({ media: st.media.filter((m) => !gone.has(m.id)) }));
+      setStoryNote(`נמחקו ${r.removed} קבצים.`);
+      setPicked(new Set()); setSelecting(false);
+    } catch (e: any) { setStoryNote(`המחיקה נכשלה: ${e.message}`); }
+    finally { setRemoving(false); }
+  }
+
   /** Takes out of the library everything pulled from Instagram of one kind (Instagram itself is untouched). */
   const [removing, setRemoving] = useState(false);
   async function removeImported(kind: 'insta' | 'story') {
@@ -208,6 +226,23 @@ export default function MediaPage() {
       )}
 
       {media.length > 0 && (
+        <div className="sticky top-0 z-10 -mx-1 mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--bg)]/90 px-1 py-2 backdrop-blur">
+          {!selecting ? (
+            <Button size="sm" variant="ghost" onClick={() => { setSelecting(true); setPicked(new Set()); }}>בחירה ומחיקה</Button>
+          ) : (
+            <>
+              <span className="text-sm font-semibold">{picked.size} נבחרו</span>
+              <Button size="sm" variant="ghost" onClick={() => setPicked(new Set(shown.map((m) => m.id)))}>בחירת כל {shown.length} המוצגים</Button>
+              <Button size="sm" variant="ghost" onClick={() => setPicked(new Set())} disabled={!picked.size}>ניקוי בחירה</Button>
+              <Button size="sm" variant="primary" onClick={removePicked} disabled={!picked.size || removing}>
+                {removing ? 'מוחק…' : `מחיקת ${picked.size}`}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setSelecting(false); setPicked(new Set()); }}>ביטול</Button>
+            </>
+          )}
+        </div>
+      )}
+      {media.length > 0 && (
         <div className="mb-5 flex flex-wrap gap-2">
           {FILTERS.map((f) => (
             <Chip key={f.id} on={filter === f.id} onClick={() => setFilter(f.id)}>
@@ -224,8 +259,14 @@ export default function MediaPage() {
               const t = typeOf(m);
               const act = primary(m);
               return (
-                <div key={m.id} className="group relative flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
-                  <button type="button" onClick={() => setOpen(m)} className="relative block w-full" aria-label={`תצוגה של ${m.name}`}>
+                <div key={m.id} className={cx('group relative flex flex-col overflow-hidden rounded-xl border bg-surface shadow-sm',
+                  selecting && picked.has(m.id) ? 'border-primary ring-2 ring-primary' : 'border-line')}>
+                  <button type="button" onClick={() => (selecting ? togglePick(m.id) : setOpen(m))} className="relative block w-full"
+                    aria-label={selecting ? `בחירה של ${m.name}` : `תצוגה של ${m.name}`} aria-pressed={selecting ? picked.has(m.id) : undefined}>
+                    {selecting && (
+                      <span className={cx('absolute end-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 text-sm font-bold',
+                        picked.has(m.id) ? 'border-primary bg-primary text-white' : 'border-white bg-black/30 text-transparent')}>✓</span>
+                    )}
                     {t === 'audio' ? (
                       <div className="flex aspect-[4/5] w-full items-center justify-center bg-gradient-to-b from-surface-2 to-line text-4xl text-ink-2">♪</div>
                     ) : m.kind === 'video' ? (

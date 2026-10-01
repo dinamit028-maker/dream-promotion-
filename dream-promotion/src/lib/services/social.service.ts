@@ -65,6 +65,10 @@ export const SocialService = {
   async removeImported(source: 'instagram_post' | 'instagram_story'): Promise<{ removed: number }> {
     return authed('/api/media/imported', { method: 'DELETE', body: JSON.stringify({ source }) });
   },
+  /** Removes the chosen library files (rows and stored files). */
+  async removeMany(ids: string[]): Promise<{ removed: number }> {
+    return authed('/api/media/imported', { method: 'DELETE', body: JSON.stringify({ ids }) });
+  },
   async disconnect(id: string) {
     await authed(`/api/social/accounts?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   },

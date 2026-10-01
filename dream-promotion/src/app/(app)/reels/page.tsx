@@ -25,7 +25,7 @@ import { setGenerationContext } from '@/lib/services/http';
 import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalReelPanel';
 
 type Res = keyof typeof PRICE_PER_SECOND;
-type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image'; draft?: boolean };
+type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image'; draft?: boolean; still?: string };
 
 const LENGTHS = [10, 15, 30, 45];
 const ROLE_HE: Record<string, string> = {
@@ -117,7 +117,7 @@ export default function ReelsPage() {
     loadedRef.current = true;
     setBrief(p.brief); setTotal(p.total); setRes(p.res); setSeamless(p.seamless); setBoard(p.board);
     const toMap = <T,>(arr: (T | null)[]) => Object.fromEntries(arr.map((v, i) => [i, v]).filter(([, v]) => v !== null && v !== undefined));
-    setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind, draft: c.draft } : null]).filter(([, v]) => v)) as Record<number, Clip>);
+    setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind, draft: c.draft, still: c.still } : null]).filter(([, v]) => v)) as Record<number, Clip>);
     setDraftMode(p.draftMode ?? false);
     setPhotos(toMap(p.photos) as Record<number, string | null>);
     setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
@@ -338,7 +338,24 @@ export default function ReelsPage() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  async function renderScene(i: number, startImage?: string, opts: { final?: boolean } = {}): Promise<string> {
+  /**
+   * The reel's look anchor: the first AI still already made. Every other AI still is generated
+   * FROM it (as a reference image), so the same person, outfit and place carry through the reel.
+   */
+  const anchorFor = (i: number): string | undefined => {
+    for (let j = 0; j < scenes.length; j++) {
+      if (j === i) continue;
+      const c = clips[j], src = sourceOf(j);
+      if ((src === 'ai_image' || src === 'ai_video') && c?.status === 'done' && !photos[j]) {
+        if (c.kind === 'image' && c.url) return c.url;
+        if (c.still) return c.still; // a video made from an approved still keeps that still as the anchor
+      }
+    }
+    return undefined;
+  };
+  const CONSISTENT = 'Keep the exact same main person as in the reference image: same face, same hair, same skin tone, same age, same clothing. Same location style, same light and color grading. Photorealistic, natural, vertical 9:16. No text, no logos.';
+
+  async function renderScene(i: number, startImage?: string, opts: { final?: boolean; anchor?: string } = {}): Promise<string> {
     const sc = scenes[i];
     const startedAt = Date.now();
     const set = (u: ClipUpdate) => setClips((c) => ({ ...c, [i]: { ...c[i], ...u, startedAt } }));
@@ -375,8 +392,11 @@ export default function ReelsPage() {
     if (imageMode[i] || draftStill) {
       set({ status: 'running' });
       try {
+        const anchor = opts.anchor ?? anchorFor(i);
+        const base = [board?.cast, sc.videoPrompt || sc.visual].filter(Boolean).join('\n');
         const urls = await ImageService.generate({
-          prompt: sc.videoPrompt || sc.visual, aspectRatio: '9:16', count: 1,
+          prompt: anchor ? `${base}\n\n${CONSISTENT}` : base, aspectRatio: '9:16', count: 1,
+          ...(anchor ? { imageUrls: [anchor] } : {}),
         }, undefined, abort.current?.signal);
         setClips((c) => ({ ...c, [i]: { status: 'done', url: urls[0], kind: 'image', startedAt, draft: draftStill || undefined } }));
         void keepInLibrary(i, urls[0], 'image');
@@ -395,11 +415,13 @@ export default function ReelsPage() {
     setClips((c) => ({ ...c, [i]: { status: 'queued', kind: 'video', startedAt } }));
     try {
       return await VideoService.generate({
-        prompt: sc.videoPrompt || sc.visual,
+        // nobody talks on camera: the voice is the Hebrew narration (AI speech came out in English)
+        prompt: `${[board?.cast, sc.videoPrompt || sc.visual].filter(Boolean).join('. ')}. The person does not speak; no dialogue, no lip movement.`,
         duration: sc.seconds || 15,
         resolution: res,
         aspectRatio: '9:16',
         startImage,
+        audio: false,
       }, (u) => { set(u); if (u.status === 'done' && u.url) void keepInLibrary(i, u.url, 'video'); }, abort.current?.signal);
     } catch (e: any) {
       setClips((c) => ({ ...c, [i]: { ...c[i], status: 'failed', error: e.message, code: e.code, startedAt } }));
@@ -433,9 +455,18 @@ export default function ReelsPage() {
           prev = await renderScene(i, start);
         }
       } else {
-        await Promise.allSettled(
-          scenes.map((_, i) => (clips[i]?.status === 'done' ? Promise.resolve(clips[i].url!) : renderScene(i))),
-        );
+        // the first AI still is made alone; every other still is then made from it (same person, same place)
+        let anchor = anchorFor(-1);
+        const needsStill = (i: number) => !photos[i] && (sourceOf(i) === 'ai_image' || (sourceOf(i) === 'ai_video' && draftMode));
+        const todo = scenes.map((_, i) => i).filter((i) => clips[i]?.status !== 'done');
+        if (!anchor) {
+          const first = todo.find(needsStill);
+          if (first !== undefined) {
+            anchor = await renderScene(first).catch(() => undefined);
+            todo.splice(todo.indexOf(first), 1);
+          }
+        }
+        await Promise.allSettled(todo.map((i) => renderScene(i, undefined, { anchor })));
       }
     } catch { /* the failing clip shows its own message */ }
     finally { setRunning(false); }
@@ -456,7 +487,11 @@ export default function ReelsPage() {
         const still = clips[i]?.url;
         let start: string | undefined;
         try { start = still ? await imageToDataUri(still) : undefined; } catch { start = still; }
-        try { return await renderScene(i, start ?? still, { final: true }); }
+        try {
+          const url = await renderScene(i, start ?? still, { final: true });
+          if (still) setClips((c) => ({ ...c, [i]: { ...c[i], still } }));
+          return url;
+        }
         catch (e) {
           // the approved still stays, so nothing is lost and "final version" can be tried again
           if (still) setClips((c) => ({ ...c, [i]: { status: 'done', url: still, kind: 'image', draft: true, error: videoErrorMessage((e as any)?.message, (e as any)?.code)?.title } }));
@@ -485,7 +520,7 @@ export default function ReelsPage() {
     return {
       v: 1, brief, total, res, seamless, board,
       clips: scenes.map((_, i) => (clips[i]?.status === 'done' && perm(clips[i].url)
-        ? { url: clips[i].url!, kind: clips[i].kind ?? 'video', ...(clips[i].draft ? { draft: true } : {}) } : null)),
+        ? { url: clips[i].url!, kind: clips[i].kind ?? 'video', ...(clips[i].draft ? { draft: true } : {}), ...(clips[i].still && perm(clips[i].still!) ? { still: clips[i].still } : {}) } : null)),
       draftMode,
       photos: scenes.map((_, i) => photos[i] ?? null),
       imageMode: scenes.map((_, i) => Boolean(imageMode[i])),
@@ -560,6 +595,8 @@ export default function ReelsPage() {
     text: narr[i]?.persisted ? (narr[i]?.originalText || sc.voiceover) : undefined,
     durationSec: narr[i]?.persisted ? narr[i]?.durationSec : undefined,
     label: roleLabel(sc.role, i),
+    // AI clips are silent under the narration; the user's own videos (a story, a selfie) keep their sound
+    keepAudio: !(sc.source === 'ai_video' || sc.source === 'ai_image' || sc.source === 'graphic'),
   }));
   const renderReady = scenes.length > 0 && payload.every((p) => p.url.startsWith('https://'));
   const missingNarration = payload.filter((p) => !p.narrationUrl).length;
