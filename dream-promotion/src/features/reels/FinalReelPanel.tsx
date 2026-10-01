@@ -16,6 +16,7 @@ import { PRESETS, audioDuration, cueFrames, linesFromWords, loadCaptionFont, pre
 import { CaptionEditor, type EditorScene } from './CaptionEditor';
 import { TikTokSend } from '@/features/social/TikTokSend';
 import { MetaSend } from '@/features/social/MetaSend';
+import { MusicLibrary } from './MusicLibrary';
 import { SocialService, type BestTimes, type PostFormat, type ScheduleView, type SocialAccount } from '@/lib/services/social.service';
 import { cx } from '@/lib/utils';
 
@@ -28,6 +29,8 @@ export interface RenderScenePayload {
   label?: string;
   /** false: the clip's own sound is dropped (AI clips); true/undefined: kept when "original sound" is on */
   keepAudio?: boolean;
+  /** the scene's on-screen line — the caption when the reel has no narration */
+  onScreen?: string;
   /** stills: camera move made by the renderer */
   motion?: 'zoom_in' | 'zoom_out' | 'pan_left' | 'pan_right' | 'none';
 }
@@ -56,7 +59,7 @@ async function parkInStorage(token: string, json: string): Promise<string> {
  */
 export function FinalReelPanel({
   projectId, title, brief, payload, ready, missingNarration, music, setMusic, captions, setCaptions,
-  sceneCaptions, setSceneCaption, originalAudio, setOriginalAudio, social, setSocial, final, onRendered, section = 'all',
+  sceneCaptions, setSceneCaption, originalAudio, setOriginalAudio, social, setSocial, final, onRendered, section = 'all', textOnly = false,
 }: {
   projectId: string | null; title: string; brief: string;
   payload: RenderScenePayload[]; ready: boolean; missingNarration: number;
@@ -68,10 +71,13 @@ export function FinalReelPanel({
   final: ReelProject['final']; onRendered: (f: NonNullable<ReelProject['final']>) => void;
   /** wizard step: "render" = music, captions, make the file · "publish" = post text, publish, schedule */
   section?: 'render' | 'publish' | 'all';
+  /** no narration: captions come from each scene's on-screen text, music plays louder */
+  textOnly?: boolean;
 }) {
   const router = useRouter();
   const { media, addMedia, duplicateContent, updateContent, content, openEditor, brand } = useApp();
   const [picking, setPicking] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<{ stage: keyof typeof STAGE_HE; pct?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -256,7 +262,9 @@ export function FinalReelPanel({
     if (!social.hashtags.includes(tag)) setSocial({ ...social, hashtags: [...social.hashtags, tag] });
     setNewTag('');
   }
-  const postText = [social.caption.trim() || title, social.hashtags.join(' ')].filter(Boolean).join('\n\n');
+  // a CC BY track must be credited — the line rides along in every post
+  const musicCredit = music?.attribution && music.license && !['cc0', 'pdm'].includes(music.license) ? `🎵 ${music.attribution}` : '';
+  const postText = [social.caption.trim() || title, musicCredit, social.hashtags.join(' ')].filter(Boolean).join('\n\n');
 
   // ---------------------------------------------------------------- render --
   async function render() {
@@ -279,7 +287,10 @@ export function FinalReelPanel({
         let lines: CaptionCue[] = [];
         if (captions.enabled) {
           lines = sceneCaptions[i] ?? [];
-          if (!sceneCaptions[i] && p.narrationUrl) {
+          if (!sceneCaptions[i] && textOnly && p.onScreen?.trim()) {
+            // no narration: the scene's on-screen line stays up for the whole scene
+            lines = [{ start: 0.15, end: Math.max(1, (p.seconds || 5) - 0.1), text: p.onScreen.trim() }];
+          } else if (!sceneCaptions[i] && p.narrationUrl) {
             const dur = p.durationSec || (p.cues?.length ? 0 : await audioDuration(p.narrationUrl));
             lines = sceneCues(p.cues, p.text, dur);
           }
@@ -389,14 +400,19 @@ export function FinalReelPanel({
                   onChange={(e) => setMusic({ ...music, volume: +e.target.value / 100 })}
                   className="mt-1 w-full accent-[var(--primary)]" />
               </label>
-              <p className="mt-1 text-xs text-muted">המוזיקה יורדת אוטומטית כשמדברים.</p>
+              <p className="mt-1 text-xs text-muted">{textOnly ? 'בלי קריינות — המוזיקה היא הקול של הסרטון.' : 'המוזיקה יורדת אוטומטית כשמדברים.'}</p>
+              {musicCredit && <p className="mt-1 text-xs text-warn">השיר דורש קרדיט — נוסף אוטומטית לטקסט הפוסט.</p>}
               <div className="mt-2 flex gap-3 text-sm">
-                <button type="button" className="font-semibold text-primary" onClick={() => setPicking(true)}>החלפה</button>
+                <button type="button" className="font-semibold text-primary" onClick={() => setLibraryOpen(true)}>שיר אחר מהספרייה</button>
+                <button type="button" className="font-semibold text-primary" onClick={() => setPicking(true)}>קובץ שלכם</button>
                 <button type="button" className="text-muted" onClick={() => setMusic(null)}>בלי מוזיקה</button>
               </div>
             </div>
           ) : (
-            <Button variant="ghost" className="w-full" onClick={() => setPicking(true)}>+ הוספת מוזיקה (MP3)</Button>
+            <div className="grid gap-2">
+              <Button variant="primary" className="w-full" onClick={() => setLibraryOpen(true)}>🎵 מוזיקה חינם מהספרייה</Button>
+              <Button variant="ghost" className="w-full" onClick={() => setPicking(true)}>+ קובץ MP3 שלכם</Button>
+            </div>
           )}
           <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
             <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--primary)]" checked={originalAudio} onChange={(e) => setOriginalAudio(e.target.checked)} />
@@ -532,6 +548,8 @@ export function FinalReelPanel({
       <CaptionEditor open={editorOpen} onClose={() => setEditorOpen(false)} scenes={scenesForEditor}
         style={style} onStyle={setStyle} onLines={setSceneCaption} brief={brief} />
 
+      <MusicLibrary open={libraryOpen} onClose={() => setLibraryOpen(false)}
+        onChoose={(m) => setMusic({ ...m, volume: textOnly ? 0.7 : music?.volume ?? 0.25 })} />
       <MediaPicker open={picking} onClose={() => setPicking(false)} accept="audio"
         onPick={(id) => {
           const m = useApp.getState().media.find((x) => x.id === id);

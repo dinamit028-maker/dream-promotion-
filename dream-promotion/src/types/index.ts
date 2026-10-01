@@ -88,7 +88,10 @@ export interface ReelProject {
   anchorId?: string | null;
   narration: (SceneNarration | null)[];
   voice: { voiceId: string; style: string; language: string };
-  music: { mediaId: string; url: string; name: string; volume: number } | null;
+  /** attribution / license: tracks from the free library (CC BY needs the credit in the post) */
+  music: { mediaId: string; url: string; name: string; volume: number; attribution?: string; license?: string } | null;
+  /** false: no narration — the reel is music + each scene's on-screen text */
+  withNarration?: boolean;
   captions: { enabled: boolean; position: 'bottom' | 'middle'; size: 'md' | 'lg'; style?: CaptionStyle };
   /** per scene: caption lines edited in the caption editor or transcribed from the clip's own sound */
   sceneCaptions?: (CaptionCue[] | null)[];

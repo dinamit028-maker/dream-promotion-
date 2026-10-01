@@ -15,8 +15,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const language = url.searchParams.get('language') || 'he';
   try {
-    const voices = await provider.listVoices(language);
-    return NextResponse.json({ available: true, provider: provider.id, label: provider.label, voices });
+    const [voices, usage] = await Promise.all([provider.listVoices(language), provider.usage?.() ?? Promise.resolve(null)]);
+    return NextResponse.json({ available: true, provider: provider.id, label: provider.label, voices, usage });
   } catch (e: any) {
     return NextResponse.json({ available: true, provider: provider.id, voices: [], error: e?.message ?? 'voices_failed' });
   }

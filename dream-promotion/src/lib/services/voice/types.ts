@@ -10,6 +10,8 @@ export interface VoiceOption {
   /** provider's own description, shown as a hint */
   description?: string;
   languages?: string[];
+  /** he: verified for Hebrew by the provider · ads: a use case that fits business ads */
+  fit?: 'he' | 'ads';
 }
 
 export type VoiceStyle = 'natural' | 'energetic' | 'premium' | 'commercial';
@@ -41,5 +43,7 @@ export interface VoiceProvider {
   readonly label: string;
   available(): boolean;
   listVoices(language: string): Promise<VoiceOption[]>;
+  /** characters used / allowed this month on the provider account, when the key may read it */
+  usage?(): Promise<{ used: number; limit: number; resetsAt: string | null } | null>;
   speak(req: SpeakRequest): Promise<SpeakResult>;
 }

@@ -58,6 +58,8 @@ export default function ReelsPage() {
   const [shape, setShape] = useState<'scenes' | 'single'>('scenes');
   // the wizard: ① script ② video ③ narration ④ final reel ⑤ publish — one step on screen at a time
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  // false: no narration — the reel is music + each scene's on-screen text (step 3 is skipped)
+  const [withNarration, setWithNarration] = useState(true);
   // AI ideas for "what is the video about?", from the brand profile
   const [ideas, setIdeas] = useState<{ title: string; format: string; hook: string; brief: string; why: string }[]>([]);
   const [ideasBusy, setIdeasBusy] = useState(false);
@@ -139,6 +141,7 @@ export default function ReelsPage() {
     setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind, draft: c.draft, still: c.still } : null]).filter(([, v]) => v)) as Record<number, Clip>);
     setDraftMode(p.draftMode ?? false);
     setAnchorId(p.anchorId ?? null);
+    setWithNarration(p.withNarration !== false);
     setPhotos(toMap(p.photos) as Record<number, string | null>);
     setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
     setNarr(Object.fromEntries(p.narration.map((n, i) => [i, n ? { ...n, persisted: true } : null]).filter(([, v]) => v)) as Record<number, Narr>);
@@ -586,6 +589,7 @@ export default function ReelsPage() {
         ? { url: clips[i].url!, kind: clips[i].kind ?? 'video', ...(clips[i].draft ? { draft: true } : {}), ...(clips[i].still && perm(clips[i].still!) ? { still: clips[i].still } : {}) } : null)),
       draftMode,
       anchorId,
+      withNarration,
       photos: scenes.map((_, i) => photos[i] ?? null),
       imageMode: scenes.map((_, i) => Boolean(imageMode[i])),
       narration: scenes.map((_, i) => {
@@ -600,7 +604,7 @@ export default function ReelsPage() {
       sceneCaptions: scenes.map((_, i) => sceneCaps[i] ?? null),
       originalAudio,
     };
-  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel, sceneCaps, originalAudio, draftMode, anchorId]);
+  }, [board, brief, total, res, seamless, scenes, clips, photos, imageMode, narr, voice, music, captions, finalReel, sceneCaps, originalAudio, draftMode, anchorId, withNarration]);
 
   // autosave: every change is written to the account within a second
   const saveKey = project ? JSON.stringify({ ...project, updatedAt: 0 }) : '';
@@ -654,7 +658,9 @@ export default function ReelsPage() {
     url: clips[i]?.url ?? '', kind: clips[i]?.kind ?? 'video', seconds: sc.seconds,
     // stills move (Ken Burns); a draft still of a video scene gets a gentle push-in
     motion: clips[i]?.kind === 'image' ? (sc.motion && sc.motion !== 'none' ? sc.motion : clips[i]?.draft ? 'zoom_in' : sc.source === 'graphic' ? 'zoom_in' : sc.motion) : undefined,
-    narrationUrl: narr[i]?.persisted ? narr[i]?.url : undefined,
+    // no narration chosen: none goes into the reel, even if some was made earlier
+    narrationUrl: withNarration && narr[i]?.persisted ? narr[i]?.url : undefined,
+    onScreen: sc.onScreen,
     cues: narr[i]?.persisted ? narr[i]?.cues : undefined,
     text: narr[i]?.persisted ? (narr[i]?.originalText || sc.voiceover) : undefined,
     durationSec: narr[i]?.persisted ? narr[i]?.durationSec : undefined,
@@ -668,7 +674,7 @@ export default function ReelsPage() {
   const stepDone = {
     1: Boolean(board) && scenes.length > 0,
     2: scenes.length > 0 && scenes.every((_, i) => clips[i]?.status === 'done' && clips[i]?.url && !clips[i]?.draft),
-    3: scenes.length > 0 && scenes.every((sc, i) => !sc.voiceover?.trim() || Boolean(narr[i]?.url)),
+    3: scenes.length > 0 && (!withNarration || scenes.every((sc, i) => !sc.voiceover?.trim() || Boolean(narr[i]?.url))),
     4: Boolean(finalReel),
     5: false,
   } as const;
@@ -684,7 +690,7 @@ export default function ReelsPage() {
   const STEPS: { n: 1 | 2 | 3 | 4 | 5; label: string; hint: string }[] = [
     { n: 1, label: 'תסריט', hint: 'כתבו על מה הסרטון, בחרו סוג ואורך, ולחצו "בניית תסריט".' },
     { n: 2, label: 'וידאו', hint: 'לחצו "יצירת הסרטון" למטה. כל סצנה תסומן "מוכן" כשהיא גמורה.' },
-    { n: 3, label: 'קריינות', hint: 'בחרו קול, ולחצו "קריינות לכל הסצנות".' },
+    { n: 3, label: withNarration ? 'קריינות' : 'בלי קריינות', hint: withNarration ? 'בחרו קול, ולחצו "קריינות לכל הסצנות".' : 'הסרטון בלי קריינות — עוברים לריל הסופי ובוחרים מוזיקה.' },
     { n: 4, label: 'ריל סופי', hint: 'בחרו מוזיקה וכתוביות (לא חובה), ולחצו "יצירת הריל הסופי".' },
     { n: 5, label: 'פרסום', hint: 'פרסמו עכשיו, או תזמנו לשעה מומלצת.' },
   ];
@@ -722,7 +728,7 @@ export default function ReelsPage() {
         </p>
       </nav>
 
-      <div className={cx('grid items-start gap-6', (step === 1 || step === 3) && 'lg:grid-cols-[340px_minmax(0,1fr)]')}>
+      <div className={cx('grid items-start gap-6', (step === 1 || (step === 3 && withNarration)) && 'lg:grid-cols-[340px_minmax(0,1fr)]')}>
         {step === 1 && (<Card>
           <div className="mb-4">
             <Button variant="ghost" className="w-full" onClick={() => getIdeas(ideas.length > 0)} disabled={ideasBusy || aiReady === false}>
@@ -774,6 +780,13 @@ export default function ReelsPage() {
                 : 'כמה סצנות של 3–7 שניות: וידאו AI רק איפה שתנועה חשובה, תמונות בתנועה וכרטיס בשאר.'}
             </p>
           </Field>
+          <Field label="קול בסרטון">
+            <div className="flex flex-wrap gap-2">
+              <Chip on={withNarration} onClick={() => setWithNarration(true)}>עם קריינות</Chip>
+              <Chip on={!withNarration} onClick={() => setWithNarration(false)}>בלי — מוזיקה וכיתוב</Chip>
+            </div>
+            {!withNarration && <p className="mt-1.5 text-xs text-muted">הכיתוב של כל סצנה יופיע על המסך, עם מוזיקת רקע (יש ספרייה חינם בשלב הריל הסופי). בלי עלות קריינות.</p>}
+          </Field>
           <Field label="אורך">
             <div className="flex flex-wrap gap-2">
               {LENGTHS.filter((d) => shape === 'scenes' || d <= 30).map((d) => (
@@ -823,13 +836,13 @@ export default function ReelsPage() {
           {aiReady === false && <div className="mt-4"><AiUnavailable /></div>}
         </Card>)}
 
-        {step === 3 && (
+        {step === 3 && withNarration && (
           <div>
             <VoicePanel />
           </div>
         )}
 
-        <div className={cx('min-w-0', (step === 1 || step === 3) && 'lg:col-start-2 lg:row-start-1')}>
+        <div className={cx('min-w-0', (step === 1 || (step === 3 && withNarration)) && 'lg:col-start-2 lg:row-start-1')}>
           {planning && <GenerationState lines={['קורא את המותג…', 'מחלק לקליפים…', 'כותב כיוון ויזואלי לכל סצנה…']} step={1} />}
           {planError && <AdapterNote title="בניית התסריט נכשלה.">{planError}</AdapterNote>}
           {!planning && !board && !planError && content.some((c) => c.kind === 'reel' && c.reel) && (
@@ -875,7 +888,14 @@ export default function ReelsPage() {
                   .map(({ c, sc, i }) => ({ url: c!.url!, kind: c!.kind ?? 'video', motion: motionOf(i), seconds: sc.seconds || 5 }))} />
               )}
 
-              {step === 3 && (
+              {step === 3 && !withNarration && (
+                <Card className="mt-4">
+                  <strong className="block">הסרטון בלי קריינות</strong>
+                  <p className="mt-1 text-sm text-muted">על המסך יופיע הכיתוב של כל סצנה (אפשר לערוך אותו ב"עריכה" בשלב התסריט), ובשלב הבא בוחרים מוזיקת רקע.</p>
+                  <Button size="sm" variant="ghost" className="mt-3" onClick={() => setWithNarration(true)}>בכל זאת להוסיף קריינות</Button>
+                </Card>
+              )}
+              {step === 3 && withNarration && (
                 <Card className="mt-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <span className="text-sm">
@@ -910,7 +930,7 @@ export default function ReelsPage() {
                 <Button size="sm" variant="ghost" onClick={() => setAnchorPicking(true)}>{anchorId ? 'החלפה' : 'בחירה מהספרייה'}</Button>
                 {anchorId && <Button size="sm" variant="ghost" onClick={() => setAnchorId(null)}>הסרה</Button>}
               </div>)}
-              {step <= 3 && (<div id="reel-scenes" className="mt-4 grid gap-3">
+              {(step <= 2 || (step === 3 && withNarration)) && (<div id="reel-scenes" className="mt-4 grid gap-3">
                 {scenes.map((sc, i) => {
                   const c = clips[i];
                   const elapsed = c?.startedAt ? Math.round((Date.now() - c.startedAt) / 1000) : 0;
@@ -1104,8 +1124,8 @@ export default function ReelsPage() {
                 </div>
               </Card>)}
 
-              {(step === 4 || step === 5) && <FinalReelPanel section={step === 4 ? 'render' : 'publish'} projectId={projectId} title={board.title} brief={brief}
-                payload={payload} ready={renderReady} missingNarration={missingNarration}
+              {(step === 4 || step === 5) && <FinalReelPanel section={step === 4 ? 'render' : 'publish'} textOnly={!withNarration} projectId={projectId} title={board.title} brief={brief}
+                payload={payload} ready={renderReady} missingNarration={withNarration ? missingNarration : 0}
                 music={music} setMusic={setMusic} captions={captions} setCaptions={setCaptions}
                 sceneCaptions={scenes.map((_, i) => sceneCaps[i] ?? null)} setSceneCaption={setSceneCaption}
                 originalAudio={originalAudio} setOriginalAudio={setOriginalAudio}

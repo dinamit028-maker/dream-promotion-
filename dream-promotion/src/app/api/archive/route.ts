@@ -41,11 +41,13 @@ export async function POST(req: Request) {
     if (!res.ok) return NextResponse.json({ code: 'fetch_failed', message: `source returned ${res.status}` }, { status: 200 });
     const buf = Buffer.from(await res.arrayBuffer());
     const type = (res.headers.get('content-type') || (kind === 'video' ? 'video/mp4' : 'image/jpeg')).split(';')[0].trim().toLowerCase();
-    if (!/^(image|video|audio)\//.test(type)) return NextResponse.json({ code: 'bad_type', message: `not a media file (${type})` }, { status: 400 });
-    const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('mp4') ? 'mp4' : type.includes('mpeg') ? 'mp3' : type.includes('wav') ? 'wav' : 'jpg';
+    // some music hosts send mp3 as a generic download — trust the requested kind for audio only
+    const fixedType = kind === 'audio' && !type.startsWith('audio/') && /\.mp3(\?|$)/i.test(url) ? 'audio/mpeg' : type;
+    if (!/^(image|video|audio)\//.test(fixedType)) return NextResponse.json({ code: 'bad_type', message: `not a media file (${type})` }, { status: 400 });
+    const ext = fixedType.includes('png') ? 'png' : fixedType.includes('webp') ? 'webp' : fixedType.includes('mp4') ? 'mp4' : fixedType.includes('mpeg') || fixedType.includes('mp3') ? 'mp3' : fixedType.includes('wav') ? 'wav' : fixedType.includes('ogg') ? 'ogg' : 'jpg';
     const path = `${user.id}/${kind}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-    const up = await admin.storage.from('assets').upload(path, buf, { contentType: type, upsert: false });
+    const up = await admin.storage.from('assets').upload(path, buf, { contentType: fixedType, upsert: false });
     if (up.error) return NextResponse.json({ code: 'upload_failed', message: up.error.message }, { status: 200 });
 
     // a long-lived signed link, since the bucket is private

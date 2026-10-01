@@ -41,15 +41,37 @@ export class ElevenLabsProvider implements VoiceProvider {
     const res = await fetch(`${API}/voices`, { headers: { 'xi-api-key': this.key as string } });
     if (!res.ok) throw new Error(`voices_failed_${res.status}`);
     const json: any = await res.json();
-    const voices: VoiceOption[] = (json.voices || []).map((v: any) => ({
-      id: v.voice_id,
-      name: v.name,
-      gender: guessGender(v.labels),
-      description: [v.labels?.accent, v.labels?.description, v.labels?.use_case].filter(Boolean).join(' · '),
-      languages: (v.verified_languages || []).map((l: any) => l.language),
-    }));
-    // Hebrew isn't usually tagged per voice; keep the full list but put verified ones first.
-    return voices.sort((a, b) => Number(b.languages?.includes(language)) - Number(a.languages?.includes(language)));
+    // a voice for business ads: no cartoon characters, villains, warriors, ASMR or meditation whispers
+    const BAD = /characters?_animation|animation|gaming|game|asmr|meditation|kids|children|warrior|villain|monster|witch|wizard|pirate|ghost|demon|cartoon|whisper|elderly|old man|old woman|grandpa|grandma|robot|creepy|scary|horror|trailer voice|deep demon/i;
+    const ADS = /conversational|social_media|advertisement|ads|narration|narrative|informative|educational|entertainment|news|business|commercial|friendly|warm|confident|professional|upbeat|energetic/i;
+    const voices: VoiceOption[] = (json.voices || []).map((v: any) => {
+      const tags = [v.labels?.use_case, v.labels?.description, v.labels?.descriptive, v.name, v.description].filter(Boolean).join(' ');
+      const languages = (v.verified_languages || []).map((l: any) => l.language);
+      return {
+        id: v.voice_id,
+        name: v.name,
+        gender: guessGender(v.labels),
+        description: [v.labels?.accent, v.labels?.description, v.labels?.use_case].filter(Boolean).join(' · '),
+        languages,
+        fit: languages.includes(language) ? 'he' as const : ADS.test(tags) ? 'ads' as const : undefined,
+        _bad: BAD.test(tags),
+      };
+    }).filter((v: any) => !v._bad).map(({ _bad, ...v }: any) => v);
+    // Hebrew-verified first, then voices made for ads / narration, then the rest
+    const rank = (v: VoiceOption) => (v.fit === 'he' ? 0 : v.fit === 'ads' ? 1 : 2);
+    return voices.sort((a, b) => rank(a) - rank(b));
+  }
+
+  async usage() {
+    try {
+      const res = await fetch(`${API}/user/subscription`, { headers: { 'xi-api-key': this.key as string } });
+      if (!res.ok) return null; // the key may not have the "user read" permission — then it is just not shown
+      const j: any = await res.json();
+      return {
+        used: Number(j.character_count) || 0, limit: Number(j.character_limit) || 0,
+        resetsAt: j.next_character_count_reset_unix ? new Date(j.next_character_count_reset_unix * 1000).toISOString() : null,
+      };
+    } catch { return null; }
   }
 
   async speak(req: SpeakRequest): Promise<SpeakResult> {

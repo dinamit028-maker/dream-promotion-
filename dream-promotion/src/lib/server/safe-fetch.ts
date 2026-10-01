@@ -15,7 +15,9 @@ import { isIP } from 'node:net';
  */
 
 // fal's CDN, and Alibaba Model Studio's result storage (video_url of a finished Wan task)
-const BUILT_IN = ['*.fal.media', 'fal.media', '*.fal.ai', '*.oss-accelerate.aliyuncs.com', '*.aliyuncs.com'];
+// + the free-music sources Openverse indexes (Jamendo, Freesound, Wikimedia)
+const BUILT_IN = ['*.fal.media', 'fal.media', '*.fal.ai', '*.oss-accelerate.aliyuncs.com', '*.aliyuncs.com',
+  '*.jamendo.com', 'cdn.freesound.org', 'freesound.org', 'upload.wikimedia.org'];
 
 function allowedHosts(): string[] {
   const list = [...BUILT_IN];

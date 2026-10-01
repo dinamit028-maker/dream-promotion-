@@ -19,10 +19,24 @@ export function voiceErrorText(code?: string, detail?: string) {
   return `הקריינות נכשלה.${why}`;
 }
 
+/** A voice heard once is not paid for again in this session (each preview costs ~50 provider credits). */
+const previewCache = new Map<string, string>();
+const HIDDEN_KEY = 'dp-hidden-voices';
+const readHidden = (): string[] => { try { return JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]'); } catch { return []; } };
+
 /** Voice selection, preview and pronunciation overrides. The engine behind it is swappable. */
 export function VoicePanel() {
   const { voice, setVoice, pronunciations, setPronunciations } = useApp();
-  const [status, setStatus] = useState<{ available: boolean; provider: string; voices: VoiceOption[] } | null>(null);
+  const [status, setStatus] = useState<{ available: boolean; provider: string; voices: VoiceOption[]; usage: { used: number; limit: number; resetsAt: string | null } | null } | null>(null);
+  // voices the user ruled out — hidden from the list on this device
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [showHidden, setShowHidden] = useState(false);
+  useEffect(() => { setHidden(readHidden()); }, []);
+  const toggleHidden = (id: string) => setHidden((h) => {
+    const next = h.includes(id) ? h.filter((x) => x !== id) : [...h, id];
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    return next;
+  });
   const [previewing, setPreviewing] = useState<string | null>(null);
   const [gender, setGender] = useState<'all' | 'male' | 'female'>('all');
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +53,18 @@ export function VoicePanel() {
   async function preview(v: VoiceOption) {
     setPreviewing(v.id); setError(null);
     try {
-      const n = await VoiceService.narrate({
-        text: PREVIEW_LINE, voiceId: v.id, style: voice.style, language: voice.language, pronunciations,
-      });
+      const key = `${v.id}|${voice.style}|${voice.language}`;
+      let url = previewCache.get(key);
+      if (!url) {
+        const n = await VoiceService.narrate({
+          text: PREVIEW_LINE, voiceId: v.id, style: voice.style, language: voice.language, pronunciations,
+        });
+        url = n.audioUrl;
+        previewCache.set(key, url);
+        VoiceService.status(voice.language).then(setStatus).catch(() => {}); // refresh the credit line
+      }
       audio.current?.pause();
-      audio.current = new Audio(n.audioUrl);
+      audio.current = new Audio(url);
       await audio.current.play();
     } catch (e: any) { setError(voiceErrorText(e.code, e.message)); }
     finally { setPreviewing(null); }
@@ -92,9 +113,15 @@ export function VoicePanel() {
             <Chip key={id} on={gender === id} onClick={() => setGender(id)}>{label}</Chip>
           ))}
         </div>
+        {status?.usage && status.usage.limit > 0 && (
+          <p className={cx('mb-2 text-xs', status.usage.limit - status.usage.used < 2000 ? 'font-semibold text-warn' : 'text-muted')}>
+            ElevenLabs: נשארו {(status.usage.limit - status.usage.used).toLocaleString('he-IL')} מתוך {status.usage.limit.toLocaleString('he-IL')} תווים החודש
+            {status.usage.resetsAt ? ` · מתחדש ב-${new Date(status.usage.resetsAt).toLocaleDateString('he-IL')}` : ''}
+          </p>
+        )}
         {!status ? <Spinner /> : (
           <div className="max-h-64 space-y-2 overflow-y-auto pe-1">
-            {status.voices.filter((v) => gender === 'all' || v.gender === gender).slice(0, 40).map((v) => (
+            {status.voices.filter((v) => (gender === 'all' || v.gender === gender) && (showHidden || !hidden.includes(v.id))).slice(0, 40).map((v) => (
               <div key={v.id}
                 className={cx('flex items-center gap-2 rounded-2xl border-[1.5px] p-2.5 transition-colors',
                   voice.voiceId === v.id ? 'border-primary bg-primary-soft' : 'border-line')}>
@@ -107,16 +134,28 @@ export function VoicePanel() {
                       </span>
                     )}
                     <strong className="block truncate text-sm">{v.name}</strong>
+                    {v.fit === 'he' && <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-white">עברית ✓</span>}
+                    {v.fit === 'ads' && <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-semibold text-ink-2">לפרסום</span>}
                   </span>
                   {v.description && <span className="block truncate text-xs text-muted">{v.description}</span>}
                 </button>
                 <Button size="sm" variant="ghost" aria-label={`השמעת ${v.name}`} onClick={() => preview(v)} disabled={previewing === v.id}>
                   {previewing === v.id ? <Spinner /> : <Play size={16} weight="fill" aria-hidden />}
                 </Button>
+                <button type="button" onClick={() => toggleHidden(v.id)} title={hidden.includes(v.id) ? 'החזרה לרשימה' : 'לא מתאים — הסתרה'}
+                  className="shrink-0 px-1 text-sm text-muted hover:text-[var(--danger)]" aria-label={hidden.includes(v.id) ? `החזרת ${v.name}` : `הסתרת ${v.name}`}>
+                  {hidden.includes(v.id) ? '↺' : '✕'}
+                </button>
               </div>
             ))}
           </div>
         )}
+        <p className="mt-2 text-xs text-muted">
+          הרשימה כבר בלי קולות של דמויות מצוירות, משחקים ומדיטציה. ✕ מסתיר קול שלא מתאים לכם.
+          {hidden.length > 0 && <> <button type="button" className="font-semibold text-primary" onClick={() => setShowHidden((x) => !x)}>
+            {showHidden ? 'הסתרת המוסתרים' : `הצגת ${hidden.length} מוסתרים`}</button></>}
+          {' '}השמעה חוזרת של אותו קול לא עולה תווים.
+        </p>
       </Field>
 
       {error && <p className="mb-3 text-sm text-warn">{error}</p>}
