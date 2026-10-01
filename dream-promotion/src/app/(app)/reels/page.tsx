@@ -272,8 +272,20 @@ export default function ReelsPage() {
       motion: source === 'ai_video' || source === 'graphic' ? 'none' : s.motion && s.motion !== 'none' ? s.motion : 'zoom_in',
     } : s)));
     setImageMode((m) => ({ ...m, [i]: source !== 'ai_video' }));
-    clearClip(i);
+    const c = clips[i];
+    if (c?.status === 'done' && c.kind === 'image' && source !== 'graphic' && sourceOf(i) !== 'graphic') {
+      // the still stays: as a moving still, or as the draft (first frame) of the AI video
+      setClips((all) => ({ ...all, [i]: { ...c, draft: source === 'ai_video' ? true : undefined } }));
+    } else {
+      clearClip(i);
+    }
   }
+  /** the camera move a still shows (studio preview and final render agree) */
+  const motionOf = (i: number) => {
+    const m = scenes[i]?.motion;
+    if (m && m !== 'none') return m;
+    return clips[i]?.draft || sourceOf(i) === 'graphic' ? 'zoom_in' : null;
+  };
   const setMotion = (i: number, motion: SceneMotion) => setScenes(scenes.map((s, n) => (n === i ? { ...s, motion } : s)));
 
   /** Ask the model for a different visual direction for one clip. */
@@ -669,7 +681,8 @@ export default function ReelsPage() {
               )}
 
               {doneUrls.length > 0 && (
-                <SequencePlayer items={scenes.map((_, i) => clips[i]).filter((c) => c?.url).map((c) => ({ url: c!.url!, kind: c!.kind ?? 'video' }))} />
+                <SequencePlayer items={scenes.map((sc, i) => ({ c: clips[i], sc, i })).filter(({ c }) => c?.url)
+                  .map(({ c, sc, i }) => ({ url: c!.url!, kind: c!.kind ?? 'video', motion: motionOf(i), seconds: sc.seconds || 5 }))} />
               )}
 
               {outdatedCount > 0 && (
@@ -693,7 +706,8 @@ export default function ReelsPage() {
                           aria-label={pUrl ? 'החלפת תמונת פתיחה' : 'בחירת תמונת פתיחה'}
                           className="relative flex aspect-[9/16] w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.5px] border-dashed border-line bg-surface-2 text-muted hover:border-primary hover:text-primary sm:w-24">
                           {c?.url ? (c.kind === 'image'
-                              ? <img src={c.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                              ? <img key={`${c.url}-${motionOf(i)}`} src={c.url} alt="" style={{ ['--kb-dur' as any]: `${sc.seconds || 5}s` }}
+                                  className={cx('absolute inset-0 h-full w-full object-cover', motionOf(i) && `kb kb-${motionOf(i)}`)} />
                               : <video src={`${c.url}#t=0.5`} preload="metadata" muted playsInline className="absolute inset-0 h-full w-full object-cover" />)
                             : pUrl ? <img src={pUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
                             : <span className="flex flex-col items-center gap-1 text-[11px] font-semibold"><ImageGlyph size={22} aria-hidden />תמונה</span>}
@@ -1013,13 +1027,13 @@ function ClipBadge({ clip, elapsed }: { clip?: Clip; elapsed: number }) {
 }
 
 /** Plays finished clips back to back, so a 45s reel can be judged as one piece. */
-function SequencePlayer({ items }: { items: { url: string; kind: 'video' | 'image' }[] }) {
+function SequencePlayer({ items }: { items: { url: string; kind: 'video' | 'image'; motion?: string | null; seconds?: number }[] }) {
   const [i, setI] = useState(0);
   useEffect(() => { if (i >= items.length) setI(0); }, [items.length, i]);
   // stills hold the screen for four seconds, the way they will in the finished reel
   useEffect(() => {
     if (items[i]?.kind !== 'image') return;
-    const t = setTimeout(() => setI((n) => (n + 1 < items.length ? n + 1 : n)), 4000);
+    const t = setTimeout(() => setI((n) => (n + 1 < items.length ? n + 1 : n)), (items[i]?.seconds || 4) * 1000);
     return () => clearTimeout(t);
   }, [i, items]);
 
@@ -1029,7 +1043,10 @@ function SequencePlayer({ items }: { items: { url: string; kind: 'video' | 'imag
     <Card className="p-3">
       <div className="mx-auto w-full max-w-[300px]">
         {cur.kind === 'image'
-          ? <img src={cur.url} alt="" className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />
+          ? <div className="aspect-[9/16] w-full overflow-hidden rounded-xl bg-black">
+              <img key={`${i}-${cur.url}`} src={cur.url} alt="" style={{ ['--kb-dur' as any]: `${cur.seconds || 4}s` }}
+                className={cx('h-full w-full object-cover', cur.motion && `kb kb-${cur.motion}`)} />
+            </div>
           : <video key={cur.url} src={cur.url} controls playsInline autoPlay={i > 0}
               onEnded={() => setI((n) => (n + 1 < items.length ? n + 1 : n))}
               className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />}

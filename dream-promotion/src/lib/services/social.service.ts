@@ -54,12 +54,16 @@ export const SocialService = {
     return authed('/api/meta/stories', { method: 'POST', body: JSON.stringify({ accountId }) });
   },
   /** One round of "pull every post and reel"; call again with state until done. */
-  async importPosts(state?: { account: number; after: string | null } | null): Promise<{
+  async importPosts(state?: { account: number; after: string | null } | null, days?: number): Promise<{
     added: { id: string; url: string; name: string; kind: 'image' | 'video' }[];
     already: number; noFile: number; failed: number; scanned: number; errors: string[];
     done: boolean; state: { account: number; after: string | null } | null;
   }> {
-    return authed('/api/meta/posts', { method: 'POST', body: JSON.stringify({ state }) });
+    return authed('/api/meta/posts', { method: 'POST', body: JSON.stringify({ state, days }) });
+  },
+  /** Removes every file pulled from Instagram (posts & reels, or stories) — rows and stored files. */
+  async removeImported(source: 'instagram_post' | 'instagram_story'): Promise<{ removed: number }> {
+    return authed('/api/media/imported', { method: 'DELETE', body: JSON.stringify({ source }) });
   },
   async disconnect(id: string) {
     await authed(`/api/social/accounts?id=${encodeURIComponent(id)}`, { method: 'DELETE' });

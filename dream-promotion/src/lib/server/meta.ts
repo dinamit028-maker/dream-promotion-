@@ -210,7 +210,7 @@ type IgMedia = {
  * Carousel posts become one file per photo/video. Items Meta gives no file for (reels with
  * licensed music, some copyright cases) are counted, not retried.
  */
-export async function importPosts(userId: string, acc: MetaAccount, opts: { after?: string | null; deadline: number }) {
+export async function importPosts(userId: string, acc: MetaAccount, opts: { after?: string | null; deadline: number; since?: number | null }) {
   const db = adminDb();
   const added: { id: string; url: string; name: string; kind: 'image' | 'video' }[] = [];
   let already = 0, noFile = 0, failed = 0, scanned = 0;
@@ -225,6 +225,10 @@ export async function importPosts(userId: string, acc: MetaAccount, opts: { afte
     });
     const items: IgMedia[] = res.data ?? [];
     for (const m of items) {
+      // newest first: the first post older than the chosen period ends the whole pull
+      if (opts.since && m.timestamp && new Date(m.timestamp).getTime() < opts.since) {
+        return { added, already, noFile, failed, scanned, after: null, done: true };
+      }
       scanned++;
       const parts = m.media_type === 'CAROUSEL_ALBUM' && m.children?.data?.length
         ? m.children.data.map((c, k) => ({ id: `${m.id}-${k + 1}`, media_type: c.media_type, media_url: c.media_url }))

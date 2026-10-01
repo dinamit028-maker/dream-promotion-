@@ -75,3 +75,15 @@ body {
   border: 2.5px solid var(--line); border-top-color: var(--primary);
   animation: spin-slow .7s linear infinite; flex: 0 0 17px;
 }
+
+/* ---- Ken Burns preview: the same camera moves the renderer makes, shown live in the studio ---- */
+@keyframes kb-zoom_in   { from { transform: scale(1); }    to { transform: scale(1.14); } }
+@keyframes kb-zoom_out  { from { transform: scale(1.14); } to { transform: scale(1); } }
+@keyframes kb-pan_right { from { transform: scale(1.12) translateX(5.3%); }  to { transform: scale(1.12) translateX(-5.3%); } }
+@keyframes kb-pan_left  { from { transform: scale(1.12) translateX(-5.3%); } to { transform: scale(1.12) translateX(5.3%); } }
+.kb { animation-duration: var(--kb-dur, 5s); animation-timing-function: linear; animation-fill-mode: both; animation-iteration-count: infinite; will-change: transform; }
+.kb-zoom_in   { animation-name: kb-zoom_in; }
+.kb-zoom_out  { animation-name: kb-zoom_out; }
+.kb-pan_right { animation-name: kb-pan_right; }
+.kb-pan_left  { animation-name: kb-pan_left; }
+@media (prefers-reduced-motion: reduce) { .kb { animation: none; } }

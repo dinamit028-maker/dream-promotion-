@@ -69,7 +69,10 @@ export default function MediaPage() {
    * from Instagram's API — only the ones the timer saved while they were live exist.
    */
   const [allBusy, setAllBusy] = useState(false);
+  const [days, setDays] = useState(30); // 0 = the whole profile
+  const stopPull = useRef(false);
   async function pullEverything() {
+    stopPull.current = false;
     setAllBusy(true); setStoryNote('מושך סטוריז פעילים…');
     await pullStories(true);
     let state: { account: number; after: string | null } | null = null;
@@ -77,8 +80,9 @@ export default function MediaPage() {
     const errors: string[] = [];
     try {
       for (let round = 0; round < 40; round++) {
+        if (stopPull.current) break;
         setStoryNote(`מושך פוסטים ורילס… נסרקו ${scanned}, נוספו ${added}`);
-        const r = await SocialService.importPosts(state);
+        const r = await SocialService.importPosts(state, days);
         const have = new Set(useApp.getState().media.map((m) => m.id));
         r.added.filter((a) => !have.has(a.id)).forEach((a) => addMedia({ ...a, tags: ['אינסטגרם'], persistent: true }));
         added += r.added.length; already += r.already; noFile += r.noFile; failed += r.failed; scanned += r.scanned;
@@ -86,7 +90,7 @@ export default function MediaPage() {
         if (r.done || !r.state) break;
         state = r.state;
       }
-      const bits = [`נסרקו ${scanned} פוסטים ורילס. נוספו ${added} קבצים חדשים${already ? `, ${already} כבר היו בספרייה` : ''}.`];
+      const bits = [`${stopPull.current ? 'נעצר. ' : ''}נסרקו ${scanned} פוסטים ורילס${days ? ` מ-${days} הימים האחרונים` : ''}. נוספו ${added} קבצים חדשים${already ? `, ${already} כבר היו בספרייה` : ''}.`];
       if (noFile) bits.push(`${noFile} בלי קובץ (בדרך כלל ריל עם מוזיקה מספריית אינסטגרם) — Meta לא מאפשרת להוריד אותם.`);
       if (failed) bits.push(`${failed} נכשלו בהורדה — לחיצה נוספת תנסה אותם שוב.`);
       if (errors.length) bits.push(`שגיאה: ${errors[0]}`);
@@ -95,6 +99,21 @@ export default function MediaPage() {
     } catch (e: any) {
       setStoryNote(e.code === 'no_instagram' ? 'אין עדיין חשבון אינסטגרם מחובר. מחברים במסך החיבורים.' : `המשיכה נכשלה: ${e.message}`);
     } finally { setAllBusy(false); }
+  }
+
+  /** Takes out of the library everything pulled from Instagram of one kind (Instagram itself is untouched). */
+  const [removing, setRemoving] = useState(false);
+  async function removeImported(kind: 'insta' | 'story') {
+    const count = media.filter((m) => typeOf(m) === kind).length;
+    if (!window.confirm(`להסיר מהספרייה את כל ${count} ה${kind === 'insta' ? 'פוסטים והרילס' : 'סטוריז'} שנמשכו מאינסטגרם? באינסטגרם עצמו לא נמחק כלום.`)) return;
+    setRemoving(true);
+    try {
+      const r = await SocialService.removeImported(kind === 'insta' ? 'instagram_post' : 'instagram_story');
+      useApp.setState((st) => ({ media: st.media.filter((m) => typeOf(m) !== kind) }));
+      setStoryNote(`הוסרו ${r.removed} קבצים מהספרייה.`);
+      setFilter('all');
+    } catch (e: any) { setStoryNote(`ההסרה נכשלה: ${e.message}`); }
+    finally { setRemoving(false); }
   }
 
   // new stories show up on their own: on every visit, every 2 minutes while this screen is open,
@@ -149,11 +168,26 @@ export default function MediaPage() {
     <>
       <PageHead title="ספריית המדיה" sub={`${media.length} קבצים`}
         action={<div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={pullEverything} disabled={allBusy || storyBusy}>{allBusy ? 'מושך מאינסטגרם…' : 'משיכת הכל מאינסטגרם'}</Button>
+          {allBusy
+            ? <Button variant="ghost" onClick={() => { stopPull.current = true; }}>עצירת המשיכה</Button>
+            : <Button variant="ghost" onClick={pullEverything} disabled={storyBusy}>משיכה מאינסטגרם</Button>}
           <Button variant="ghost" onClick={() => pullStories()} disabled={storyBusy || allBusy}>{storyBusy && !allBusy ? 'מייבא סטוריז…' : 'סטוריז בלבד'}</Button>
           <Button variant="primary" onClick={() => input.current?.click()} disabled={busy}>{busy ? 'מעלה…' : '+ העלאה'}</Button>
         </div>} />
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted">משיכת פוסטים ורילס מ:</span>
+        {([[30, '30 יום'], [90, '3 חודשים'], [365, 'שנה'], [0, 'הכל']] as [number, string][]).map(([d, label]) => (
+          <Chip key={d} on={days === d} onClick={() => setDays(d)}>{label}</Chip>
+        ))}
+      </div>
       {storyNote && <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-sm">{storyNote}</p>}
+      {(filter === 'insta' || filter === 'story') && shown.length > 0 && (
+        <div className="mb-4">
+          <Button size="sm" variant="ghost" onClick={() => removeImported(filter)} disabled={removing || allBusy}>
+            {removing ? 'מסיר…' : `הסרת כל ${shown.length} הקבצים האלה מהספרייה`}
+          </Button>
+        </div>
+      )}
       <input ref={input} type="file" accept="image/*,video/*,audio/*" multiple hidden onChange={(e) => onFiles(e.target.files)} />
       {!MediaService.persistent && (
         <div className="mb-6"><AdapterNote>אחסון קבצים מתמיד לא מוגדר, לכן הקבצים חיים בדפדפן עד רענון.</AdapterNote></div>
