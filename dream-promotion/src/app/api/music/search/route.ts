@@ -24,7 +24,8 @@ export async function GET(req: Request) {
   // no category / extension filters: search results usually leave those fields empty, so filtering
   // on them dropped almost everything. Tracks are kept or dropped below by length and file instead.
   const qs = new URLSearchParams({
-    q, page: String(page), page_size: '40', mature: 'false',
+    // anonymous requests may ask for at most 20 per page (Openverse rule)
+    q, page: String(page), page_size: '20', mature: 'false',
     ...(withCredit ? { license_type: 'commercial' } : { license: 'cc0,pdm' }),
   });
   try {
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
         source: String(t.source || t.provider || ''), page: t.foreign_landing_url ? String(t.foreign_landing_url) : null,
       }));
     console.log('[music]', q, withCredit ? 'commercial' : 'cc0', 'openverse:', j.result_count ?? (j.results ?? []).length, 'kept:', tracks.length);
-    return NextResponse.json({ tracks: tracks.slice(0, 20), more: Boolean(j.page_count && page < j.page_count), found: j.result_count ?? null });
+    return NextResponse.json({ tracks, more: Boolean(j.page_count && page < j.page_count), found: j.result_count ?? null });
   } catch (e: any) {
     return NextResponse.json({ code: 'music_search_failed', message: String(e?.message ?? e).slice(0, 200) }, { status: 502 });
   }
