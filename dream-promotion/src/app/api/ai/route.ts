@@ -6,7 +6,7 @@ import {
   socialPrompt, captionPolishPrompt, ideasPrompt,
 } from '@/lib/services/prompts';
 import { accessDenied } from '@/lib/server/access';
-import { requestUser } from '@/lib/server/quota';
+import { commitUsage, releaseUsage, requestUser, reserveUsage, type Reservation } from '@/lib/server/quota';
 import { PRICES } from '@/lib/server/ai/config';
 import { contentIdFrom, logGeneration } from '@/lib/server/ai/ledger';
 
@@ -48,9 +48,17 @@ export async function POST(req: Request) {
   }
   const denied = await accessDenied(req);
   if (denied) return denied;
+  let slot: Reservation | null = null;
   try {
-    const { task, payload } = await req.json();
+    const raw = await req.text();
+    // a cap on what one request may send (brand profile + brief + script fit easily in 60k characters)
+    if (raw.length > 60_000) return NextResponse.json({ code: 'too_large', message: 'request too large' }, { status: 413 });
+    const { task, payload } = JSON.parse(raw);
     const { prompt, json } = buildPrompt(task, payload);
+    const userId0 = await requestUser(req);
+    const r = await reserveUsage(userId0, 'text', 1, { task });
+    if (r.denied) return r.denied;
+    slot = r.reservation;
     const client = new Anthropic({ apiKey: KEY });
 
     const started = Date.now();
@@ -62,7 +70,9 @@ export async function POST(req: Request) {
     // ledger: tokens are reported by Anthropic, so this is the actual cost, not an estimate
     const tin = res.usage?.input_tokens ?? 0, tout = res.usage?.output_tokens ?? 0;
     const cost = (tin * PRICES.anthropicIn + tout * PRICES.anthropicOut) / 1e6;
-    const userId = await requestUser(req);
+    const userId = userId0;
+    await commitUsage(slot, { status: 'done', costUsd: cost, meta: { provider: 'anthropic', tin, tout } });
+    slot = null;
     void logGeneration({
       userId, contentId: await contentIdFrom(req, userId), type: 'text', provider: 'anthropic', model: MODEL,
       status: 'succeeded', inputUnits: tin, outputUnits: tout, estimatedCostUsd: cost, actualCostUsd: cost,
@@ -89,6 +99,7 @@ export async function POST(req: Request) {
       );
     }
   } catch (e: any) {
+    if (slot) await releaseUsage(slot, String(e?.message ?? e));
     return NextResponse.json(
       { code: e?.status === 429 ? 'rate_limited' : 'ai_error', message: e?.message || 'unknown' },
       { status: 500 },

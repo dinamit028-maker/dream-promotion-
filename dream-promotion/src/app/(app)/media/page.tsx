@@ -87,13 +87,17 @@ export default function MediaPage() {
         r.added.filter((a) => !have.has(a.id)).forEach((a) => addMedia({ ...a, tags: ['אינסטגרם'], persistent: true }));
         added += r.added.length; already += r.already; noFile += r.noFile; failed += r.failed; scanned += r.scanned;
         errors.push(...r.errors);
+        if (r.rateLimited) {
+          errors.push('אינסטגרם מגבילה כרגע את קצב המשיכה. כל מה שנמשך נשמר — נסו שוב בעוד כשעה, והמשיכה תמשיך בלי להוריד שוב קבצים קיימים.');
+          break;
+        }
         if (r.done || !r.state) break;
         state = r.state;
       }
       const bits = [`${stopPull.current ? 'נעצר. ' : ''}נסרקו ${scanned} פוסטים ורילס${days ? ` מ-${days} הימים האחרונים` : ''}. נוספו ${added} קבצים חדשים${already ? `, ${already} כבר היו בספרייה` : ''}.`];
       if (noFile) bits.push(`${noFile} בלי קובץ (בדרך כלל ריל עם מוזיקה מספריית אינסטגרם) — Meta לא מאפשרת להוריד אותם.`);
       if (failed) bits.push(`${failed} נכשלו בהורדה — לחיצה נוספת תנסה אותם שוב.`);
-      if (errors.length) bits.push(`שגיאה: ${errors[0]}`);
+      if (errors.length) bits.push(errors[0].startsWith('אינסטגרם') ? errors[0] : 'חלק מהחשבונות לא נמשכו כרגע — נסו שוב מאוחר יותר.');
       bits.push('סטוריז ישנים מ-24 שעות אינסטגרם כבר לא מוסרת — רק כאלה שנשמרו בזמן שהיו פעילים.');
       setStoryNote(bits.join(' '));
     } catch (e: any) {

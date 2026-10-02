@@ -69,7 +69,7 @@ export const SocialService = {
   async importPosts(state?: { account: number; after: string | null } | null, days?: number): Promise<{
     added: { id: string; url: string; name: string; kind: 'image' | 'video' }[];
     already: number; noFile: number; failed: number; scanned: number; errors: string[];
-    done: boolean; state: { account: number; after: string | null } | null;
+    done: boolean; state: { account: number; after: string | null } | null; rateLimited?: boolean;
   }> {
     return authed('/api/meta/posts', { method: 'POST', body: JSON.stringify({ state, days }) });
   },

@@ -11,12 +11,15 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  *   QUOTA_IMAGES_MONTH         (default 200)
  *   QUOTA_VOICE_CHARS_MONTH    (default 30000)
  */
-export type UsageKind = 'video' | 'image' | 'voice';
+export type UsageKind = 'video' | 'image' | 'voice' | 'transcribe' | 'text' | 'render';
 
 const LIMITS: Record<UsageKind, { env: string; def: number; unit: string }> = {
   video: { env: 'QUOTA_VIDEO_SECONDS_MONTH', def: 300, unit: 'שניות וידאו' },
   image: { env: 'QUOTA_IMAGES_MONTH', def: 200, unit: 'תמונות' },
   voice: { env: 'QUOTA_VOICE_CHARS_MONTH', def: 30000, unit: 'תווי קריינות' },
+  transcribe: { env: 'QUOTA_TRANSCRIBE_MONTH', def: 150, unit: 'תמלולים' },
+  text: { env: 'QUOTA_TEXT_CALLS_MONTH', def: 3000, unit: 'בקשות AI' },
+  render: { env: 'QUOTA_RENDERS_MONTH', def: 300, unit: 'רינדורים' },
 };
 export const limitFor = (k: UsageKind) => {
   const v = Number(process.env[LIMITS[k].env]);
@@ -57,6 +60,9 @@ const GUARDS: Record<UsageKind, { concurrentEnv: string; concurrent: number; per
   video: { concurrentEnv: 'LIMIT_CONCURRENT_VIDEO', concurrent: 3, perMinuteEnv: 'LIMIT_PER_MINUTE_VIDEO', perMinute: 10 },
   image: { concurrentEnv: 'LIMIT_CONCURRENT_IMAGE', concurrent: 4, perMinuteEnv: 'LIMIT_PER_MINUTE_IMAGE', perMinute: 20 },
   voice: { concurrentEnv: 'LIMIT_CONCURRENT_VOICE', concurrent: 4, perMinuteEnv: 'LIMIT_PER_MINUTE_VOICE', perMinute: 40 },
+  transcribe: { concurrentEnv: 'LIMIT_CONCURRENT_TRANSCRIBE', concurrent: 3, perMinuteEnv: 'LIMIT_PER_MINUTE_TRANSCRIBE', perMinute: 15 },
+  text: { concurrentEnv: 'LIMIT_CONCURRENT_TEXT', concurrent: 6, perMinuteEnv: 'LIMIT_PER_MINUTE_TEXT', perMinute: 30 },
+  render: { concurrentEnv: 'LIMIT_CONCURRENT_RENDER', concurrent: 1, perMinuteEnv: 'LIMIT_PER_MINUTE_RENDER', perMinute: 4 },
 };
 const envInt = (name: string, def: number) => {
   const v = Number(process.env[name]);

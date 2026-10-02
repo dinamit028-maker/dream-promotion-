@@ -7,7 +7,7 @@
  * Any price can be overridden from the environment — keep them in line with your invoices.
  * A price of null means "unknown": the ledger stores no estimate rather than a made-up number.
  */
-export type ProviderId = 'fal' | 'alibaba' | 'anthropic' | 'elevenlabs';
+export type ProviderId = 'fal' | 'alibaba' | 'higgsfield' | 'anthropic' | 'elevenlabs';
 export type VideoQuality = 'draft' | 'standard' | 'premium';
 export type ImageQuality = 'economy' | 'standard' | 'premium';
 
@@ -28,6 +28,8 @@ export const PRICES = {
   falWanPerSec: { '480p': num('FAL_WAN_USD_PER_SEC_480P', 0.05)!, '720p': num('FAL_WAN_USD_PER_SEC_720P', 0.10)!, '1080p': num('FAL_WAN_USD_PER_SEC_1080P', 0.20)! },
   /** Alibaba Model Studio · Wan, USD per second — set from your Model Studio price list (unknown until set) */
   alibabaWanPerSec: { '720p': num('ALIBABA_WAN_USD_PER_SEC_720P', null), '1080p': num('ALIBABA_WAN_USD_PER_SEC_1080P', null) },
+  // Higgsfield publishes its rates in its console; nothing is assumed here — set them to see costs
+  higgsfieldWan3PerSec: { '480p': num('HIGGSFIELD_WAN3_USD_PER_SEC_480P', null), '720p': num('HIGGSFIELD_WAN3_USD_PER_SEC_720P', null), '1080p': num('HIGGSFIELD_WAN3_USD_PER_SEC_1080P', null) },
   /** fal · Nano Banana 2, USD per image */
   falImage: num('FAL_IMAGE_USD_EACH', 0.08)!,
   /** fal · Whisper, USD per audio minute (unknown until set) */
@@ -57,7 +59,8 @@ export interface VideoRoute {
  * standard and premium, with fal as the fallback. Draft (480p) is fal only — Alibaba Wan 2.7
  * offers 720P / 1080P.
  */
-const videoPrimary = pick('AI_VIDEO_PRIMARY', ['fal', 'alibaba'] as const, 'fal');
+// higgsfield can be chosen as primary, but only after it was tested on this account (it is never the default)
+const videoPrimary = pick('AI_VIDEO_PRIMARY', ['fal', 'alibaba', 'higgsfield'] as const, 'fal');
 export const AI_CONFIG = {
   video: {
     draft:    { provider: 'fal', resolution: '480p', defaultDuration: 5, maxDuration: 30, fallbackProvider: null } as VideoRoute,

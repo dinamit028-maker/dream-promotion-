@@ -17,6 +17,8 @@ import { CaptionEditor, type EditorScene } from './CaptionEditor';
 import { TikTokSend } from '@/features/social/TikTokSend';
 import { MetaSend } from '@/features/social/MetaSend';
 import { MusicLibrary } from './MusicLibrary';
+import { friendlyRenderError } from '@/lib/friendly-errors';
+import { formatIL, israelParts, israelToIso } from '@/lib/il-time';
 import { SocialService, type BestTimes, type PostFormat, type ScheduleView, type SocialAccount } from '@/lib/services/social.service';
 import { cx } from '@/lib/utils';
 
@@ -134,7 +136,7 @@ export function FinalReelPanel({
 
   function openSchedule() {
     const item = content.find((c) => c.id === projectId);
-    setWhen({ date: item?.date || today(), time: item?.time || '19:30' });
+    setWhen({ date: item?.date || israelParts(Date.now()).date, time: item?.time || '19:30' });
     setSchedError(null);
     setScheduling(true);
     if (!best) SocialService.bestTimes().then(setBest).catch(() => {});
@@ -157,8 +159,8 @@ export function FinalReelPanel({
     setSchedBusy(true); setSchedError(null);
     try {
       if (chosen.length) {
-        // the browser's local time (Israel) → an exact moment for the server timer
-        const runAt = new Date(`${when.date}T${when.time}:00`).toISOString();
+        // the date and time are Israel time — whatever time zone this device is set to
+        const runAt = israelToIso(when.date, when.time);
         await SocialService.schedule({
           contentId: projectId, mediaId: final.mediaId, caption: postText, runAt,
           destinations: chosen.map((a) => ({ accountId: a.id, ...(a.provider === 'instagram' ? { target: schedIgTarget } : {}) })),
@@ -185,11 +187,12 @@ export function FinalReelPanel({
     for (const a of chosen) formats.add(a.provider === 'tiktok' ? 'tiktok' : a.provider === 'facebook' ? 'facebook' : schedIgTarget === 'story' ? 'story' : 'reel');
     if (!formats.size) formats.add('reel');
     const now = Date.now() + 15 * 60_000;
+    // the next such day and hour in Israel time (not the device's time zone)
     const next = (days: number[] | null, hh: number, mm: number) => {
       for (let k = 0; k < 8; k++) {
-        const d = new Date(now + k * 864e5);
-        d.setHours(hh, mm, 0, 0);
-        if (+d > now && (!days || days.includes(d.getDay()))) return d;
+        const day = israelParts(now + k * 864e5);
+        const at = new Date(israelToIso(day.date, `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`));
+        if (+at > now && (!days || days.includes(day.weekday))) return at;
       }
       return null;
     };
@@ -214,14 +217,15 @@ export function FinalReelPanel({
     }
     const seen = new Set<string>();
     const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-    const todayKey = new Date().toDateString(), tomorrowKey = new Date(Date.now() + 864e5).toDateString();
+    const todayKey = israelParts(Date.now()).date, tomorrowKey = israelParts(Date.now() + 864e5).date;
     return out
       .sort((a, b) => Number(b.mine) - Number(a.mine) || +a.at - +b.at)
       .filter((s) => { const k = `${+s.at}`; if (seen.has(k)) return false; seen.add(k); return true; })
       .slice(0, 5)
       .map((s) => {
-        const hm = s.at.toTimeString().slice(0, 5);
-        const day = s.at.toDateString() === todayKey ? 'היום' : s.at.toDateString() === tomorrowKey ? 'מחר' : `יום ${DAY[s.at.getDay()]}`;
+        const il = israelParts(s.at);
+        const hm = il.time;
+        const day = il.date === todayKey ? 'היום' : il.date === tomorrowKey ? 'מחר' : `יום ${DAY[il.weekday]}`;
         return { ...s, label: `${day} ${hm}` };
       });
   }, [best, schedAccounts, schedPick, schedIgTarget]);
@@ -463,7 +467,7 @@ export function FinalReelPanel({
             </div>
           </div>
         )}
-        {error && <div className="mt-3"><AdapterNote title="הרינדור נכשל.">{error}</AdapterNote></div>}
+        {error && (() => { const f = friendlyRenderError(error); return <div className="mt-3"><AdapterNote title={f.title}>{f.body}</AdapterNote></div>; })()}
       </div>
       </>)}
 
@@ -481,7 +485,7 @@ export function FinalReelPanel({
                   <strong>
                     {schedule.status === 'scheduled' ? '⏰ מתוזמן לפרסום' : schedule.status === 'publishing' ? '⏳ מתפרסם…'
                       : schedule.status === 'done' ? '✓ פורסם' : schedule.status === 'partial' ? '⚠ פורסם חלקית' : '✗ הפרסום נכשל'}
-                    {' · '}{new Date(schedule.runAt).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })}
+                    {' · '}{formatIL(schedule.runAt)} (שעון ישראל)
                   </strong>
                   {schedule.status === 'scheduled' && <button type="button" className="text-xs text-[var(--danger)] hover:underline" onClick={cancelSchedule}>ביטול הפרסום האוטומטי</button>}
                 </div>
@@ -595,7 +599,7 @@ export function FinalReelPanel({
               <div className="grid gap-2">
                 {suggestions.map((s) => (
                   <button key={`${+s.at}-${s.format}`} type="button"
-                    onClick={() => setWhen({ date: `${s.at.getFullYear()}-${pad(s.at.getMonth() + 1)}-${pad(s.at.getDate())}`, time: `${pad(s.at.getHours())}:${pad(s.at.getMinutes())}` })}
+                    onClick={() => { const il = israelParts(s.at); setWhen({ date: il.date, time: il.time }); }}
                     className="flex items-start gap-3 rounded-2xl border border-line px-3 py-2 text-start text-sm hover:border-primary hover:bg-primary-soft">
                     <span className="shrink-0 font-bold tabular-nums">{s.label}</span>
                     <span className="min-w-0 flex-1 text-xs text-muted">

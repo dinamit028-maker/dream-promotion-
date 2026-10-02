@@ -1,3 +1,4 @@
+import { safeFetch } from './safe-fetch';
 import { adminDb } from './admin';
 import { open, seal } from './secrets';
 
@@ -170,7 +171,7 @@ export async function importStories(userId: string, acc: MetaAccount, limit = 10
     if (exists) { already++; continue; }
     if (!s.media_url) { noFile++; continue; }
     try {
-      const file = await fetch(s.media_url);
+      const file = await safeFetch(s.media_url, { maxBytes: 300 * 1024 * 1024, timeoutMs: 60_000 });
       if (!file.ok) throw new Error(String(file.status));
       const buf = Buffer.from(await file.arrayBuffer());
       const up = await db.storage.from('assets').upload(path, buf, { contentType: isVideo ? 'video/mp4' : 'image/jpeg', upsert: false });
@@ -180,12 +181,11 @@ export async function importStories(userId: string, acc: MetaAccount, limit = 10
       const when = s.timestamp ? new Date(s.timestamp) : new Date();
       const name = `סטורי · ${acc.name ?? 'Instagram'} · ${when.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' })} ${when.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' })}`;
       const kind = isVideo ? 'video' : 'image';
-      const row = await db.from('media').insert({
+      const id = await insertImported({
         user_id: userId, url: signed.data.signedUrl, storage_path: path, name, kind,
         tags: ['סטורי', 'אינסטגרם'], source: 'instagram_story',
-      }).select('id').single();
-      if (row.error) throw new Error(row.error.message);
-      added.push({ id: row.data.id, url: signed.data.signedUrl, name, kind });
+      }, { igId: s.id, account: acc.name ?? null, accountId: acc.externalId, takenAt: s.timestamp ?? null, type: 'story' });
+      added.push({ id, url: signed.data.signedUrl, name, kind });
     } catch { failed++; }
   }
   return { added, already, noFile, failed, live: stories.length };
@@ -199,6 +199,18 @@ export async function recentStoryMedia(userId: string) {
     .order('created_at', { ascending: false }).limit(50);
   return (data ?? []).map((m) => ({ id: m.id as string, url: m.url as string, name: m.name as string, kind: m.kind as 'image' | 'video' }));
 }
+
+/** Media row for an imported file, with where it came from (falls back cleanly before migration 800). */
+async function insertImported(row: Record<string, unknown>, meta: Record<string, unknown>) {
+  const db = adminDb();
+  let res = await db.from('media').insert({ ...row, meta }).select('id').single();
+  if (res.error && /meta/.test(res.error.message)) res = await db.from('media').insert(row).select('id').single();
+  if (res.error) throw new Error(res.error.message);
+  return res.data.id as string;
+}
+
+/** Meta is limiting this app / user for now — stop, keep what was saved, continue later. */
+export const isRateLimited = (m: string) => /meta_(4|17|32|613|80001|80002)\b|rate limit|too many calls/i.test(m);
 
 // ------------------------------------------------------------ posts & reels --
 type IgMedia = {
@@ -223,7 +235,7 @@ export async function importPosts(userId: string, acc: MetaAccount, opts: { afte
     if (Date.now() > opts.deadline) return { added, already, noFile, failed, scanned, after, done: false };
     const res = await graph(`/${acc.externalId}/media`, {
       access_token: acc.token, limit: '25',
-      fields: 'id,media_type,media_product_type,media_url,thumbnail_url,timestamp,caption,children{id,media_type,media_url}',
+      fields: 'id,media_type,media_product_type,media_url,thumbnail_url,timestamp,caption,permalink,children{id,media_type,media_url}',
       ...(after ? { after } : {}),
     });
     const items: IgMedia[] = res.data ?? [];
@@ -246,7 +258,7 @@ export async function importPosts(userId: string, acc: MetaAccount, opts: { afte
         if (exists) { already++; continue; }
         if (!p.media_url) { noFile++; continue; }
         try {
-          const file = await fetch(p.media_url, { signal: AbortSignal.timeout(40_000) });
+          const file = await safeFetch(p.media_url, { maxBytes: 300 * 1024 * 1024, timeoutMs: 40_000 });
           if (!file.ok) throw new Error(String(file.status));
           const buf = Buffer.from(await file.arrayBuffer());
           const up = await db.storage.from('assets').upload(path, buf, { contentType: isVideo ? 'video/mp4' : 'image/jpeg', upsert: false });
@@ -257,12 +269,15 @@ export async function importPosts(userId: string, acc: MetaAccount, opts: { afte
           const caption = (m.caption || '').replace(/\s+/g, ' ').trim().slice(0, 40);
           const name = `אינסטגרם · ${label} · ${acc.name ?? ''} · ${date}${caption ? ` · ${caption}` : ''}`;
           const kind = isVideo ? 'video' : 'image';
-          const row = await db.from('media').insert({
+          const id = await insertImported({
             user_id: userId, url: signed.data.signedUrl, storage_path: path, name, kind,
             tags: ['אינסטגרם', isReel ? 'ריל' : 'פוסט'], source: 'instagram_post',
-          }).select('id').single();
-          if (row.error) throw new Error(row.error.message);
-          added.push({ id: row.data.id, url: signed.data.signedUrl, name, kind });
+          }, {
+            igId: p.id, parentId: parts.length > 1 ? m.id : null, account: acc.name ?? null, accountId: acc.externalId,
+            takenAt: m.timestamp ?? null, type: isReel ? 'reel' : parts.length > 1 ? 'carousel' : 'post',
+            caption: (m.caption || '').slice(0, 2000), permalink: (m as any).permalink ?? null,
+          });
+          added.push({ id, url: signed.data.signedUrl, name, kind });
         } catch { failed++; }
         if (Date.now() > opts.deadline) break;
       }

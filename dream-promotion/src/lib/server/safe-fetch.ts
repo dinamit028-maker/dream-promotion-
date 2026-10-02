@@ -17,7 +17,11 @@ import { isIP } from 'node:net';
 // fal's CDN, and Alibaba Model Studio's result storage (video_url of a finished Wan task)
 // + the free-music sources Openverse indexes (Jamendo, Freesound, Wikimedia)
 const BUILT_IN = ['*.fal.media', 'fal.media', '*.fal.ai', '*.oss-accelerate.aliyuncs.com', '*.aliyuncs.com',
-  '*.jamendo.com', 'cdn.freesound.org', 'freesound.org', 'upload.wikimedia.org'];
+  '*.jamendo.com', 'cdn.freesound.org', 'freesound.org', 'upload.wikimedia.org',
+  // Instagram / Facebook media CDNs (stories, posts and reels the importer copies)
+  '*.cdninstagram.com', '*.fbcdn.net',
+  // Higgsfield outputs (if their files come from another CDN, add it to ASSET_HOSTS)
+  '*.higgsfield.ai'];
 
 function allowedHosts(): string[] {
   const list = [...BUILT_IN];

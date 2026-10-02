@@ -25,23 +25,10 @@ import { SCENE_ANGLES } from '@/lib/services/prompts';
 import { MicButton } from '@/components/ui/MicButton';
 import { setGenerationContext } from '@/lib/services/http';
 import { FinalReelPanel, type RenderScenePayload } from '@/features/reels/FinalReelPanel';
+import { ClipBadge, LENGTHS, roleLabel, SaveBadge, SequencePlayer, type Clip, type Res } from '@/features/reels/studio/parts';
+import { reelCosts, stepStatus, wizardSteps } from '@/features/reels/studio/logic';
+import { ReelStepper } from '@/features/reels/studio/ReelStepper';
 
-type Res = keyof typeof PRICE_PER_SECOND;
-type Clip = ClipUpdate & { startedAt?: number; code?: string; kind?: 'video' | 'image'; draft?: boolean; still?: string };
-
-const LENGTHS = [10, 15, 30, 45];
-const ROLE_HE: Record<string, string> = {
-  hook: 'הוק', problem: 'בעיה', solution: 'פתרון', proof: 'הוכחה', cta: 'קריאה לפעולה',
-};
-
-/** The model sometimes packs the whole structure into one role name; show something readable. */
-function roleLabel(role: string | undefined, i: number) {
-  if (!role) return `קליפ ${i + 1}`;
-  const parts = role.toLowerCase().split(/[^a-z]+/).filter(Boolean);
-  if (parts.length > 2) return `קליפ ${i + 1}`;
-  const he = parts.map((p) => ROLE_HE[p]).filter(Boolean);
-  return he.length ? he.join(' · ') : role;
-}
 
 export default function ReelsPage() {
   const aiReady = useAiReady();
@@ -141,6 +128,16 @@ export default function ReelsPage() {
     setClips(Object.fromEntries(p.clips.map((c, i) => [i, c ? { status: 'done', url: c.url, kind: c.kind, draft: c.draft, still: c.still } : null]).filter(([, v]) => v)) as Record<number, Clip>);
     setDraftMode(p.draftMode ?? false);
     setAnchorId(p.anchorId ?? null);
+    // clips that were still being made when the page closed: follow them to the end (already paid for)
+    const pending = (p.pendingClips ?? []).filter((j) => Date.now() - j.startedAt < 60 * 60_000 && !p.clips[j.scene]);
+    for (const j of pending) {
+      setClips((c) => ({ ...c, [j.scene]: { status: 'running', kind: 'video', requestId: j.requestId, model: j.model, startedAt: j.startedAt } }));
+      VideoService.resume({ requestId: j.requestId, model: j.model }, j.seconds,
+        (u) => {
+          setClips((c) => ({ ...c, [j.scene]: { ...c[j.scene], ...u, kind: 'video' } }));
+          if (u.status === 'done' && u.url) void keepInLibrary(j.scene, u.url, 'video');
+        }).catch((e) => setClips((c) => ({ ...c, [j.scene]: { ...c[j.scene], status: 'failed', error: e?.message } })));
+    }
     setWithNarration(p.withNarration !== false);
     setPhotos(toMap(p.photos) as Record<number, string | null>);
     setImageMode(Object.fromEntries(p.imageMode.map((v, i) => [i, v])));
@@ -161,23 +158,7 @@ export default function ReelsPage() {
 
   const scenes = board?.scenes ?? [];
   /** what is still to pay: now (draft or direct) and for the final version */
-  const costs = useMemo(() => {
-    let now = 0, final = 0, videoSec = 0;
-    scenes.forEach((sc, i) => {
-      const src = sc.source ?? (imageMode[i] ? 'ai_image' : 'ai_video');
-      const c = clips[i];
-      const sec = sc.seconds || 5;
-      if (src === 'ai_video') videoSec += sec;
-      if (c?.status === 'done' && !c.draft) return;
-      if (src === 'graphic' || src === 'user' || (src === 'ai_image' && photos[i])) return;
-      if (src === 'ai_image') { now += PRICE_PER_IMAGE; return; }
-      // AI video
-      if (c?.draft) { final += sec * PRICE_PER_SECOND[res]; return; }
-      if (draftMode) { now += PRICE_PER_IMAGE; final += sec * PRICE_PER_SECOND[res]; } else now += sec * PRICE_PER_SECOND[res];
-    });
-    const totalSec = scenes.reduce((a, x) => a + (x.seconds || 5), 0);
-    return { now, final, videoSec, totalSec };
-  }, [scenes, res, imageMode, clips, photos, draftMode]);
+  const costs = useMemo(() => reelCosts({ scenes, clips, imageMode, photos, draftMode, res }), [scenes, res, imageMode, clips, photos, draftMode]);
   const cost = costs.now;
   const doneUrls = scenes.map((_, i) => clips[i]?.url).filter(Boolean) as string[];
   const allDone = scenes.length > 0 && doneUrls.length === scenes.length;
@@ -590,6 +571,9 @@ export default function ReelsPage() {
       draftMode,
       anchorId,
       withNarration,
+      pendingClips: scenes.map((sc, i) => ({ sc, i, c: clips[i] }))
+        .filter(({ c }) => c && (c.status === 'queued' || c.status === 'running') && c.requestId && c.model)
+        .map(({ sc, i, c }) => ({ scene: i, requestId: c!.requestId!, model: c!.model!, seconds: sc.seconds || 5, startedAt: c!.startedAt ?? Date.now() })),
       photos: scenes.map((_, i) => photos[i] ?? null),
       imageMode: scenes.map((_, i) => Boolean(imageMode[i])),
       narration: scenes.map((_, i) => {
@@ -644,7 +628,9 @@ export default function ReelsPage() {
   // a narration made before the voice or style was changed
   const narrOutdated = (i: number) => {
     const n = narr[i];
-    return Boolean(n?.url && ((n.voiceId && n.voiceId !== voice.voiceId) || (n.style && n.style !== voice.style)));
+    // a different voice / style, or the narration text was edited after it was read
+    const textChanged = n?.originalText != null && n.originalText.trim() !== (scenes[i]?.voiceover ?? '').trim();
+    return Boolean(n?.url && ((n.voiceId && n.voiceId !== voice.voiceId) || (n.style && n.style !== voice.style) || textChanged));
   };
   const outdatedCount = scenes.filter((_, i) => narrOutdated(i)).length;
   const [renarrating, setRenarrating] = useState(false);
@@ -671,14 +657,9 @@ export default function ReelsPage() {
   const renderReady = scenes.length > 0 && payload.every((p) => p.url.startsWith('https://'));
 
   // ---- wizard status: a step is done when what it makes exists
-  const stepDone = {
-    1: Boolean(board) && scenes.length > 0,
-    2: scenes.length > 0 && scenes.every((_, i) => clips[i]?.status === 'done' && clips[i]?.url && !clips[i]?.draft),
-    3: scenes.length > 0 && (!withNarration || scenes.every((sc, i) => !sc.voiceover?.trim() || Boolean(narr[i]?.url))),
-    4: Boolean(finalReel),
-    5: false,
-  } as const;
-  const firstOpen = (!stepDone[1] ? 1 : !stepDone[2] ? 2 : !stepDone[3] ? 3 : !stepDone[4] ? 4 : 5) as 1 | 2 | 3 | 4 | 5;
+  const { done: stepDone, firstOpen } = stepStatus({
+    hasBoard: Boolean(board), scenes, clips, narr, withNarration, hasFinal: Boolean(finalReel),
+  });
   // opening a saved reel (or a new script) lands on the first step that still needs work
   useEffect(() => {
     const key = board ? `${projectId ?? 'new'}:${board.title}` : null;
@@ -687,13 +668,7 @@ export default function ReelsPage() {
     setStep(firstOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board, projectId]);
-  const STEPS: { n: 1 | 2 | 3 | 4 | 5; label: string; hint: string }[] = [
-    { n: 1, label: 'תסריט', hint: 'כתבו על מה הסרטון, בחרו סוג ואורך, ולחצו "בניית תסריט".' },
-    { n: 2, label: 'וידאו', hint: 'לחצו "יצירת הסרטון" למטה. כל סצנה תסומן "מוכן" כשהיא גמורה.' },
-    { n: 3, label: withNarration ? 'קריינות' : 'בלי קריינות', hint: withNarration ? 'בחרו קול, ולחצו "קריינות לכל הסצנות".' : 'בלי קול מקריא — עוברים לריל הסופי, ושם בוחרים מוזיקה וכתוביות.' },
-    { n: 4, label: 'ריל סופי', hint: 'בחרו מוזיקה וכתוביות (לא חובה), ולחצו "יצירת הריל הסופי".' },
-    { n: 5, label: 'פרסום', hint: 'פרסמו עכשיו, או תזמנו לשעה מומלצת.' },
-  ];
+  const STEPS = wizardSteps(withNarration);
   // a step opens once everything before it is done (steps already done stay open for changes)
   const canOpen = (n: number) => n <= firstOpen;
   const missingVoice = scenes.map((_, i) => i).filter((i) => scenes[i].voiceover?.trim() && !narr[i]?.url && !narr[i]?.busy);
@@ -705,28 +680,7 @@ export default function ReelsPage() {
       <PageHead title="אולפן הרילס" sub="חמישה שלבים, אחד אחרי השני — המסך מראה רק את השלב שבו אתם נמצאים." />
 
       {/* ---------- the wizard: where you are, what is done, what comes next ---------- */}
-      <nav aria-label="שלבי יצירת הריל" className="sticky top-0 z-20 -mx-1 mb-5 rounded-2xl bg-[var(--bg)]/90 px-1 py-2 backdrop-blur">
-        <ol className="flex gap-1.5 overflow-x-auto">
-          {STEPS.map((st) => {
-            const on = step === st.n, done = stepDone[st.n], open = canOpen(st.n);
-            return (
-              <li key={st.n} className="min-w-[60px] flex-1">
-                <button type="button" disabled={!open} onClick={() => setStep(st.n)} aria-current={on ? 'step' : undefined}
-                  className={cx('flex w-full flex-col items-center gap-1 rounded-2xl border px-2 py-2 text-xs font-semibold transition-colors',
-                    on ? 'border-primary bg-primary text-white' : done ? 'border-primary/40 bg-primary-soft text-ink' : open ? 'border-line bg-surface text-ink-2' : 'border-line bg-surface text-muted opacity-50')}>
-                  <span className={cx('flex h-6 w-6 items-center justify-center rounded-full text-[12px]', on ? 'bg-white/25' : done ? 'bg-primary text-white' : 'bg-surface-2')}>
-                    {done && !on ? '✓' : st.n}
-                  </span>
-                  {st.label}
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-        <p className="mt-2 px-1 text-sm text-ink-2">
-          <strong>שלב {step}:</strong> {STEPS[step - 1].hint}
-        </p>
-      </nav>
+      <ReelStepper steps={STEPS} step={step} done={stepDone} canOpen={canOpen} onSelect={setStep} />
 
       <div className={cx('grid items-start gap-6', (step === 1 || (step === 3 && withNarration)) && 'lg:grid-cols-[340px_minmax(0,1fr)]')}>
         {step === 1 && (<Card>
@@ -918,7 +872,7 @@ export default function ReelsPage() {
               )}
               {step === 3 && outdatedCount > 0 && (
                 <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--warn-soft,#fff4e0)] p-3 text-sm">
-                  <span className="flex-1">בחרתם קול או סגנון חדש. {outdatedCount} סצנות עדיין בקול הקודם.</span>
+                  <span className="flex-1">{outdatedCount} סצנות עם קריינות ישנה (טקסט, קול או סגנון השתנו).</span>
                   <Button size="sm" variant="primary" onClick={renarrateAll} disabled={renarrating}>
                     {renarrating ? <><Spinner />מקריא…</> : 'קריינות מחדש בקול החדש'}
                   </Button>
@@ -1037,7 +991,7 @@ export default function ReelsPage() {
                           )}
 
                           {step === 3 && narr[i]?.url && !narr[i]?.busy && narrOutdated(i) && (
-                            <p className="mt-3 text-xs text-warn">הקריינות הזו נוצרה בקול או בסגנון אחר ממה שנבחר עכשיו. לחצו "קריינות מחדש" כדי להחליף.</p>
+                            <p className="mt-3 text-xs text-warn">הקריינות הזו לא תואמת את מה שמוגדר עכשיו (טקסט, קול או סגנון). לחצו "קריינות מחדש" כדי להחליף — רק הקול של הסצנה הזו ייווצר מחדש.</p>
                           )}
                           {/* ---- narration for this scene, generated and regenerated on its own ---- */}
                           {step === 3 && (<div className="mt-3 rounded-2xl bg-surface-2 p-3">
@@ -1275,60 +1229,4 @@ export default function ReelsPage() {
       </Modal>
     </>
   );
-}
-
-function ClipBadge({ clip, elapsed }: { clip?: Clip; elapsed: number }) {
-  if (!clip) return <Pill>ממתין</Pill>;
-  const t = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
-  if (clip.status === 'queued') return <Pill tone="warn"><Spinner />בתור{clip.position ? ` · ${clip.position}` : ''} · {t}</Pill>;
-  if (clip.status === 'running') return <Pill tone="ai"><Spinner />מרנדר · {t}</Pill>;
-  if (clip.status === 'done') return <Pill tone="ok"><Check size={13} weight="bold" aria-hidden />מוכן</Pill>;
-  return <Pill tone="warn"><Warning size={13} weight="bold" aria-hidden />נכשל</Pill>;
-}
-
-/** Plays finished clips back to back, so a 45s reel can be judged as one piece. */
-function SequencePlayer({ items }: { items: { url: string; kind: 'video' | 'image'; motion?: string | null; seconds?: number }[] }) {
-  const [i, setI] = useState(0);
-  useEffect(() => { if (i >= items.length) setI(0); }, [items.length, i]);
-  // stills hold the screen for four seconds, the way they will in the finished reel
-  useEffect(() => {
-    if (items[i]?.kind !== 'image') return;
-    const t = setTimeout(() => setI((n) => (n + 1 < items.length ? n + 1 : n)), (items[i]?.seconds || 4) * 1000);
-    return () => clearTimeout(t);
-  }, [i, items]);
-
-  const cur = items[i];
-  if (!cur) return null;
-  return (
-    <Card className="p-3">
-      <div className="mx-auto w-full max-w-[300px]">
-        {cur.kind === 'image'
-          ? <div className="aspect-[9/16] w-full overflow-hidden rounded-xl bg-black">
-              <img key={`${i}-${cur.url}`} src={cur.url} alt="" style={{ ['--kb-dur' as any]: `${cur.seconds || 4}s` }}
-                className={cx('h-full w-full object-cover', cur.motion && `kb kb-${cur.motion}`)} />
-            </div>
-          : <video key={cur.url} src={cur.url} controls playsInline autoPlay={i > 0}
-              onEnded={() => setI((n) => (n + 1 < items.length ? n + 1 : n))}
-              className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />}
-      </div>
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-        {items.map((it, n) => (
-          <div key={it.url} className="flex items-center gap-1">
-            <Chip on={n === i} onClick={() => setI(n)}>{it.kind === 'image' ? 'תמונה' : 'קליפ'} {n + 1}</Chip>
-            <a href={it.url} target="_blank" rel="noopener noreferrer" download
-              className="text-xs font-semibold text-primary underline-offset-2 hover:underline">הורדה</a>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-function SaveBadge({ state }: { state: 'idle' | 'saving' | 'saved' | 'local' | 'no_migration' | 'error' }) {
-  if (state === 'idle') return null;
-  if (state === 'saving') return <Pill><Spinner />שומר…</Pill>;
-  if (state === 'saved') return <Pill tone="ok"><Check size={13} weight="bold" aria-hidden />נשמר בחשבון</Pill>;
-  if (state === 'no_migration') return <Pill tone="warn">הפרויקט לא נשמר — צריך להריץ את המיגרציה ב-Supabase</Pill>;
-  if (state === 'local') return <Pill tone="warn">חלק מהקבצים לא נשמרו בחשבון</Pill>;
-  return <Pill tone="warn">השמירה נכשלה</Pill>;
 }

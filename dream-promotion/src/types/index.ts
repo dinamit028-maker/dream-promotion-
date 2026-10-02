@@ -86,6 +86,8 @@ export interface ReelProject {
   draftMode?: boolean;
   /** a library photo every AI still of the reel is generated from (same person / product) */
   anchorId?: string | null;
+  /** clips submitted to the video provider and not finished yet — picked up again after a refresh / on another device */
+  pendingClips?: { scene: number; requestId: string; model: string; seconds: number; startedAt: number }[];
   narration: (SceneNarration | null)[];
   voice: { voiceId: string; style: string; language: string };
   /** attribution / license: tracks from the free library (CC BY needs the credit in the post) */

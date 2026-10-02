@@ -19,7 +19,7 @@ type Report = {
   };
   byType: Group[]; byProvider: Group[]; byModel: Group[]; byQuality: Group[]; byUser: Group[];
   topReels: { contentId: string; title: string; user: string; total: number; video: number; image: number; voice: number; text: number; transcribe: number; render: number; retry: number; calls: number }[];
-  health: { provider: string; model: string; type: string; calls: number; succeeded: number; failed: number; running: number; successRate: number | null; avgSeconds: number | null; recentErrors: { at: string; error: string }[] }[];
+  health: { provider: string; model: string; type: string; calls: number; succeeded: number; failed: number; running: number; successRate: number | null; avgSeconds: number | null; retries: number; fallbacks: number; spend: number; costPerSuccess: number | null; recentErrors: { at: string; error: string }[] }[];
 };
 
 const $ = (n: number | null | undefined, d = 2) => (n == null ? '—' : `$${n.toFixed(n !== 0 && Math.abs(n) < 0.1 ? 4 : d)}`);
@@ -153,11 +153,12 @@ export default function AdminPage() {
 
       {tab === 'health' && report && (
         <Card>
-          <strong className="block">אחוז הצלחה וזמן יצירה, לפי ספק ומודל</strong>
+          <strong className="block">אחוז הצלחה, זמן ועלות לתוצאה שימושית — לפי ספק ומודל</strong>
+          <p className="mt-1 text-xs text-muted">"עלות לתוצאה מוצלחת" = כל ההוצאה (כולל כישלונות וניסיונות חוזרים) חלקי מספר התוצאות שהצליחו. ספק זול שנכשל הרבה יכול לצאת יקר יותר.</p>
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[620px] text-sm">
+            <table className="w-full min-w-[820px] text-sm">
               <thead className="text-xs text-muted"><tr>
-                {['ספק', 'מודל', 'סוג', 'קריאות', 'הצלחה', 'נכשלו', 'רצות', 'זמן ממוצע'].map((h) => <th key={h} className="px-2 py-1.5 text-start font-semibold">{h}</th>)}
+                {['ספק', 'מודל', 'סוג', 'קריאות', 'הצלחה', 'נכשלו', 'חוזרים / גיבוי', 'זמן ממוצע', 'הוצאה', 'עלות לתוצאה מוצלחת'].map((h) => <th key={h} className="px-2 py-1.5 text-start font-semibold">{h}</th>)}
               </tr></thead>
               <tbody>
                 {report.health.map((h) => (
@@ -168,11 +169,13 @@ export default function AdminPage() {
                     <td className="px-2 py-1.5">{h.calls}</td>
                     <td className={cx('px-2 py-1.5 font-bold', h.successRate != null && h.successRate < 90 ? 'text-warn' : 'text-ok')}>{h.successRate == null ? '—' : `${h.successRate}%`}</td>
                     <td className="px-2 py-1.5">{h.failed}</td>
-                    <td className="px-2 py-1.5">{h.running}</td>
+                    <td className="px-2 py-1.5">{h.retries} / {h.fallbacks}</td>
                     <td className="px-2 py-1.5">{h.avgSeconds == null ? '—' : `${h.avgSeconds} שנ׳`}</td>
+                    <td className="px-2 py-1.5" dir="ltr">{$(h.spend)}</td>
+                    <td className="px-2 py-1.5 font-bold" dir="ltr">{$(h.costPerSuccess)}</td>
                   </tr>
                 ))}
-                {!report.health.length && <tr><td colSpan={8} className="px-2 py-3 text-muted">אין קריאות בתקופה.</td></tr>}
+                {!report.health.length && <tr><td colSpan={10} className="px-2 py-3 text-muted">אין קריאות בתקופה.</td></tr>}
               </tbody>
             </table>
           </div>

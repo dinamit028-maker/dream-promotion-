@@ -3,6 +3,7 @@ import { adminDb } from '@/lib/server/admin';
 import { finishGeneration, logGeneration } from './ledger';
 import { ProviderError, type ImageJobRequest, type ImageProvider, type JobState, type VideoJobRequest, type VideoProvider } from './types';
 import { FalImageProvider, FalVideoProvider } from './providers/fal';
+import { HiggsfieldWanProvider } from './providers/higgsfield';
 import { AlibabaWanProvider } from './providers/alibaba';
 
 /**
@@ -13,7 +14,7 @@ import { AlibabaWanProvider } from './providers/alibaba';
  * Adding a provider (Kling, Seedance, MiniMax…) = one file implementing VideoProvider +
  * one line in VIDEO below + its name in AI_CONFIG. No screen changes.
  */
-const VIDEO: Partial<Record<ProviderId, VideoProvider>> = { fal: FalVideoProvider, alibaba: AlibabaWanProvider };
+const VIDEO: Partial<Record<ProviderId, VideoProvider>> = { fal: FalVideoProvider, alibaba: AlibabaWanProvider, higgsfield: HiggsfieldWanProvider };
 const IMAGE: Partial<Record<ProviderId, ImageProvider>> = { fal: FalImageProvider };
 
 export interface Ctx { userId: string | null; contentId: string | null }
@@ -33,7 +34,9 @@ export function videoAvailable() {
 }
 export function videoEngineName() {
   const r = AI_CONFIG.video.standard;
-  return r.provider === 'alibaba' && AlibabaWanProvider.available() ? 'Wan · Alibaba Cloud (fal fallback)' : 'Wan 3.0 · fal';
+  if (r.provider === 'alibaba' && AlibabaWanProvider.available()) return 'Wan · Alibaba Cloud (fal fallback)';
+  if (r.provider === 'higgsfield' && HiggsfieldWanProvider.available()) return 'Wan 3.0 · Higgsfield (fal fallback)';
+  return 'Wan 3.0 · fal';
 }
 
 /** Starts a clip. Throws ProviderError when no provider could take it. */

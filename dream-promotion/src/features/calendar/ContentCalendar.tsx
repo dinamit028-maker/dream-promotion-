@@ -34,6 +34,19 @@ export function ContentCalendar() {
 
   return (
     <>
+      {content.length === 0 && (
+        // a new account: say what the calendar is for and how to fill it, instead of an empty grid
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-line bg-surface p-4">
+          <span className="min-w-0 flex-1 text-sm">
+            <strong className="block">היומן עוד ריק</strong>
+            <span className="text-muted">כאן מופיע כל מה שתזמנתם. אפשר לבנות שבוע שלם בלחיצה, או ליצור פוסט ראשון.</span>
+          </span>
+          <span className="flex flex-wrap gap-2">
+            <Button size="sm" variant="primary" onClick={planner.run} disabled={planner.busy}><Sparkle size={16} weight="fill" aria-hidden />בניית שבוע</Button>
+            <Button size="sm" variant="ghost" onClick={() => router.push('/create')}>פוסט ראשון</Button>
+          </span>
+        </div>
+      )}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl font-extrabold sm:text-3xl">יומן התוכן</h2>

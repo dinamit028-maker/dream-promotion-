@@ -5,6 +5,7 @@ import path from 'node:path';
 import { urlLooksAllowed } from '@/lib/server/safe-fetch';
 import { PRICES } from '@/lib/server/ai/config';
 import { logGeneration } from '@/lib/server/ai/ledger';
+import { commitUsage, releaseUsage, reserveUsage } from '@/lib/server/quota';
 import { MOTIONS, renderReel, type RenderJob } from '@/lib/server/reel-render';
 
 export const runtime = 'nodejs';
@@ -72,6 +73,14 @@ export async function POST(req: Request) {
   const replaceMediaId = typeof body.replaceMediaId === 'string' ? body.replaceMediaId : null;
 
   const enc = new TextEncoder();
+  // a render costs server time: one at a time per user, a few per minute, a monthly ceiling
+  const r = await reserveUsage(user.id, 'render', 1, { scenes: job.scenes.length });
+  if (r.denied) {
+    const j = await r.denied.json().catch(() => ({}));
+    return Response.json({ error: j.message || 'render limit reached', code: j.code || 'quota_exceeded' }, { status: 429 });
+  }
+  const slot = r.reservation;
+
   const stream = new ReadableStream({
     async start(ctrl) {
       const send = (o: object) => ctrl.enqueue(enc.encode(JSON.stringify(o) + '\n'));
@@ -105,7 +114,20 @@ export async function POST(req: Request) {
         }).select('id').single();
         if (row.error) throw new Error(`media_row_failed: ${row.error.message}`);
         // link the finished file to its reel so it opens with the project
-        if (contentId) await admin.from('content').update({ media_id: row.data.id }).eq('id', contentId).eq('user_id', user.id);
+        if (contentId) {
+          await admin.from('content').update({ media_id: row.data.id }).eq('id', contentId).eq('user_id', user.id);
+          // the finished reel is written into the project on the server too: a refresh, a closed phone or
+          // a lost connection during the render never loses it
+          try {
+            const cur = await admin.from('content').select('reel').eq('id', contentId).eq('user_id', user.id).maybeSingle();
+            const reel = (cur.data as any)?.reel;
+            if (reel && typeof reel === 'object') {
+              await admin.from('content').update({
+                reel: { ...reel, final: { mediaId: row.data.id, url: signed.data.signedUrl, durationSec, renderedAt: Date.now() } },
+              }).eq('id', contentId).eq('user_id', user.id);
+            }
+          } catch { /* the browser saves it too */ }
+        }
         // a re-render replaces the previous final of this reel instead of piling up copies
         if (replaceMediaId && replaceMediaId !== row.data.id) {
           const old = await admin.from('media').select('id, storage_path, name').eq('id', replaceMediaId).eq('user_id', user.id).maybeSingle();
@@ -115,9 +137,11 @@ export async function POST(req: Request) {
           }
         }
         await logRender('succeeded', { durationSec });
+        await commitUsage(slot, { status: 'done', costUsd: PRICES.renderPerMin == null ? 0 : ((Date.now() - started) / 60_000) * PRICES.renderPerMin });
         send({ done: true, mediaId: row.data.id, url: signed.data.signedUrl, durationSec, captionLines, sizeMb: +(buf.length / 1e6).toFixed(1) });
       } catch (e: any) {
         await logRender('failed', { error: String(e?.message ?? e) });
+        await releaseUsage(slot, String(e?.message ?? e));
         send({ error: String(e?.message ?? e).slice(0, 600) });
       } finally {
         await rm(dir, { recursive: true, force: true }).catch(() => {});

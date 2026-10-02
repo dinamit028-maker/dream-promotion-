@@ -103,8 +103,12 @@ export async function GET(req: Request) {
     const rs = rows.filter((r) => r.provider === provider && r.model === model && r.generation_type === type);
     const done = rs.filter((r) => r.status === 'succeeded');
     const lat = done.map((r) => r.latency_ms).filter((n): n is number => typeof n === 'number');
+    // the number that decides a provider: what one USABLE result really costs, failures and retries included
+    const spend = rs.filter((r) => r.status !== 'cancelled').reduce((a, r) => a + usd(r), 0);
     return {
       provider, model, type, calls: rs.length, succeeded: done.length, failed: rs.filter((r) => r.status === 'failed').length,
+      retries: rs.filter((r) => r.retry_count > 0).length, fallbacks: rs.filter((r) => r.fallback_from).length,
+      spend: r4(spend), costPerSuccess: done.length ? r4(spend / done.length) : null,
       running: rs.filter((r) => r.status === 'running').length,
       successRate: rs.filter((r) => r.status !== 'running').length ? Math.round((1000 * done.length) / rs.filter((r) => r.status !== 'running').length) / 10 : null,
       avgSeconds: lat.length ? Math.round(lat.reduce((a, b) => a + b, 0) / lat.length / 100) / 10 : null,

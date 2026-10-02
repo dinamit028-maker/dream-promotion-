@@ -6,7 +6,7 @@ import { authHeaders } from './http';
  * usually takes a few minutes, so every caller must show progress, never block.
  */
 export type ClipStatus = 'queued' | 'running' | 'done' | 'failed';
-export interface ClipUpdate { status: ClipStatus; position?: number | null; url?: string; error?: string }
+export interface ClipUpdate { status: ClipStatus; position?: number | null; url?: string; error?: string; requestId?: string; model?: string }
 
 export interface ClipRequest {
   prompt: string;
@@ -66,6 +66,19 @@ export const VideoService = {
   async generate(req: ClipRequest, onUpdate: (u: ClipUpdate) => void, signal?: AbortSignal): Promise<string> {
     onUpdate({ status: 'queued' });
     const job = await this.submit(req);
+    // the job handle goes to the caller at once, so a refresh / closed phone can pick it up again
+    onUpdate({ status: 'queued', requestId: job.requestId, model: job.model });
+    return this.follow(job, req.duration, onUpdate, signal);
+  },
+
+  /** Picks up a clip that was already submitted (after a refresh, on another device). */
+  async resume(job: { requestId: string; model: string }, seconds: number, onUpdate: (u: ClipUpdate) => void, signal?: AbortSignal): Promise<string> {
+    onUpdate({ status: 'running', requestId: job.requestId, model: job.model });
+    return this.follow(job, seconds, onUpdate, signal);
+  },
+
+  async follow(job: { requestId: string; model: string }, seconds: number, onUpdate: (u: ClipUpdate) => void, signal?: AbortSignal): Promise<string> {
+    const req = { duration: seconds };
     const deadline = Date.now() + 15 * 60_000;
     while (Date.now() < deadline) {
       if (signal?.aborted) {

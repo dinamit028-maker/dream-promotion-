@@ -6,6 +6,7 @@ import { Button, Chip, Input } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { Play } from '@/components/ui/Icon';
 import { cx } from '@/lib/utils';
+import { friendlyMediaError } from '@/lib/friendly-errors';
 
 export interface FreeTrack {
   id: string; title: string; creator: string; url: string; durationSec: number | null;
@@ -51,7 +52,7 @@ export function MusicLibrary({ open, onClose, onChoose }: {
       if (!r.ok) throw new Error(j.message || 'search failed');
       setTracks((t) => (p === 1 ? j.tracks : [...t, ...j.tracks]));
       setMore(Boolean(j.more)); setPage(p);
-    } catch (e: any) { setError(`החיפוש נכשל: ${e.message}`); }
+    } catch (e: any) { setError(`החיפוש לא עבד: ${friendlyMediaError(e.message)}`); }
     finally { setBusy(false); }
   }
   useEffect(() => { if (open && !tracks.length) void search(q); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [open]);
@@ -81,7 +82,7 @@ export function MusicLibrary({ open, onClose, onChoose }: {
       onChoose({ mediaId: j.id, url: j.url, name: `${t.title} · ${t.creator}`, attribution: t.attribution, license: t.license });
       audio.current?.pause();
       onClose();
-    } catch (e: any) { setError(`השמירה נכשלה: ${e.message}`); }
+    } catch (e: any) { setError(`השיר לא נשמר: ${friendlyMediaError(e.message)}`); }
     finally { setSaving(null); }
   }
 

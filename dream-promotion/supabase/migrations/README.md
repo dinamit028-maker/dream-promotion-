@@ -19,3 +19,5 @@ once per project and never committed with the real value.
 `supabase/schema.sql` is kept for reference; the migrations are the source of truth.
 | `20261001000500_ai_generations_ledger.sql` | `ai_generations` (every AI call and render: provider, model, units, estimated/actual cost, retries, fallbacks) + views `reel_costs` and `provider_health` |
 | `20261001000600_scheduled_posts.sql` | `scheduled_posts` — posts planned for a time, with destinations and per-destination results (published by `/api/cron/publish-due`) |
+| `20261002000700_transcribe_quota.sql` | `usage.kind` accepts `transcribe`, `text`, `render` — every paid endpoint is reserved and counted |
+| `20261002000800_reel_column_media_meta.sql` | `content.reel` (reel projects — was only in production) and `media.meta` (source of imported files) |

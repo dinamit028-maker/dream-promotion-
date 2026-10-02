@@ -16,10 +16,21 @@ import { safeFetch } from './safe-fetch';
  */
 export type Destination = { accountId: string; provider: 'facebook' | 'instagram' | 'tiktok'; target?: 'feed' | 'story'; coverMs?: number };
 export type DestState = 'waiting' | 'processing' | 'published' | 'sent_to_drafts' | 'failed';
-export type DestResult = { state: DestState; containerId?: string; externalId?: string; error?: string; at?: string };
+export type DestResult = { state: DestState; containerId?: string; externalId?: string; error?: string; at?: string; tries?: number };
 
 const TERMINAL: DestState[] = ['published', 'sent_to_drafts', 'failed'];
-const GIVE_UP_MS = 2 * 3600 * 1000; // Instagram still processing two hours after the time → failed
+const GIVE_UP_MS = 2 * 3600 * 1000;   // Instagram still processing two hours after the time → failed
+const EXPIRE_MS = 24 * 3600 * 1000;   // nothing is published more than a day late (the timer was down) — it fails visibly instead
+const MAX_TRIES = 3;                   // a passing network / provider hiccup is retried on the next runs, then it fails
+
+/** Errors worth another try on the next run (never: bad input, no permission, expired login, policy). */
+const TRANSIENT = /timeout|timed out|network|fetch failed|ECONN|ETIMEDOUT|EAI_AGAIN|socket|5\d\d|temporar|try again|rate limit|too many|unavailable|meta_(1|2|4|17|32|341|613)\b/i;
+const PERMANENT = /reconnect_required|permission|read only|משיכה בלבד|invalid parameter|meta_100\b|not supported|accepts videos only|נמחק/i;
+
+/** retry: try again on the next timer run · fail: stop now (exported for tests). */
+export function classifyFailure(error: string): 'retry' | 'fail' {
+  return TRANSIENT.test(error) && !PERMANENT.test(error) ? 'retry' : 'fail';
+}
 
 type Row = {
   id: string; user_id: string; content_id: string | null; media_id: string; caption: string;
@@ -64,7 +75,13 @@ async function publishOne(row: Row, d: Destination, media: { url: string; kind: 
     }
     return { state: 'processing', containerId, at };
   } catch (e: any) {
-    return { ...prev, state: 'failed', error: String(e?.message ?? e).slice(0, 300), at };
+    const error = String(e?.message ?? e).slice(0, 300);
+    const tries = (prev.tries ?? 0) + 1;
+    // a hiccup is retried on the next timer run; a real refusal fails at once
+    if (classifyFailure(error) === 'retry' && tries < MAX_TRIES) {
+      return { ...prev, state: 'waiting', error: `${error} (ניסיון ${tries} מתוך ${MAX_TRIES})`, at, tries };
+    }
+    return { ...prev, state: 'failed', error, at, tries };
   }
 }
 
@@ -99,12 +116,19 @@ export async function publishDue(opts: { deadline: number; limit?: number }) {
     const results: Record<string, DestResult> = { ...(row.results ?? {}) };
 
     const { data: media } = await db.from('media').select('url, kind').eq('id', row.media_id).eq('user_id', row.user_id).maybeSingle();
+    const late = Date.now() - new Date(row.run_at).getTime() > EXPIRE_MS;
     for (const d of row.destinations ?? []) {
       const prev = results[d.accountId] ?? { state: 'waiting' as DestState };
       if (TERMINAL.includes(prev.state)) continue; // never sent twice
+      if (late && prev.state === 'waiting') {
+        results[d.accountId] = { ...prev, state: 'failed', error: 'לא פורסם — עברו יותר מ-24 שעות מהזמן שנקבע', at: new Date().toISOString() };
+        continue;
+      }
       results[d.accountId] = media
         ? await publishOne(row, d, media as { url: string; kind: string }, prev)
         : { state: 'failed', error: 'הקובץ נמחק מהספרייה', at: new Date().toISOString() };
+      const res = results[d.accountId];
+      console.log(`[publish] ${row.id} ${d.provider}${d.target ? `/${d.target}` : ''} ${d.accountId.slice(0, 8)} → ${res.state}${res.error ? `: ${res.error}` : ''}`);
     }
     const status = overall(row.destinations ?? [], results);
     await db.from('scheduled_posts').update({

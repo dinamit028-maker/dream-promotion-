@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { importPosts, metaAccount } from '@/lib/server/meta';
+import { importPosts, isRateLimited, metaAccount } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -33,7 +33,12 @@ export async function POST(req: Request) {
       total.added.push(...r.added); total.already += r.already; total.noFile += r.noFile; total.failed += r.failed; total.scanned += r.scanned;
       if (!r.done) return NextResponse.json({ ...total, done: false, state: { account, after: r.after } });
     } catch (e: any) {
-      total.errors.push(String(e?.message ?? e).slice(0, 160));
+      const msg = String(e?.message ?? e);
+      if (isRateLimited(msg)) {
+        // Meta is limiting us: stop here, keep everything saved, and continue later from this account
+        return NextResponse.json({ ...total, done: false, rateLimited: true, state: { account, after } });
+      }
+      total.errors.push(msg.slice(0, 160));
     }
     account++; after = null;
     if (Date.now() > deadline) break;

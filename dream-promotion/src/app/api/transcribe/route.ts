@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { fal } from '@fal-ai/client';
 import { accessDenied } from '@/lib/server/access';
 import { urlLooksAllowed } from '@/lib/server/safe-fetch';
-import { requestUser } from '@/lib/server/quota';
+import { commitUsage, releaseUsage, requestUser, reserveUsage, type Reservation } from '@/lib/server/quota';
 import { AI_CONFIG, PRICES } from '@/lib/server/ai/config';
 import { contentIdFrom, logGeneration } from '@/lib/server/ai/ledger';
 
@@ -26,6 +26,12 @@ export async function POST(req: Request) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ code: 'bad_request', message: 'Invalid JSON' }, { status: 400 }); }
 
+  // a transcription costs money: reserved first like every paid call (monthly quota, parallel and per-minute limits)
+  const userId = await requestUser(req);
+  const r = await reserveUsage(userId, 'transcribe', 1, { source: body.url ? 'file' : 'mic' });
+  if (r.denied) return r.denied;
+  const slot: Reservation = r.reservation;
+
   try {
     let audioUrl: string;
     if (urlLooksAllowed(body.url)) {
@@ -34,9 +40,11 @@ export async function POST(req: Request) {
       const comma = body.audio.indexOf(',');
       const mime = body.audio.slice(5, body.audio.indexOf(';'));
       const buf = Buffer.from(body.audio.slice(comma + 1), 'base64');
-      if (buf.length < 800) return NextResponse.json({ code: 'empty_audio', message: 'the recording is empty' }, { status: 400 });
+      if (buf.length < 800) { await releaseUsage(slot, 'empty_audio'); return NextResponse.json({ code: 'empty_audio', message: 'the recording is empty' }, { status: 400 }); }
+      if (buf.length > 4 * 1024 * 1024) { await releaseUsage(slot, 'too_large'); return NextResponse.json({ code: 'too_large', message: 'recording too long' }, { status: 413 }); }
       audioUrl = await fal.storage.upload(new Blob([buf], { type: mime || 'audio/webm' }));
     } else {
+      await releaseUsage(slot, 'bad_request');
       return NextResponse.json({ code: 'bad_request', message: 'send url or audio' }, { status: 400 });
     }
 
@@ -60,17 +68,19 @@ export async function POST(req: Request) {
       : [];
     // ledger: audio length = end of the last word (Whisper reports no billable minutes per call)
     const audioSec = out.length ? out[out.length - 1].end : null;
-    const userId = await requestUser(req);
+    const estimate = PRICES.falWhisperPerMin != null && audioSec ? (audioSec / 60) * PRICES.falWhisperPerMin : null;
+    await commitUsage(slot, { status: 'done', costUsd: estimate ?? 0, meta: { provider: 'fal', audioSec } });
     void logGeneration({
       userId, contentId: await contentIdFrom(req, userId), type: 'transcribe', provider: 'fal', model: AI_CONFIG.models.falWhisper,
       status: 'succeeded', durationSeconds: audioSec, outputUnits: out.length || text.split(/\s+/).length,
-      estimatedCostUsd: PRICES.falWhisperPerMin != null && audioSec ? (audioSec / 60) * PRICES.falWhisperPerMin : null,
+      estimatedCostUsd: estimate,
       latencyMs: Date.now() - started, meta: { source: body.url ? 'file' : 'mic' },
     });
     return NextResponse.json({ text, words: out });
   } catch (e: any) {
     const message = String(e?.body?.detail ? JSON.stringify(e.body.detail) : e?.message ?? e).slice(0, 400);
     console.error('[transcribe]', message);
+    await releaseUsage(slot, message);
     return NextResponse.json({ code: 'transcribe_failed', message }, { status: 502 });
   }
 }

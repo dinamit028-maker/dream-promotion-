@@ -101,7 +101,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     addEventListener('scroll', h, { passive: true });
     return () => removeEventListener('scroll', h);
   }, []);
-  useEffect(() => { if (!checking && !onboarded) router.replace('/onboarding'); }, [checking, onboarded, router]);
+  // the saved state (localStorage) is applied only after the first render — deciding "not onboarded"
+  // before that sent finished users back to onboarding on every fresh load
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (useApp.persist?.hasHydrated?.() ?? true) setHydrated(true);
+    return useApp.persist?.onFinishHydration?.(() => setHydrated(true));
+  }, []);
+  useEffect(() => { if (hydrated && !checking && !onboarded) router.replace('/onboarding'); }, [hydrated, checking, onboarded, router]);
 
   const sideItem = ({ href, label, Icon }: NavItem) => {
     const on = path === href;
