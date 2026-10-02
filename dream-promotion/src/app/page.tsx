@@ -110,6 +110,7 @@ export default function Landing() {
           <span>© {new Date().getFullYear()} Dream Promotion</span>
           <VersionTag />
           <a href="/privacy" className="hover:text-ink">מדיניות פרטיות</a>
+          <a href="/data-deletion" className="hover:text-ink">מחיקת מידע</a>
           <a href="/terms" className="hover:text-ink">תנאי שימוש</a>
           <ThemeToggle />
         </div>
