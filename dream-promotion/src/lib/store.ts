@@ -1,7 +1,7 @@
 'use client';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AdDraft, BrandAnalysis, BrandProfile, ContentItem, Lead, MediaAsset } from '@/types';
+import type { AdDraft, BrandAnalysis, BrandProfile, ContentItem, Lead, LeadActivity, LeadActivityKind, MediaAsset } from '@/types';
 import { uid } from './utils';
 import type { VoiceStyle } from './services/voice/types';
 import type { Pronunciation } from './pronunciation';
@@ -19,6 +19,8 @@ interface AppState {
   content: ContentItem[];
   media: MediaAsset[];
   leads: Lead[];
+  /** CRM timeline, newest first */
+  activities: LeadActivity[];
   ads: AdDraft[];
   editingId: string | null;
   accessCode: string;
@@ -45,8 +47,12 @@ interface AppState {
   /** Saves and reports back — used where losing a save must be visible (reel projects). */
   saveContentNow: (id: string, patch: Partial<ContentItem>) => Promise<string | null>;
   removeMedia: (id: string) => void;
-  addLead: (l: Omit<Lead, 'id'>) => void;
+  addLead: (l: Omit<Lead, 'id'>) => string;
   updateLead: (id: string, patch: Partial<Lead>) => void;
+  deleteLead: (id: string) => void;
+  /** logs an event on a contact; calls / messages / meetings also update "last contact" */
+  addActivity: (leadId: string, kind: LeadActivityKind, body: string) => void;
+  deleteActivity: (id: string) => void;
   addAd: (a: Omit<AdDraft, 'id'>) => void;
   reset: () => void;
 }
@@ -66,6 +72,7 @@ export const useApp = create<AppState>()(
       content: [],
       media: [],
       leads: [],
+      activities: [],
       ads: [],
       editingId: null,
       accessCode: '',
@@ -111,6 +118,7 @@ export const useApp = create<AppState>()(
               content: cloud.content,
               media: cloud.media,
               leads: cloud.leads,
+              activities: cloud.activities,
               ads: cloud.ads,
               pronunciations: cloud.pronunciations.length ? cloud.pronunciations : get().pronunciations,
             });
@@ -122,7 +130,7 @@ export const useApp = create<AppState>()(
 
       signOutLocal: () => set({
         userId: null, onboarded: false, brand: emptyBrand, analysis: null,
-        content: [], media: [], leads: [], ads: [], pronunciations: [],
+        content: [], media: [], leads: [], activities: [], ads: [], pronunciations: [],
       }),
       openEditor: (id) => set({ editingId: id }),
       closeEditor: () => set({ editingId: null }),
@@ -187,6 +195,22 @@ export const useApp = create<AppState>()(
         set((s) => ({ leads: [lead, ...s.leads] }));
         const u = get().userId;
         if (u) void Repo.saveLead(u, lead);
+        return lead.id;
+      },
+      deleteLead: (id) => {
+        set((s) => ({ leads: s.leads.filter((l) => l.id !== id), activities: s.activities.filter((a) => a.leadId !== id) }));
+        if (get().userId) void Repo.deleteLead(id);
+      },
+      addActivity: (leadId, kind, body) => {
+        const a: LeadActivity = { id: crypto.randomUUID(), leadId, kind, body, at: new Date().toISOString() };
+        set((s) => ({ activities: [a, ...s.activities] }));
+        const u = get().userId;
+        if (u) void Repo.saveActivity(u, a);
+        if (['call', 'whatsapp', 'email', 'meeting'].includes(kind)) get().updateLead(leadId, { lastContact: a.at });
+      },
+      deleteActivity: (id) => {
+        set((s) => ({ activities: s.activities.filter((a) => a.id !== id) }));
+        if (get().userId) void Repo.deleteActivity(id);
       },
       updateLead: (id, patch) => {
         set((s) => ({ leads: s.leads.map((l) => (l.id === id ? { ...l, ...patch } : l)) }));
@@ -200,7 +224,7 @@ export const useApp = create<AppState>()(
         const u = get().userId;
         if (u) void Repo.saveAd(u, ad);
       },
-      reset: () => set({ onboarded: false, brand: emptyBrand, analysis: null, content: [], media: [], leads: [], ads: [] }),
+      reset: () => set({ onboarded: false, brand: emptyBrand, analysis: null, content: [], media: [], leads: [], activities: [], ads: [] }),
     }),
     {
       name: 'dream-promotion',

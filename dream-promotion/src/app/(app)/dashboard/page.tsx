@@ -8,10 +8,13 @@ import { greeting, today } from '@/lib/utils';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarPlus, Sparkle, SunHorizon } from '@/components/ui/Icon';
+import { followupState } from '@/features/crm/crm';
 
 export default function Dashboard() {
   const router = useRouter();
-  const { brand, content, analysis } = useApp();
+  const { brand, content, analysis, leads } = useApp();
+  // CRM: people waiting for a call back today (or overdue)
+  const dueLeads = leads.filter((l) => { const s = followupState(l); return s === 'overdue' || s === 'today'; });
   const [prompt, setPrompt] = useState('');
   const todays = content.filter((c) => c.date === today());
   const upcoming = content.filter((c) => c.date && c.date > today()).sort((a, b) => a.date!.localeCompare(b.date!)).slice(0, 6);
@@ -24,6 +27,16 @@ export default function Dashboard() {
         </h1>
         <p className="mt-3 text-lg text-ink-2 sm:text-xl">מה ניצור היום?</p>
       </div>
+
+      {dueLeads.length > 0 && (
+        <Link href="/leads" className="mb-6 flex items-center justify-between gap-3 rounded-2xl bg-amber-500/15 px-4 py-3">
+          <span>
+            <strong>{dueLeads.length === 1 ? `${dueLeads[0].name} מחכה שתחזרו אליו/ה` : `${dueLeads.length} אנשי קשר מחכים שתחזרו אליהם`}</strong>
+            <span className="block text-xs text-ink-2">{dueLeads.slice(0, 3).map((l) => l.name).join(' · ')}</span>
+          </span>
+          <span className="text-sm font-bold">ללקוחות ←</span>
+        </Link>
+      )}
 
       {/* the command bar: one sentence in, content out */}
       <div className="relative mb-10">

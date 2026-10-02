@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   adCopyPrompt, assistantPrompt, brandAnalysisPrompt,
   contentPrompt, rewritePrompt, scenePrompt, storyboardPrompt, weeklyPlanPrompt,
-  socialPrompt, captionPolishPrompt, ideasPrompt,
+  socialPrompt, captionPolishPrompt, ideasPrompt, followupPrompt,
 } from '@/lib/services/prompts';
 import { accessDenied } from '@/lib/server/access';
 import { commitUsage, releaseUsage, requestUser, reserveUsage, type Reservation } from '@/lib/server/quota';
@@ -33,6 +33,10 @@ function buildPrompt(task: string, p: any): { prompt: string; json: boolean } {
     case 'rewrite':    return { prompt: rewritePrompt(p.brand, p.mode, p.caption, p.cta), json: true };
     case 'scene':      return { prompt: scenePrompt(p.brand, p.role, p.onScreen, p.previous, { voiceover: p.voiceover, cast: p.cast, angle: p.angle }), json: true };
     case 'ideas':      return { prompt: ideasPrompt(p.brand, { recent: p.recent, avoid: p.avoid, count: 6 }), json: true };
+    case 'followup':   return { prompt: followupPrompt(p.brand, {
+      name: String(p.name ?? '').slice(0, 80), stage: String(p.stage ?? ''), source: p.source, notes: String(p.notes ?? '').slice(0, 600),
+      history: Array.isArray(p.history) ? p.history.slice(0, 12).map((h: unknown) => String(h).slice(0, 200)) : [], goal: p.goal,
+    }), json: true };
     case 'social':     return { prompt: socialPrompt(p.brand, p), json: true };
     case 'captions':   return { prompt: captionPolishPrompt(p.brand, p), json: true };
     default: throw new Error('unknown_task');

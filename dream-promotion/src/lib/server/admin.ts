@@ -3,6 +3,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 let client: SupabaseClient | null = null;
 /** Service-role client — server only. */
 export function adminDb(): SupabaseClient {
+  // tests inject an in-memory database here (tests/booking-api.test.ts); never set in production
+  const injected = (globalThis as any).__DP_TEST_ADMIN_DB__;
+  if (injected) return injected;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('Supabase is not configured');
   if (!client) client = createClient(url, key, { auth: { persistSession: false } });

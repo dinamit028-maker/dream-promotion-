@@ -46,6 +46,9 @@ export const AIService = {
     call<{ caption: string; cta: string }>('rewrite', { brand, mode, caption, cta }),
   sceneIdea: (brand: BrandProfile, role: string, onScreen: string, previous: string, extra: { voiceover?: string; cast?: string; angle?: string } = {}) =>
     call<{ videoPrompt: string; visual: string }>('scene', { brand, role, onScreen, previous, ...extra }),
+  /** CRM: a follow-up message to one contact, in the brand's voice. */
+  followup: (brand: BrandProfile, p: { name: string; stage: string; source?: string; notes?: string; history: string[]; goal?: string }) =>
+    call<{ message: string }>('followup', { brand, ...p }),
   /** Video ideas fitted to the brand; recent = what was already made, avoid = ideas already shown. */
   ideas: (brand: BrandProfile, p: { recent?: string[]; avoid?: string[] }) =>
     call<{ ideas: { title: string; format: string; hook: string; brief: string; why: string }[] }>('ideas', { brand, ...p }),

@@ -1,6 +1,6 @@
 'use client';
 import { supabase, isCloudConfigured } from './supabase/client';
-import type { AdDraft, BrandProfile, ContentItem, Lead, MediaAsset } from '@/types';
+import type { AdDraft, BrandProfile, ContentItem, Lead, LeadActivity, MediaAsset } from '@/types';
 import type { Pronunciation } from './pronunciation';
 
 /**
@@ -33,6 +33,7 @@ export interface CloudSnapshot {
   content: ContentItem[];
   media: MediaAsset[];
   leads: Lead[];
+  activities: LeadActivity[];
   ads: AdDraft[];
   pronunciations: Pronunciation[];
 }
@@ -49,13 +50,17 @@ export const Repo = {
   /** Loads everything that belongs to the signed-in user. */
   async load(userId: string): Promise<CloudSnapshot> {
     const sb = supabase();
-    const [brand, content, media, leads, ads, pron] = await Promise.all([
+    // the contact timeline (CRM); an empty list until migration 20261002000900 is run
+    const activitiesQ = sb.from('lead_activities').select('id, lead_id, kind, body, created_at').eq('user_id', userId)
+      .order('created_at', { ascending: false }).limit(2000).then((r) => r, () => ({ data: [] as any[] }));
+    const [brand, content, media, leads, ads, pron, acts] = await Promise.all([
       sb.from('brands').select('*').eq('user_id', userId).maybeSingle(),
       sb.from('content').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
       sb.from('media').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
       sb.from('leads').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
       sb.from('ad_drafts').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
       sb.from('pronunciations').select('*').eq('user_id', userId),
+      activitiesQ,
     ]);
 
     const b = brand.data;
@@ -74,6 +79,11 @@ export const Repo = {
       leads: (leads.data ?? []).map((r: any): Lead => ({
         id: r.id, name: r.name, phone: r.phone ?? '', source: r.source ?? '',
         date: r.date, status: r.status, notes: r.notes ?? '',
+        email: r.email ?? '', tags: r.tags ?? [], value: Number(r.value ?? 0),
+        lastContact: r.last_contact_at ?? null, nextFollowup: r.next_followup_at ?? null,
+      })),
+      activities: ((acts as any)?.data ?? []).map((r: any): LeadActivity => ({
+        id: r.id, leadId: r.lead_id, kind: r.kind, body: r.body ?? '', at: r.created_at,
       })),
       ads: (ads.data ?? []).map((r: any): AdDraft => ({
         id: r.id, goal: r.goal ?? '', audience: r.audience ?? '',
@@ -126,10 +136,25 @@ export const Repo = {
   },
 
   async saveLead(userId: string, l: Lead) {
-    await supabase().from('leads').upsert({
+    const base = {
       id: l.id, user_id: userId, name: l.name, phone: l.phone, source: l.source,
       status: l.status, notes: l.notes ?? '', date: l.date,
+    };
+    const { error } = await supabase().from('leads').upsert({
+      ...base, email: l.email ?? '', tags: l.tags ?? [], value: l.value ?? 0,
+      last_contact_at: l.lastContact ?? null, next_followup_at: l.nextFollowup ?? null,
     });
+    // before migration 20261002000900 the CRM columns do not exist — keep the contact itself
+    if (error && /column|schema cache/i.test(error.message)) await supabase().from('leads').upsert(base);
+  },
+  async deleteLead(id: string) {
+    await supabase().from('leads').delete().eq('id', id);
+  },
+  async saveActivity(userId: string, a: LeadActivity) {
+    await supabase().from('lead_activities').insert({ id: a.id, user_id: userId, lead_id: a.leadId, kind: a.kind, body: a.body, created_at: a.at });
+  },
+  async deleteActivity(id: string) {
+    await supabase().from('lead_activities').delete().eq('id', id);
   },
 
   async saveAd(userId: string, a: AdDraft) {

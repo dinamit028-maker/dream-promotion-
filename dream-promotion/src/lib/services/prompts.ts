@@ -197,3 +197,17 @@ ${p.emoji ? '- emoji: אימוג\'י אחד שמתאים לשורה, או מחר
 חובה: בדיוק ${p.lines.length} פריטים, באותו סדר.
 החזר/י JSON בלבד:
 {"lines":[{"text":"","hl":[0],"emoji":""}]}`;
+
+/** CRM: a short, personal follow-up message to one contact, in the business's voice. */
+export const followupPrompt = (b: BrandProfile, p: {
+  name: string; stage: string; source?: string; notes?: string; history: string[]; goal?: string;
+}) => `${brandContext(b)}
+
+כתוב/כתבי הודעת המשך קצרה ללקוח/ה, בעברית טבעית, בטון של העסק — כאילו בעל/ת העסק כותב/ת בוואטסאפ.
+איש הקשר: ${p.name}
+שלב: ${p.stage}${p.source ? `\nמקור: ${p.source}` : ''}${p.notes ? `\nהערות: ${p.notes}` : ''}
+${p.history.length ? `מה קרה עד עכשיו (מהחדש לישן):\n${p.history.map((h) => `- ${h}`).join('\n')}` : 'עוד לא היה קשר.'}
+${p.goal ? `מטרת ההודעה: ${p.goal}` : 'מטרת ההודעה: לקדם את הלקוח לצעד הבא בצורה טבעית (לקבוע תור / לחזור לשאלה / להציע עזרה), בלי לחץ.'}
+
+חוקים: 2–4 משפטים. פנייה בשם הפרטי. בלי הבטחות שלא נאמרו, בלי מחירים שלא הופיעו למעלה, בלי סימני קריאה מוגזמים. מקסימום אימוג'י אחד.
+החזר/י JSON בלבד: {"message":""}`;

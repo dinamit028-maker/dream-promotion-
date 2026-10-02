@@ -126,7 +126,14 @@ export type LeadStatus = 'חדש' | 'נוצר קשר' | 'מעוניין' | 'נק
 export interface Lead {
   id: string; name: string; phone: string; source: string;
   campaignId?: string; date: string; status: LeadStatus; notes?: string;
+  /** CRM (toolbox stage 1) */
+  email?: string; tags?: string[]; value?: number;
+  lastContact?: string | null; nextFollowup?: string | null;
 }
+
+export type LeadActivityKind = 'note' | 'call' | 'whatsapp' | 'email' | 'meeting' | 'status' | 'purchase';
+/** One event on a contact's timeline */
+export interface LeadActivity { id: string; leadId: string; kind: LeadActivityKind; body: string; at: string }
 
 export interface AdDraft {
   id: string; goal: string; audience: string; budgetPerDay: number; days: number;
