@@ -15,7 +15,7 @@ import { VersionTag } from '@/components/system/VersionTag';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
-  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge,
+  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister,
 } from '@/components/ui/Icon';
 
 type NavItem = { href: string; label: string; Icon: ComponentType<any> };
@@ -31,6 +31,7 @@ export const NAV: NavItem[] = [
   { href: '/ads', label: 'קמפיינים', Icon: Megaphone },
   { href: '/leads', label: 'לקוחות', Icon: UsersThree },
   { href: '/appointments', label: 'תורים', Icon: CalendarCheck },
+  { href: '/register', label: 'קופה', Icon: CashRegister },
   { href: '/attendance', label: 'נוכחות', Icon: IdentificationBadge },
   { href: '/analytics', label: 'ביצועים', Icon: ChartLineUp },
 ];

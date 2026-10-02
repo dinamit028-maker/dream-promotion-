@@ -130,6 +130,11 @@ export function AppointmentsScreen() {
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {waLink(a.phone) && a.status !== 'done' && <Button size="sm" variant="ghost" onClick={() => remind(a)}>💬 תזכורת</Button>}
                           {a.phone && <a href={telLink(a.phone)} className="rounded-full border border-line px-3 py-1 text-sm">📞</a>}
+                          {a.status !== 'cancelled' && a.status !== 'no_show' && (() => {
+                            const price = services.find((x) => x.id === a.serviceId)?.price;
+                            const q = new URLSearchParams({ name: a.name, phone: a.phone, appt: a.id, item: a.serviceName || 'טיפול', price: String(price ?? 0), ...(a.leadId ? { lead: a.leadId } : {}) });
+                            return <a href={`/register?${q}`} className="rounded-full border border-line px-3 py-1 text-sm">💳 חיוב</a>;
+                          })()}
                           {a.status === 'booked' && <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'confirmed')}>אישור</Button>}
                           {(a.status === 'booked' || a.status === 'confirmed') && <>
                             <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'done')}>הגיע/ה</Button>
