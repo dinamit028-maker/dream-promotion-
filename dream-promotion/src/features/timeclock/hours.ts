@@ -65,3 +65,17 @@ export function newToken() {
   const a = new Uint8Array(24); crypto.getRandomValues(a);
   return Array.from(a, (b) => 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'[b % 64]).join('') + Date.now().toString(36).slice(-8);
 }
+
+/** distance between two points on Earth, in meters (haversine) — for the optional location lock */
+export function distanceMeters(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6_371_000, rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(h)));
+}
+
+/** the code printed in the business's QR: 24 url-safe random characters */
+export function newSiteCode() {
+  const a = new Uint8Array(18); crypto.getRandomValues(a);
+  return Array.from(a, (b) => 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 56]).join('') + Date.now().toString(36).slice(-6);
+}

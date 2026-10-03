@@ -39,3 +39,13 @@ test('time clock: CSV for Excel', () => {
   assert.match(csv, /"מיכל","2026-10-05","09:00","17:15","8.25","תוקן ידנית"/);
   assert.match(csv, /"מיכל","סה״כ","","","8.25","₪330"/);
 });
+
+import { distanceMeters, newSiteCode } from '../src/features/timeclock/hours';
+test('time clock: location lock distance and site codes', () => {
+  const clinic = { lat: 32.1133, lng: 34.8044 };
+  assert.ok(distanceMeters(clinic, clinic) === 0);
+  const d = distanceMeters(clinic, { lat: 32.1142, lng: 34.8044 }); // ~100 m north
+  assert.ok(d > 90 && d < 110, `~100m, got ${d}`);
+  assert.ok(distanceMeters(clinic, { lat: 32.0853, lng: 34.7818 }) > 3000, 'Tel Aviv center is far');
+  const c = newSiteCode(); assert.match(c, /^[A-Za-z0-9_-]{16,64}$/); assert.notEqual(c, newSiteCode());
+});

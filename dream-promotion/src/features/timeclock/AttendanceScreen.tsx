@@ -8,7 +8,8 @@ import { cx } from '@/lib/utils';
 import { formatIL, israelParts, israelToIso } from '@/lib/il-time';
 import { IdentificationBadge } from '@/components/ui/Icon';
 import { waLink } from '@/features/crm/crm';
-import { dayOf, hhmm, minutesOf, monthRange, newToken, reportCsv, totals, type Employee, type Entry } from './hours';
+import { dayOf, hhmm, minutesOf, monthRange, newSiteCode, newToken, reportCsv, totals, type Employee, type Entry } from './hours';
+import QRCode from 'qrcode';
 
 /** Owner side of the time clock (toolbox stage 6). Runs with the owner's session — RLS separates businesses. */
 const toEmp = (r: any): Employee => ({ id: r.id, name: r.name, phone: r.phone ?? '', hourlyRate: r.hourly_rate == null ? null : Number(r.hourly_rate), active: r.active, token: r.token });
@@ -24,7 +25,8 @@ const time = (iso: string) => israelParts(new Date(iso)).time;
 
 export function AttendanceScreen() {
   const { userId, brand } = useApp();
-  const [tab, setTab] = useState<'now' | 'report' | 'team'>('now');
+  const [tab, setTab] = useState<'now' | 'report' | 'team' | 'qr'>('now');
+  const [qr, setQr] = useState<{ site_code: string | null; require_qr: boolean; geo_lat: number | null; geo_lng: number | null; geo_radius_m: number } | null>(null);
   const [emps, setEmps] = useState<Employee[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [month, setMonth] = useState(israelParts(Date.now()).date.slice(0, 7));
@@ -44,6 +46,8 @@ export function AttendanceScreen() {
       const sb = supabase();
       const fromIso = israelToIso(from, '00:00');
       const toIso = new Date(new Date(israelToIso(to, '00:00')).getTime() + 864e5).toISOString();
+      const qs = await sb.from('timeclock_settings').select('*').eq('user_id', userId).maybeSingle();
+      setQr(qs.error ? null : (qs.data as any) ?? null);
       const [e, t, open] = await Promise.all([
         sb.from('employees').select('*').eq('user_id', userId).order('created_at'),
         sb.from('time_entries').select('*').eq('user_id', userId).gte('clock_in', fromIso).lt('clock_in', toIso).order('clock_in'),
@@ -85,13 +89,23 @@ export function AttendanceScreen() {
     <>
       <PageHead title="שעון נוכחות" sub={`${openNow.length} במשמרת עכשיו · ${emps.filter((e) => e.active).length} עובדים`} />
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
-        {([['now', 'עכשיו'], ['report', 'דוח חודשי'], ['team', 'עובדים']] as const).map(([k, l]) => <Chip key={k} on={tab === k} onClick={() => setTab(k)}>{l}</Chip>)}
+        {([['now', 'עכשיו'], ['report', 'דוח חודשי'], ['team', 'עובדים'], ['qr', 'קוד QR']] as const).map(([k, l]) => <Chip key={k} on={tab === k} onClick={() => setTab(k)}>{l}</Chip>)}
       </div>
       {error && <p className="mb-4 rounded-2xl bg-warn/10 p-3 text-sm text-warn">{error}</p>}
       {flash && <p className="mb-4 text-sm font-semibold text-emerald-600">✓ {flash}</p>}
       {loading && <div className="py-8 text-center"><Spinner /></div>}
 
-      {!loading && !emps.length && tab !== 'team' && (
+      {!loading && !qr?.site_code && tab !== 'qr' && emps.length > 0 && (
+        <button type="button" onClick={() => setTab('qr')} className="mb-4 w-full rounded-2xl bg-primary-soft px-4 py-3 text-start text-sm">
+          <strong>החתמה רק בעסק:</strong> צרו קוד QR ותלו אותו בעסק — העובדים יחתימו רק בסריקה שלו ←
+        </button>
+      )}
+
+      {!loading && tab === 'qr' && (
+        <QrTab userId={userId} business={brand.name} value={qr} onSaved={(v, m) => { setQr(v); say(m); }} onError={(e) => setError(errText(e))} />
+      )}
+
+      {!loading && !emps.length && tab !== 'team' && tab !== 'qr' && (
         <EmptyState icon={<IdentificationBadge />} title="עוד אין עובדים" body="הוסיפו עובד/ת, ושלחו לו/ה קישור אישי. משם — כניסה ויציאה בלחיצה מהטלפון."
           action={<Button variant="primary" onClick={() => setTab('team')}>הוספת עובד/ת</Button>} />
       )}
@@ -166,7 +180,9 @@ export function AttendanceScreen() {
                 <span className="flex flex-wrap gap-1.5">
                   <Button size="sm" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(link(emp)); say('הקישור הועתק'); }}>העתקת קישור</Button>
                   {waLink(emp.phone) && <a className="rounded-full border border-line px-3 py-1 text-sm" target="_blank" rel="noopener"
-                    href={waLink(emp.phone, `היי ${emp.name.split(' ')[0]}, זה הקישור האישי שלך לשעון הנוכחות של ${brand.name || 'העסק'}: ${link(emp)}\nכניסה ויציאה בלחיצה. כדאי להוסיף למסך הבית.`)}>💬 שליחה</a>}
+                    href={waLink(emp.phone, qr?.site_code && qr.require_qr
+                    ? `היי ${emp.name.split(' ')[0]}, זה הקישור האישי שלך לשעון הנוכחות של ${brand.name || 'העסק'}: ${link(emp)}\nפותחים אותו פעם אחת בטלפון — ומאז, בכל כניסה ויציאה פשוט סורקים במצלמה את קוד ה-QR שתלוי בעסק.`
+                    : `היי ${emp.name.split(' ')[0]}, זה הקישור האישי שלך לשעון הנוכחות של ${brand.name || 'העסק'}: ${link(emp)}\nכניסה ויציאה בלחיצה. כדאי להוסיף למסך הבית.`)}>💬 שליחה</a>}
                   <Button size="sm" variant="ghost" onClick={() => { if (window.confirm('ליצור קישור חדש? הקישור הישן יפסיק לעבוד מיד.')) void run(() => supabase().from('employees').update({ token: newToken() }).eq('id', emp.id), 'נוצר קישור חדש'); }}>קישור חדש</Button>
                   <Button size="sm" variant="ghost" onClick={() => void run(() => supabase().from('employees').update({ active: !emp.active }).eq('id', emp.id))}>{emp.active ? 'השבתה' : 'הפעלה'}</Button>
                 </span>
@@ -241,5 +257,80 @@ function EntryEditor({ value, emps, onClose, onSave, onDelete }: {
         {existing && <button type="button" className="text-xs text-[var(--danger)]" onClick={() => { if (window.confirm('למחוק את המשמרת?')) onDelete(existing.id); }}>מחיקת משמרת</button>}
       </div>
     </Modal>
+  );
+}
+
+type QrSettings = { site_code: string | null; require_qr: boolean; geo_lat: number | null; geo_lng: number | null; geo_radius_m: number };
+/** The business's clock QR: create, print, replace, and the optional location lock. */
+function QrTab({ userId, business, value, onSaved, onError }: { userId: string; business: string; value: QrSettings | null; onSaved: (v: QrSettings, msg: string) => void; onError: (e: unknown) => void }) {
+  const v: QrSettings = value ?? { site_code: null, require_qr: true, geo_lat: null, geo_lng: null, geo_radius_m: 150 };
+  const url = v.site_code && typeof window !== 'undefined' ? `${window.location.origin}/c/${v.site_code}` : '';
+  const [img, setImg] = useState('');
+  const [locating, setLocating] = useState(false);
+  useEffect(() => { if (url) void QRCode.toDataURL(url, { width: 640, margin: 1, errorCorrectionLevel: 'M' }).then(setImg); else setImg(''); }, [url]);
+  async function save(next: QrSettings, msg: string) {
+    const { error } = await supabase().from('timeclock_settings').upsert({ user_id: userId, ...next });
+    if (error) onError(error); else onSaved(next, msg);
+  }
+  function print() {
+    const w = window.open('', '_blank');
+    if (!w || !img) return;
+    w.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>שעון נוכחות — ${business}</title>
+      <style>body{font-family:system-ui,Arial,sans-serif;text-align:center;padding:40px}h1{font-size:34px;margin:0}h2{font-size:22px;font-weight:600;margin:8px 0 24px}img{width:70vmin;max-width:520px}p{font-size:18px;color:#444}</style></head>
+      <body><h1>${business.replace(/</g, '')}</h1><h2>שעון נוכחות — כניסה ויציאה</h2><img src="${img}" alt="QR"><p>פותחים את המצלמה, סורקים, ולוחצים על הקישור.</p>
+      <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`);
+    w.document.close();
+  }
+  function useHere() {
+    if (!navigator.geolocation) return onError(new Error('no geolocation'));
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setLocating(false); void save({ ...v, geo_lat: p.coords.latitude, geo_lng: p.coords.longitude }, 'מיקום העסק נשמר'); },
+      () => { setLocating(false); onError(new Error('location denied')); }, { enableHighAccuracy: true, timeout: 10000 });
+  }
+  if (!v.site_code) return (
+    <Card className="p-5 text-center">
+      <p className="text-5xl" aria-hidden>🏷️</p>
+      <h3 className="mt-2 text-lg font-bold">החתמה רק בסריקה בעסק</h3>
+      <p className="mx-auto mt-1 max-w-md text-sm text-ink-2">יוצרים קוד QR, מדפיסים ותולים ליד הכניסה. מאותו רגע עובדים מחתימים כניסה ויציאה רק אחרי שסרקו אותו בטלפון שלהם.</p>
+      <Button className="mt-4" variant="primary" onClick={() => save({ ...v, site_code: newSiteCode(), require_qr: true }, 'קוד ה-QR נוצר')}>יצירת קוד QR לעסק</Button>
+    </Card>
+  );
+  return (
+    <div className="grid gap-3">
+      <Card className="p-4 text-center">
+        {img ? <img src={img} alt="קוד QR לשעון הנוכחות" className="mx-auto w-56 rounded-xl bg-white p-2" /> : <Spinner />}
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          <Button variant="primary" onClick={print} disabled={!img}>הדפסה</Button>
+          <Button variant="ghost" onClick={() => { if (window.confirm('ליצור קוד חדש? הקוד המודפס הנוכחי יפסיק לעבוד מיד, וצריך להדפיס ולתלות את החדש.')) void save({ ...v, site_code: newSiteCode() }, 'נוצר קוד חדש — הדפיסו ותלו אותו'); }}>קוד חדש</Button>
+        </div>
+        <p className="mt-2 break-all text-[11px] text-muted" dir="ltr">{url}</p>
+      </Card>
+      <Card className="p-4">
+        <label className="flex items-center justify-between gap-3">
+          <span><strong className="block">החתמה רק בסריקת הקוד</strong><span className="text-xs text-muted">כשכבוי — אפשר להחתים גם מהקישור האישי בלי סריקה</span></span>
+          <input type="checkbox" className="h-5 w-5" checked={v.require_qr} onChange={(e) => save({ ...v, require_qr: e.target.checked }, e.target.checked ? 'החתמה רק בסריקה' : 'הסריקה כבר לא חובה')} />
+        </label>
+      </Card>
+      <Card className="p-4">
+        <p className="font-bold">נעילה למיקום העסק (לא חובה)</p>
+        <p className="mb-3 text-xs text-muted">גם אם מישהו צילם את הקוד ושלח הביתה — ההחתמה תעבוד רק בטווח מהעסק. העובד/ת יתבקש/ו לאשר מיקום ברגע הלחיצה.</p>
+        {v.geo_lat != null ? (
+          <>
+            <p className="mb-2 text-sm">📍 נשמר מיקום · <a className="text-primary" target="_blank" rel="noopener" href={`https://maps.google.com/?q=${v.geo_lat},${v.geo_lng}`}>הצגה במפה</a></p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm">טווח:</span>
+              {[50, 100, 150, 300, 500].map((m) => <Chip key={m} on={v.geo_radius_m === m} onClick={() => save({ ...v, geo_radius_m: m }, `טווח ${m} מ׳`)}>{m} מ׳</Chip>)}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="ghost" onClick={useHere} disabled={locating}>{locating ? 'מאתר…' : 'עדכון למיקום הנוכחי'}</Button>
+              <Button size="sm" variant="ghost" onClick={() => save({ ...v, geo_lat: null, geo_lng: null }, 'הנעילה למיקום בוטלה')}>ביטול הנעילה</Button>
+            </div>
+          </>
+        ) : (
+          <Button variant="ghost" onClick={useHere} disabled={locating}>{locating ? 'מאתר…' : 'אני בעסק עכשיו — לנעול למיקום הזה'}</Button>
+        )}
+      </Card>
+    </div>
   );
 }
