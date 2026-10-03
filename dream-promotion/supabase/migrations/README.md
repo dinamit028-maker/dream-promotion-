@@ -21,3 +21,10 @@ once per project and never committed with the real value.
 | `20261001000600_scheduled_posts.sql` | `scheduled_posts` — posts planned for a time, with destinations and per-destination results (published by `/api/cron/publish-due`) |
 | `20261002000700_transcribe_quota.sql` | `usage.kind` accepts `transcribe`, `text`, `render` — every paid endpoint is reserved and counted |
 | `20261002000800_reel_column_media_meta.sql` | `content.reel` (reel projects — was only in production) and `media.meta` (source of imported files) |
+| `20261002000900_crm.sql` | CRM: leads gets email, tags, value, last contact, next follow-up; `lead_activities` timeline (RLS: own rows) |
+| `20261003001000_booking.sql` | Booking: `booking_settings` (slug, hours, rules), `booking_services`, `appointments` with a no-overlap constraint (btree_gist) |
+| `20261003001100_timeclock.sql` | Time clock: `employees` (private clock link token, hourly rate), `time_entries` (one open shift per employee) |
+| `20261003001200_register.sql` | Register: `register_settings` (exempt/licensed, VAT, payment link), `catalog_items` (price list), `sales` (records, not tax documents) |
+| `20261003001300_timeclock_qr.sql` | Time clock by QR: `timeclock_settings` (site code, require scan, optional location lock); entries may be `source='qr'` |
+| `20261003001400_documents.sql` | Legal documents: gap-free numbering per type (locked counter), immutable after issue (trigger), server issue time, print counter (מקור / העתק); legal business details in `register_settings` |
+| `20261003001500_pos.sql` | POS: catalog categories (package/other), favorites + order, optional image; sales split payments + employee attribution |
