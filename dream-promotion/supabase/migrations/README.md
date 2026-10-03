@@ -30,3 +30,4 @@ once per project and never committed with the real value.
 | `20261003001500_pos.sql` | POS: catalog categories (package/other), favorites + order, optional image; sales split payments + employee attribution |
 | `20261003001600_pos_extras.sql` | Register extras: cash received / change, document share link token (set at issue), push subscriptions for sale notifications |
 | `20261003001700_security_hardening.sql` | Security: fixed search_path on trigger functions; trigger functions not callable via the API (already applied to production) |
+| `20261003001800_register_shifts.sql` | Register close of day: `register_shifts` (opening cash, counted / expected cash, difference, note, who); one open day per business; RLS own rows |
