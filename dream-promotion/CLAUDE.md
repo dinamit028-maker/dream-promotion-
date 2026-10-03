@@ -1,0 +1,9 @@
+# Dream Promotion — כללי עבודה
+- מוצר בעברית, RTL, מובייל קודם. כל טקסט למשתמש בעברית.
+- לפני כל PR: npm run typecheck, npm test, npm run build — כולם חייבים לעבור. לוגיקה חדשה = בדיקה חדשה ב-tests/.
+- מיגרציות: קובץ חדש ב-supabase/migrations בפורמט YYYYMMDDHHMMSS_name.sql, idempotent (if not exists), תוספות בלבד, RLS על כל טבלה חדשה (user_id = auth.uid()). לא להריץ על בסיס הנתונים החי בלי אישור מפורש.
+- מסמכים חשבונאיים (טבלת documents): לעולם לא לשנות או למחוק מסמך שהופק; תיקון רק בחשבונית זיכוי. לא לשבור את ממשק פתוח (src/features/documents/openformat.ts) — בנוי לפי הוראות רשות המסים 1.31.
+- סודות: לעולם לא בקוד ולא ב-git. מפתחות רק כמשתני סביבה ב-Vercel.
+- כסף: חישובים באגורות שלמות (ראו src/features/register/money.ts). זמנים: שעון ישראל (src/lib/il-time.ts).
+- לעדכן STATUS.md בכל שינוי משמעותי, ולהעלות גרסה ב-package.json.
+- הסברים למשתמש — בעברית, פשוט, בלי ז'רגון.
