@@ -14,6 +14,9 @@ const display = localFont({ src: '../../assets/fonts/Rubik.ttf', weight: '300 90
 export const metadata: Metadata = {
   title: 'Dream Promotion — מחלקת השיווק שלך, מונעת AI',
   description: 'תארו את העסק, העלו תמונות, וקבלו פוסטים, רילסים, תוכנית שבועית וקמפיינים.',
+  // home-screen app on iPhone (needed there for sale notifications)
+  appleWebApp: { capable: true, title: 'Dream Promotion', statusBarStyle: 'black-translucent' },
+  icons: { icon: '/icons/icon-192.png', apple: '/icons/icon-180.png' },
 };
 
 export const viewport: Viewport = {

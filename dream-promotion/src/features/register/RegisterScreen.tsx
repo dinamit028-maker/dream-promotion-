@@ -3,13 +3,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { supabase, isCloudConfigured } from '@/lib/supabase/client';
 import { Button, Card, Chip, Field, Input, PageHead, Select } from '@/components/ui/primitives';
-import { EmptyState, Spinner } from '@/components/ui/feedback';
+import { EmptyState, Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { CashRegister } from '@/components/ui/Icon';
 import { phoneDigits, waLink } from '@/features/crm/crm';
-import { DocumentsTab, docInsertRow } from '@/features/documents/DocumentsTab';
+import { DocumentsTab, docInsertRow, printDocRow, toDoc, type DocRow } from '@/features/documents/DocumentsTab';
 import { DOC_LABEL, docFromSale } from '@/features/documents/documents';
+import { enablePush, needsHomeScreen, notifySale, pushKeyReady, pushSupported, sendTest } from './notifications';
 import { PosView, type CheckoutInput, type CheckoutResult, type PosItem, type TodayAppt } from './PosView';
 import { israelToIso } from '@/lib/il-time';
 import { METHODS, computeSale, ils, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Sale } from './money';
@@ -25,7 +26,8 @@ const toSale = (r: any): Sale => ({
   items: r.items ?? [], subtotal: Number(r.subtotal), discount: Number(r.discount), total: Number(r.total), vatRate: Number(r.vat_rate), vatAmount: Number(r.vat_amount),
   method: r.method, status: r.status, note: r.note ?? '', paidAt: r.paid_at, createdAt: r.created_at,
   payments: r.payments ?? [], employeeId: r.employee_id ?? null, employeeName: r.employee_name ?? '',
-});
+  cashReceived: r.cash_received == null ? null : Number(r.cash_received), changeGiven: r.change_given == null ? null : Number(r.change_given),
+} as Sale & { cashReceived: number | null; changeGiven: number | null });
 const errText = (e: any) => /relation .* does not exist|schema cache/i.test(String(e?.message)) ? 'צריך להריץ את מיגרציית הקופה ב-Supabase (20261003001200).'
   : /pay_link_check/.test(String(e?.message)) ? 'קישור התשלום חייב להתחיל ב-https://' : 'משהו השתבש. נסו שוב.';
 
@@ -42,6 +44,16 @@ export function RegisterScreen() {
   const [flash, setFlash] = useState<string | null>(null);
   const say = (m: string) => { setFlash(m); setTimeout(() => setFlash(null), 3000); };
 
+  const [openSale, setOpenSale] = useState<Sale | null>(null);
+  const [olderDone, setOlderDone] = useState(false);
+  async function loadOlder() {
+    if (!userId) return;
+    const oldest = sales.reduce((a, s) => (s.createdAt < a ? s.createdAt : a), new Date().toISOString());
+    const { data } = await supabase().from('sales').select('*').eq('user_id', userId).lt('created_at', oldest).order('created_at', { ascending: false }).limit(300);
+    const more = (data ?? []).map(toSale);
+    if (more.length < 300) setOlderDone(true);
+    setSales((all) => [...all, ...more.filter((m) => !all.some((x) => x.id === m.id))]);
+  }
   const [prefill, setPrefill] = useState<{ customer: { name: string; phone: string; leadId: string | null; appointmentId: string | null }; line: Line | null } | null>(null);
   const load = useCallback(async () => {
     if (!userId) return;
@@ -94,6 +106,16 @@ export function RegisterScreen() {
     street: settings.street, houseNo: settings.houseNo, city: settings.city, zip: settings.zip,
     ready: /^[0-9]{9}$/.test(settings.dealerNumber) && Boolean(settings.legalName || brand.name),
   };
+  async function issueDocumentFull(s: Sale, leadId: string | null): Promise<{ label: string; token: string } | null> {
+    if (!business.ready || !userId) return null;
+    const d = docFromSale(s, { licensed: settings.businessType === 'licensed', docDate: israelParts(Date.now()).date });
+    const row = docInsertRow(userId, d, { saleId: s.id, leadId, vatRate: d.lines[0]?.vatRate ?? 0 });
+    let { data, error: e } = await supabase().from('documents').insert(row).select('doc_type, doc_number, share_token').single();
+    // before migration 20261003001600 there is no share link — the document is still issued (the failed request inserted nothing)
+    if (e && /share_token/.test(e.message)) ({ data, error: e } = await supabase().from('documents').insert(row).select('doc_type, doc_number').single() as any);
+    if (e || !data) { setError('המכירה נשמרה, אבל המסמך לא הופק. אפשר לנסות שוב מ"מסמכים".'); return null; }
+    return { label: `הופקה ${DOC_LABEL[data.doc_type]} מס׳ ${data.doc_number}`, token: (data as any).share_token ?? '' };
+  }
   /** every paid sale gets its legal document (numbered by the database, never editable) */
   async function issueDocument(s: Sale, leadId: string | null): Promise<string> {
     if (!business.ready || !userId) return '';
@@ -120,14 +142,16 @@ export function RegisterScreen() {
       items: c.lines.filter((l) => l.qty > 0), subtotal: tt.subtotal, discount: tt.discount, total: tt.total, vat_rate: tt.vatRate, vat_amount: tt.vatAmount,
       method: c.paidNow ? c.method : 'link', payments: c.method === 'split' ? c.payments : [], status: c.paidNow ? 'paid' : 'pending', note: c.note, paid_at: c.paidNow ? now : null,
       employee_id: c.employee?.id ?? null, employee_name: c.employee?.name ?? '',
+      ...(c.cashReceived != null ? { cash_received: c.cashReceived, change_given: Math.round((c.cashReceived - tt.total) * 100) / 100 } : {}),
     }).select('*').single();
     if (e) return { ok: false, error: errText(e) };
     const sale = toSale(data);
     setSales((all) => [sale, ...all]);
     if (leadId && c.paidNow) crmPurchase(leadId, sale);
     if (!c.paidNow) { if (leadId) addActivity(leadId, 'note', `נשלחה בקשת תשלום: ${ils(sale.total)}`); requestPayment(sale); }
-    const docMsg = c.paidNow ? await issueDocument(sale, leadId) : '';
-    return { ok: true, sale, docLabel: docMsg.replace(/^ · /, '') };
+    const doc = c.paidNow ? await issueDocumentFull(sale, leadId) : null;
+    void notifySale(sale.id); // the owner's phones — never blocks the sale
+    return { ok: true, sale, docLabel: doc?.label, docUrl: doc?.token ? `${window.location.origin}/d/${doc.token}` : undefined };
   }
 
   function requestPayment(s: Sale) {
@@ -141,6 +165,7 @@ export function RegisterScreen() {
     setSales((all) => all.map((x) => (x.id === s.id ? { ...x, status: 'paid', method: m, paidAt: paid_at } : x)));
     if (s.leadId) crmPurchase(s.leadId, { ...s, method: m });
     say(`סומן כשולם${await issueDocument({ ...s, method: m, status: 'paid', paidAt: paid_at }, s.leadId)}`);
+    void notifySale(s.id);
   }
   async function cancelSale(s: Sale) {
     if (!window.confirm('לבטל את הרישום? (אם התקבל כסף — החזר עושים בחברת הסליקה)')) return;
@@ -168,7 +193,9 @@ export function RegisterScreen() {
           vat={vat} payLinkReady={Boolean(settings.payLink)} onCheckout={checkout} onShowDoc={() => setTab('docs')} prefill={prefill} onGoCatalog={() => setTab('catalog')} />
       )}
 
-      {!loading && tab === 'sales' && <SalesTab sales={sales} onPaid={markPaid} onCancel={cancelSale} onRemind={requestPayment} canRemind={Boolean(settings.payLink)} />}
+      {!loading && tab === 'sales' && <SalesTab sales={sales} onPaid={markPaid} onCancel={cancelSale} onRemind={requestPayment} canRemind={Boolean(settings.payLink)}
+        onOpen={setOpenSale} onLoadOlder={olderDone ? undefined : loadOlder} />}
+      <SaleDetail sale={openSale} onClose={() => setOpenSale(null)} business={business} />
 
       {!loading && tab === 'docs' && <DocumentsTab userId={userId} business={business} licensed={settings.businessType === 'licensed'} onError={setError} />}
 
@@ -201,6 +228,7 @@ export function RegisterScreen() {
               dealer_number: settings.dealerNumber, company_number: settings.companyNumber, legal_name: settings.legalName, street: settings.street, house_no: settings.houseNo, city: settings.city, zip: settings.zip });
             if (e) setError(errText(e)); else { setError(null); say('ההגדרות נשמרו'); }
           }}>שמירה</Button>
+          <PushSettings userId={userId} />
           <p className="mt-4 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">
             כשפרטי העסק מלאים, כל מכירה ששולמה מפיקה אוטומטית <strong>{settings.businessType === 'licensed' ? 'חשבונית מס / קבלה' : 'קבלה'}</strong> במספור רץ. מסמך שהופק לא ניתן לשינוי — תיקון נעשה בחשבונית זיכוי.
             {' '}עד לרישום התוכנה ברשות המסים ולבדיקת יועץ מס, השתמשו במסמכים לבדיקה בלבד.
@@ -211,14 +239,20 @@ export function RegisterScreen() {
   );
 }
 
-function SalesTab({ sales, onPaid, onCancel, onRemind, canRemind }: { sales: Sale[]; onPaid: (s: Sale, m: Method) => void; onCancel: (s: Sale) => void; onRemind: (s: Sale) => void; canRemind: boolean }) {
+function SalesTab({ sales, onPaid, onCancel, onRemind, canRemind, onOpen, onLoadOlder }: { sales: Sale[]; onPaid: (s: Sale, m: Method) => void; onCancel: (s: Sale) => void; onRemind: (s: Sale) => void; canRemind: boolean;
+  onOpen: (s: Sale) => void; onLoadOlder?: () => Promise<void> }) {
+  const [q, setQ] = useState('');
   const today = israelParts(Date.now()).date;
   const thisMonth = today.slice(0, 7);
   const prev = israelParts(new Date(`${thisMonth}-01T12:00:00Z`).getTime() - 864e5).date.slice(0, 7);
   const [period, setPeriod] = useState<'today' | 'month' | 'prev'>('today');
   const range = period === 'today' ? [today, today] : period === 'month' ? [`${thisMonth}-01`, `${thisMonth}-31`] : [`${prev}-01`, `${prev}-31`];
   const sum = useMemo(() => summarize(sales, range[0], range[1]), [sales, range[0], range[1]]); // eslint-disable-line react-hooks/exhaustive-deps
-  const list = sales.filter((s) => saleDay(s) >= range[0] && saleDay(s) <= range[1]);
+  // searching looks through every loaded transaction (all periods): customer, phone, item, amount, note, seller
+  const qq = q.trim();
+  const hit = (s: Sale) => [s.customerName, s.customerPhone, s.note, s.employeeName, ...s.items.map((l) => l.name)].some((v) => (v ?? '').includes(qq))
+    || (qq.replace(/\D/g, '').length >= 3 && s.customerPhone.replace(/\D/g, '').includes(qq.replace(/\D/g, ''))) || (Number(qq) > 0 && Math.abs(s.total - Number(qq)) < 0.005);
+  const list = qq ? sales.filter(hit).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) : sales.filter((s) => saleDay(s) >= range[0] && saleDay(s) <= range[1]);
   const pending = sales.filter((s) => s.status === 'pending');
   const [payMethod, setPayMethod] = useState<Method>('link');
   function exportCsv() {
@@ -245,6 +279,7 @@ function SalesTab({ sales, onPaid, onCancel, onRemind, canRemind }: { sales: Sal
           </div>
         </Card>
       )}
+      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש עסקה: לקוח, טלפון, פריט, סכום…" className="mb-3 h-11" aria-label="חיפוש עסקה" />
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         {([['today', 'היום'], ['month', 'החודש'], ['prev', 'חודש קודם']] as const).map(([k, l]) => <Chip key={k} on={period === k} onClick={() => setPeriod(k)}>{l}</Chip>)}
         <Button size="sm" variant="ghost" onClick={exportCsv}>ייצוא לאקסל</Button>
@@ -261,16 +296,17 @@ function SalesTab({ sales, onPaid, onCancel, onRemind, canRemind }: { sales: Sal
       <div className="grid grid-cols-1 gap-2">
         {list.map((s) => (
           <div key={s.id} className={cx('flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-sm', s.status === 'cancelled' && 'opacity-50')}>
-            <span className="min-w-0 flex-1">
+            <button type="button" onClick={() => onOpen(s)} className="min-w-0 flex-1 text-start" aria-label={`פרטי עסקה: ${s.customerName || 'ללא שם'} ${ils(s.total)}`}>
               <strong className="block truncate">{s.customerName || 'ללא שם'} · {s.items.map((l) => l.name).join(' + ')}</strong>
               <span className="text-xs text-muted">{formatIL(s.paidAt ?? s.createdAt, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })} · {methodLabel(s.method)} · {s.status === 'paid' ? 'שולם' : s.status === 'pending' ? 'ממתין' : 'בוטל'}</span>
-            </span>
+            </button>
             <strong className="tabular-nums">{ils(s.total)}</strong>
             {s.status === 'paid' && <button type="button" className="text-xs text-muted" onClick={() => onCancel(s)} aria-label="ביטול">✕</button>}
           </div>
         ))}
-        {!list.length && <p className="py-6 text-center text-sm text-muted">אין מכירות בתקופה הזו.</p>}
+        {!list.length && <p className="py-6 text-center text-sm text-muted">{qq ? 'לא נמצאו עסקאות.' : 'אין מכירות בתקופה הזו.'}</p>}
       </div>
+      {onLoadOlder && <Button variant="ghost" className="mt-3 w-full" onClick={() => void onLoadOlder()}>טעינת עסקאות קודמות</Button>}
     </>
   );
 }
@@ -327,5 +363,84 @@ function CatalogTab({ userId, items, reload, onError }: { userId: string; items:
         <button type="button" className="mt-3 text-sm font-semibold text-primary" onClick={importServices}>ייבוא השירותים מזימון התורים (עם מחיר)</button>
       </Card>
     </div>
+  );
+}
+
+/** "a notification on my phone for every sale" — the devices of this business account */
+function PushSettings({ userId }: { userId: string }) {
+  const [devices, setDevices] = useState<{ id: string; label: string; created_at: string }[]>([]);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const { data } = await supabase().from('push_subscriptions').select('id, label, created_at').eq('user_id', userId).order('created_at');
+    setDevices((data ?? []) as any);
+  }, [userId]);
+  useEffect(() => { void load(); }, [load]);
+  return (
+    <div className="mt-5 rounded-2xl border border-line p-3">
+      <p className="font-bold">🔔 התראה לטלפון על כל עסקה</p>
+      <p className="mb-2 text-xs text-muted">בכל מכירה תגיע התראה למכשירים שהופעלו כאן — סכום, לקוח, אמצעי תשלום ומוכר/ת.</p>
+      {!pushKeyReady() ? <p className="text-sm text-warn">צריך להגדיר ב-Vercel את מפתחות ההתראות (VAPID) — ראו התקנה.</p>
+        : !pushSupported() ? <p className="text-sm text-warn">הדפדפן הזה לא תומך בהתראות.</p>
+        : needsHomeScreen() ? <p className="text-sm">באייפון: <strong>שיתוף ← הוספה למסך הבית</strong>, ואז פותחים את Dream Promotion מהמסך הבית ומפעילים כאן.</p>
+        : <Button variant="primary" disabled={busy} onClick={async () => { setBusy(true); const r = await enablePush(userId); setMsg(r.message); setBusy(false); void load(); }}>הפעלת התראות במכשיר הזה</Button>}
+      {devices.length > 0 && (
+        <ul className="mt-3 grid gap-1.5 text-sm">
+          {devices.map((d) => (
+            <li key={d.id} className="flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2">
+              <span>📱 {d.label || 'מכשיר'} · מ-{formatIL(d.created_at, { dateStyle: 'short' })}</span>
+              <button type="button" className="text-xs text-muted" onClick={async () => { await supabase().from('push_subscriptions').delete().eq('id', d.id); void load(); }}>הסרה</button>
+            </li>
+          ))}
+          <li><Button size="sm" variant="ghost" onClick={async () => setMsg(await sendTest())}>שליחת התראת ניסיון</Button></li>
+        </ul>
+      )}
+      {msg && <p className="mt-2 text-sm">{msg}</p>}
+    </div>
+  );
+}
+
+/** one transaction: what was sold, how it was paid, who sold it — and its document (copy / WhatsApp) */
+function SaleDetail({ sale, onClose, business }: { sale: Sale | null; onClose: () => void; business: { dealerNumber: string; name: string; ready: boolean } & Record<string, any> }) {
+  const [docs, setDocs] = useState<DocRow[] | null>(null);
+  const [phone, setPhone] = useState('');
+  useEffect(() => {
+    if (!sale) return;
+    setDocs(null); setPhone(sale.customerPhone);
+    void supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at').then(({ data }) => setDocs((data ?? []).map(toDoc)));
+  }, [sale]);
+  if (!sale) return null;
+  const pays = sale.method === 'split' ? sale.payments ?? [] : [{ method: sale.method, amount: sale.total }];
+  return (
+    <Modal open onClose={onClose} wide>
+      <h3 className="font-display text-xl font-extrabold">{sale.customerName || 'לקוח מזדמן'} · {ils(sale.total)}</h3>
+      <p className="mb-3 text-xs text-muted">{formatIL(sale.paidAt ?? sale.createdAt)} · {sale.status === 'paid' ? 'שולם' : sale.status === 'pending' ? 'ממתין לתשלום' : 'בוטל'}{sale.employeeName ? ` · מוכר/ת: ${sale.employeeName}` : ''}</p>
+      <ul className="mb-3 grid gap-1 text-sm">
+        {sale.items.map((l, i) => <li key={i} className="flex justify-between"><span>{l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</span><span className="tabular-nums">{ils(l.price * l.qty)}</span></li>)}
+        {sale.discount > 0 && <li className="flex justify-between text-muted"><span>הנחה</span><span>−{ils(sale.discount)}</span></li>}
+        <li className="flex justify-between border-t border-line pt-1 font-bold"><span>סה״כ</span><span>{ils(sale.total)}</span></li>
+      </ul>
+      <p className="mb-3 text-sm">{pays.map((p) => `${methodLabel(p.method as Method)} ${ils(p.amount)}`).join(' · ')}
+        {(sale as any).cashReceived != null && ` · התקבל ${ils((sale as any).cashReceived)}, עודף ${ils((sale as any).changeGiven ?? 0)}`}</p>
+      {sale.note && <p className="mb-3 text-sm text-ink-2">הערה: {sale.note}</p>}
+      <p className="mb-2 font-semibold">מסמכים</p>
+      {docs === null ? <Spinner /> : !docs.length ? <p className="text-sm text-muted">לא הופק מסמך לעסקה הזו.</p> : docs.map((d) => (
+        <div key={d.id} className="mb-2 rounded-2xl bg-surface-2 p-3 text-sm">
+          <p className="font-semibold">{DOC_LABEL[d.docType]} מס׳ {d.docNumber} · {ils(d.total)}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={async () => { const f = await printDocRow(d, business as any); if (f) setDocs((all) => (all ?? []).map((x) => (x.id === f.id ? f : x))); }}>
+              {d.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}
+            </Button>
+            {d.shareToken && <>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="טלפון" inputMode="tel" dir="ltr" className="h-9 w-36 py-1" aria-label="טלפון לשליחה" />
+              <Button size="sm" variant="primary" disabled={phoneDigits(phone).length < 9} onClick={() => {
+                const url = waLink(phone, `שלום, ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} מ${business.name}: ${window.location.origin}/d/${d.shareToken}`);
+                if (url) window.open(url, '_blank', 'noopener');
+              }}>💬 שליחה בוואטסאפ</Button>
+            </>}
+          </div>
+        </div>
+      ))}
+    </Modal>
   );
 }

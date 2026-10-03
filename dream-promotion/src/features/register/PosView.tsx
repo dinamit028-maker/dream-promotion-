@@ -4,7 +4,7 @@ import { Button, Input, Select } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL } from '@/lib/il-time';
-import { matches, phoneDigits } from '@/features/crm/crm';
+import { matches, phoneDigits, waLink } from '@/features/crm/crm';
 import type { Lead } from '@/types';
 import { computeSale, customerSnapshot, ils, methodLabel, remaining, topSellers, type Line, type Method, type Pay, type Sale } from './money';
 
@@ -19,8 +19,10 @@ export type Customer = { name: string; phone: string; leadId: string | null; app
 export interface CheckoutInput {
   lines: Line[]; discount: { kind: 'sum' | 'percent'; value: number }; customer: Customer; note: string;
   employee: { id: string; name: string } | null; paidNow: boolean; method: Method; payments: Pay[];
+  /** cash: what the customer handed over (the change is computed from it) */
+  cashReceived?: number;
 }
-export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; error?: string }
+export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; error?: string }
 
 const CATS = [
   { id: 'fav', label: '❤️ מועדפים' }, { id: 'top', label: '🔥 הכי נמכרים' }, { id: 'service', label: '✨ טיפולים' },
@@ -32,6 +34,11 @@ const PAY_BUTTONS: { id: Exclude<Method, 'split' | 'link'>; label: string; icon:
   { id: 'bit', label: 'Bit / PayBox', icon: '📱' }, { id: 'other', label: 'אחר', icon: '➕' },
 ];
 const EMPTY: Customer = { name: '', phone: '', leadId: null, appointmentId: null };
+/** quick cash buttons: exact, the next round amounts, common notes */
+export function cashSuggestions(total: number) {
+  const up = (step: number) => Math.ceil(total / step) * step;
+  return [...new Set([total, up(10), up(50), up(100), up(200), 200, 500].filter((v) => v >= total))].sort((a, b) => a - b).slice(0, 6);
+}
 
 export function PosView({ items, sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog }: {
   items: PosItem[]; sales: Sale[]; leads: Lead[]; employees: { id: string; name: string }[]; todayAppts: TodayAppt[];
@@ -52,7 +59,8 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
   const [picker, setPicker] = useState(false);
   const [keypad, setKeypad] = useState(false);
   const [paying, setPaying] = useState(false);
-  const [done, setDone] = useState<CheckoutResult & { customer: string } | null>(null);
+  const [done, setDone] = useState<CheckoutResult & { customer: string; phone: string; change: number | null } | null>(null);
+  const [waPhone, setWaPhone] = useState('');
 
   useEffect(() => { try { setQuick(localStorage.getItem('dp-pos-quick') === '1'); setEmployeeId(localStorage.getItem('dp-pos-employee') ?? ''); } catch { /* private mode */ } }, []);
   useEffect(() => { if (!items.some((i) => i.favorite && i.active)) setCat('all'); }, [items]);
@@ -88,16 +96,16 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
   const snap = customer.leadId ? customerSnapshot(customer.leadId, sales) : null;
   const lead = customer.leadId ? leads.find((l) => l.id === customer.leadId) : null;
   const apptToday = customer.leadId ? todayAppts.find((a) => a.leadId === customer.leadId) : null;
-  const reset = () => { setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setDone(null); setSheet(false); };
+  const reset = () => { setWaPhone(''); setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setDone(null); setSheet(false); };
   const employee = employees.find((e) => e.id === employeeId) ?? null;
 
-  async function finish(c: Pick<CheckoutInput, 'paidNow' | 'method' | 'payments'>) {
+  async function finish(c: Pick<CheckoutInput, 'paidNow' | 'method' | 'payments' | 'cashReceived'>) {
     const r = await onCheckout({ lines, discount, customer, note, employee, ...c });
     if (r.ok) {
       // the sold items leave the cart immediately — nothing can be charged twice behind the confirmation
-      const who = customer.name || 'לקוח מזדמן';
+      const who = customer.name || 'לקוח מזדמן'; const phone = customer.phone;
       setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false });
-      setPaying(false); setSheet(false); setDone({ ...r, customer: who });
+      setPaying(false); setSheet(false); setDone({ ...r, customer: who, phone, change: c.cashReceived != null ? Math.round((c.cashReceived - (r.sale?.total ?? 0)) * 100) / 100 : null });
     }
     return r;
   }
@@ -268,7 +276,22 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
             <p className="mt-2">{done.customer}</p>
             <p className="text-3xl font-black tabular-nums">{ils(done.sale?.total ?? 0)}</p>
             <p className="text-sm text-ink-2">{done.sale?.method === 'split' ? done.sale.payments?.map((p) => `${methodLabel(p.method)} ${ils(p.amount)}`).join(' · ') : methodLabel(done.sale?.method ?? 'other')}</p>
+            {done.change != null && done.change > 0 && (
+              <p className="mt-3 rounded-2xl bg-amber-500/15 p-3 text-2xl font-black text-amber-700 dark:text-amber-300">עודף: {ils(done.change)}</p>
+            )}
             {done.docLabel && <p className="mt-2 text-sm font-semibold">{done.docLabel}</p>}
+            {done.docUrl && (
+              <div className="mt-3 rounded-2xl bg-surface-2 p-3 text-start">
+                <p className="mb-2 text-sm font-semibold">שליחת החשבונית בוואטסאפ</p>
+                <div className="flex gap-2">
+                  <Input value={waPhone || done.phone} onChange={(e) => setWaPhone(e.target.value)} placeholder="טלפון הלקוח" inputMode="tel" dir="ltr" className="h-11 min-w-0 flex-1" aria-label="טלפון לשליחת החשבונית" />
+                  <Button variant="primary" disabled={phoneDigits(waPhone || done.phone).length < 9} onClick={() => {
+                    const url = waLink(waPhone || done.phone, `שלום${done.customer && done.customer !== 'לקוח מזדמן' ? ` ${done.customer.split(' ')[0]}` : ''}, תודה על הקנייה! ${done.docLabel?.replace('הופקה ', '') ?? 'המסמך'}: ${done.docUrl}`);
+                    if (url) window.open(url, '_blank', 'noopener');
+                  }}>💬 שליחה</Button>
+                </div>
+              </div>
+            )}
             <div className="mt-5 grid gap-2">
               <Button variant="primary" size="lg" className="h-14 text-lg" onClick={reset}>עסקה חדשה</Button>
               {done.docLabel && <Button variant="ghost" onClick={() => { reset(); onShowDoc(); }}>צפייה במסמך</Button>}
@@ -333,14 +356,17 @@ function Keypad({ open, onClose, onAdd }: { open: boolean; onClose: () => void; 
 
 function PayPanel({ open, total, payLinkReady, onClose, onPay }: {
   open: boolean; total: number; payLinkReady: boolean; onClose: () => void;
-  onPay: (c: { paidNow: boolean; method: Method; payments: Pay[] }) => Promise<CheckoutResult>;
+  onPay: (c: { paidNow: boolean; method: Method; payments: Pay[]; cashReceived?: number }) => Promise<CheckoutResult>;
 }) {
   const [split, setSplit] = useState<Pay[] | null>(null);
+  const [cash, setCash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { if (open) { setSplit(null); setErr(null); } }, [open]);
+  useEffect(() => { if (open) { setSplit(null); setCash(null); setErr(null); } }, [open]);
+  const received = Number(cash || 0);
+  const change = Math.round((received - total) * 100) / 100;
   const left = split ? remaining(total, split) : 0;
-  async function go(c: { paidNow: boolean; method: Method; payments: Pay[] }) {
+  async function go(c: { paidNow: boolean; method: Method; payments: Pay[]; cashReceived?: number }) {
     setBusy(true); setErr(null);
     const r = await onPay(c);
     setBusy(false); if (!r.ok) setErr(r.error ?? 'לא נשמר. נסו שוב.');
@@ -349,10 +375,29 @@ function PayPanel({ open, total, payLinkReady, onClose, onPay }: {
     <Modal open={open} onClose={onClose}>
       <p className="text-center text-sm text-muted">לתשלום</p>
       <p className="mb-4 text-center text-5xl font-black tabular-nums">{ils(total)}</p>
-      {!split ? (
+      {cash !== null ? (
+        <div>
+          <p className="mb-2 text-center font-bold">כמה קיבלת?</p>
+          <div className="mb-2 grid grid-cols-3 gap-2">
+            {cashSuggestions(total).map((v) => (
+              <button key={v} type="button" onClick={() => setCash(String(v))} className={cx('h-14 rounded-2xl border text-lg font-bold tabular-nums', received === v ? 'border-primary bg-primary-soft' : 'border-line bg-surface')}>
+                {v === total ? 'בדיוק' : ils(v)}
+              </button>
+            ))}
+          </div>
+          <Input type="number" inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value)} placeholder="סכום אחר" className="h-14 text-center text-2xl font-bold" aria-label="סכום שהתקבל" />
+          <p className={cx('my-3 rounded-2xl p-4 text-center text-3xl font-black tabular-nums', change >= 0 ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : 'bg-surface-2 text-muted')}>
+            {cash === '' ? 'הזינו סכום' : change >= 0 ? `עודף: ${ils(change)}` : `חסר: ${ils(-change)}`}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="ghost" onClick={() => setCash(null)}>חזרה</Button>
+            <Button variant="primary" disabled={busy || cash === '' || change < 0} onClick={() => go({ paidNow: true, method: 'cash', payments: [], cashReceived: received })}>אישור</Button>
+          </div>
+        </div>
+      ) : !split ? (
         <div className="grid grid-cols-2 gap-2">
           {PAY_BUTTONS.map((m) => (
-            <button key={m.id} type="button" disabled={busy} onClick={() => go({ paidNow: true, method: m.id, payments: [] })}
+            <button key={m.id} type="button" disabled={busy} onClick={() => (m.id === 'cash' ? setCash('') : go({ paidNow: true, method: m.id, payments: [] }))}
               className="flex h-20 flex-col items-center justify-center rounded-2xl border border-line bg-surface text-lg font-bold active:scale-[.97] disabled:opacity-50">
               <span className="text-2xl" aria-hidden>{m.icon}</span>{m.label}
             </button>
