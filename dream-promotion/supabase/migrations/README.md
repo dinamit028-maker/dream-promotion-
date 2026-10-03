@@ -28,3 +28,5 @@ once per project and never committed with the real value.
 | `20261003001300_timeclock_qr.sql` | Time clock by QR: `timeclock_settings` (site code, require scan, optional location lock); entries may be `source='qr'` |
 | `20261003001400_documents.sql` | Legal documents: gap-free numbering per type (locked counter), immutable after issue (trigger), server issue time, print counter (מקור / העתק); legal business details in `register_settings` |
 | `20261003001500_pos.sql` | POS: catalog categories (package/other), favorites + order, optional image; sales split payments + employee attribution |
+| `20261003001600_pos_extras.sql` | Register extras: cash received / change, document share link token (set at issue), push subscriptions for sale notifications |
+| `20261003001700_security_hardening.sql` | Security: fixed search_path on trigger functions; trigger functions not callable via the API (already applied to production) |

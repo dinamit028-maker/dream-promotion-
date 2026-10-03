@@ -10,13 +10,13 @@ import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, ty
 import { DOC_LABEL, PAY_LABEL, creditFor } from './documents';
 
 /** Legal documents: list, view & print (original / true copy), credit invoice, and the "ממשק פתוח" export. */
-export interface DocRow extends Doc { id: string; printCount: number; saleId: string | null }
+export interface DocRow extends Doc { id: string; printCount: number; saleId: string | null; shareToken?: string }
 export const toDoc = (r: any): DocRow => ({
   id: r.id, docType: r.doc_type, docNumber: Number(r.doc_number), linkNo: Number(r.link_no), issuedAt: r.issued_at, docDate: r.doc_date,
   customerName: r.customer_name, customerPhone: r.customer_phone, customerDealer: r.customer_dealer, customerStreet: r.customer_street, customerCity: r.customer_city,
   beforeDiscount: Number(r.before_discount), discount: Number(r.discount), afterDiscount: Number(r.after_discount), vatAmount: Number(r.vat_amount), total: Number(r.total),
   baseDocType: r.base_doc_type, baseDocNumber: r.base_doc_number == null ? null : Number(r.base_doc_number), issuedBy: r.issued_by,
-  lines: r.lines ?? [], payments: r.payments ?? [], printCount: r.print_count ?? 0, saleId: r.sale_id,
+  lines: r.lines ?? [], payments: r.payments ?? [], printCount: r.print_count ?? 0, saleId: r.sale_id, shareToken: r.share_token,
 });
 export const docInsertRow = (userId: string, d: Omit<Doc, 'docNumber' | 'linkNo' | 'issuedAt'>, extra: { saleId?: string | null; leadId?: string | null; vatRate: number }) => ({
   user_id: userId, doc_type: d.docType, doc_number: 0, doc_date: d.docDate, customer_name: d.customerName, customer_phone: d.customerPhone ?? '',
@@ -28,6 +28,15 @@ export const SOFTWARE: SoftwareInfo = {
   regNumber: process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER || '00000000', name: 'Dream Promotion',
   version: process.env.NEXT_PUBLIC_APP_VERSION || '', vendorVat: process.env.NEXT_PUBLIC_SOFTWARE_VENDOR_VAT || '000000000', vendorName: 'Dream Promotion',
 };
+/** print a document: the print is counted first, so the first print is "מקור" and every later one "העתק נאמן למקור" */
+export async function printDocRow(d: DocRow, business: Business): Promise<DocRow | null> {
+  const { data, error } = await supabase().from('documents').update({ print_count: d.printCount + 1 }).eq('id', d.id).select('*').single();
+  if (error) return null;
+  const fresh = toDoc(data);
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(docHtml(fresh, business, fresh.printCount === 1 ? 'מקור' : 'העתק נאמן למקור')); w.document.close(); }
+  return fresh;
+}
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const ddmmyyyy = (d: string) => d.split('-').reverse().join('/');
 
