@@ -35,3 +35,24 @@ test('register: CSV for the accountant', () => {
   assert.ok(csv.startsWith('\uFEFF'));
   assert.match(csv, /"2026-10-05","11:00","דנה","קרם ×2","100.00","10.00","90.00","13.73","Bit \/ PayBox","שולם"/);
 });
+
+import { customerSnapshot, paymentsOf, remaining, topSellers } from '../src/features/register/money';
+import { docFromSale } from '../src/features/documents/documents';
+test('POS: split payments in reports and on the document', () => {
+  const split = S({ id: 'sp', total: 1000, vatAmount: 152.54, method: 'split', payments: [{ method: 'card', amount: 600 }, { method: 'cash', amount: 400 }] });
+  assert.equal(remaining(1000, [{ amount: 600 }, { amount: 399.99 }]), 0.01);
+  assert.equal(remaining(0.3, [{ amount: 0.1 }, { amount: 0.2 }]), 0, 'agorot-exact');
+  const d = summarize([split, S({ id: 'c', total: 100 })], '2026-10-05', '2026-10-05');
+  assert.deepEqual(d.byMethod.map((m) => [m.method, m.total]), [['card', 600], ['cash', 500]], 'split amounts land in their own methods');
+  assert.equal(d.total, 1100);
+  assert.deepEqual(paymentsOf(S({ method: 'bit', total: 90 })), [{ method: 'bit', amount: 90 }]);
+  const doc = docFromSale({ ...split, items: [{ name: 'חבילה', price: 1000, qty: 1 }], vatRate: 18 }, { licensed: true, docDate: '2026-10-05' });
+  assert.deepEqual(doc.payments.map((p) => [p.method, p.amount]), [[3, 600], [1, 400]], 'document: one receipt line per payment (card 3, cash 1)');
+});
+test('POS: best sellers and customer snapshot', () => {
+  const sales = [S({ id: '1', leadId: 'L', items: [{ name: 'לייזר', price: 250, qty: 1 }] }), S({ id: '2', leadId: 'L', items: [{ name: 'קרם', price: 50, qty: 3 }], paidAt: '2026-10-06T08:00:00Z' }),
+    S({ id: '3', items: [{ name: 'לייזר', price: 250, qty: 1 }], status: 'cancelled' })];
+  assert.deepEqual(topSellers(sales, 90, 12, new Date('2026-10-07').getTime()), ['קרם', 'לייזר'], 'by quantity, cancelled ignored');
+  const snap = customerSnapshot('L', sales);
+  assert.equal(snap.purchases, 2); assert.equal(snap.lastPurchase!.id, '2'); assert.equal(snap.spent, 500);
+});

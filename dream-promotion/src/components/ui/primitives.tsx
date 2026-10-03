@@ -1,6 +1,6 @@
 'use client';
 import { cx } from '@/lib/utils';
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import { Children, cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 
 type Variant = 'primary' | 'ghost' | 'soft';
 type Size = 'sm' | 'md' | 'lg';
@@ -61,11 +61,19 @@ export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p}
 export const Textarea = (p: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={cx(fieldBase, 'min-h-28 resize-y leading-relaxed', p.className)} />;
 export const Select = (p: SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cx(fieldBase, p.className)} />;
 
+/**
+ * A labelled form row. When the child is a single input / select / textarea, the label is tied to it
+ * (htmlFor + id), so screen readers announce it and tapping the label focuses the field.
+ */
 export function Field({ label, children }: { label: string; children: ReactNode }) {
+  const auto = useId();
+  const only = Children.count(children) === 1 && isValidElement(children) ? (children as React.ReactElement<any>) : null;
+  const tieable = only && (only.type === Input || only.type === Select || only.type === Textarea || ['input', 'select', 'textarea'].includes(only.type as string));
+  const id = tieable ? (only!.props.id ?? auto) : undefined;
   return (
     <div className="mb-4">
-      <label className="mb-2 block text-sm font-semibold text-ink-2">{label}</label>
-      {children}
+      <label htmlFor={id} className="mb-2 block text-sm font-semibold text-ink-2">{label}</label>
+      {tieable ? cloneElement(only!, { id }) : children}
     </div>
   );
 }

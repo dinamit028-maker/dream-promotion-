@@ -1,6 +1,6 @@
 {
   "name": "dream-promotion",
-  "version": "2.35.0",
+  "version": "2.37.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -17,6 +17,7 @@
     "@supabase/supabase-js": "^2.117.1",
     "ffmpeg-static": "^5.2.0",
     "framer-motion": "^11.3.0",
+    "jszip": "^3.10.1",
     "next": "14.2.5",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
