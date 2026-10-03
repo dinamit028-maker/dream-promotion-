@@ -7,6 +7,7 @@ import { formatIL } from '@/lib/il-time';
 import { matches, phoneDigits, waLink } from '@/features/crm/crm';
 import type { Lead } from '@/types';
 import { computeSale, customerSnapshot, ils, methodLabel, remaining, topSellers, type Line, type Method, type Pay, type Sale } from './money';
+import { MAX_HELD, holdCart, loadHeld, removeHeld, resumeHeld, saveHeld, type Cart, type HeldSale } from './held';
 
 /**
  * The register, touch-first (UX redesign — same sales logic, CRM link, VAT and documents underneath).
@@ -34,14 +35,17 @@ const PAY_BUTTONS: { id: Exclude<Method, 'split' | 'link'>; label: string; icon:
   { id: 'bit', label: 'Bit / PayBox', icon: '📱' }, { id: 'other', label: 'אחר', icon: '➕' },
 ];
 const EMPTY: Customer = { name: '', phone: '', leadId: null, appointmentId: null };
+/** the device's storage, or null where it is blocked (private mode, some in-app browsers) */
+const deviceStore = () => { try { return window.localStorage; } catch { return null; } };
+export const heldCountLabel = (n: number) => (n === 1 ? 'עסקה מושהית אחת' : `${n} עסקאות מושהות`);
 /** quick cash buttons: exact, the next round amounts, common notes */
 export function cashSuggestions(total: number) {
   const up = (step: number) => Math.ceil(total / step) * step;
   return [...new Set([total, up(10), up(50), up(100), up(200), 200, 500].filter((v) => v >= total))].sort((a, b) => a - b).slice(0, 6);
 }
 
-export function PosView({ items, sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog }: {
-  items: PosItem[]; sales: Sale[]; leads: Lead[]; employees: { id: string; name: string }[]; todayAppts: TodayAppt[];
+export function PosView({ userId, items, sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog }: {
+  userId: string; items: PosItem[]; sales: Sale[]; leads: Lead[]; employees: { id: string; name: string }[]; todayAppts: TodayAppt[];
   vat: { type: 'exempt' | 'licensed'; rate: number }; payLinkReady: boolean;
   onCheckout: (c: CheckoutInput) => Promise<CheckoutResult>; onShowDoc: () => void;
   prefill?: { customer: Customer; line: Line | null } | null; onGoCatalog?: () => void;
@@ -61,6 +65,11 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
   const [paying, setPaying] = useState(false);
   const [done, setDone] = useState<CheckoutResult & { customer: string; phone: string; change: number | null } | null>(null);
   const [waPhone, setWaPhone] = useState('');
+  const [held, setHeld] = useState<HeldSale[]>([]);
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [askResume, setAskResume] = useState<string | null>(null);
+  const [heldMsg, setHeldMsg] = useState<string | null>(null);
+  useEffect(() => { setHeld(loadHeld(deviceStore(), userId)); }, [userId]);
 
   useEffect(() => { try { setQuick(localStorage.getItem('dp-pos-quick') === '1'); setEmployeeId(localStorage.getItem('dp-pos-employee') ?? ''); } catch { /* private mode */ } }, []);
   useEffect(() => { if (!items.some((i) => i.favorite && i.active)) setCat('all'); }, [items]);
@@ -98,6 +107,28 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
   const apptToday = customer.leadId ? todayAppts.find((a) => a.leadId === customer.leadId) : null;
   const reset = () => { setWaPhone(''); setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setDone(null); setSheet(false); };
   const employee = employees.find((e) => e.id === employeeId) ?? null;
+
+  // ---- held sales: park this cart for later, serve the next customer, resume it as it was ----
+  const say = (m: string) => { setHeldMsg(m); setTimeout(() => setHeldMsg(null), 3000); };
+  const currentCart = (): Cart => ({ lines, customer, discount, note, employeeId });
+  const clearCart = () => { setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setSheet(false); };
+  const keepHeld = (list: HeldSale[]) => { setHeld(list); if (!saveHeld(deviceStore(), userId, list)) say('המכשיר לא מאפשר שמירה — העסקאות המושהות יימחקו ברענון הדף.'); };
+  function hold() {
+    const r = holdCart(held, currentCart());
+    if (!r.ok) return say(r.error === 'full' ? `אפשר להשהות עד ${MAX_HELD} עסקאות. המשיכו או מחקו אחת מהמושהות.` : 'הסל ריק.');
+    keepHeld(r.list); clearCart(); say('⏸ העסקה הושהתה — אפשר להתחיל עסקה חדשה');
+  }
+  function resume(id: string, keepCurrent: boolean) {
+    const r = resumeHeld(held, id, keepCurrent ? currentCart() : null);
+    setAskResume(null); setHeldOpen(false);
+    if (!r) return;
+    keepHeld(r.list);
+    const c = r.cart;
+    setLines(c.lines); setCustomer(c.customer); setDiscount(c.discount); setNote(c.note); setExtras({ discount: c.discount.value > 0, note: Boolean(c.note) });
+    if (c.employeeId && employees.some((e) => e.id === c.employeeId)) setEmployeeId(c.employeeId);
+    say(keepCurrent ? 'העסקה הקודמת הושהתה, והעסקה המושהית חזרה לסל' : 'העסקה חזרה לסל');
+  }
+  const askToResume = (id: string) => (lines.length ? setAskResume(id) : resume(id, false));
 
   async function finish(c: Pick<CheckoutInput, 'paidNow' | 'method' | 'payments' | 'cashReceived'>) {
     const r = await onCheckout({ lines, discount, customer, note, employee, ...c });
@@ -153,6 +184,7 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
         <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
           <button type="button" className={cx('rounded-full border px-3 py-1.5', extras.discount ? 'border-primary' : 'border-line')} onClick={() => setExtras({ ...extras, discount: !extras.discount })}>הנחה</button>
           <button type="button" className={cx('rounded-full border px-3 py-1.5', extras.note ? 'border-primary' : 'border-line')} onClick={() => setExtras({ ...extras, note: !extras.note })}>הערה</button>
+          <button type="button" className="rounded-full border border-line px-3 py-1.5" onClick={hold} aria-label="השהיית העסקה">⏸ השהיה</button>
           <button type="button" className="rounded-full border border-line px-3 py-1.5" onClick={reset}>עסקה חדשה</button>
         </div>
         {extras.discount && (
@@ -177,6 +209,13 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
 
   return (
     <div className="pb-28 lg:pb-0">
+      {held.length > 0 && (
+        <button type="button" onClick={() => setHeldOpen(true)}
+          className="mb-3 flex w-full items-center justify-between gap-2 rounded-2xl bg-amber-500/15 px-4 py-3 text-start font-bold text-amber-800 dark:text-amber-200">
+          <span>⏸ {heldCountLabel(held.length)}</span><span className="text-sm font-semibold">פתיחה ←</span>
+        </button>
+      )}
+      {heldMsg && <p role="status" className="mb-3 rounded-2xl bg-surface-2 p-3 text-sm font-semibold">{heldMsg}</p>}
       {/* top bar: seller + quick actions */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {employees.length > 0 && (
@@ -267,6 +306,35 @@ export function PosView({ items, sales, leads, employees, todayAppts, vat, payLi
       <CustomerPicker open={picker} leads={leads} onClose={() => setPicker(false)} onPick={chooseLead} onNew={(c) => { setCustomer({ ...c, leadId: null, appointmentId: null }); setPicker(false); }} />
       <Keypad open={keypad} onClose={() => setKeypad(false)} onAdd={(price, name) => { add(name || 'סכום חופשי', price); setKeypad(false); }} />
       <PayPanel open={paying} total={t.total} payLinkReady={payLinkReady && Boolean(phoneDigits(customer.phone))} onClose={() => setPaying(false)} onPay={finish} />
+
+      <Modal open={heldOpen} onClose={() => setHeldOpen(false)}>
+        <h3 className="mb-3 font-display text-xl font-extrabold">⏸ עסקאות מושהות</h3>
+        {!held.length ? <p className="text-sm text-muted">אין עסקאות מושהות.</p> : (
+          <ul className="grid gap-2">
+            {held.map((h) => (
+              <li key={h.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl bg-surface-2 p-3 text-sm">
+                <span className="min-w-0 flex-1">
+                  <strong className="block truncate">{h.customer.name || 'לקוח מזדמן'} · <span className="tabular-nums">{ils(computeSale(h.lines, h.discount, vat).total)}</span></strong>
+                  <span className="block truncate text-xs text-muted">{formatIL(h.heldAt, { hour: '2-digit', minute: '2-digit' })} · {h.lines.map((l) => `${l.name}${l.qty > 1 ? ` ×${l.qty}` : ''}`).join(' + ')}</span>
+                </span>
+                <Button size="sm" variant="primary" onClick={() => askToResume(h.id)}>המשך</Button>
+                <Button size="sm" variant="ghost" onClick={() => { if (window.confirm(`למחוק את העסקה המושהית של ${h.customer.name || 'לקוח מזדמן'}?`)) keepHeld(removeHeld(held, h.id)); }}>מחיקה</Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-xs text-muted">העסקאות המושהות נשמרות רק במכשיר הזה (עד {MAX_HELD}).</p>
+      </Modal>
+
+      <Modal open={askResume !== null} onClose={() => setAskResume(null)}>
+        <h3 className="mb-2 font-display text-xl font-extrabold">יש כבר פריטים בסל</h3>
+        <p className="mb-4 text-sm text-ink-2">להשהות גם את העסקה הנוכחית ({ils(t.total)}), כדי שלא תלך לאיבוד?</p>
+        <div className="grid gap-2">
+          <Button variant="primary" size="lg" onClick={() => askResume && resume(askResume, true)}>כן, להשהות גם אותה</Button>
+          <Button variant="ghost" onClick={() => askResume && resume(askResume, false)}>לא, לוותר על העסקה הנוכחית</Button>
+          <Button variant="ghost" onClick={() => setAskResume(null)}>ביטול</Button>
+        </div>
+      </Modal>
 
       <Modal open={Boolean(done)} onClose={reset}>
         {done && (
