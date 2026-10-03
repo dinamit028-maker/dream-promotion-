@@ -190,7 +190,7 @@ export function RegisterScreen() {
       {loading && <div className="py-8 text-center"><Spinner /></div>}
 
       {!loading && tab === 'sell' && (
-        <PosView key={prefill ? 'prefill' : 'pos'} items={items} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
+        <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={items} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
           vat={vat} payLinkReady={Boolean(settings.payLink)} onCheckout={checkout} onShowDoc={() => setTab('docs')} prefill={prefill} onGoCatalog={() => setTab('catalog')} />
       )}
 
