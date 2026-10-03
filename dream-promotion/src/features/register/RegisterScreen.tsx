@@ -11,6 +11,7 @@ import { phoneDigits, waLink } from '@/features/crm/crm';
 import { DocumentsTab, docInsertRow, printDocRow, toDoc, type DocRow } from '@/features/documents/DocumentsTab';
 import { DOC_LABEL, docFromSale } from '@/features/documents/documents';
 import { enablePush, needsHomeScreen, notifySale, pushKeyReady, pushSupported, sendTest } from './notifications';
+import { ShiftTab } from './ShiftTab';
 import { PosView, type CheckoutInput, type CheckoutResult, type PosItem, type TodayAppt } from './PosView';
 import { israelToIso } from '@/lib/il-time';
 import { METHODS, computeSale, ils, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Sale } from './money';
@@ -33,7 +34,7 @@ const errText = (e: any) => /relation .* does not exist|schema cache/i.test(Stri
 
 export function RegisterScreen() {
   const { userId, brand, leads, addLead, addActivity, updateLead } = useApp();
-  const [tab, setTab] = useState<'sell' | 'sales' | 'catalog' | 'docs' | 'settings'>('sell');
+  const [tab, setTab] = useState<'sell' | 'sales' | 'shift' | 'catalog' | 'docs' | 'settings'>('sell');
   const [items, setItems] = useState<Item[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
@@ -182,7 +183,7 @@ export function RegisterScreen() {
     <>
       <PageHead title="קופה" sub={`היום: ${ils(summarize(sales, israelParts(Date.now()).date, israelParts(Date.now()).date).total)}${pending.length ? ` · ${pending.length} ממתינים לתשלום` : ''}`} />
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
-        {([['sell', 'מכירה'], ['sales', 'מכירות ודוחות'], ['docs', 'מסמכים'], ['catalog', 'מחירון'], ['settings', 'הגדרות']] as const).map(([k, l]) => <Chip key={k} on={tab === k} onClick={() => setTab(k)}>{l}{k === 'sales' && pending.length ? ` (${pending.length})` : ''}</Chip>)}
+        {([['sell', 'מכירה'], ['sales', 'מכירות ודוחות'], ['shift', 'סגירת יום'], ['docs', 'מסמכים'], ['catalog', 'מחירון'], ['settings', 'הגדרות']] as const).map(([k, l]) => <Chip key={k} on={tab === k} onClick={() => setTab(k)}>{l}{k === 'sales' && pending.length ? ` (${pending.length})` : ''}</Chip>)}
       </div>
       {error && <p className="mb-4 rounded-2xl bg-warn/10 p-3 text-sm text-warn">{error}</p>}
       {flash && <p className="mb-4 rounded-2xl bg-emerald-500/15 p-3 text-sm font-semibold text-emerald-700 dark:text-emerald-300">✓ {flash}</p>}
@@ -195,6 +196,8 @@ export function RegisterScreen() {
 
       {!loading && tab === 'sales' && <SalesTab sales={sales} onPaid={markPaid} onCancel={cancelSale} onRemind={requestPayment} canRemind={Boolean(settings.payLink)}
         onOpen={setOpenSale} onLoadOlder={olderDone ? undefined : loadOlder} />}
+      {!loading && tab === 'shift' && <ShiftTab userId={userId} sales={sales} employees={employees} businessName={business.name} />}
+
       <SaleDetail sale={openSale} onClose={() => setOpenSale(null)} business={business} />
 
       {!loading && tab === 'docs' && <DocumentsTab userId={userId} business={business} licensed={settings.businessType === 'licensed'} onError={setError} />}
