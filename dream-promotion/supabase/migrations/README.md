@@ -31,3 +31,4 @@ once per project and never committed with the real value.
 | `20261003001600_pos_extras.sql` | Register extras: cash received / change, document share link token (set at issue), push subscriptions for sale notifications |
 | `20261003001700_security_hardening.sql` | Security: fixed search_path on trigger functions; trigger functions not callable via the API (already applied to production) |
 | `20261003001800_register_shifts.sql` | Register close of day: `register_shifts` (opening cash, counted / expected cash, difference, note, who); one open day per business; RLS own rows |
+| `20261004001900_businesses.sql` | Multi-business stage 1: `businesses` (status, paid_until, grace_days), `business_members` (owner/editor/viewer), `profiles.is_super_admin` (API cannot change it — trigger), `meta_connections` (one Meta connection per Facebook user; tokens server-only). RLS on, no client policies until stage 4 |
