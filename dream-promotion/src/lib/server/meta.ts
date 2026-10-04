@@ -368,32 +368,49 @@ export async function formLeads(pageToken: string, formId: string, sinceUnix: nu
 }
 
 // ------------------------------------------------------------- comments & messages --
+// Meta refuses big nested reads ("Please reduce the amount of data you're asking for"): pages are read
+// in small batches, and a refused batch is asked again smaller.
 
-/** a Page's recent posts with their comments (newest first) */
+const tooMuch = (m: string) => /reduce the amount of data|meta_1:|meta_http_500/i.test(m);
+
+/** pages through an edge in small batches; on "too much data" retries the batch with the next smaller size */
+async function pagedSmall(path: string, base: Record<string, string>, fieldsFor: (n: number) => string, sizes: number[], maxPages = 8, stop?: (row: any) => boolean) {
+  const out: any[] = [];
+  let after: string | undefined; let pages = 0;
+  do {
+    let j: any = null; let lastErr: unknown;
+    for (const n of sizes) {
+      try { j = await graph(path, { ...base, limit: String(n), fields: fieldsFor(n), ...(after ? { after } : {}) }); break; }
+      catch (e: any) { lastErr = e; if (!tooMuch(String(e?.message ?? e))) throw e; }
+    }
+    if (!j) throw lastErr;
+    const rows = (j.data ?? []) as any[];
+    out.push(...rows);
+    if (stop && rows.some(stop)) break;
+    after = j.paging?.next ? j.paging?.cursors?.after : undefined;
+  } while (after && ++pages < maxPages);
+  return out;
+}
+
+/** a Page's posts since a moment, each with its latest comments */
 export async function pagePostsWithComments(pageToken: string, pageId: string, sinceUnix: number) {
-  const j = await graph(`/${pageId}/posts`, {
-    access_token: pageToken, limit: '25', since: String(Math.floor(sinceUnix)),
-    fields: 'id,message,permalink_url,comments.limit(100).order(reverse_chronological){id,message,created_time,from{id,name},parent{id}}',
-  });
-  return (j.data ?? []) as any[];
+  return pagedSmall(`/${pageId}/posts`, { access_token: pageToken, since: String(Math.floor(sinceUnix)) },
+    (n) => `id,message,permalink_url,comments.limit(${n * 3}).order(reverse_chronological){id,message,created_time,from{id,name},parent{id}}`,
+    [10, 5, 2]);
 }
 
-/** an Instagram account's recent media with comments and replies */
-export async function igMediaWithComments(pageToken: string, igId: string) {
-  const j = await graph(`/${igId}/media`, {
-    access_token: pageToken, limit: '25',
-    fields: 'id,caption,permalink,comments.limit(100){id,text,timestamp,username,from{id,username},replies.limit(50){id,text,timestamp,username,from{id,username}}}',
-  });
-  return (j.data ?? []) as any[];
+/** an Instagram account's media (newest first) with comments and replies, back to `sinceIso` */
+export async function igMediaWithComments(pageToken: string, igId: string, sinceIso: string) {
+  return pagedSmall(`/${igId}/media`, { access_token: pageToken },
+    (n) => `id,caption,permalink,timestamp,comments.limit(${n * 3}){id,text,timestamp,username,from{id,username},replies.limit(10){id,text,timestamp,username,from{id,username}}}`,
+    [10, 5, 2], 8, (m) => Boolean(m.timestamp && new Date(m.timestamp).toISOString() < sinceIso));
 }
 
-/** a Page's conversations on Messenger or Instagram Direct, with the latest messages */
-export async function pageConversations(pageToken: string, pageId: string, platform: 'messenger' | 'instagram') {
-  const j = await graph(`/${pageId}/conversations`, {
-    access_token: pageToken, platform, limit: '25',
-    fields: 'id,updated_time,participants,messages.limit(25){id,message,created_time,from}',
-  });
-  return (j.data ?? []) as any[];
+/** a Page's conversations on Messenger or Instagram Direct (latest first), back to `sinceIso` */
+export async function pageConversations(pageToken: string, pageId: string, platform: 'messenger' | 'instagram', sinceIso: string) {
+  return pagedSmall(`/${pageId}/conversations`, { access_token: pageToken, platform },
+    (n) => `id,updated_time,participants,messages.limit(${Math.max(5, n * 2)}){id,message,created_time,from}`,
+    [10, 5, 2], 8, (c) => Boolean(c.updated_time && new Date(c.updated_time).toISOString() < sinceIso));
 }
 
 /** the Instagram account linked to a Page (for Instagram Direct), or null */

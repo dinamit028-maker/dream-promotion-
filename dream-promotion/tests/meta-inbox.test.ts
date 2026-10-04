@@ -77,6 +77,9 @@ before(async () => {
   globalThis.fetch = (async (u: any) => {
     const url = new URL(String(u)); const path = url.pathname.replace(/^\/v[\d.]+/, '');
     calls.push(path);
+    if (path === '/page-sg/posts' && Number(url.searchParams.get('limit')) > 5) {
+      return new Response(JSON.stringify({ error: { code: 1, message: "Please reduce the amount of data you're asking for, then retry your request" } }), { status: 500 });
+    }
     if (url.searchParams.get('access_token') === 'tok-denied') return new Response(JSON.stringify({ error: { code: 10, message: '(#10) Requires pages_messaging permission' } }), { status: 403 });
     return new Response(JSON.stringify(graphData[path] ?? { data: [] }), { status: 200 });
   }) as any;
@@ -92,6 +95,7 @@ test('sync: one "פנייה" card for Dana in SaGabot (comment + message), nothi
   assert.equal(tables.social_messages.length, 2, 'stored once even after two syncs');
   assert.ok(tables.social_messages.every((m) => m.business_id === SG && m.lead_id === cards[0].id));
   assert.equal(tables.leads.filter((l) => l.business_id === FM).length, 0, 'nothing leaks into FollowMe');
+  assert.ok(calls.filter((c) => c === '/page-sg/posts').length >= 2, 'Meta said "too much data" — asked again smaller, and it worked');
 });
 
 test('a locked business is skipped; a missing permission shows the reconnect message', async () => {
