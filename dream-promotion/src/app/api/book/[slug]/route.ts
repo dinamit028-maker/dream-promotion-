@@ -40,23 +40,23 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
   const start = new Date(String(body.start ?? ''));
   if (Number.isNaN(+start)) return NextResponse.json({ code: 'bad_input', message: 'זמן לא תקין' }, { status: 400 });
   const end = new Date(+start + service.minutes * 60_000);
-  const s = b.settings, userId = s.user_id as string;
+  const s = b.settings, userId = s.user_id as string, businessId = s.business_id as string;
 
-  const busy = await busyBetween(userId, new Date(+start - 864e5).toISOString(), new Date(+end + 864e5).toISOString());
+  const busy = await busyBetween(businessId, new Date(+start - 864e5).toISOString(), new Date(+end + 864e5).toISOString());
   if (!isFree(start.toISOString(), service.minutes, rulesOf(s), busy)) {
     return NextResponse.json({ code: 'slot_taken', message: 'השעה הזו כבר לא פנויה. בחרו שעה אחרת.' }, { status: 409 });
   }
   // a little protection: at most 3 upcoming bookings for the same phone at one business
-  const { data: mine } = await adminDb().from('appointments').select('phone').eq('user_id', userId)
+  const { data: mine } = await adminDb().from('appointments').select('phone').eq('business_id', businessId)
     .in('status', ['booked', 'confirmed']).gt('start_at', new Date().toISOString()).limit(500);
   if ((mine ?? []).filter((r: any) => phoneDigits(r.phone) === phoneDigits(phone)).length >= 3) {
     return NextResponse.json({ code: 'too_many', message: 'יש כבר כמה תורים עתידיים למספר הזה. לשינוי — פנו לעסק.' }, { status: 429 });
   }
 
   const whenHe = formatIL(start, { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-  const leadId = await attachToCrm(userId, { name, phone, email, summary: `נקבע תור אונליין: ${service.name} · ${whenHe}${note ? ` · "${note}"` : ''}` });
+  const leadId = await attachToCrm(userId, businessId, { name, phone, email, summary: `נקבע תור אונליין: ${service.name} · ${whenHe}${note ? ` · "${note}"` : ''}` });
   const ins = await adminDb().from('appointments').insert({
-    user_id: userId, service_id: service.id, service_name: service.name, lead_id: leadId ?? null,
+    user_id: userId, business_id: businessId, service_id: service.id, service_name: service.name, lead_id: leadId ?? null,
     name, phone, email, note, start_at: start.toISOString(), end_at: end.toISOString(), status: 'booked', source: 'public',
   }).select('id').single();
   if (ins.error) {

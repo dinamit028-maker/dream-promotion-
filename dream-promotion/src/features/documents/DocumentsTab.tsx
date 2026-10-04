@@ -45,7 +45,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
   const [open, setOpen] = useState<DocRow | null>(null);
   const [view, setView] = useState<'list' | 'export'>('list');
   const load = async () => {
-    const { data, error } = await supabase().from('documents').select('*').eq('user_id', userId).order('issued_at', { ascending: false }).limit(3000);
+    const { data, error } = await supabase().from('documents').select('*').order('issued_at', { ascending: false }).limit(3000);
     if (error) { onError(/relation .* does not exist|schema cache/i.test(error.message) ? 'צריך להריץ את מיגרציית המסמכים ב-Supabase (20261003001400).' : 'לא הצלחנו לטעון מסמכים.'); setDocs([]); return; }
     setDocs((data ?? []).map(toDoc));
   };

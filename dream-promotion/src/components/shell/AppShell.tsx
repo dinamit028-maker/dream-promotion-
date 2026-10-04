@@ -59,8 +59,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const onboarded = useApp((s) => s.onboarded);
   const userId = useApp((s) => s.userId);
+  const businessId = useApp((s) => s.businessId);
   const hydrate = useApp((s) => s.hydrate);
   const [checking, setChecking] = useState(isCloudConfigured);
+  // the business this user works in (banner when locked) and the ones they may switch to
+  type BizItem = { id: string; name: string; state: 'active' | 'locked' | 'expired' };
+  const [biz, setBiz] = useState<{ current: BizItem | null; list: BizItem[]; superAdmin: boolean } | null>(null);
+  const [switching, setSwitching] = useState(false);
 
   // with accounts configured, nothing renders until we know who this is
   useEffect(() => {
@@ -70,33 +75,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (!alive) return;
       const u = data.session?.user;
       if (!u) { router.replace('/auth'); return; }
-      if (u.id !== userId) await hydrate(u.id);
+      let current: string | null = null;
+      try {
+        const r = await fetch('/api/business/me', { headers: await authHeaders() });
+        const j = await r.json();
+        if (r.ok) { current = j.business?.id ?? null; setBiz({ current: j.business, list: j.businesses ?? [], superAdmin: Boolean(j.superAdmin) }); }
+      } catch { /* the app still opens; data comes from row-level security anyway */ }
+      if (!alive) return;
+      // a different user or a different business → load that business's data (never mix two businesses)
+      if (u.id !== userId || (current && current !== businessId)) await hydrate(u.id, current);
       setChecking(false);
     });
     const { data: sub } = supabase().auth.onAuthStateChange((_e, session) => {
       if (!session?.user && location.pathname !== '/') router.replace('/auth');
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
-  }, [hydrate, router, userId]);
+  }, [hydrate, router, userId, businessId]);
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  // the business this user works in: a locked one shows a banner (the data behind it is closed — stage 4/5)
-  const [biz, setBiz] = useState<{ name: string; state: 'active' | 'locked' | 'expired'; superAdmin: boolean } | null>(null);
   useEffect(() => {
     if (!isCloudConfigured) return;
     (async () => {
       try { const r = await fetch('/api/admin/me', { headers: await authHeaders() }); setIsAdmin(Boolean((await r.json()).admin)); }
       catch { /* not an admin */ }
     })();
-    (async () => {
-      try {
-        const r = await fetch('/api/business/me', { headers: await authHeaders() });
-        const j = await r.json();
-        if (r.ok && j.business) setBiz({ name: j.business.name, state: j.business.state, superAdmin: Boolean(j.superAdmin) });
-      } catch { /* banner only */ }
-    })();
   }, []);
+  /** work in another business: saved on the server, then the whole app reloads with that business's data */
+  async function switchBusiness(id: string) {
+    if (!id || id === biz?.current?.id) return;
+    setSwitching(true);
+    try {
+      const r = await fetch('/api/business/me', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ id }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'switch_failed');
+      window.location.reload();
+    } catch (e: any) { setSwitching(false); window.alert(`לא הצלחנו לעבור עסק: ${e.message}`); }
+  }
   const NAV_BOTTOM = isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
   useEffect(() => { setMoreOpen(false); }, [path]);
   useEffect(() => {
@@ -184,6 +198,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <strong className="font-display text-[17px] font-bold">{current?.label ?? ''}</strong>
           </div>
           <div className="flex items-center gap-2">
+            {biz && (biz.superAdmin || biz.list.length > 1) && (
+              <select aria-label="העסק שעובדים בו" value={biz.current?.id ?? ''} disabled={switching}
+                onChange={(e) => void switchBusiness(e.target.value)}
+                className="h-9 max-w-[42vw] rounded-full border border-line bg-surface px-3 text-sm font-semibold">
+                {!biz.current && <option value="">בחירת עסק</option>}
+                {biz.list.map((b) => <option key={b.id} value={b.id}>{b.name}{b.state !== 'active' ? ` (${b.state === 'locked' ? 'נעול' : 'פג תוקף'})` : ''}</option>)}
+              </select>
+            )}
             <ThemeToggle />
             {aiReady !== null && <Pill tone={aiReady ? 'ai' : 'warn'}>{aiReady ? 'AI פעיל' : 'AI לא מוגדר'}</Pill>}
             <Link href="/create" className="max-md:hidden">
@@ -193,11 +215,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="mx-auto w-full max-w-[1240px] px-4 pb-32 pt-6 sm:px-6">
-          {biz && biz.state !== 'active' && (
+          {biz?.current && biz.current.state !== 'active' && (
             <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">
               {biz.superAdmin
-                ? `העסק "${biz.name}" ${biz.state === 'expired' ? 'פג תוקף' : 'נעול'} — את/ה רואה אותו כמנהל-על. ללקוח הוא סגור.`
-                : `העסק "${biz.name}" נעול כרגע${biz.state === 'expired' ? ' (תקופת השימוש הסתיימה)' : ''}. הנתונים שמורים ולא נמחקו — כדי לחדש את השירות פנו למנהל המערכת.`}
+                ? `העסק "${biz.current.name}" ${biz.current.state === 'expired' ? 'פג תוקף' : 'נעול'} — מוצג למנהל-על בלבד. ללקוח הוא סגור.`
+                : `העסק "${biz.current.name}" נעול כרגע${biz.current.state === 'expired' ? ' (תקופת השימוש הסתיימה)' : ''}. הנתונים שמורים ולא נמחקו — כדי לחדש את השירות פנו למנהל המערכת.`}
             </p>
           )}
           {children}

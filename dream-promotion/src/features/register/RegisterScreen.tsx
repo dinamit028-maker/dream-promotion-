@@ -50,7 +50,7 @@ export function RegisterScreen() {
   async function loadOlder() {
     if (!userId) return;
     const oldest = sales.reduce((a, s) => (s.createdAt < a ? s.createdAt : a), new Date().toISOString());
-    const { data } = await supabase().from('sales').select('*').eq('user_id', userId).lt('created_at', oldest).order('created_at', { ascending: false }).limit(300);
+    const { data } = await supabase().from('sales').select('*').lt('created_at', oldest).order('created_at', { ascending: false }).limit(300);
     const more = (data ?? []).map(toSale);
     if (more.length < 300) setOlderDone(true);
     setSales((all) => [...all, ...more.filter((m) => !all.some((x) => x.id === m.id))]);
@@ -63,9 +63,9 @@ export function RegisterScreen() {
       const sb = supabase();
       const since = new Date(Date.now() - 100 * 864e5).toISOString();
       const [st, it, sa] = await Promise.all([
-        sb.from('register_settings').select('*').eq('user_id', userId).maybeSingle(),
-        sb.from('catalog_items').select('*').eq('user_id', userId).order('sort').order('created_at'),
-        sb.from('sales').select('*').eq('user_id', userId).or(`created_at.gte.${since},status.eq.pending`).order('created_at', { ascending: false }).limit(2000),
+        sb.from('register_settings').select('*').maybeSingle(),
+        sb.from('catalog_items').select('*').order('sort').order('created_at'),
+        sb.from('sales').select('*').or(`created_at.gte.${since},status.eq.pending`).order('created_at', { ascending: false }).limit(2000),
       ]);
       for (const r of [st, it, sa]) if (r.error) throw r.error;
       if (st.data) setSettings({ businessType: st.data.business_type, vatRate: Number(st.data.vat_rate), payLink: st.data.pay_link ?? '',
@@ -76,10 +76,10 @@ export function RegisterScreen() {
       // for the POS: who sells (time-clock employees) and today's appointments
       const dayStart = israelToIso(israelParts(Date.now()).date, '00:00');
       const [emps, appts, svcs] = await Promise.all([
-        sb.from('employees').select('id, name').eq('user_id', userId).eq('active', true).order('created_at'),
-        sb.from('appointments').select('id, name, phone, lead_id, service_id, service_name, start_at, status').eq('user_id', userId)
+        sb.from('employees').select('id, name').eq('active', true).order('created_at'),
+        sb.from('appointments').select('id, name, phone, lead_id, service_id, service_name, start_at, status')
           .gte('start_at', dayStart).lt('start_at', new Date(new Date(dayStart).getTime() + 864e5).toISOString()).order('start_at'),
-        sb.from('booking_services').select('id, price').eq('user_id', userId),
+        sb.from('booking_services').select('id, price'),
       ]);
       setEmployees(emps.error ? [] : (emps.data ?? []) as any);
       const price = new Map(((svcs.data ?? []) as any[]).map((x) => [x.id, x.price == null ? null : Number(x.price)]));
@@ -228,7 +228,7 @@ export function RegisterScreen() {
           </div>
           <Button variant="primary" onClick={async () => {
             const { error: e } = await supabase().from('register_settings').upsert({ user_id: userId, business_type: settings.businessType, vat_rate: settings.vatRate, pay_link: settings.payLink,
-              dealer_number: settings.dealerNumber, company_number: settings.companyNumber, legal_name: settings.legalName, street: settings.street, house_no: settings.houseNo, city: settings.city, zip: settings.zip });
+              dealer_number: settings.dealerNumber, company_number: settings.companyNumber, legal_name: settings.legalName, street: settings.street, house_no: settings.houseNo, city: settings.city, zip: settings.zip }, { onConflict: 'business_id' });
             if (e) setError(errText(e)); else { setError(null); say('ההגדרות נשמרו'); }
           }}>שמירה</Button>
           <PushSettings userId={userId} />
@@ -327,7 +327,7 @@ function CatalogTab({ userId, items, reload, onError }: { userId: string; items:
   }
   const run = async (p: PromiseLike<{ error: any }>) => { const { error } = await p; if (error) onError(error); else reload(); };
   async function importServices() {
-    const { data, error } = await supabase().from('booking_services').select('name, price').eq('user_id', userId).eq('active', true);
+    const { data, error } = await supabase().from('booking_services').select('name, price').eq('active', true);
     if (error) return onError(error);
     const fresh = (data ?? []).filter((s: any) => s.price != null && !items.some((i) => i.name === s.name));
     if (!fresh.length) return;

@@ -1,6 +1,6 @@
 # משימה רב-עסקית (דשבורד-על) — מסמך העברה בין שיחות
 
-עודכן: 2026-10-04, סוף שלב 6 (ממתין לאישור + PR). הענף: `claude/adoring-maxwell-ffx5gz`. שלבים 1–3 מוזגו (PR #6), 4 (PR #7), 5 (PR #8).
+עודכן: 2026-10-04, סוף שלב 7 (ממתין לאישור + PR; 2600 הוחל). הענף: `claude/adoring-maxwell-ffx5gz`. מוזגו: 1–3 (PR #6), 4 (#7), 5 (#8), 6 (#9).
 פרויקט Supabase: `dream-promotion`, ref `nljnbixgjsjbdgutryun`, תוכנית free (אין branches/גיבוי מובנה).
 
 ## כללי עבודה (מהמשתמש — אביב)
@@ -37,7 +37,8 @@
 | 3 | ✅ מוזג (PR #6). קוד בענף (commit d520dcf, 56/56 בדיקות, typecheck עובר; build עוד לא הורץ). migration `20261004002200_social_assets.sql`: **חלק A הוחל** (עמודות connection_id/status/missing_since, fill_business_id מדלג על social_accounts, view `social_accounts_public`, grants ברמת עמודה — הטוקן של שורת FollowMe של אביב (fd1e8c04…) עודכן לחדש ביותר). **חלק B הוחל** (ה-delete/אינדקס/רישום הורצו ידנית ע"י אביב ב-SQL Editor, כי פקודות מחיקה נחסמות ב-MCP; נבדק: שורה אחת לעמוד, business_id nullable, האינדקס קיים, migration רשום). build עובר ✅. |
 | 4 | ✅ מוזג (PR #7). migration `20261004002300_business_rls.sql` (בלי drop): פונקציות is_super_admin / business_is_active (שעון ישראל) / can_access_business / accessible_business_ids; לכל 23 הטבלאות policy restrictive `<t>_business_gate` + permissive `<t>_business` (אותן פקודות כמו קודם; documents בלי delete; ai_generations/scheduled_posts בלי policy לקוח). המדיניות הישנות `user_id = auth.uid()` נשארו — ה-gate הוא שנועל. businesses/business_members: קריאה לחבר, כתיבה רק ל-super admin. הטריגר על profiles חוסם גם שינוי מכסות. דפים ציבוריים (book, doc, clock) → 403 `unavailable` "השירות אינו זמין". בדיקות: `tests/business-lock.test.ts` + בדיקה חיה בטרנזקציה שבוטלה. |
 | 5 | ✅ מוזג (PR #8). migration `20261004002400_scheduled_cancel_reason.sql` (עמודה `cancel_reason`, הוחלה). `src/lib/server/business.ts`: `userLocked` (אדמין-על אף פעם; בלי עסק = נעול), `LOCKED`, `LOCKED_REASON`. הטיימר (`scheduler.ts`) מבטל פוסט של עסק נעול ומסמן כל יעד failed "העסק נעול" — לא חוזר לבד אחרי פתיחה. `meta-stories` מדלג על עסק נעול. 403 `business_locked` ב: accessDenied (ai, image, video, voice, transcribe), reel/render, meta/publish, tiktok/upload, schedule POST. בדיקות: `tests/business-lock-server.test.ts`. |
-| 6 | ✅ קוד בענף, ממתין ל-PR (בלי שינוי במסד). `/api/admin/businesses` (מנהל-על בלבד): GET כרטיסים, POST עסק חדש (+בעלים לפי מייל — רק משתמש רשום), PATCH extend / paid_until / lock / unlock / enter (enter = profiles.current_business_id של האדמין). לוגיקה טהורה: `src/features/admin/business-state.ts` (bizView, extendMonth — מהמאוחר מבין היום ו-paid_until; null נשאר null). מסך: `BusinessesPanel.tsx`, לשונית ראשונה ב-/admin. באנר "העסק נעול" ב-AppShell דרך `/api/business/me`. "פוסטים החודש" = scheduled_posts done/partial (פרסום מיידי ל-Meta לא נרשם בשום טבלה). |
+| 6 | ✅ מוזג (PR #9). `/api/admin/businesses` (מנהל-על בלבד): GET כרטיסים, POST עסק חדש (+בעלים לפי מייל — רק משתמש רשום), PATCH extend / paid_until / lock / unlock / enter (enter = profiles.current_business_id של האדמין). לוגיקה טהורה: `src/features/admin/business-state.ts` (bizView, extendMonth — מהמאוחר מבין היום ו-paid_until; null נשאר null). מסך: `BusinessesPanel.tsx`, לשונית ראשונה ב-/admin. באנר "העסק נעול" ב-AppShell דרך `/api/business/me`. "פוסטים החודש" = scheduled_posts done/partial (פרסום מיידי ל-Meta לא נרשם בשום טבלה). |
+| 7 | ✅ קוד בענף, ממתין ל-PR. `20261004002500_current_business.sql` **הוחל** (פונקציה `current_business_id()`; ALTER POLICY ל-23 ה-gates: `business_id = current_business_id() and business_id in accessible_business_ids()`; exclusion חדש `appointments_business_no_overlap`). `20261004002600_business_keys.sql` **הוחל ידנית ע"י אביב ב-SQL Editor ונבדק** (כל ה-PK לפי business_id, ה-unique הישן במסמכים הוסר, הנתונים שלמים, רשום ב-schema_migrations) (PK של brands/register_settings/booking_settings/timeclock_settings → business_id, document_counters → (business_id, doc_type), הסרת unique (user_id, doc_type, doc_number) במסמכים; נבדק מקומית ב-PG16, idempotent). קוד: המסכים בלי סינון user_id (RLS מסנן לפי העסק הנוכחי); upsert של ההגדרות עם `onConflict: 'business_id'`; store שומר `businessId` ו-`hydratePlan` מונע העלאת נתונים של עסק אחר; בורר עסקים ב-AppShell (`/api/business/me` GET רשימה, POST מעבר); בשרת: דפים ציבוריים / טיימר / התראות לפי business_id של השורה, מסלולי משתמש לפי `workBusiness(userId)`. בדיקות: `tests/business-switch.test.ts` + בדיקה חיה בטרנזקציה שבוטלה. |
 
 ### חלק B של שלב 3 (בוצע — לתיעוד)
 ```sql
@@ -49,7 +50,7 @@ insert into supabase_migrations.schema_migrations(version, name, statements)
   values ('20261004002200', 'social_assets_2200', array['-- applied via execute_sql; full text in supabase/migrations/20261004002200_social_assets.sql'])
   on conflict (version) do nothing;
 ```
-הבא: אישור שלב 6 → PR (המיזוג נעשה ע"י אביב בגיטהאב — המיזוג מהסשן נחסם) → שלב 7 (בורר עסקים + סינון כל מסך לפי העסק + PK לפי business_id).
+הבא: אישור שלב 7 → PR → מיזוג → בדיקות הקבלה (1–7) מול האתר החי.
 
 **חשוב לשיחות הבאות:** פקודות `delete`/`drop` דרך Supabase MCP נחסמות תמיד (timeout) — להכין SQL ולבקש מאביב להריץ ב-SQL Editor, ואז לוודא בשאילתה.
 
@@ -61,7 +62,8 @@ insert into supabase_migrations.schema_migrations(version, name, statements)
 - ✅ תוקן בשלב 4: מכסות ב-profiles מוגנות בטריגר `profiles_guard_super_admin`.
 - **פתוח**: משתמש חדש שנרשם בלי להיות חבר בעסק — אין לו business_id, כך שלא יוכל לשמור כלום (NOT NULL + RLS). עסקים וחברים נוספים ע"י האדמין (שלב 6).
 - ✅ שלב 6: באנר "העסק נעול" לבעלים.
-- **לשלב 7**: "כניסה לעסק" כבר קובעת את העסק הנוכחי (שורות חדשות נרשמות אליו), אבל המסכים עדיין מסננים לפי user_id — לכן אדמין שנכנס ל-SaGabot עוד לא רואה את הנתונים של שגית. אסור לאדמין להפיק מסמכים בעסק אחר לפני תיקון ה-PK של document_counters.
+- ✅ שלב 7: מסכים לפי העסק הנוכחי.
+- הערה: upsert של content/media/leads מעדכן גם user_id לעורך האחרון ("מי יצר" יכול להתחלף כשאדמין עורך שורה של בעלים).
 - **אדמין בקוד**: `src/lib/server/admin-auth.ts` — admin = is_super_admin או ADMIN_EMAILS. עזרים: `src/lib/server/business.ts` (isSuperAdmin, canUseBusiness, businessIsActive, businessOf). סנכרון Meta טהור: `src/lib/server/meta-sync.ts`. מסך: `/admin` → לשונית "חיבורים ונכסים" (`src/features/admin/ConnectionsPanel.tsx`).
 - README עדיין מזכיר `META_CONFIG_READ` — כבר לא בשימוש (חיבור אחד מלא).
 - בדיקת מיגרציות מקומית: Postgres 16 מותקן (`/usr/lib/postgresql/16/bin`, להריץ כ-`su postgres`, תיקייה ב-/tmp).

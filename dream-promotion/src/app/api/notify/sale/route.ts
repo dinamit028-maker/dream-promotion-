@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { pushToUser } from '@/lib/server/push';
+import { workBusiness } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 const ils = (n: number) => `₪${Number(n).toLocaleString('he-IL', { maximumFractionDigits: 2 })}`;
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'unauthorized' }, { status: 401 });
   const { saleId } = await req.json().catch(() => ({}));
-  const { data: s } = await adminDb().from('sales').select('total, method, status, customer_name, employee_name, items').eq('id', String(saleId ?? '')).eq('user_id', userId).maybeSingle();
+  const { data: s } = await adminDb().from('sales').select('total, method, status, customer_name, employee_name, items').eq('id', String(saleId ?? '')).eq('business_id', await workBusiness(userId)).maybeSingle();
   if (!s) return NextResponse.json({ code: 'not_found' }, { status: 404 });
   const what = ((s as any).items ?? []).map((l: any) => l.name).slice(0, 3).join(', ');
   const r = await pushToUser(userId, {

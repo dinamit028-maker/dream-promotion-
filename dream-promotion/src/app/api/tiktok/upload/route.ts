@@ -1,7 +1,7 @@
 import { safeFetch } from '@/lib/server/safe-fetch';
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { LOCKED, userLocked } from '@/lib/server/business';
+import { LOCKED, userLocked, workBusiness } from '@/lib/server/business';
 import { accessTokenFor, uploadToInbox } from '@/lib/server/tiktok';
 
 export const runtime = 'nodejs';
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   if (await userLocked(userId)) return NextResponse.json(LOCKED, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const db = adminDb();
-  const { data: media } = await db.from('media').select('id, url, kind').eq('id', body.mediaId).eq('user_id', userId).maybeSingle();
+  const { data: media } = await db.from('media').select('id, url, kind').eq('id', body.mediaId).eq('business_id', await workBusiness(userId)).maybeSingle();
   if (!media || media.kind !== 'video') return NextResponse.json({ code: 'bad_media', message: 'choose a video from your library' }, { status: 400 });
 
   const { data: log } = await db.from('social_posts').insert({

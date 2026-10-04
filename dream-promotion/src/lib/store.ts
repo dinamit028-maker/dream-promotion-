@@ -6,6 +6,7 @@ import { uid } from './utils';
 import type { VoiceStyle } from './services/voice/types';
 import type { Pronunciation } from './pronunciation';
 import { Repo } from './repo';
+import { hydratePlan } from './hydrate-plan';
 
 /**
  * Client store. Persisted to localStorage so the app is usable before a backend exists.
@@ -31,8 +32,10 @@ interface AppState {
   setPronunciations: (p: Pronunciation[]) => void;
   /** signed-in user; null means the app is running on this device only */
   userId: string | null;
+  /** the business whose data is in this store (null = not known yet / device only) */
+  businessId: string | null;
   syncing: boolean;
-  hydrate: (userId: string) => Promise<void>;
+  hydrate: (userId: string, businessId?: string | null) => Promise<void>;
   signOutLocal: () => void;
   openEditor: (id: string) => void;
   closeEditor: () => void;
@@ -86,19 +89,23 @@ export const useApp = create<AppState>()(
         if (uid) void Repo.savePronunciations(uid, pronunciations);
       },
       userId: null,
+      businessId: null,
       syncing: false,
 
       /**
        * Pulls the account's data down. On a first sign-in with an empty account,
        * whatever was created on this device is pushed up instead of being lost.
        */
-      hydrate: async (userId) => {
-        set({ syncing: true, userId });
+      hydrate: async (userId, businessId = null) => {
+        const local = get();
+        // another business's data on this device is never uploaded into this one (switching businesses)
+        const { switched, mayUploadLocal: localHasWork } = hydratePlan(
+          { userId: local.userId, businessId: local.businessId, hasWork: Boolean(local.brand.name) || local.content.length > 0 || local.media.length > 0 },
+          { userId, businessId });
+        set({ syncing: true, userId, businessId });
         try {
           const cloud = await Repo.load(userId);
-          const local = get();
           const cloudEmpty = !cloud.content.length && !cloud.brand?.name;
-          const localHasWork = Boolean(local.brand.name) || local.content.length > 0 || local.media.length > 0;
 
           if (cloudEmpty && localHasWork) {
             await Repo.saveBrand(userId, local.brand, local.onboarded, local.analysis);
@@ -112,9 +119,10 @@ export const useApp = create<AppState>()(
           } else {
             const { onboarded, analysis, ...brandFields } = cloud.brand as any;
             set({
-              brand: { ...get().brand, ...brandFields },
-              onboarded: onboarded ?? get().onboarded,
-              analysis: analysis ?? get().analysis,
+              brand: { ...(switched ? emptyBrand : get().brand), ...brandFields },
+              // entering a business is never a reason to run the onboarding wizard again
+              onboarded: onboarded ?? (switched ? true : get().onboarded),
+              analysis: analysis ?? (switched ? null : get().analysis),
               content: cloud.content,
               media: cloud.media,
               leads: cloud.leads,
@@ -129,7 +137,7 @@ export const useApp = create<AppState>()(
       },
 
       signOutLocal: () => set({
-        userId: null, onboarded: false, brand: emptyBrand, analysis: null,
+        userId: null, businessId: null, onboarded: false, brand: emptyBrand, analysis: null,
         content: [], media: [], leads: [], activities: [], ads: [], pronunciations: [],
       }),
       openEditor: (id) => set({ editingId: id }),

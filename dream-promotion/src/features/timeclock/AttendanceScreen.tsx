@@ -46,12 +46,12 @@ export function AttendanceScreen() {
       const sb = supabase();
       const fromIso = israelToIso(from, '00:00');
       const toIso = new Date(new Date(israelToIso(to, '00:00')).getTime() + 864e5).toISOString();
-      const qs = await sb.from('timeclock_settings').select('*').eq('user_id', userId).maybeSingle();
+      const qs = await sb.from('timeclock_settings').select('*').maybeSingle();
       setQr(qs.error ? null : (qs.data as any) ?? null);
       const [e, t, open] = await Promise.all([
-        sb.from('employees').select('*').eq('user_id', userId).order('created_at'),
-        sb.from('time_entries').select('*').eq('user_id', userId).gte('clock_in', fromIso).lt('clock_in', toIso).order('clock_in'),
-        sb.from('time_entries').select('*').eq('user_id', userId).is('clock_out', null),
+        sb.from('employees').select('*').order('created_at'),
+        sb.from('time_entries').select('*').gte('clock_in', fromIso).lt('clock_in', toIso).order('clock_in'),
+        sb.from('time_entries').select('*').is('clock_out', null),
       ]);
       if (e.error) throw e.error; if (t.error) throw t.error;
       setEmps((e.data ?? []).map(toEmp));
@@ -269,7 +269,7 @@ function QrTab({ userId, business, value, onSaved, onError }: { userId: string; 
   const [locating, setLocating] = useState(false);
   useEffect(() => { if (url) void QRCode.toDataURL(url, { width: 640, margin: 1, errorCorrectionLevel: 'M' }).then(setImg); else setImg(''); }, [url]);
   async function save(next: QrSettings, msg: string) {
-    const { error } = await supabase().from('timeclock_settings').upsert({ user_id: userId, ...next });
+    const { error } = await supabase().from('timeclock_settings').upsert({ user_id: userId, ...next }, { onConflict: 'business_id' });
     if (error) onError(error); else onSaved(next, msg);
   }
   function print() {
