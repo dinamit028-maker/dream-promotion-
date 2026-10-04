@@ -3,7 +3,7 @@ import { open } from './secrets';
 import { businessOpen } from './business';
 import { formLeads, leadForms } from './meta';
 import {
-  META_LEADS_SOURCE, RECONNECT_FOR_LEADS, SPONSORED_TAG, isLeadsPermissionError, leadNote, mapMetaLead, noteMarker, planImport,
+  META_LEADS_SOURCE, RECONNECT_FOR_LEADS, SPONSORED_TAG, isLeadsPermissionError, leadDetails, leadNote, mapMetaLead, noteMarker, planImport,
   type MappedLead,
 } from '@/features/crm/meta-leads';
 
@@ -67,8 +67,8 @@ export async function importLeads(businessId: string, owner: string, formName: s
   for (const n of (notes ?? []) as { body: string }[]) for (const m of mapped) if (n.body?.includes(noteMarker(m.externalId))) noted.add(m.externalId);
 
   const created = new Map<string, string>(); // Meta id → new contact id (for a second lead with the same phone)
-  const note = (leadId: string, m: MappedLead) => db.from('lead_activities').insert({
-    user_id: owner, business_id: businessId, lead_id: leadId, kind: 'note', body: leadNote(formName, m),
+  const note = (leadId: string, m: MappedLead, withMarker: boolean) => db.from('lead_activities').insert({
+    user_id: owner, business_id: businessId, lead_id: leadId, kind: 'note', body: leadNote(formName, m, withMarker),
     ...(m.createdAt ? { created_at: m.createdAt } : {}),
   });
 
@@ -78,10 +78,10 @@ export async function importLeads(businessId: string, owner: string, formName: s
     if (step.kind === 'existing' || step.kind === 'same_batch') {
       const leadId = step.kind === 'existing' ? step.leadId : created.get(step.firstExternalId);
       if (!leadId) { out.skipped++; continue; }
-      await note(leadId, m); out.noted++; continue;
+      await note(leadId, m, true); out.noted++; continue;
     }
     const ins = await db.from('leads').insert({
-      user_id: owner, business_id: businessId, name: m.name, phone: m.phone, email: m.email,
+      user_id: owner, business_id: businessId, name: m.name, phone: m.phone, email: m.email, notes: leadDetails(m),
       source: `Meta · ${formName}`.slice(0, 120), status: 'חדש', tags: [SPONSORED_TAG],
       external_source: META_LEADS_SOURCE, external_id: m.externalId,
       ...(m.createdAt ? { date: m.createdAt.slice(0, 10) } : {}),
@@ -91,7 +91,7 @@ export async function importLeads(businessId: string, owner: string, formName: s
       throw new Error(`insert_lead: ${ins.error.message}`);
     }
     created.set(m.externalId, ins.data.id);
-    await note(ins.data.id, m);
+    await note(ins.data.id, m, false);
     out.imported++;
   }
   return out;
