@@ -6,7 +6,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeDb } from './fakedb';
-import { channelOfSource, contactsToCreate, conversationItems, fbCommentItems, igCommentItems, isNoise } from '../src/features/crm/meta-inbox';
+import { channelOf, channelOfSource, contactsToCreate, conversationItems, fbCommentItems, igCommentItems, isNoise } from '../src/features/crm/meta-inbox';
 
 process.env.TOKEN_ENCRYPTION_KEY = 'test-key-for-meta-inbox-reply';
 const SG = 'biz-sg', FM = 'biz-fm';
@@ -143,4 +143,11 @@ test('Messenger: a picture or a sticker with no text is still part of the conver
     { id: 'c', created_time: '2026-07-09T10:00:00Z', from: { id: 'p' } },
   ] } }], '1970-01-01T00:00:00Z');
   assert.deepEqual(items.map((i) => i.body), ['🖼️ (תמונה)', '🙂 (מדבקה)']);
+});
+
+test('the "לידים" filter: contacts from a Meta form (paid), apart from comments and messages', () => {
+  assert.equal(channelOf({ source: 'Meta · טופס גבות', tags: ['ליד ממומן'] }), 'leads');
+  assert.equal(channelOf({ source: 'ידני', tags: ['ליד ממומן'] }), 'leads');
+  assert.equal(channelOf({ source: 'Messenger', tags: ['תגובות'] }), 'messenger');
+  assert.equal(channelOf({ source: 'ידני', tags: [] }), null);
 });

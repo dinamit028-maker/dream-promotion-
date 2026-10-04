@@ -5,7 +5,7 @@ import { israelParts } from '@/lib/il-time';
 export const STAGES: { id: LeadStatus; label: string; tone: string }[] = [
   // comments and messages from Facebook / Instagram / Messenger land here; "🔥 ליד חם" moves them on
   { id: 'פנייה', label: '💬 תגובות', tone: 'bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300' },
-  { id: 'חדש', label: 'חדש', tone: 'bg-sky-500/15 text-sky-600 dark:text-sky-300' },
+  { id: 'חדש', label: 'ליד חדש', tone: 'bg-sky-500/15 text-sky-600 dark:text-sky-300' },
   { id: 'נוצר קשר', label: 'נוצר קשר', tone: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300' },
   { id: 'מעוניין', label: 'מעוניין', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
   { id: 'נקבע תור', label: 'נקבע תור', tone: 'bg-violet-500/15 text-violet-600 dark:text-violet-300' },

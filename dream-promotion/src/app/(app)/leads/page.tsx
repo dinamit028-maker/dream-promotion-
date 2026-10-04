@@ -11,7 +11,7 @@ import { STAGES, followupState, matches, parseTags, stageOf, telLink, waLink } f
 import { ContactSheet } from '@/features/crm/ContactSheet';
 import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
 import { InboxSettings } from '@/features/crm/InboxSettings';
-import { INBOX_FILTERS, channelOfSource } from '@/features/crm/meta-inbox';
+import { INBOX_FILTERS, channelOf } from '@/features/crm/meta-inbox';
 
 /**
  * CRM — the business's contacts: leads and customers in one place (toolbox stage 1).
@@ -30,10 +30,10 @@ export default function LeadsPage() {
   const [adding, setAdding] = useState(false);
   const [settings, setSettings] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', source: '', tags: '' });
-  // where a contact came from Meta: Messenger / Facebook comments / Instagram comments
-  const [channel, setChannel] = useState<'all' | 'messenger' | 'fb' | 'ig'>('all');
-  const inChannel = (l: Lead) => channel === 'all' || channelOfSource(l.source) === channel;
-  const channelCount = (id: string) => leads.filter((l) => channelOfSource(l.source) === id).length;
+  // where a contact came from: paid leads (Meta forms) / Messenger / Facebook comments / Instagram comments
+  const [channel, setChannel] = useState<'all' | 'leads' | 'messenger' | 'fb' | 'ig'>('all');
+  const inChannel = (l: Lead) => channel === 'all' || channelOf(l) === channel;
+  const channelCount = (id: string) => leads.filter((l) => channelOf(l) === id).length;
 
   const due = useMemo(() => leads.filter((l) => { const s = followupState(l); return s === 'overdue' || s === 'today'; }), [leads]);
   const shown = useMemo(() => {
@@ -109,9 +109,9 @@ export default function LeadsPage() {
             </div>
           </div>
 
-          {view === 'list' && INBOX_FILTERS.some((f) => channelCount(f.id) > 0) && (
+          {INBOX_FILTERS.some((f) => channelCount(f.id) > 0) && (
             <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="סינון לפי ערוץ">
-              <Chip on={channel === 'all'} onClick={() => setChannel('all')}>כללי</Chip>
+              <Chip on={channel === 'all'} onClick={() => setChannel('all')}>כללי {leads.length}</Chip>
               {INBOX_FILTERS.map((f) => {
                 const n = channelCount(f.id);
                 return n ? <Chip key={f.id} on={channel === f.id} onClick={() => setChannel(f.id)}>{f.label} {n}</Chip> : null;
@@ -140,25 +140,13 @@ export default function LeadsPage() {
           {view === 'board' && (
             <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
               {STAGES.map((s) => {
-                // the comments column splits by channel: general (all) / Messenger / Facebook / Instagram — the others show everything
-                const isInbox = s.id === 'פנייה';
-                const inCol = leads.filter((l) => l.status === s.id && matches(l, q));
-                const col = isInbox ? inCol.filter(inChannel) : inCol;
+                const col = leads.filter((l) => l.status === s.id && inChannel(l) && matches(l, q));
                 return (
                   <Card key={s.id} className="w-64 shrink-0 p-3">
                     <p className="mb-2 flex items-center justify-between text-sm font-bold">
                       <span className={cx('rounded-full px-2 py-0.5 text-xs', s.tone)}>{s.label}</span>
                       <span className="text-muted">{col.length}</span>
                     </p>
-                    {isInbox && inCol.length > 0 && (
-                      <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="סינון התגובות לפי ערוץ">
-                        <Chip on={channel === 'all'} onClick={() => setChannel('all')}>כללי {inCol.length}</Chip>
-                        {INBOX_FILTERS.map((f) => {
-                          const n = inCol.filter((l) => channelOfSource(l.source) === f.id).length;
-                          return n ? <Chip key={f.id} on={channel === f.id} onClick={() => setChannel(f.id)}>{f.label} {n}</Chip> : null;
-                        })}
-                      </div>
-                    )}
                     <div className="grid gap-2">
                       {col.map((l) => {
                         const fs = followupState(l);

@@ -174,6 +174,12 @@ export function channelOfSource(source: string | undefined): 'messenger' | 'fb' 
   if (source === sourceOf('ig_comment')) return 'ig';
   return null;
 }
+/** where a contact came from, for the filter row: a paid lead (Meta Lead Ads form) or one of the inbox channels */
+export function channelOf(l: { source?: string; tags?: string[] }): 'leads' | 'messenger' | 'fb' | 'ig' | null {
+  if ((l.source ?? '').startsWith('Meta · ') || (l.tags ?? []).includes('ליד ממומן')) return 'leads';
+  return channelOfSource(l.source);
+}
 export const INBOX_FILTERS = [
+  { id: 'leads', label: '💰 לידים' },
   { id: 'messenger', label: '💬 מסנג׳ר' }, { id: 'fb', label: '👍 תגובות בפייסבוק' }, { id: 'ig', label: '📷 תגובות באינסטגרם' },
 ] as const;
