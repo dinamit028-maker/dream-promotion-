@@ -434,3 +434,18 @@ export async function linkedInstagram(pageToken: string, pageId: string): Promis
   const ig = j.instagram_business_account;
   return ig?.id ? { id: String(ig.id), username: String(ig.username ?? '') } : null;
 }
+
+/** a Messenger reply to a person (PSID) — allowed by Meta within 24 hours of their last message */
+export async function sendMessengerText(pageToken: string, pageId: string, psid: string, text: string): Promise<string> {
+  const j = await graph(`/${pageId}/messages`, {
+    access_token: pageToken, messaging_type: 'RESPONSE',
+    recipient: JSON.stringify({ id: psid }), message: JSON.stringify({ text }),
+  }, 'POST');
+  return String(j.message_id ?? j.id ?? '');
+}
+
+/** a public reply under a comment: Instagram → /replies, Facebook → /comments (needs pages_manage_engagement) */
+export async function replyToComment(pageToken: string, commentId: string, text: string, platform: 'facebook' | 'instagram'): Promise<string> {
+  const j = await graph(`/${commentId}/${platform === 'instagram' ? 'replies' : 'comments'}`, { access_token: pageToken, message: text }, 'POST');
+  return String(j.id ?? '');
+}

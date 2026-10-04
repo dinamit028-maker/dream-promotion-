@@ -8,6 +8,11 @@ import { cx } from '@/lib/utils';
 import { formatIL, israelParts, israelToIso } from '@/lib/il-time';
 import type { Lead, LeadActivityKind, LeadStatus } from '@/types';
 import { ACTIVITY_HE, STAGES, followupState, parseTags, stageOf, telLink, waLink } from './crm';
+import { channelOfSource } from './meta-inbox';
+import { authHeaders } from '@/lib/services/http';
+
+/** what the reply box says it answers in, per inbox channel */
+const REPLY_IN = { messenger: 'תשובה במסנג׳ר', fb: 'תשובה לתגובה בפייסבוק', ig: 'תשובה לתגובה באינסטגרם' } as const;
 
 const LOG_KINDS: LeadActivityKind[] = ['note', 'call', 'whatsapp', 'meeting', 'purchase'];
 
@@ -24,6 +29,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
   const [amount, setAmount] = useState('');
   const [fu, setFu] = useState({ date: '', time: '10:00' });
   const [ai, setAi] = useState<{ busy: boolean; text: string; error: string | null }>({ busy: false, text: '', error: null });
+  const [reply, setReply] = useState<{ text: string; busy: boolean; error: string | null; sent: boolean }>({ text: '', busy: false, error: null, sent: false });
 
   useEffect(() => {
     setDraft(lead);
@@ -31,6 +37,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
     const p = lead?.nextFollowup ? israelParts(new Date(lead.nextFollowup)) : null;
     setFu(p ? { date: p.date, time: p.time } : { date: '', time: '10:00' });
     setAi({ busy: false, text: '', error: null }); setLogText(''); setAmount('');
+    setReply({ text: '', busy: false, error: null, sent: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId]);
 
@@ -76,6 +83,22 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
     addActivity(lead!.id, 'whatsapp', text.slice(0, 300));
   }
   const fuState = followupState(lead);
+  const inbox = channelOfSource(lead.source);
+  /** answers on Messenger / under the comment, through Meta — the server writes it into the history */
+  async function sendReply() {
+    const text = reply.text.trim();
+    if (!text || reply.busy) return;
+    setReply({ ...reply, busy: true, error: null, sent: false });
+    try {
+      const r = await fetch('/api/meta/inbox/reply', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ leadId: lead!.id, text }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) { setReply((x) => ({ ...x, busy: false, error: j?.message ?? 'השליחה לא הצליחה. נסו שוב בעוד רגע.' })); return; }
+      setReply({ text: '', busy: false, error: null, sent: true });
+      const { userId, businessId, hydrate } = useApp.getState();
+      if (userId) await hydrate(userId, businessId);
+    } catch { setReply((x) => ({ ...x, busy: false, error: 'אין חיבור כרגע. נסו שוב.' })); }
+  }
 
   return (
     <Modal open={Boolean(leadId)} onClose={onClose} wide>
@@ -97,6 +120,20 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         {lead.email && <a href={`mailto:${lead.email}`} onClick={() => addActivity(lead.id, 'email', 'שלחתי מייל')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">✉️ מייל</a>}
         <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>
       </div>
+
+      {inbox && (
+        <div className="mb-4 rounded-2xl border border-line p-3">
+          <p className="mb-1.5 text-sm font-semibold">↩️ {REPLY_IN[inbox]}</p>
+          <Textarea value={reply.text} onChange={(e) => setReply({ ...reply, text: e.target.value, sent: false })} className="min-h-[70px]"
+            placeholder="כתבו כאן את התשובה — היא תישלח ישירות אליו/ה" aria-label={REPLY_IN[inbox]} />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="primary" onClick={sendReply} disabled={reply.busy || !reply.text.trim()}>{reply.busy ? <><Spinner />שולח…</> : 'שליחה'}</Button>
+            {reply.sent && <span className="text-xs font-semibold text-[var(--ok,#16a34a)]">נשלח ✓ ונשמר בהיסטוריה</span>}
+          </div>
+          {reply.error && <p className="mt-2 text-sm text-warn">{reply.error}</p>}
+          {inbox === 'messenger' && <p className="mt-1.5 text-xs text-muted">במסנג׳ר אפשר לענות עד 24 שעות מההודעה האחרונה של הלקוח/ה.</p>}
+        </div>
+      )}
 
       {(ai.text || ai.error) && (
         <div className="mb-4 rounded-2xl bg-primary-soft p-3">
