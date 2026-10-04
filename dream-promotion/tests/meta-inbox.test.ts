@@ -56,7 +56,7 @@ const FM = 'biz-fm', SG = 'biz-sg';
 const tables: Record<string, any[]> = {
   businesses: [{ id: FM, status: 'active', paid_until: null, grace_days: 0 }, { id: SG, status: 'active', paid_until: null, grace_days: 0 }],
   business_members: [{ business_id: FM, user_id: 'aviv', role: 'owner' }, { business_id: SG, user_id: 'sagit', role: 'owner' }],
-  social_accounts: [], leads: [], social_messages: [], meta_inbox_sync: [],
+  social_accounts: [], leads: [], social_messages: [], meta_inbox_sync: [], lead_activities: [],
 };
 const graphData: Record<string, any> = {
   '/page-sg/posts': { data: [{ id: 'post-1', message: 'מבצע', permalink_url: 'https://fb/p1' }] },
@@ -76,7 +76,7 @@ before(async () => {
   (globalThis as any).__DP_TEST_ADMIN_DB__ = fakeDb(tables);
   globalThis.fetch = (async (u: any) => {
     const url = new URL(String(u)); const path = url.pathname.replace(/^\/v[\d.]+/, '');
-    calls.push(path);
+    calls.push(path); if (url.searchParams.get('platform') === 'instagram') calls.push('IG_DIRECT');
     if (path === '/page-sg/posts' && Number(url.searchParams.get('limit')) > 10) {
       return new Response(JSON.stringify({ error: { code: 1, message: "Please reduce the amount of data you're asking for, then retry your request" } }), { status: 500 });
     }
@@ -95,6 +95,13 @@ test('sync: one "פנייה" card for Dana in SaGabot (comment + message), nothi
   assert.equal(tables.social_messages.length, 2, 'stored once even after two syncs');
   assert.ok(tables.social_messages.every((m) => m.business_id === SG && m.lead_id === cards[0].id));
   assert.equal(tables.leads.filter((l) => l.business_id === FM).length, 0, 'nothing leaks into FollowMe');
+  assert.match(cards[0].notes, /נכנס\/ה דרך: (תגובה בפייסבוק על הפוסט: "מבצע" \(https:\/\/fb\/p1\)|מסנג׳ר)/, 'how they came in');
+  assert.match(cards[0].notes, /כתב\/ה: /, 'how the conversation started');
+  const hist = tables.lead_activities.filter((a) => a.lead_id === cards[0].id);
+  assert.equal(hist.length, 2, 'the comment and the message are on the card\'s history — once each');
+  assert.ok(hist.every((a) => a.business_id === SG && a.kind === 'note'));
+  assert.ok(hist.some((a) => /👍 תגובה בפייסבוק על הפוסט: "מבצע"/.test(a.body) && /כמה עולה\?/.test(a.body)));
+  assert.ok(!calls.includes('IG_DIRECT'), 'Instagram Direct is not read');
   assert.ok(calls.filter((c) => c === '/page-sg/posts').length >= 2, 'Meta said "too much data" — asked again smaller, and it worked');
 });
 
