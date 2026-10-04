@@ -34,9 +34,9 @@
 |---|---|
 | 1 | ✅ migration `20261004001900_businesses.sql` הוחל. is_super_admin=true לאביב. טריגר `guard_super_admin` חוסם שינוי מה-API (נבדק חי). meta_connections סגורה לדפדפן. RLS פעיל בלי policies על הטבלאות החדשות (עד שלב 4). |
 | 2 | ✅ `20261004002000_business_id.sql` + `20261004002100_business_id_required.sql` הוחלו. עסקים FollowMe (slug followme) ו-SaGabot (slug sagabot), חברים, backfill מלא, NOT NULL בכל הטבלאות חוץ מ-`ai_generations` (יומן עלויות, user_id nullable). |
-| 3 | 🟡 קוד בענף (commit d520dcf, 56/56 בדיקות, typecheck עובר; build עוד לא הורץ). migration `20261004002200_social_assets.sql`: **חלק A הוחל** (עמודות connection_id/status/missing_since, fill_business_id מדלג על social_accounts, view `social_accounts_public`, grants ברמת עמודה — הטוקן של שורת FollowMe של אביב (fd1e8c04…) עודכן לחדש ביותר). **חלק B עוד לא הוחל** — ראו למטה. |
+| 3 | 🟡 קוד בענף (commit d520dcf, 56/56 בדיקות, typecheck עובר; build עוד לא הורץ). migration `20261004002200_social_assets.sql`: **חלק A הוחל** (עמודות connection_id/status/missing_since, fill_business_id מדלג על social_accounts, view `social_accounts_public`, grants ברמת עמודה — הטוקן של שורת FollowMe של אביב (fd1e8c04…) עודכן לחדש ביותר). **חלק B הוחל חלקית**: `business_id` כבר nullable (✅). ה-`delete` נחסם (timeout — אישור ההרשאה של Supabase לא מגיע לסשן גם ב-Always), ולכן גם האינדקס והרישום טרם בוצעו. build עובר ✅. |
 
-### חלק B שנשאר (מכיל drop/delete — המשתמש כבר אישר אותו)
+### חלק B שנשאר (השורה הראשונה כבר בוצעה; ה-delete נחסם ב-MCP — להריץ ב-SQL Editor של Supabase או לאשר בחלון)
 ```sql
 alter table public.social_accounts alter column business_id drop not null;
 delete from public.social_accounts
