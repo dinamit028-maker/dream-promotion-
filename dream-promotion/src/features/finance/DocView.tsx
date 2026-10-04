@@ -237,7 +237,7 @@ function CancelDialog({ doc, userId, onClose, onDone }: { doc: DocRow; userId: s
   return (
     <Modal open onClose={onClose}>
       <h3 className="mb-1 font-display text-lg font-extrabold">ביטול {DOC_LABEL[doc.docType]} {doc.docNumber}</h3>
-      <p className="mb-3 text-sm text-muted">המסמך נשאר כמו שהוא ומסומן "בוטל" (גם בממשק הפתוח). {doc.docType === 400 ? 'הכסף שלו יוצא מיומן התשלומים.' : ''} רק אם הופק בטעות.</p>
+      <p className="mb-3 text-sm text-muted">המסמך נשאר כמו שהוא ומסומן "בוטל" (גם בממשק הפתוח). {doc.docType === 400 ? 'הכסף שלו יוצא מיומן התשלומים.' : ''} {!doc.saleId && doc.lines.some((l) => l.itemId) ? 'המוצרים שבו חוזרים למלאי.' : ''} רק אם הופק בטעות.</p>
       <Field label="סיבה"><Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></Field>
       {error && <Note tone="warn">{error}</Note>}
       <div className="mt-3 flex gap-2"><Button variant="primary" disabled={busy || reason.trim().length < 2} onClick={() => void go()}>ביטול המסמך</Button><Button variant="ghost" onClick={onClose}>חזרה</Button></div>

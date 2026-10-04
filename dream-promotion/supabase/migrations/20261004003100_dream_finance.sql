@@ -663,15 +663,12 @@ begin
     update public.quotes set status = 'converted', converted_document_id = new.id
      where id = new.quote_id and business_id = new.business_id and status in ('draft', 'sent', 'accepted');
   end if;
-  -- 3. stock: products sold on a direct document go out (the register's sales move stock on their own);
-  --    a direct credit invoice brings back the lines marked "restock"
+  -- 3. stock: products sold on a direct document go out on the document that makes the sale — a 300 / 305, or a
+  --    320 / 400 that stands alone — and never again on the receipt that pays it (whole or in parts, exempt or not).
+  --    Cancelling that document brings them back (document_cancellations_after). The register's sales move stock on
+  --    their own. A direct credit invoice brings back the lines marked "restock".
   if new.sale_id is null and new.refund_id is null then
-    if new.doc_type in (305, 320, 400) and new.paid_document_id is null then
-      for l in select * from public.stock_lines(new.lines) loop
-        perform public.stock_move_ref(new.business_id, l.item_id, -l.qty, 'sale', format('%s-%s', new.doc_type, new.doc_number), new.id, null);
-      end loop;
-    elsif new.doc_type = 320 and new.paid_document_id is not null then
-      -- a 320 paying a transaction invoice (300): the 300 moved nothing, the 320 does
+    if new.doc_type in (300, 305, 320, 400) and new.paid_document_id is null then
       for l in select * from public.stock_lines(new.lines) loop
         perform public.stock_move_ref(new.business_id, l.item_id, -l.qty, 'sale', format('%s-%s', new.doc_type, new.doc_number), new.id, null);
       end loop;
@@ -762,13 +759,18 @@ create or replace trigger b_document_cancellations_check before insert on public
 
 create or replace function public.document_cancellations_after() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare d record;
+declare d record; l record;
 begin
   select doc_type, doc_number into d from public.documents where id = new.document_id;
   -- money of a cancelled receipt goes back off the books (a reversing row; the original row stays)
   insert into public.payments (business_id, user_id, direction, amount, method, paid_on, source, document_id, applies_to, sale_id, lead_id, note)
   select p.business_id, auth.uid(), 'out', p.amount, p.method, public.il_today(), 'cancel', p.document_id, p.applies_to, p.sale_id, p.lead_id, left(new.reason, 300)
     from public.payments p where p.document_id = new.document_id and p.direction = 'in' and p.source = 'document';
+  -- the products that went out on it come back (a direct document; a register sale puts its stock back on its own)
+  for l in select m.item_id, sum(m.delta)::int as qty from public.stock_movements m where m.document_id = new.document_id
+            group by m.item_id having sum(m.delta) <> 0 loop
+    perform public.stock_move_ref(new.business_id, l.item_id, -l.qty, 'cancel', format('ביטול %s-%s', d.doc_type, d.doc_number), new.document_id, null);
+  end loop;
   perform public.finance_log(new.business_id, 'document.cancelled', 'documents', new.document_id::text,
     jsonb_build_object('type', d.doc_type, 'number', d.doc_number, 'reason', new.reason));
   return null;

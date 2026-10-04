@@ -66,7 +66,8 @@ insert into public.register_settings (user_id, business_id, business_type, vat_r
   ('00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-0000000f0002', 'licensed', 18, '123456782', 'שגית', 'הגפן', 'חיפה', 'exempt_dealer');
 insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty) values
   ('00000000-0000-0000-0000-0000000c0001', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000f0001', 'חולצה', 118, 'product', true, 10),
-  ('00000000-0000-0000-0000-0000000c0002', '00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-0000000f0002', 'קרם', 50, 'product', false, 0);
+  ('00000000-0000-0000-0000-0000000c0002', '00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-0000000f0002', 'קרם', 50, 'product', false, 0),
+  ('00000000-0000-0000-0000-0000000c0003', '00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-0000000f0002', 'שמפו', 40, 'product', true, 5);
 insert into public.leads (id, user_id, business_id, name) values
   ('00000000-0000-0000-0000-0000000d0001', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-0000000f0001', 'חנות לקוחה בע"מ'),
   ('00000000-0000-0000-0000-0000000d0002', '00000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-0000000f0002', 'דנה');
@@ -280,6 +281,19 @@ select pg_temp.refused($$delete from public.finance_audit_log$$, 'the audit log 
 select pg_temp.refused($$select public.log_finance_event('document.issued', 'documents', 'x')$$, 'a client writes any event it likes');
 select public.log_finance_event('export.csv', 'documents', '', '{"rows": 9}');
 select pg_temp.check((select count(*) from public.finance_audit_log where action = 'export.csv') = 1, 'an export is logged');
+-- a transaction invoice (300) for products: they go out on the 300 — never again on the 320s that pay it, in parts or
+-- with the same lines
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0001') = 9, 'nine shirts before the 300');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000a', 300, 200, 36, 18, jsonb_build_object('idempotency_key', 'shirts-300',
+  'lines', jsonb_build_array(jsonb_build_object('name', 'חולצה', 'qty', 2, 'unitPriceExVat', 100, 'totalExVat', 200, 'vatRate', 18, 'kind', 1, 'itemId', '00000000-0000-0000-0000-0000000c0001')))));
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0001') = 7, 'two shirts out on the transaction invoice');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000a', 320, 100, 18, 18, jsonb_build_object('idempotency_key', 'shirts-320a',
+  'paid_document_id', (select id from public.documents where idempotency_key = 'shirts-300'))));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000a', 320, 100, 18, 18, jsonb_build_object('idempotency_key', 'shirts-320b',
+  'paid_document_id', (select id from public.documents where idempotency_key = 'shirts-300'),
+  'lines', jsonb_build_array(jsonb_build_object('name', 'חולצה', 'qty', 1, 'unitPriceExVat', 100, 'totalExVat', 100, 'vatRate', 18, 'kind', 1, 'itemId', '00000000-0000-0000-0000-0000000c0001')))));
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0001') = 7, 'the 320s that pay it move nothing');
+select pg_temp.check((select balance from public.receivables where id = (select id from public.documents where idempotency_key = 'shirts-300')) = 0, 'and it is paid');
 commit;
 
 -- the audit chain notices a changed row (the superuser switches the guard off to tamper, as an attacker with the database would)
@@ -321,6 +335,22 @@ select pg_temp.refused_with($$insert into public.document_cancellations (documen
   'paid transaction invoice', 'cancelling a paid 300');
 select pg_temp.check((public.finance_summary(public.il_today() - 1, public.il_today()) -> 'revenue' ->> 'net')::numeric = 400, 'an exempt dealer''s income = its receipts');
 select pg_temp.check((public.finance_summary(public.il_today() - 1, public.il_today()) ->> 'vatPayable')::numeric = 0, 'an exempt dealer pays no VAT');
+-- products on an exempt dealer's documents: out on the 300 and not again on the receipt that pays it; a document
+-- cancelled as issued by mistake puts them back
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 300, 80, 0, 0, jsonb_build_object('idempotency_key', 'sg-300-shampoo',
+  'lines', jsonb_build_array(jsonb_build_object('name', 'שמפו', 'qty', 2, 'unitPriceExVat', 40, 'totalExVat', 80, 'vatRate', 0, 'kind', 1, 'itemId', '00000000-0000-0000-0000-0000000c0003')))));
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0003') = 3, 'two out on the exempt dealer''s 300');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, 80, 0, 0, jsonb_build_object('idempotency_key', 'sg-400-shampoo',
+  'paid_document_id', (select id from public.documents where idempotency_key = 'sg-300-shampoo'))));
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0003') = 3, 'the receipt that pays it moves nothing');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, 40, 0, 0, jsonb_build_object('idempotency_key', 'sg-400-oops',
+  'lines', jsonb_build_array(jsonb_build_object('name', 'שמפו', 'qty', 1, 'unitPriceExVat', 40, 'totalExVat', 40, 'vatRate', 0, 'kind', 1, 'itemId', '00000000-0000-0000-0000-0000000c0003')))));
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0003') = 2, 'one out on a receipt that stands alone');
+insert into public.document_cancellations (document_id, user_id, reason) values ((select id from public.documents where idempotency_key = 'sg-400-oops'), '00000000-0000-0000-0000-00000000000b', 'הופקה בטעות');
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0003') = 3, 'cancelling it brings the product back');
+select pg_temp.check(exists (select 1 from public.stock_movements where item_id = '00000000-0000-0000-0000-0000000c0003' and reason = 'cancel' and delta = 1
+  and document_id = (select id from public.documents where idempotency_key = 'sg-400-oops')), 'logged as a cancellation of that receipt');
+select pg_temp.check((public.finance_summary(public.il_today() - 1, public.il_today()) -> 'revenue' ->> 'net')::numeric = 400 + 80, 'the cancelled receipt is not income; the paid one is');
 -- closing the books: yesterday's documents and expenses are frozen
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, 50, 0, 0, jsonb_build_object('doc_date', public.il_today() - 1, 'idempotency_key', 'sg-yday')));
 select pg_temp.refused_with($$select public.lock_finance_period(public.il_today())$$, 'has ended', 'closing today');
