@@ -136,3 +136,15 @@ export function historyEntry(it: InboxItem): string {
   if (it.direction === 'out') return `↩️ תשובה של העסק (${CHANNEL_HE[it.channel]}):\n${it.body}`;
   return `${CHANNEL_ICON[it.channel]} ${CHANNEL_HE[it.channel]}${onPost(it)}:\n${it.body}`;
 }
+
+/** which inbox channel a contact came from, by its source ("Messenger", "Facebook · תגובה", "Instagram · תגובה") */
+export function channelOfSource(source: string | undefined): 'messenger' | 'fb' | 'ig' | null {
+  if (!source) return null;
+  if (source === sourceOf('messenger')) return 'messenger';
+  if (source === sourceOf('fb_comment')) return 'fb';
+  if (source === sourceOf('ig_comment')) return 'ig';
+  return null;
+}
+export const INBOX_FILTERS = [
+  { id: 'messenger', label: '💬 מסנג׳ר' }, { id: 'fb', label: '👍 תגובות בפייסבוק' }, { id: 'ig', label: '📷 תגובות באינסטגרם' },
+] as const;

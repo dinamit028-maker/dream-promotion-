@@ -11,6 +11,7 @@ import { STAGES, followupState, matches, parseTags, stageOf, telLink, waLink } f
 import { ContactSheet } from '@/features/crm/ContactSheet';
 import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
 import { InboxSettings } from '@/features/crm/InboxSettings';
+import { INBOX_FILTERS, channelOfSource } from '@/features/crm/meta-inbox';
 
 /**
  * CRM — the business's contacts: leads and customers in one place (toolbox stage 1).
@@ -29,14 +30,18 @@ export default function LeadsPage() {
   const [adding, setAdding] = useState(false);
   const [settings, setSettings] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', source: '', tags: '' });
+  // where a contact came from Meta: Messenger / Facebook comments / Instagram comments
+  const [channel, setChannel] = useState<'all' | 'messenger' | 'fb' | 'ig'>('all');
+  const inChannel = (l: Lead) => channel === 'all' || channelOfSource(l.source) === channel;
+  const channelCount = (id: string) => leads.filter((l) => channelOfSource(l.source) === id).length;
 
   const due = useMemo(() => leads.filter((l) => { const s = followupState(l); return s === 'overdue' || s === 'today'; }), [leads]);
   const shown = useMemo(() => {
     const base = stage === 'due' ? due : stage === 'all' ? leads : leads.filter((l) => l.status === stage);
     // what needs attention first: overdue / today follow-ups, then the newest
     const rank = (l: Lead) => ({ overdue: 0, today: 1, upcoming: 2 } as Record<string, number>)[followupState(l) ?? ''] ?? 3;
-    return base.filter((l) => matches(l, q)).sort((a, b) => rank(a) - rank(b) || (b.date > a.date ? 1 : -1));
-  }, [leads, due, stage, q]);
+    return base.filter((l) => inChannel(l) && matches(l, q)).sort((a, b) => rank(a) - rank(b) || (b.date > a.date ? 1 : -1));
+  }, [leads, due, stage, q, channel]);
   const customers = leads.filter((l) => l.status === 'נסגר');
   const revenue = customers.reduce((a, l) => a + (Number(l.value) || 0), 0);
 
@@ -104,6 +109,16 @@ export default function LeadsPage() {
             </div>
           </div>
 
+          {INBOX_FILTERS.some((f) => channelCount(f.id) > 0) && (
+            <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="סינון לפי ערוץ">
+              <Chip on={channel === 'all'} onClick={() => setChannel('all')}>כל הערוצים</Chip>
+              {INBOX_FILTERS.map((f) => {
+                const n = channelCount(f.id);
+                return n ? <Chip key={f.id} on={channel === f.id} onClick={() => setChannel(f.id)}>{f.label} {n}</Chip> : null;
+              })}
+            </div>
+          )}
+
           {view === 'list' && (
             <>
               <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1">
@@ -125,7 +140,7 @@ export default function LeadsPage() {
           {view === 'board' && (
             <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
               {STAGES.map((s) => {
-                const col = leads.filter((l) => l.status === s.id && matches(l, q));
+                const col = leads.filter((l) => l.status === s.id && inChannel(l) && matches(l, q));
                 return (
                   <Card key={s.id} className="w-64 shrink-0 p-3">
                     <p className="mb-2 flex items-center justify-between text-sm font-bold">

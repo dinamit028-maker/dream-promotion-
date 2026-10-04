@@ -1,7 +1,7 @@
 import { adminDb } from './admin';
 import { open } from './secrets';
 import { businessOpen } from './business';
-import { igMediaWithComments, pageConversations, pagePostsWithComments } from './meta';
+import { igMediaWithComments, pageConversations, pagePostsWithComments, replyToComment, sendMessengerText } from './meta';
 import { isLeadsPermissionError } from '@/features/crm/meta-leads';
 import {
   INBOX_STAGE, INBOX_TAG, SOCIAL_SOURCE, contactKey, contactsToCreate, conversationItems, fallbackName, fbCommentItems,
@@ -16,6 +16,9 @@ import {
  * Nothing is stored twice (unique business + channel + Meta id); a person is one contact ('פנייה' column).
  */
 const FIRST_SYNC_DAYS = 30;
+/** a conversation with something new is stored with its recent thread (Meta's latest ~25 messages, at
+ *  least a week back) — the card shows how the conversation went, not only the newest line */
+const HISTORY_FROM = () => '1970-01-01T00:00:00.000Z';
 const OVERLAP_MS = 10 * 60_000;
 export const RECONNECT_FOR_INBOX = 'צריך לחבר מחדש את Meta עם הרשאות התגובות וההודעות';
 
@@ -44,7 +47,7 @@ export async function fetchItems(acc: AccountRow, sinceIso: string, deadline = I
     return { items, errors, partial: Date.now() > deadline };
   }
   await step('תגובות בפייסבוק', async () => fbCommentItems(acc.external_id, await pagePostsWithComments(token, acc.external_id, Math.min(sinceUnix, Date.now() / 1000 - FIRST_SYNC_DAYS * 86400), deadline), sinceIso));
-  await step('מסנג׳ר', async () => conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso, deadline), sinceIso));
+  await step('מסנג׳ר', async () => conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso, deadline), HISTORY_FROM()));
   // Instagram Direct is deliberately not read: it is a chat, not an enquiry (business decision, 4.10.2026)
   return { items, errors, partial: Date.now() > deadline };
 }
@@ -153,3 +156,51 @@ export async function syncInbox(opts: { deadline: number; businessId?: string })
 }
 
 
+
+export const REPLY_WINDOW_MS = 24 * 3600 * 1000;
+export type ReplyResult = { ok: true } | { ok: false; status: number; message: string };
+
+/**
+ * Answers a contact from the card, on the channel they last wrote on: Messenger → a message (Meta allows
+ * it within 24 hours of their last message); a comment → a public reply under that comment. The reply is
+ * stored like any message (conversation + card history). Only within the business being worked in.
+ */
+export async function sendReply(businessId: string, userId: string, leadId: string, text: string, now = Date.now()): Promise<ReplyResult> {
+  const db = adminDb();
+  const body = text.trim().slice(0, 2000);
+  if (!body) return { ok: false, status: 400, message: 'נא לכתוב תשובה' };
+  const { data: last } = await db.from('social_messages').select('*').eq('business_id', businessId).eq('lead_id', leadId)
+    .eq('direction', 'in').order('sent_at', { ascending: false }).limit(1).maybeSingle();
+  if (!last) return { ok: false, status: 404, message: 'אין הודעה או תגובה של איש הקשר הזה לענות עליה' };
+  const { data: acc } = await db.from('social_accounts').select('id, provider, external_id, access_token, status').eq('id', last.social_account_id).eq('business_id', businessId).maybeSingle();
+  if (!acc || acc.status !== 'active') return { ok: false, status: 409, message: 'החשבון נותק מהחיבור ל-Meta — צריך חיבור מחדש במסך הניהול' };
+  if (last.channel === 'messenger' && now - +new Date(last.sent_at) > REPLY_WINDOW_MS) {
+    return { ok: false, status: 409, message: 'עברו יותר מ-24 שעות מההודעה האחרונה שלו/ה — Meta מאפשרת לענות במסנג׳ר רק כשהלקוח כותב שוב. אפשר להתקשר או לשלוח וואטסאפ.' };
+  }
+  let externalId: string;
+  try {
+    const token = open(acc.access_token);
+    externalId = last.channel === 'messenger'
+      ? await sendMessengerText(token, acc.external_id, last.author_id, body)
+      : await replyToComment(token, last.external_id, body, last.channel === 'ig_comment' ? 'instagram' : 'facebook');
+  } catch (e: any) {
+    const m = String(e?.message ?? e);
+    if (last.channel === 'fb_comment' && isLeadsPermissionError(m)) return { ok: false, status: 403, message: 'כדי לענות לתגובות בפייסבוק צריך להוסיף ב-Meta את ההרשאה pages_manage_engagement ולחבר מחדש' };
+    if (isLeadsPermissionError(m) || /reconnect_required/.test(m)) return { ok: false, status: 403, message: RECONNECT_FOR_INBOX };
+    return { ok: false, status: 502, message: `Meta לא קיבלה את התשובה: ${m.replace(/^[a-z_0-9]+:\s*/i, '').slice(0, 200)}` };
+  }
+  const sentAt = new Date(now).toISOString();
+  const item: InboxItem = {
+    channel: last.channel, externalId: externalId || `sent-${now}`, threadId: last.thread_id, parentId: last.channel === 'messenger' ? '' : last.external_id,
+    postUrl: last.post_url, postText: last.post_text, authorId: acc.external_id, authorName: '', direction: 'out', body, sentAt,
+    contactId: last.author_id, contactName: '',
+  };
+  await db.from('social_messages').insert({
+    business_id: businessId, social_account_id: acc.id, lead_id: leadId, channel: item.channel, external_id: item.externalId,
+    thread_id: item.threadId, parent_id: item.parentId, post_url: item.postUrl, post_text: item.postText, author_id: item.authorId,
+    direction: 'out', body, sent_at: sentAt, read_at: sentAt,
+  });
+  await db.from('lead_activities').insert({ user_id: userId, business_id: businessId, lead_id: leadId, kind: 'note', body: historyEntry(item), created_at: sentAt });
+  await db.from('leads').update({ last_contact_at: sentAt }).eq('id', leadId).eq('business_id', businessId);
+  return { ok: true };
+}
