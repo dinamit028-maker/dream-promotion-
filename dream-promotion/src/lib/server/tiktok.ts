@@ -1,4 +1,5 @@
 import { adminDb } from './admin';
+import { businessOf, canUseBusiness } from './business';
 import { open, seal } from './secrets';
 
 /**
@@ -52,23 +53,26 @@ export async function revoke(accessToken: string) {
 export async function saveAccount(userId: string, t: TokenSet) {
   const info = await userInfo(t.access_token);
   const now = Date.now();
+  // a TikTok account belongs to the business it was connected from (social_accounts is not auto-filled)
+  const biz = await businessOf(userId);
+  if (!biz) throw new Error('save_account: no business');
   const row = {
-    user_id: userId, provider: 'tiktok', external_id: t.open_id,
+    user_id: userId, business_id: biz, provider: 'tiktok', external_id: t.open_id,
     display_name: info.display_name ?? null, avatar_url: info.avatar_url ?? null,
     access_token: seal(t.access_token), refresh_token: seal(t.refresh_token),
     expires_at: new Date(now + t.expires_in * 1000).toISOString(),
     refresh_expires_at: new Date(now + t.refresh_expires_in * 1000).toISOString(),
     scope: t.scope, updated_at: new Date().toISOString(),
   };
-  const { error } = await adminDb().from('social_accounts').upsert(row, { onConflict: 'user_id,provider,external_id' });
+  const { error } = await adminDb().from('social_accounts').upsert(row, { onConflict: 'provider,external_id' });
   if (error) throw new Error(`save_account: ${error.message}`);
 }
 
 /** A usable access token for a stored account — refreshed and re-saved when close to expiry. */
 export async function accessTokenFor(userId: string, accountId: string): Promise<string> {
   const db = adminDb();
-  const { data: acc } = await db.from('social_accounts').select('*').eq('id', accountId).eq('user_id', userId).eq('provider', 'tiktok').maybeSingle();
-  if (!acc) throw new Error('account_not_found');
+  const { data: acc } = await db.from('social_accounts').select('*').eq('id', accountId).eq('provider', 'tiktok').maybeSingle();
+  if (!acc || !(await canUseBusiness(userId, acc.business_id))) throw new Error('account_not_found');
   if (acc.expires_at && new Date(acc.expires_at).getTime() - Date.now() > 5 * 60_000) return open(acc.access_token);
   if (!acc.refresh_token || (acc.refresh_expires_at && new Date(acc.refresh_expires_at).getTime() < Date.now())) throw new Error('reconnect_required');
   const t = await tokenRequest({ grant_type: 'refresh_token', refresh_token: open(acc.refresh_token) });

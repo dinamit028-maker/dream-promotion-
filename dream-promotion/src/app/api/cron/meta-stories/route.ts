@@ -19,7 +19,8 @@ function allowed(req: Request) {
 export async function POST(req: Request) { return GET(req); }
 export async function GET(req: Request) {
   if (!allowed(req)) return NextResponse.json({ code: 'forbidden' }, { status: 403 });
-  const { data } = await adminDb().from('social_accounts').select('id, user_id').eq('provider', 'instagram');
+  // assigned, still-approved accounts only (an unassigned or 'missing' one has no business to save into)
+  const { data } = await adminDb().from('social_accounts').select('id, user_id').eq('provider', 'instagram').eq('status', 'active').not('business_id', 'is', null);
   let added = 0, errors = 0;
   for (const a of data ?? []) {
     try { added += (await importStories(a.user_id, await metaAccount(a.user_id, a.id))).added.length; }

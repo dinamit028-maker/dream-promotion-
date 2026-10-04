@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
+import { businessOf } from '@/lib/server/business';
 import { importPosts, isRateLimited, metaAccount } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
@@ -15,7 +16,8 @@ export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
   const body = await req.json().catch(() => ({}));
-  const { data } = await adminDb().from('social_accounts').select('id').eq('user_id', userId).eq('provider', 'instagram').order('created_at');
+  const biz = await businessOf(userId);
+  const { data } = await adminDb().from('social_accounts').select('id').eq('business_id', biz ?? '00000000-0000-0000-0000-000000000000').eq('provider', 'instagram').eq('status', 'active').order('created_at');
   const ids = (data ?? []).map((a) => a.id as string);
   if (!ids.length) return NextResponse.json({ code: 'no_instagram', message: 'no Instagram account connected' }, { status: 404 });
 
