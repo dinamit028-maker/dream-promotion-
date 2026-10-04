@@ -44,6 +44,19 @@ export async function businessOpen(businessId: string | null | undefined): Promi
   return Boolean(data && businessIsActive(data as BusinessRow));
 }
 
+/** Server calls that cost money or publish (AI, rendering, posting) answer this for a locked business. */
+export const LOCKED = { code: 'business_locked', message: 'העסק נעול. כדי לחדש את השירות פנו למנהל המערכת.' } as const;
+/** Scheduled posts of a locked business are cancelled with this reason (they do not come back by themselves). */
+export const LOCKED_REASON = 'העסק נעול';
+
+/** Is this user shut out by a lock? The super admin never is; anyone else needs an active business. */
+export async function userLocked(userId: string): Promise<boolean> {
+  if (await isSuperAdmin(userId)) return false;
+  const biz = await businessOf(userId);
+  if (!biz) return true; // no business = nothing to spend for
+  return !(await businessOpen(biz));
+}
+
 /** the business this user is working in now (their choice, else their first membership) */
 export async function businessOf(userId: string): Promise<string | null> {
   const { data } = await adminDb().rpc('business_for_user', { uid: userId });

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { businessOf } from '@/lib/server/business';
+import { LOCKED, businessOf, userLocked } from '@/lib/server/business';
 import type { Destination } from '@/lib/server/scheduler';
 
 export const runtime = 'nodejs';
@@ -33,6 +33,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
+  if (await userLocked(userId)) return NextResponse.json(LOCKED, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const db = adminDb();
 

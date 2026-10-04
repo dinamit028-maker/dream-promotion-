@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
+import { LOCKED, userLocked } from '@/lib/server/business';
 import { createIgContainer, metaAccount, publishToPage, type IgTarget } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
@@ -12,6 +13,7 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session', message: 'sign in required' }, { status: 401 });
+  if (await userLocked(userId)) return NextResponse.json(LOCKED, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const { data: media } = await adminDb().from('media').select('id, url, kind').eq('id', body.mediaId).eq('user_id', userId).maybeSingle();
   if (!media || media.kind === 'audio') return NextResponse.json({ code: 'bad_media', message: 'choose an image or a video' }, { status: 400 });

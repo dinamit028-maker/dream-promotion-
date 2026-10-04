@@ -1,6 +1,7 @@
 import { safeFetch } from '@/lib/server/safe-fetch';
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
+import { LOCKED, userLocked } from '@/lib/server/business';
 import { accessTokenFor, uploadToInbox } from '@/lib/server/tiktok';
 
 export const runtime = 'nodejs';
@@ -10,6 +11,7 @@ export const maxDuration = 120;
 export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session', message: 'sign in required' }, { status: 401 });
+  if (await userLocked(userId)) return NextResponse.json(LOCKED, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const db = adminDb();
   const { data: media } = await db.from('media').select('id, url, kind').eq('id', body.mediaId).eq('user_id', userId).maybeSingle();
