@@ -59,10 +59,10 @@ const tables: Record<string, any[]> = {
   social_accounts: [], leads: [], social_messages: [], meta_inbox_sync: [],
 };
 const graphData: Record<string, any> = {
-  '/page-sg/posts': { data: [{ id: 'post-1', message: 'מבצע', permalink_url: 'https://fb/p1', comments: { data: [
-    { id: 'c1', message: 'כמה עולה?', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] } }] },
-  '/page-sg/conversations': { data: [{ id: 't1', participants: { data: [{ id: 'page-sg' }, { id: 'u1', name: 'דנה' }] }, messages: { data: [
-    { id: 'mm1', message: 'שלום', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] } }] },
+  '/page-sg/posts': { data: [{ id: 'post-1', message: 'מבצע', permalink_url: 'https://fb/p1' }] },
+  '/post-1/comments': { data: [{ id: 'c1', message: 'כמה עולה?', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] },
+  '/page-sg/conversations': { data: [{ id: 't1', updated_time: new Date().toISOString(), participants: { data: [{ id: 'page-sg' }, { id: 'u1', name: 'דנה' }] } }] },
+  '/t1/messages': { data: [{ id: 'mm1', message: 'שלום', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] },
   '/page-sg': { instagram_business_account: null },
   '/page-fm/posts': { data: [] }, '/page-fm/conversations': { data: [] }, '/page-fm': {},
 };
@@ -77,7 +77,7 @@ before(async () => {
   globalThis.fetch = (async (u: any) => {
     const url = new URL(String(u)); const path = url.pathname.replace(/^\/v[\d.]+/, '');
     calls.push(path);
-    if (path === '/page-sg/posts' && Number(url.searchParams.get('limit')) > 5) {
+    if (path === '/page-sg/posts' && Number(url.searchParams.get('limit')) > 10) {
       return new Response(JSON.stringify({ error: { code: 1, message: "Please reduce the amount of data you're asking for, then retry your request" } }), { status: 500 });
     }
     if (url.searchParams.get('access_token') === 'tok-denied') return new Response(JSON.stringify({ error: { code: 10, message: '(#10) Requires pages_messaging permission' } }), { status: 403 });

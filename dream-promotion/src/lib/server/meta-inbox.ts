@@ -28,18 +28,26 @@ async function ownerOf(businessId: string, fallback: string) {
   return (rows.find((r) => r.role === 'owner') ?? rows[0])?.user_id ?? fallback;
 }
 
-/** Reads one account's new comments / messages (pure parsing in features/crm/meta-inbox). Exported for tests. */
-export async function fetchItems(acc: AccountRow, sinceIso: string): Promise<InboxItem[]> {
+/** Reads one account's new comments / messages (pure parsing in features/crm/meta-inbox). Exported for tests.
+ *  Each channel is read on its own: one refused channel (say Messenger) never blocks the others —
+ *  its error is reported with the channel's name. */
+export async function fetchItems(acc: AccountRow, sinceIso: string): Promise<{ items: InboxItem[]; errors: string[] }> {
   const token = open(acc.access_token);
   const sinceUnix = +new Date(sinceIso) / 1000;
+  const items: InboxItem[] = []; const errors: string[] = [];
+  const step = async (label: string, run: () => Promise<InboxItem[]>) => {
+    try { items.push(...(await run())); }
+    catch (e: any) { errors.push(`${label}: ${String(e?.message ?? e)}`); }
+  };
   if (acc.provider === 'instagram') {
-    return igCommentItems(acc.external_id, acc.display_name ?? '', await igMediaWithComments(token, acc.external_id, sinceIso), sinceIso);
+    await step('תגובות באינסטגרם', async () => igCommentItems(acc.external_id, acc.display_name ?? '', await igMediaWithComments(token, acc.external_id, sinceIso), sinceIso));
+    return { items, errors };
   }
-  const items = fbCommentItems(acc.external_id, await pagePostsWithComments(token, acc.external_id, Math.min(sinceUnix, Date.now() / 1000 - FIRST_SYNC_DAYS * 86400)), sinceIso);
-  items.push(...conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso), sinceIso));
+  await step('תגובות בפייסבוק', async () => fbCommentItems(acc.external_id, await pagePostsWithComments(token, acc.external_id, Math.min(sinceUnix, Date.now() / 1000 - FIRST_SYNC_DAYS * 86400)), sinceIso));
+  await step('מסנג׳ר', async () => conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso), sinceIso));
   const ig = await linkedInstagram(token, acc.external_id).catch(() => null);
-  if (ig) items.push(...conversationItems('ig_dm', [ig.id, acc.external_id], await pageConversations(token, acc.external_id, 'instagram', sinceIso), sinceIso));
-  return items;
+  if (ig) await step('הודעות אינסטגרם', async () => conversationItems('ig_dm', [ig.id, acc.external_id], await pageConversations(token, acc.external_id, 'instagram', sinceIso), sinceIso));
+  return { items, errors };
 }
 
 /** Stores a batch for one business: new messages only, one contact per new person. Exported for tests. */
@@ -86,6 +94,9 @@ export async function storeItems(businessId: string, owner: string, accountId: s
   return out;
 }
 
+const friendly = (m: string) => (isLeadsPermissionError(m) || /reconnect_required/.test(m) ? RECONNECT_FOR_INBOX
+  : m.replace(/\b[a-z_]+_\d+:\s*/gi, '').replace(/Please reduce the amount of data you're asking for, then retry your request/g, 'Meta ביקשה לקרוא פחות בבת אחת').slice(0, 300));
+
 export async function syncAccount(acc: AccountRow, now = new Date()): Promise<InboxResult> {
   const db = adminDb();
   const res: InboxResult = { accountId: acc.id, account: acc.display_name ?? acc.external_id, stored: 0, contacts: 0 };
@@ -93,13 +104,15 @@ export async function syncAccount(acc: AccountRow, now = new Date()): Promise<In
   const since = new Date(st?.last_synced_at ? +new Date(st.last_synced_at) - OVERLAP_MS : +now - FIRST_SYNC_DAYS * 864e5).toISOString();
   const save = (patch: Record<string, unknown>) => db.from('meta_inbox_sync').upsert({ social_account_id: acc.id, business_id: acc.business_id, ...patch }, { onConflict: 'social_account_id' });
   try {
-    const items = await fetchItems(acc, since);
+    const { items, errors } = await fetchItems(acc, since);
     const r = await storeItems(acc.business_id, await ownerOf(acc.business_id, acc.user_id), acc.id, items);
     res.stored = r.stored; res.contacts = r.contacts;
-    await save({ last_synced_at: now.toISOString(), last_error: '' });
+    if (errors.length && !items.length) throw new Error(errors.join(' · '));
+    // what worked is saved; a channel that failed is reported (and read again next time — the window does not move)
+    if (errors.length) { res.error = friendly(errors.join(' · ')); await save({ last_error: res.error }); }
+    else await save({ last_synced_at: now.toISOString(), last_error: '' });
   } catch (e: any) {
-    const m = String(e?.message ?? e);
-    res.error = isLeadsPermissionError(m) || /reconnect_required/.test(m) ? RECONNECT_FOR_INBOX : m.replace(/^[a-z_0-9]+:\s*/i, '').slice(0, 240);
+    res.error = friendly(String(e?.message ?? e));
     await save({ last_error: res.error });
   }
   return res;
