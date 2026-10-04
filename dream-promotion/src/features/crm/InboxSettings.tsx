@@ -47,7 +47,8 @@ export function InboxSettings() {
     setBusy('sync'); setNotice(null);
     try {
       const r = await fetch('/api/meta/inbox', { method: 'POST', headers: await authHeaders() });
-      const j = await r.json();
+      // a very long first read can outlast the server's minute — it continues on the next run by itself
+      const j = await r.json().catch(() => { throw new Error('הסנכרון לקח יותר מדקה. הוא ממשיך לבד ברקע — נסו שוב בעוד כמה דקות.'); });
       if (!r.ok) throw new Error(j.message || j.code);
       const failed = (j.results ?? []).filter((x: any) => x.error);
       setNotice(failed.length
