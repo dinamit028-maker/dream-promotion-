@@ -1,6 +1,6 @@
 # משימה רב-עסקית (דשבורד-על) — מסמך העברה בין שיחות
 
-עודכן: 2026-10-04, סוף שלב 7 (ממתין לאישור + PR; 2600 הוחל). הענף: `claude/adoring-maxwell-ffx5gz`. מוזגו: 1–3 (PR #6), 4 (#7), 5 (#8), 6 (#9).
+עודכן: 2026-10-04 — **כל 7 השלבים הושלמו ומוזגו** (PR #6–#11, גרסה 2.44.1). הענף: `claude/adoring-maxwell-ffx5gz`. מוזגו: 1–3 (PR #6), 4 (#7), 5 (#8), 6 (#9).
 פרויקט Supabase: `dream-promotion`, ref `nljnbixgjsjbdgutryun`, תוכנית free (אין branches/גיבוי מובנה).
 
 ## כללי עבודה (מהמשתמש — אביב)
@@ -38,7 +38,7 @@
 | 4 | ✅ מוזג (PR #7). migration `20261004002300_business_rls.sql` (בלי drop): פונקציות is_super_admin / business_is_active (שעון ישראל) / can_access_business / accessible_business_ids; לכל 23 הטבלאות policy restrictive `<t>_business_gate` + permissive `<t>_business` (אותן פקודות כמו קודם; documents בלי delete; ai_generations/scheduled_posts בלי policy לקוח). המדיניות הישנות `user_id = auth.uid()` נשארו — ה-gate הוא שנועל. businesses/business_members: קריאה לחבר, כתיבה רק ל-super admin. הטריגר על profiles חוסם גם שינוי מכסות. דפים ציבוריים (book, doc, clock) → 403 `unavailable` "השירות אינו זמין". בדיקות: `tests/business-lock.test.ts` + בדיקה חיה בטרנזקציה שבוטלה. |
 | 5 | ✅ מוזג (PR #8). migration `20261004002400_scheduled_cancel_reason.sql` (עמודה `cancel_reason`, הוחלה). `src/lib/server/business.ts`: `userLocked` (אדמין-על אף פעם; בלי עסק = נעול), `LOCKED`, `LOCKED_REASON`. הטיימר (`scheduler.ts`) מבטל פוסט של עסק נעול ומסמן כל יעד failed "העסק נעול" — לא חוזר לבד אחרי פתיחה. `meta-stories` מדלג על עסק נעול. 403 `business_locked` ב: accessDenied (ai, image, video, voice, transcribe), reel/render, meta/publish, tiktok/upload, schedule POST. בדיקות: `tests/business-lock-server.test.ts`. |
 | 6 | ✅ מוזג (PR #9). `/api/admin/businesses` (מנהל-על בלבד): GET כרטיסים, POST עסק חדש (+בעלים לפי מייל — רק משתמש רשום), PATCH extend / paid_until / lock / unlock / enter (enter = profiles.current_business_id של האדמין). לוגיקה טהורה: `src/features/admin/business-state.ts` (bizView, extendMonth — מהמאוחר מבין היום ו-paid_until; null נשאר null). מסך: `BusinessesPanel.tsx`, לשונית ראשונה ב-/admin. באנר "העסק נעול" ב-AppShell דרך `/api/business/me`. "פוסטים החודש" = scheduled_posts done/partial (פרסום מיידי ל-Meta לא נרשם בשום טבלה). |
-| 7 | ✅ קוד בענף, ממתין ל-PR. `20261004002500_current_business.sql` **הוחל** (פונקציה `current_business_id()`; ALTER POLICY ל-23 ה-gates: `business_id = current_business_id() and business_id in accessible_business_ids()`; exclusion חדש `appointments_business_no_overlap`). `20261004002600_business_keys.sql` **הוחל ידנית ע"י אביב ב-SQL Editor ונבדק** (כל ה-PK לפי business_id, ה-unique הישן במסמכים הוסר, הנתונים שלמים, רשום ב-schema_migrations) (PK של brands/register_settings/booking_settings/timeclock_settings → business_id, document_counters → (business_id, doc_type), הסרת unique (user_id, doc_type, doc_number) במסמכים; נבדק מקומית ב-PG16, idempotent). קוד: המסכים בלי סינון user_id (RLS מסנן לפי העסק הנוכחי); upsert של ההגדרות עם `onConflict: 'business_id'`; store שומר `businessId` ו-`hydratePlan` מונע העלאת נתונים של עסק אחר; בורר עסקים ב-AppShell (`/api/business/me` GET רשימה, POST מעבר); בשרת: דפים ציבוריים / טיימר / התראות לפי business_id של השורה, מסלולי משתמש לפי `workBusiness(userId)`. בדיקות: `tests/business-switch.test.ts` + בדיקה חיה בטרנזקציה שבוטלה. |
+| 7 | ✅ מוזג (PR #10; תיקון תצוגה 2.44.1 ב-PR #11). `20261004002500_current_business.sql` **הוחל** (פונקציה `current_business_id()`; ALTER POLICY ל-23 ה-gates: `business_id = current_business_id() and business_id in accessible_business_ids()`; exclusion חדש `appointments_business_no_overlap`). `20261004002600_business_keys.sql` **הוחל ידנית ע"י אביב ב-SQL Editor ונבדק** (כל ה-PK לפי business_id, ה-unique הישן במסמכים הוסר, הנתונים שלמים, רשום ב-schema_migrations) (PK של brands/register_settings/booking_settings/timeclock_settings → business_id, document_counters → (business_id, doc_type), הסרת unique (user_id, doc_type, doc_number) במסמכים; נבדק מקומית ב-PG16, idempotent). קוד: המסכים בלי סינון user_id (RLS מסנן לפי העסק הנוכחי); upsert של ההגדרות עם `onConflict: 'business_id'`; store שומר `businessId` ו-`hydratePlan` מונע העלאת נתונים של עסק אחר; בורר עסקים ב-AppShell (`/api/business/me` GET רשימה, POST מעבר); בשרת: דפים ציבוריים / טיימר / התראות לפי business_id של השורה, מסלולי משתמש לפי `workBusiness(userId)`. בדיקות: `tests/business-switch.test.ts` + בדיקה חיה בטרנזקציה שבוטלה. |
 
 ### חלק B של שלב 3 (בוצע — לתיעוד)
 ```sql
@@ -50,7 +50,16 @@ insert into supabase_migrations.schema_migrations(version, name, statements)
   values ('20261004002200', 'social_assets_2200', array['-- applied via execute_sql; full text in supabase/migrations/20261004002200_social_assets.sql'])
   on conflict (version) do nothing;
 ```
-הבא: אישור שלב 7 → PR → מיזוג → בדיקות הקבלה (1–7) מול האתר החי.
+## בדיקות קבלה (2026-10-04, מסד חי, בטרנזקציה שבוטלה)
+| # | בדיקה | תוצאה |
+|---|---|---|
+| 1 | חיבור Meta אחד מציג הכל ומשייכים | ✅ צילום מסך של אביב: 3 נכסים ל-FollowMe, 2 ל-SaGabot |
+| 2 | חיבור מחדש עם פחות עמודים → missing + התראה, בלי מחיקה | ✅ בבדיקות האוטומטיות (meta-sync); לא נבדק ידנית מול פייסבוק |
+| 3 | בידוד | ✅ שגית רואה 0 שורות זרות; אביב ב-FollowMe רואה 0 שורות של SaGabot |
+| 4 | paid_until אתמול → נעול | ✅ שגית 0 שורות וכתיבה חסומה; אדמין רואה; פוסטים/דף הזמנות — בבדיקות האוטומטיות |
+| 5 | הארך חודש פותח מיד | ✅ |
+| 6 | לא-אדמין לא משנה is_super_admin / businesses / business_members / מכסה | ✅ כולם חסומים |
+| 7 | טוקנים לא מגיעים לדפדפן | ✅ access_token ב-social_accounts ו-meta_connections חסום (גם לאדמין מהדפדפן) |
 
 **חשוב לשיחות הבאות:** פקודות `delete`/`drop` דרך Supabase MCP נחסמות תמיד (timeout) — להכין SQL ולבקש מאביב להריץ ב-SQL Editor, ואז לוודא בשאילתה.
 
