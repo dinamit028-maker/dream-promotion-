@@ -5,6 +5,7 @@ import { Button, Card, Chip, Input, PageHead, Textarea } from '@/components/ui/p
 import { AdapterNote, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { ConnectionsPanel } from '@/features/admin/ConnectionsPanel';
+import { BusinessesPanel } from '@/features/admin/BusinessesPanel';
 
 /**
  * Internal admin screen — costs, provider health and the provider benchmark.
@@ -40,7 +41,7 @@ function rangeDates(id: string, custom: { from: string; to: string }) {
 
 export default function AdminPage() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
-  const [tab, setTab] = useState<'costs' | 'health' | 'bench' | 'connections'>('costs');
+  const [tab, setTab] = useState<'businesses' | 'costs' | 'health' | 'bench' | 'connections'>('businesses');
   // arriving back from Facebook (/admin?tab=connections&meta=…)
   useEffect(() => { if (new URLSearchParams(location.search).get('tab') === 'connections') setTab('connections'); }, []);
   const [range, setRange] = useState<string>('month');
@@ -79,13 +80,16 @@ export default function AdminPage() {
   const s = report?.summary;
   return (
     <>
-      <PageHead title="ניהול · עלויות וספקים" sub="פנימי — עלויות ספקים לא מוצגות ללקוחות." />
+      <PageHead title="ניהול" sub="פנימי — עסקים, חיבורים ועלויות ספקים. לא מוצג ללקוחות." />
       <div className="mb-4 flex flex-wrap gap-2">
+        <Chip on={tab === 'businesses'} onClick={() => setTab('businesses')}>עסקים</Chip>
         <Chip on={tab === 'costs'} onClick={() => setTab('costs')}>עלויות</Chip>
         <Chip on={tab === 'health'} onClick={() => setTab('health')}>מצב הספקים</Chip>
         <Chip on={tab === 'bench'} onClick={() => setTab('bench')}>השוואת ספקים</Chip>
         <Chip on={tab === 'connections'} onClick={() => setTab('connections')}>חיבורים ונכסים</Chip>
       </div>
+
+      {tab === 'businesses' && <BusinessesPanel onAssets={() => setTab('connections')} />}
 
       {(tab === 'costs' || tab === 'health') && (
         <Card className="mb-4">

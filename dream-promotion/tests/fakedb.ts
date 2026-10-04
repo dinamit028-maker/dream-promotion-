@@ -11,6 +11,8 @@ export function fakeDb(tables: Record<string, Row[]>, rules: { onInsert?: (table
       not(k: string, op: string, v: any) { if (op === 'is') filters.push((r) => (r[k] ?? null) !== v); return q; },
       lte(k: string, v: any) { filters.push((r) => r[k] <= v); return q; }, limit(n: number) { limit = n; return q; },
       eq(k: string, v: any) { filters.push((r) => r[k] === v); return q; },
+      neq(k: string, v: any) { filters.push((r) => r[k] !== v); return q; },
+      ilike(k: string, v: string) { filters.push((r) => String(r[k] ?? '').toLowerCase() === v.toLowerCase()); return q; },
       in(k: string, v: any[]) { filters.push((r) => v.includes(r[k])); return q; },
       lt(k: string, v: any) { filters.push((r) => r[k] < v); return q; },
       gt(k: string, v: any) { filters.push((r) => r[k] > v); return q; },
