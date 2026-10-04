@@ -33,12 +33,12 @@ export async function fetchItems(acc: AccountRow, sinceIso: string): Promise<Inb
   const token = open(acc.access_token);
   const sinceUnix = +new Date(sinceIso) / 1000;
   if (acc.provider === 'instagram') {
-    return igCommentItems(acc.external_id, acc.display_name ?? '', await igMediaWithComments(token, acc.external_id), sinceIso);
+    return igCommentItems(acc.external_id, acc.display_name ?? '', await igMediaWithComments(token, acc.external_id, sinceIso), sinceIso);
   }
   const items = fbCommentItems(acc.external_id, await pagePostsWithComments(token, acc.external_id, Math.min(sinceUnix, Date.now() / 1000 - FIRST_SYNC_DAYS * 86400)), sinceIso);
-  items.push(...conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger'), sinceIso));
+  items.push(...conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso), sinceIso));
   const ig = await linkedInstagram(token, acc.external_id).catch(() => null);
-  if (ig) items.push(...conversationItems('ig_dm', [ig.id, acc.external_id], await pageConversations(token, acc.external_id, 'instagram'), sinceIso));
+  if (ig) items.push(...conversationItems('ig_dm', [ig.id, acc.external_id], await pageConversations(token, acc.external_id, 'instagram', sinceIso), sinceIso));
   return items;
 }
 

@@ -51,7 +51,7 @@ export function InboxSettings() {
       if (!r.ok) throw new Error(j.message || j.code);
       const failed = (j.results ?? []).filter((x: any) => x.error);
       setNotice(failed.length
-        ? { ok: false, text: failed.map((x: any) => `${x.page}: ${x.error}`).join(' · ') }
+        ? { ok: false, text: failed.map((x: any) => `${x.account}: ${x.error}`).join(' · ') }
         : { ok: true, text: j.accounts ? `הסנכרון הסתיים: ${j.stored} תגובות והודעות חדשות${j.contacts ? `, ${j.contacts} אנשים חדשים בעמודת "תגובות"` : ''}.` : 'אין חשבון שהקריאה שלו פעילה.' });
       // the new contacts appear in the list right away
       const { userId, businessId, hydrate } = useApp.getState();
