@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
+import { businessOf } from '@/lib/server/business';
 import { importStories, metaAccount, recentStoryMedia } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
@@ -12,7 +13,8 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   let ids: string[] = body.accountId ? [String(body.accountId)] : [];
   if (!ids.length) {
-    const { data } = await adminDb().from('social_accounts').select('id').eq('user_id', userId).eq('provider', 'instagram');
+    const biz = await businessOf(userId);
+    const { data } = await adminDb().from('social_accounts').select('id').eq('business_id', biz ?? '00000000-0000-0000-0000-000000000000').eq('provider', 'instagram').eq('status', 'active');
     ids = (data ?? []).map((a) => a.id);
   }
   if (!ids.length) return NextResponse.json({ code: 'no_instagram', message: 'no Instagram account connected' }, { status: 404 });

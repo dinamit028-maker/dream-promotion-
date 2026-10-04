@@ -4,6 +4,7 @@ import { authHeaders } from '@/lib/services/http';
 import { Button, Card, Chip, Input, PageHead, Textarea } from '@/components/ui/primitives';
 import { AdapterNote, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
+import { ConnectionsPanel } from '@/features/admin/ConnectionsPanel';
 
 /**
  * Internal admin screen — costs, provider health and the provider benchmark.
@@ -39,7 +40,9 @@ function rangeDates(id: string, custom: { from: string; to: string }) {
 
 export default function AdminPage() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
-  const [tab, setTab] = useState<'costs' | 'health' | 'bench'>('costs');
+  const [tab, setTab] = useState<'costs' | 'health' | 'bench' | 'connections'>('costs');
+  // arriving back from Facebook (/admin?tab=connections&meta=…)
+  useEffect(() => { if (new URLSearchParams(location.search).get('tab') === 'connections') setTab('connections'); }, []);
   const [range, setRange] = useState<string>('month');
   const [custom, setCustom] = useState({ from: '', to: '' });
   const [report, setReport] = useState<Report | null>(null);
@@ -81,9 +84,10 @@ export default function AdminPage() {
         <Chip on={tab === 'costs'} onClick={() => setTab('costs')}>עלויות</Chip>
         <Chip on={tab === 'health'} onClick={() => setTab('health')}>מצב הספקים</Chip>
         <Chip on={tab === 'bench'} onClick={() => setTab('bench')}>השוואת ספקים</Chip>
+        <Chip on={tab === 'connections'} onClick={() => setTab('connections')}>חיבורים ונכסים</Chip>
       </div>
 
-      {tab !== 'bench' && (
+      {(tab === 'costs' || tab === 'health') && (
         <Card className="mb-4">
           <div className="flex flex-wrap items-center gap-2">
             {RANGES.map((r) => <Chip key={r.id} on={range === r.id} onClick={() => setRange(r.id)}>{r.label}</Chip>)}
@@ -191,6 +195,7 @@ export default function AdminPage() {
       )}
 
       {tab === 'bench' && <Benchmark />}
+      {tab === 'connections' && <ConnectionsPanel />}
     </>
   );
 }

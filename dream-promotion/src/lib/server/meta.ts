@@ -1,6 +1,8 @@
 import { safeFetch } from './safe-fetch';
 import { adminDb } from './admin';
 import { open, seal } from './secrets';
+import { canUseBusiness } from './business';
+import { assetsFromPages, planMetaSync, type StoredAsset } from './meta-sync';
 
 /**
  * Meta (Facebook Pages + Instagram professional accounts) through Facebook Login for Business.
@@ -19,8 +21,9 @@ export const metaConfigured = () =>
 export const metaRedirectUri = (req: Request) =>
   process.env.META_REDIRECT_URI || `${new URL(req.url).origin}/api/meta/callback`;
 
-export function metaAuthorizeUrl(req: Request, mode: MetaMode, state: string) {
-  const config = mode === 'read' ? process.env.META_CONFIG_READ : process.env.META_CONFIG_FULL;
+/** one request with every permission (publish + read) — the "read only" configuration is no longer offered */
+export function metaAuthorizeUrl(req: Request, state: string) {
+  const config = process.env.META_CONFIG_FULL;
   if (!config) throw new Error('not_configured');
   const p = new URLSearchParams({
     client_id: process.env.META_APP_ID!, redirect_uri: metaRedirectUri(req), config_id: config,
@@ -63,47 +66,73 @@ export async function exchangeCode(req: Request, code: string): Promise<string> 
   return long.access_token as string;
 }
 
-type Page = {
-  id: string; name: string; access_token: string; picture?: { data?: { url?: string } };
-  instagram_business_account?: { id: string; username?: string; profile_picture_url?: string };
-};
+/**
+ * One Meta connection per Facebook user (multi-business, stage 3). The super admin approves once;
+ * every Page and linked Instagram account comes back and is upserted — never deleted. A new asset
+ * has no business until it is assigned; one that did not come back is marked 'missing'.
+ */
+export async function saveMetaConnection(userId: string, userToken: string) {
+  const db = adminDb();
+  const me = await graph('/me', { access_token: userToken, fields: 'id,name' });
+  const perms = await graph('/me/permissions', { access_token: userToken }).catch(() => ({ data: [] }));
+  const scopes = ((perms.data ?? []) as { permission: string; status: string }[]).filter((p) => p.status === 'granted').map((p) => p.permission);
+  const now = new Date();
+  const { data: conn, error: connErr } = await db.from('meta_connections').upsert({
+    user_id: userId, fb_user_id: String(me.id), fb_user_name: String(me.name ?? ''), access_token: seal(userToken), scopes,
+    expires_at: new Date(now.getTime() + 60 * 864e5).toISOString(), last_synced_at: now.toISOString(),
+  }, { onConflict: 'user_id,fb_user_id' }).select('id').single();
+  if (connErr || !conn) throw new Error(`save_connection: ${connErr?.message ?? 'no row'}`);
 
-/** Stores every Page (and its linked Instagram account) the user granted in the consent screen. */
-export async function saveMetaAccounts(userId: string, userToken: string, mode: MetaMode) {
-  const res = await graph('/me/accounts', {
-    access_token: userToken, limit: '100',
-    fields: 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}',
-  });
-  const pages: Page[] = res.data ?? [];
-  const now = new Date().toISOString();
-  const rows = pages.flatMap((p) => {
-    const token = seal(p.access_token);
-    const out: Record<string, unknown>[] = [{
-      user_id: userId, provider: 'facebook', external_id: p.id, display_name: p.name,
-      avatar_url: p.picture?.data?.url ?? null, access_token: token, refresh_token: null,
-      expires_at: null, refresh_expires_at: null, scope: mode, updated_at: now,
-    }];
-    const ig = p.instagram_business_account;
-    if (ig?.id) out.push({
-      user_id: userId, provider: 'instagram', external_id: ig.id,
-      display_name: ig.username ? `@${ig.username}` : p.name, avatar_url: ig.profile_picture_url ?? null,
-      access_token: token, refresh_token: null, expires_at: null, refresh_expires_at: null, scope: mode, updated_at: now,
+  const pages: Parameters<typeof assetsFromPages>[0] = [];
+  let after: string | null = null;
+  do {
+    const res: any = await graph('/me/accounts', {
+      access_token: userToken, limit: '100', ...(after ? { after } : {}),
+      fields: 'id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}',
     });
-    return out;
-  });
-  if (!rows.length) return 0;
-  const { error } = await adminDb().from('social_accounts').upsert(rows, { onConflict: 'user_id,provider,external_id' });
-  if (error) throw new Error(`save_account: ${error.message}`);
-  return rows.length;
+    pages.push(...(res.data ?? []));
+    after = res.paging?.next ? res.paging?.cursors?.after ?? null : null;
+  } while (after && pages.length < 1000);
+
+  const { data: rows, error: readErr } = await db.from('social_accounts')
+    .select('id, provider, external_id, user_id, business_id, connection_id, status, display_name').in('provider', ['facebook', 'instagram']);
+  if (readErr) throw new Error(`read_accounts: ${readErr.message}`);
+  const stored: StoredAsset[] = (rows ?? []).map((r: any) => ({
+    id: r.id, provider: r.provider, externalId: r.external_id, userId: r.user_id, businessId: r.business_id,
+    connectionId: r.connection_id, status: r.status === 'missing' ? 'missing' : 'active', name: r.display_name,
+  }));
+  const plan = planMetaSync(stored, assetsFromPages(pages), conn.id, userId, seal);
+  const stamp = now.toISOString();
+  for (const u of plan.update) {
+    const { id, ...set } = u;
+    const { error } = await db.from('social_accounts').update({ ...set, updated_at: stamp }).eq('id', id);
+    if (error) throw new Error(`update_account: ${error.message}`);
+  }
+  if (plan.insert.length) {
+    const { error } = await db.from('social_accounts').insert(plan.insert.map((r) => ({ ...r, refresh_token: null, expires_at: null, refresh_expires_at: null, updated_at: stamp })));
+    if (error) throw new Error(`insert_account: ${error.message}`);
+  }
+  if (plan.missing.length) {
+    await db.from('social_accounts').update({ status: 'missing', missing_since: stamp, updated_at: stamp }).in('id', plan.missing.map((m) => m.id));
+  }
+  return { assets: plan.update.length + plan.insert.length, added: plan.insert.length, missing: plan.missing.map((m) => m.name ?? '') };
 }
 
-export type MetaAccount = { id: string; provider: 'facebook' | 'instagram'; externalId: string; name: string | null; mode: MetaMode; token: string };
+export type MetaAccount = {
+  id: string; provider: 'facebook' | 'instagram'; externalId: string; name: string | null; mode: MetaMode; token: string;
+  businessId: string | null; status: 'active' | 'missing';
+};
 
+/** a stored page / Instagram account, for someone allowed to use its business (an unassigned one: super admin only) */
 export async function metaAccount(userId: string, accountId: string): Promise<MetaAccount> {
   const { data: a } = await adminDb().from('social_accounts').select('*')
-    .eq('id', accountId).eq('user_id', userId).in('provider', ['facebook', 'instagram']).maybeSingle();
-  if (!a) throw new Error('account_not_found');
-  return { id: a.id, provider: a.provider, externalId: a.external_id, name: a.display_name, mode: a.scope === 'read' ? 'read' : 'full', token: open(a.access_token) };
+    .eq('id', accountId).in('provider', ['facebook', 'instagram']).maybeSingle();
+  if (!a || !(await canUseBusiness(userId, a.business_id))) throw new Error('account_not_found');
+  if (a.status === 'missing') throw new Error(`reconnect_required: ${a.display_name ?? ''} — העמוד נותק מהחיבור ל-Meta`);
+  return {
+    id: a.id, provider: a.provider, externalId: a.external_id, name: a.display_name, mode: a.scope === 'read' ? 'read' : 'full',
+    token: open(a.access_token), businessId: a.business_id ?? null, status: a.status === 'missing' ? 'missing' : 'active',
+  };
 }
 
 // ------------------------------------------------------------------ publishing --
@@ -182,7 +211,7 @@ export async function importStories(userId: string, acc: MetaAccount, limit = 10
       const name = `סטורי · ${acc.name ?? 'Instagram'} · ${when.toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' })} ${when.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' })}`;
       const kind = isVideo ? 'video' : 'image';
       const id = await insertImported({
-        user_id: userId, url: signed.data.signedUrl, storage_path: path, name, kind,
+        user_id: userId, ...(acc.businessId ? { business_id: acc.businessId } : {}), url: signed.data.signedUrl, storage_path: path, name, kind,
         tags: ['סטורי', 'אינסטגרם'], source: 'instagram_story',
       }, { igId: s.id, account: acc.name ?? null, accountId: acc.externalId, takenAt: s.timestamp ?? null, type: 'story' });
       added.push({ id, url: signed.data.signedUrl, name, kind });
@@ -270,7 +299,7 @@ export async function importPosts(userId: string, acc: MetaAccount, opts: { afte
           const name = `אינסטגרם · ${label} · ${acc.name ?? ''} · ${date}${caption ? ` · ${caption}` : ''}`;
           const kind = isVideo ? 'video' : 'image';
           const id = await insertImported({
-            user_id: userId, url: signed.data.signedUrl, storage_path: path, name, kind,
+            user_id: userId, ...(acc.businessId ? { business_id: acc.businessId } : {}), url: signed.data.signedUrl, storage_path: path, name, kind,
             tags: ['אינסטגרם', isReel ? 'ריל' : 'פוסט'], source: 'instagram_post',
           }, {
             igId: p.id, parentId: parts.length > 1 ? m.id : null, account: acc.name ?? null, accountId: acc.externalId,

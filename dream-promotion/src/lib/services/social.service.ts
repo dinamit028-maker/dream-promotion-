@@ -21,6 +21,8 @@ export interface ScheduleView {
 export interface SocialAccount {
   id: string; provider: 'tiktok' | 'instagram' | 'facebook';
   name: string | null; avatar: string | null; connectedAt: string; needsReconnect: boolean; readOnly?: boolean;
+  /** the page fell out of the latest Meta approval (reconnect on the admin screen) */
+  missing?: boolean;
 }
 
 async function authed(path: string, init: RequestInit = {}) {
@@ -41,16 +43,11 @@ async function authed(path: string, init: RequestInit = {}) {
 export const SocialService = {
   providers: ['TikTok', 'Instagram', 'Facebook', 'WhatsApp'] as const,
 
-  async accounts(): Promise<{ configured: { tiktok: boolean; meta?: boolean }; accounts: SocialAccount[] }> {
+  async accounts(): Promise<{ configured: { tiktok: boolean; meta?: boolean }; superAdmin?: boolean; accounts: SocialAccount[] }> {
     return authed('/api/social/accounts');
   },
   async connectTikTok() {
     const { url } = await authed('/api/tiktok/connect', { method: 'POST' });
-    window.location.href = url;
-  },
-  /** mode "full": publish + read. mode "read": read only — Meta refuses any publish call for it. */
-  async connectMeta(mode: 'full' | 'read') {
-    const { url } = await authed('/api/meta/connect', { method: 'POST', body: JSON.stringify({ mode }) });
     window.location.href = url;
   },
   /** Facebook Page: published at once. Instagram: returns a container that is published by polling metaStatus. */

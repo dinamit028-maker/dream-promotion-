@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
+import { businessOf } from '@/lib/server/business';
 import type { Destination } from '@/lib/server/scheduler';
 
 export const runtime = 'nodejs';
@@ -43,7 +44,8 @@ export async function POST(req: Request) {
   if (!media || media.kind === 'audio') return NextResponse.json({ code: 'bad_media', message: 'אין קובץ לפרסום' }, { status: 400 });
 
   const wanted: Destination[] = (Array.isArray(body.destinations) ? body.destinations : []).slice(0, 10);
-  const { data: accs } = await db.from('social_accounts').select('id, provider, scope').eq('user_id', userId)
+  const biz = await businessOf(userId);
+  const { data: accs } = await db.from('social_accounts').select('id, provider, scope').eq('business_id', biz ?? '00000000-0000-0000-0000-000000000000').eq('status', 'active')
     .in('id', wanted.map((d) => String(d.accountId)).filter(Boolean).length ? wanted.map((d) => String(d.accountId)) : ['00000000-0000-0000-0000-000000000000']);
   const own = new Map((accs ?? []).map((a) => [a.id, a]));
   const destinations: Destination[] = wanted.filter((d) => {

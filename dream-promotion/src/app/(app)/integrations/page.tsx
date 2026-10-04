@@ -3,25 +3,20 @@ import { useEffect, useState } from 'react';
 import { SocialService, type SocialAccount } from '@/lib/services/social.service';
 import { Button, Card, PageHead, Pill } from '@/components/ui/primitives';
 import { AdapterNote, IntegrationDialog, Spinner } from '@/components/ui/feedback';
+import { missingBanner } from '@/lib/server/meta-sync';
 
 const REASONS: Record<string, string> = {
   access_denied: 'החיבור בוטל ב-TikTok.',
   expired: 'עבר יותר מדי זמן. נסו שוב.',
 };
 
-const META_REASONS: Record<string, string> = {
-  access_denied: 'החיבור בוטל בפייסבוק.',
-  user_denied: 'החיבור בוטל בפייסבוק.',
-  expired: 'עבר יותר מדי זמן. נסו שוב.',
-  no_pages: 'לא נבחר אף עמוד. בחלון של פייסבוק סמנו את העמוד ואת חשבון האינסטגרם שלו.',
-};
 
 export default function IntegrationsPage() {
   const [health, setHealth] = useState<Record<string, { ok: boolean; reason?: string; reconnect?: boolean }>>({});
   const [dialog, setDialog] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<SocialAccount[] | null>(null);
   const [configured, setConfigured] = useState<{ tiktok: boolean; meta?: boolean }>({ tiktok: true, meta: true });
-  const [metaBusy, setMetaBusy] = useState<'full' | 'read' | null>(null);
+  const [superAdmin, setSuperAdmin] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -32,7 +27,7 @@ export default function IntegrationsPage() {
       const r = await SocialService.accounts();
       // then ask Meta itself whether each connection still works
       SocialService.checkMeta().then((c) => setHealth(Object.fromEntries(c.results.map((x) => [x.id, x])))).catch(() => {});
-      setAccounts(r.accounts); setConfigured(r.configured);
+      setAccounts(r.accounts); setConfigured(r.configured); setSuperAdmin(Boolean(r.superAdmin));
     } catch (e: any) { setAccounts([]); setNotice({ ok: false, text: e.message }); }
   }
 
@@ -43,14 +38,7 @@ export default function IntegrationsPage() {
       const r = q.get('reason') || '';
       setNotice({ ok: false, text: `החיבור ל-TikTok לא הושלם. ${REASONS[r] ?? r}` });
     }
-    if (q.get('meta') === 'connected') {
-      setNotice({ ok: true, text: q.get('mode') === 'read' ? 'החשבון חובר למשיכה בלבד. אפשר לייבא ממנו סטוריז, בלי אפשרות לפרסם.' : 'Instagram ו-Facebook חוברו בהצלחה.' });
-    }
-    if (q.get('meta') === 'error') {
-      const r = q.get('reason') || '';
-      setNotice({ ok: false, text: `החיבור ל-Meta לא הושלם. ${META_REASONS[r] ?? r}` });
-    }
-    if (q.get('tiktok') || q.get('meta')) history.replaceState(null, '', '/integrations');
+    if (q.get('tiktok')) history.replaceState(null, '', '/integrations');
     load();
   }, []);
 
@@ -60,18 +48,6 @@ export default function IntegrationsPage() {
     catch (e: any) {
       setBusy(false);
       setNotice({ ok: false, text: e.code === 'not_configured' ? 'מפתחות TikTok עוד לא הוגדרו בשרת (TIKTOK_CLIENT_KEY, TIKTOK_CLIENT_SECRET ב-Vercel).' : e.message });
-    }
-  }
-  async function connectMeta(mode: 'full' | 'read') {
-    if (mode === 'read' && !window.confirm(
-      'חשוב: אם מתחברים דרך אותו משתמש פייסבוק שכבר חיבר עמודים לפרסום (גם בחשבון Dream Promotion אחר), '
-      + 'בחלון של פייסבוק צריך לסמן את כל העמודים וחשבונות האינסטגרם — גם אלה שמשמשים לפרסום. '
-      + 'עמוד שלא יסומן יאבד את ההרשאה, והפרסום אליו ייחסם.\n\nלהמשיך?')) return;
-    setMetaBusy(mode); setNotice(null);
-    try { await SocialService.connectMeta(mode); }
-    catch (e: any) {
-      setMetaBusy(null);
-      setNotice({ ok: false, text: e.code === 'not_configured' ? 'מפתחות Meta עוד לא הוגדרו בשרת (META_APP_ID, META_APP_SECRET, META_CONFIG_FULL ב-Vercel).' : e.message });
     }
   }
   async function importNow(id: string) {
@@ -100,6 +76,9 @@ export default function IntegrationsPage() {
       {notice && (
         <p className={`mb-5 rounded-2xl p-3 text-sm ${notice.ok ? 'bg-[var(--ok-soft,#e8f7ee)]' : 'bg-[var(--danger-soft,#fdecec)] text-[var(--danger)]'}`}>{notice.text}</p>
       )}
+      {(accounts ?? []).filter((a) => a.missing).map((a) => (
+        <p key={a.id} role="alert" className="mb-3 rounded-2xl bg-[var(--danger-soft,#fdecec)] p-3 text-sm font-semibold text-[var(--danger)]">⚠️ {missingBanner(a.name)}</p>
+      ))}
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
         <Card>
           <div className="flex items-center justify-between">
@@ -126,7 +105,7 @@ export default function IntegrationsPage() {
           <div className="flex items-center justify-between">
             <strong className="text-[17px]">Instagram ו-Facebook</strong>
             {accounts === null ? <Spinner />
-              : meta.some((a) => health[a.id] && !health[a.id].ok) ? <Pill tone="warn">צריך חיבור מחדש</Pill>
+              : meta.some((a) => a.missing || (health[a.id] && !health[a.id].ok)) ? <Pill tone="warn">צריך חיבור מחדש</Pill>
               : meta.length ? <Pill tone="ok">מחובר</Pill> : <Pill tone="warn">לא מחובר</Pill>}
           </div>
           <p className="my-2.5 text-sm text-muted">פרסום לעמוד ולאינסטגרם, ומשיכת הסטוריז שלכם לספריית המדיה.</p>
@@ -137,13 +116,10 @@ export default function IntegrationsPage() {
                 <span className="flex-1 truncate">
                   <span className="text-muted">{a.provider === 'instagram' ? 'Instagram' : 'Facebook'} · </span>{a.name}
                   {a.readOnly && <span className="text-muted"> · משיכה בלבד</span>}
-                  {health[a.id] && (health[a.id].ok
+                  {a.missing ? <span className="block text-xs text-[var(--danger)]">✗ נותק מהחיבור ל-Meta</span> : health[a.id] && (health[a.id].ok
                     ? <span className="block text-xs text-ok">✓ פעיל — Meta מאשרת את החיבור</span>
-                    : <span className="block text-xs text-[var(--danger)]">✗ לא פעיל: {health[a.id].reason}. לחצו "חיבור לפרסום ומשיכה" וסמנו את העמוד הזה.</span>)}
+                    : <span className="block text-xs text-[var(--danger)]">✗ לא פעיל: {health[a.id].reason}. צריך לחבר מחדש את Meta במסך הניהול.</span>)}
                 </span>
-                {confirmOff === a.id
-                  ? <button type="button" className="text-xs font-semibold text-[var(--danger)]" onClick={() => disconnect(a.id)}>בטוח?</button>
-                  : <button type="button" className="text-xs text-muted hover:underline" onClick={() => setConfirmOff(a.id)}>ניתוק</button>}
               </div>
               {a.provider === 'instagram' && (
                 <button type="button" className="mt-1.5 text-xs font-semibold text-primary disabled:opacity-60" disabled={!!importing} onClick={() => importNow(a.id)}>
@@ -152,19 +128,11 @@ export default function IntegrationsPage() {
               )}
             </div>
           ))}
-          <div className="flex flex-wrap gap-2">
-            <Button variant={meta.length ? 'ghost' : 'primary'} size="sm" onClick={() => connectMeta('full')} disabled={!!metaBusy || configured.meta === false}>
-              {metaBusy === 'full' ? <><Spinner />מעביר לפייסבוק…</> : 'חיבור לפרסום ומשיכה'}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => connectMeta('read')} disabled={!!metaBusy || configured.meta === false}>
-              {metaBusy === 'read' ? <><Spinner />מעביר לפייסבוק…</> : 'חיבור למשיכה בלבד'}
-            </Button>
-          </div>
+          {!meta.length && accounts !== null && <p className="mb-2 text-sm text-muted">עדיין לא שויך לעסק הזה עמוד או חשבון אינסטגרם.</p>}
           <p className="mt-2 text-xs text-muted">
-            בחלון של פייסבוק מסמנים את העמודים שרוצים לחבר. "משיכה בלבד" לא מאפשר פרסום בכלל.
-            <strong className="block text-ink-2">חיבור חוזר מאותו משתמש פייסבוק מחליף את הבחירה הקודמת — סמנו תמיד את כל העמודים שבשימוש.</strong>
+            החיבור ל-Meta משותף לכל העסקים ומנוהל במסך הניהול: שם מחברים פעם אחת ומשייכים כל עמוד לעסק שלו.
           </p>
-          {configured.meta === false && <p className="mt-1 text-xs text-muted">ממתין למפתחות Meta בשרת.</p>}
+          {superAdmin && <a href="/admin?tab=connections" className="mt-2 inline-block text-sm font-semibold text-primary">ניהול החיבור ל-Meta ושיוך עמודים ←</a>}
         </Card>
 
         <Card>
