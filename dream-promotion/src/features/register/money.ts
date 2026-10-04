@@ -1,4 +1,5 @@
 import { israelParts } from '@/lib/il-time';
+import { vatOfGross } from '@/features/finance/vat';
 
 /**
  * Register math — whole agorot internally, so 0.1 + 0.2 never becomes 0.30000000000000004.
@@ -53,7 +54,7 @@ export function computeSale(lines: Line[], discount: { kind: 'sum' | 'percent'; 
   const discA = Math.min(subA, dRaw);
   const totA = subA - discA;
   const rate = vat.type === 'licensed' ? vat.rate : 0;
-  const vatA = rate ? Math.round((totA * rate) / (100 + rate)) : 0;
+  const vatA = vatOfGross(totA, rate);   // the VAT engine (finance/vat.ts)
   return { subtotal: sh(subA), discount: sh(discA), total: sh(totA), vatRate: rate, vatAmount: sh(vatA), beforeVat: sh(totA - vatA) };
 }
 

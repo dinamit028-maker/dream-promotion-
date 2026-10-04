@@ -1,6 +1,6 @@
 {
   "name": "dream-promotion",
-  "version": "2.50.0",
+  "version": "2.51.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "npx -y tsx --test tests/*.test.ts",
     "test:sql": "bash tests/sql/run.sh",
-    "test:e2e": "npx -y tsx tests/e2e/register.e2e.ts"
+    "test:e2e": "npx -y tsx tests/e2e/register.e2e.ts && npx -y tsx tests/e2e/finance.e2e.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",

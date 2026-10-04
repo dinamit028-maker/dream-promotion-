@@ -3,8 +3,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   adCopyPrompt, assistantPrompt, brandAnalysisPrompt,
   contentPrompt, rewritePrompt, scenePrompt, storyboardPrompt, weeklyPlanPrompt,
-  socialPrompt, captionPolishPrompt, ideasPrompt, followupPrompt,
+  socialPrompt, captionPolishPrompt, ideasPrompt, followupPrompt, collectionPrompt,
 } from '@/lib/services/prompts';
+import { aiDraftIsSafe, reminderTemplate, type Tone } from '@/features/finance/receivables';
 import { accessDenied } from '@/lib/server/access';
 import { commitUsage, releaseUsage, requestUser, reserveUsage, type Reservation } from '@/lib/server/quota';
 import { PRICES } from '@/lib/server/ai/config';
@@ -37,6 +38,9 @@ function buildPrompt(task: string, p: any): { prompt: string; json: boolean } {
       name: String(p.name ?? '').slice(0, 80), stage: String(p.stage ?? ''), source: p.source, notes: String(p.notes ?? '').slice(0, 600),
       history: Array.isArray(p.history) ? p.history.slice(0, 12).map((h: unknown) => String(h).slice(0, 200)) : [], goal: p.goal,
     }), json: true };
+    // the template is ours (by tone) — whatever the client sends; the AI never sees amounts, names or dates
+    case 'collection': { const tone: Tone = p.tone === 'final' || p.tone === 'firm' ? p.tone : 'friendly';
+      return { prompt: collectionPrompt({ tone, template: reminderTemplate(tone), business: String(p.business ?? '') }), json: true }; }
     case 'social':     return { prompt: socialPrompt(p.brand, p), json: true };
     case 'captions':   return { prompt: captionPolishPrompt(p.brand, p), json: true };
     default: throw new Error('unknown_task');
@@ -95,7 +99,12 @@ export async function POST(req: Request) {
     const start = text.indexOf('{'), end = text.lastIndexOf('}');
     const clean = start >= 0 && end > start ? text.slice(start, end + 1) : text;
     try {
-      return NextResponse.json(JSON.parse(clean));
+      const parsed = JSON.parse(clean);
+      // a reminder that wrote its own amount, date or link is refused here too (the client checks again)
+      if (task === 'collection' && !aiDraftIsSafe(parsed?.message)) {
+        return NextResponse.json({ code: 'unsafe_draft', message: 'the draft did not keep the placeholders' }, { status: 422 });
+      }
+      return NextResponse.json(parsed);
     } catch {
       return NextResponse.json(
         { code: 'invalid_json', message: 'Model did not return valid JSON', raw: clean.slice(0, 400) },

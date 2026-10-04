@@ -1,4 +1,5 @@
 import type { Line, Refund, RefundMethod, Sale } from './money';
+import { vatOfGross } from '@/features/finance/vat';
 
 /**
  * Refunds ("החזר כספי") from the register. Whole agorot throughout.
@@ -79,7 +80,7 @@ export function planRefund(sale: Sale, prior: Refund[], req: RefundRequest,
   }
   if (amountA <= 0) return { ok: false, error: 'empty' };
   const rate = Number(sale.vatRate) || 0;
-  const vatA = rate ? Math.round((amountA * rate) / (100 + rate)) : 0;
+  const vatA = vatOfGross(amountA, rate);   // the VAT engine (finance/vat.ts)
   return {
     ok: true,
     refund: {

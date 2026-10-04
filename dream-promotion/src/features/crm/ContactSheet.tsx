@@ -11,6 +11,7 @@ import { ACTIVITY_HE, STAGES, followupState, parseTags, stageOf, telLink, waLink
 import { channelOfSource } from './meta-inbox';
 import { authHeaders } from '@/lib/services/http';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
+import { CrmFinance } from './CrmFinance';
 
 /** what the reply box says it answers in, per inbox channel */
 const REPLY_IN = { messenger: 'תשובה במסנג׳ר', fb: 'תשובה לתגובה בפייסבוק', ig: 'תשובה לתגובה באינסטגרם' } as const;
@@ -134,6 +135,9 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         {lead.email && <a href={`mailto:${lead.email}`} onClick={() => addActivity(lead.id, 'email', 'שלחתי מייל')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">✉️ מייל</a>}
         <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>
       </div>
+
+      {/* the contact's money: documents, what is owed, quotes — and issuing a document for them (2.51) */}
+      {isCloudConfigured && <CrmFinance leadId={lead.id} />}
 
       {posts.length > 0 && (
         <div className="mb-4">

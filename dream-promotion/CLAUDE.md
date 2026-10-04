@@ -11,3 +11,19 @@
 - מבנה רב-עסקי (מ-2026-10-04): כל הנתונים נתלים על businesses; user_id נשאר בכל טבלה כ"מי יצר". הרשאות דרך can_access_business(). רק super admin (profiles.is_super_admin) משנה סטטוס, paid_until, נעילה וחברים — גם owner לא.
 - עסק נוכחי (מ-2.44.0): RLS מציג רק את העסק שהמשתמש עובד בו (current_business_id()); לכן במסכים לא מסננים לפי user_id. בשרת (service role) — לסנן לפי business_id: של השורה בדפים ציבוריים/טיימר, ו-workBusiness(userId) במסלולי משתמש. אף פעם לא לסמוך על מילוי business_id אוטומטי בשרת שפועל בשם עסק אחר.
 - Supabase דרך ה-MCP: פקודה שמכילה drop נתקעת (ממתינה לאישור). להשתמש ב-create or replace, ולוודא אחרי כל כתיבה שהיא באמת רצה.
+- כספים (מ-2.51.0, src/features/finance):
+  - מסמך מופק רק דרך issueDocumentRow (finance/api.ts), עם idempotency_key — sale:<id> / refund:<id> / cancel:<id> / direct:<uuid>.
+  - מע״מ רק דרך finance/vat.ts (שיעור לפי תאריך). מה מותר לכל סוג עוסק — רק דרך finance/rules.ts.
+  - payments, finance_audit_log, tax_allocations ו-document_cancellations לא נערכים ולא נמחקים — רק שורה הפוכה.
+  - התיקון של חשבונית מס הוא חשבונית זיכוי (330). ביטול — רק 300/400 שהופקו בטעות.
+- רשות המסים:
+  - לא ממציאים כתובת, שדה או מספר הקצאה.
+  - מספר TEST לעולם לא מוצג כמספר אמיתי.
+  - לא כותבים "מאושר ע״י רשות המסים" או "דווח", בלי תשובה אמיתית מה-API.
+- לא מחברים ספקי חשבוניות חיצוניים: Morning / Green Invoice, iCount, Invoice4U, SUMIT, EZCount, רווחית.
+- AI בכספים: רק ממלא טופס או מנסח טקסט. המשתמש מאשר לפני שמירה או שליחה. ה-AI לא ממציא סכום, מספר, לקוח, סטטוס או תאריך.
+- פרטיות כספית:
+  - קופאי/ת (access = 'register') לא רואה שום נתון כספי — במסך, במסד ובשרת.
+  - מנהל-על רואה כספים של עסק שאינו חבר בו רק אחרי open_finance_access (סיבה + תוקף, נרשם ביומן של העסק).
+  - כל טבלת כספים חדשה מקבלת את שלושת ה-RESTRICTIVE: _business_gate, _finance_privacy, _cashier_none.
+  - מסלולי שרת של כספים: financeCaller (src/lib/server/finance.ts), העסק מהשרת, אף פעם לא מהלקוח.

@@ -26,3 +26,6 @@ alter table storage.objects enable row level security;
 create or replace function storage.foldername(name text) returns text[] language sql immutable as $$
   select (string_to_array(name, '/'))[1:greatest(array_length(string_to_array(name, '/'), 1) - 1, 0)] $$;
 grant usage on schema storage to anon, authenticated, service_role;
+-- as on Supabase: the API roles may use the storage tables; row-level security decides what they see and write
+grant select, insert, update, delete on storage.objects to anon, authenticated, service_role;
+grant select on storage.buckets to anon, authenticated, service_role;

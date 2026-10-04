@@ -17,3 +17,5 @@ echo "migrations: $(ls supabase/migrations/*.sql | wc -l) applied"
 for f in tests/sql/*.check.sql; do
   as_pg env PGOPTIONS="$PGOPTIONS" "${PSQL[@]}" -o /dev/null -d "$DB" -f "$f" && echo "ok: $f"
 done
+# numbering, idempotency and credit limits with several connections at once
+bash tests/sql/concurrency.sh "$DB"

@@ -37,6 +37,9 @@ export const PRICES = {
   /** Anthropic, USD per million tokens */
   anthropicIn: num('ANTHROPIC_USD_PER_MTOK_IN', 3)!,
   anthropicOut: num('ANTHROPIC_USD_PER_MTOK_OUT', 15)!,
+  /** Anthropic for reading supplier documents (expenses) — the scan model below, USD per million tokens */
+  anthropicScanIn: num('ANTHROPIC_SCAN_USD_PER_MTOK_IN', 4)!,
+  anthropicScanOut: num('ANTHROPIC_SCAN_USD_PER_MTOK_OUT', 20)!,
   /** ElevenLabs, USD per 1,000 characters — depends on your plan (unknown until set) */
   voicePer1k: num('VOICE_USD_PER_1K_CHARS', null),
   /** Final render on Vercel, USD per minute of function time (unknown until set) */
@@ -90,3 +93,7 @@ export function videoQualityOf(quality: unknown, resolution: unknown): VideoQual
   if (quality === 'draft' || quality === 'standard' || quality === 'premium') return quality;
   return resolution === '480p' ? 'draft' : resolution === '1080p' ? 'premium' : 'standard';
 }
+
+// ------------------------------------------------------------- documents --
+/** the model that reads a supplier's invoice / receipt (image or PDF) for the expense form (AI_SCAN_MODEL to change it) */
+export const SCAN_MODEL = process.env.AI_SCAN_MODEL || 'claude-opus-5-5';
