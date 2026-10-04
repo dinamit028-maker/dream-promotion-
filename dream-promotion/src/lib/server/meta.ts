@@ -366,3 +366,39 @@ export async function formLeads(pageToken: string, formId: string, sinceUnix: nu
   } while (after && out.length < max);
   return out;
 }
+
+// ------------------------------------------------------------- comments & messages --
+
+/** a Page's recent posts with their comments (newest first) */
+export async function pagePostsWithComments(pageToken: string, pageId: string, sinceUnix: number) {
+  const j = await graph(`/${pageId}/posts`, {
+    access_token: pageToken, limit: '25', since: String(Math.floor(sinceUnix)),
+    fields: 'id,message,permalink_url,comments.limit(100).order(reverse_chronological){id,message,created_time,from{id,name},parent{id}}',
+  });
+  return (j.data ?? []) as any[];
+}
+
+/** an Instagram account's recent media with comments and replies */
+export async function igMediaWithComments(pageToken: string, igId: string) {
+  const j = await graph(`/${igId}/media`, {
+    access_token: pageToken, limit: '25',
+    fields: 'id,caption,permalink,comments.limit(100){id,text,timestamp,username,from{id,username},replies.limit(50){id,text,timestamp,username,from{id,username}}}',
+  });
+  return (j.data ?? []) as any[];
+}
+
+/** a Page's conversations on Messenger or Instagram Direct, with the latest messages */
+export async function pageConversations(pageToken: string, pageId: string, platform: 'messenger' | 'instagram') {
+  const j = await graph(`/${pageId}/conversations`, {
+    access_token: pageToken, platform, limit: '25',
+    fields: 'id,updated_time,participants,messages.limit(25){id,message,created_time,from}',
+  });
+  return (j.data ?? []) as any[];
+}
+
+/** the Instagram account linked to a Page (for Instagram Direct), or null */
+export async function linkedInstagram(pageToken: string, pageId: string): Promise<{ id: string; username: string } | null> {
+  const j = await graph(`/${pageId}`, { access_token: pageToken, fields: 'instagram_business_account{id,username}' });
+  const ig = j.instagram_business_account;
+  return ig?.id ? { id: String(ig.id), username: String(ig.username ?? '') } : null;
+}
