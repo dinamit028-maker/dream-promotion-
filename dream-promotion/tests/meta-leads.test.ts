@@ -8,7 +8,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeDb } from './fakedb';
-import { ilPhone, leadNote, mapMetaLead, planImport, RECONNECT_FOR_LEADS } from '../src/features/crm/meta-leads';
+import { ilPhone, leadDetails, leadNote, mapMetaLead, planImport, RECONNECT_FOR_LEADS } from '../src/features/crm/meta-leads';
 
 process.env.TOKEN_ENCRYPTION_KEY = 'test-key-for-meta-leads';
 
@@ -36,9 +36,12 @@ test('form fields: name, phone, email and every answer with the question the cus
   assert.deepEqual(m.answers, [{ q: 'עשית בעבר טיפול גבות?', a: 'כן' }, { q: 'preferred time', a: 'בוקר' }]);
   assert.equal(m.createdAt, '2026-10-04T08:00:00.000Z');
   const note = leadNote('טופס גבות', m);
-  assert.match(note, /ליד מטופס Meta · טופס גבות · מודעה: גבות סתיו/);
+  assert.match(note, /פנייה מטופס Meta · טופס גבות · מודעה: גבות סתיו/);
   assert.match(note, /עשית בעבר טיפול גבות\?: כן/);
-  assert.match(note, /\(Meta lead L1\)/);
+  assert.ok(!/מזהה Meta/.test(note), 'a new contact\'s note stays clean (it is remembered by external_id)');
+  assert.ok(!/050|972/.test(note), 'the phone lives in its own field, not in the note');
+  assert.match(leadNote('טופס גבות', m, true), /\(מזהה Meta: L1\)/, 'a note on an existing contact is marked');
+  assert.equal(leadDetails(m), 'עשית בעבר טיפול גבות?: כן\npreferred time: בוקר', 'answers → the card\'s notes field');
   // first + last name when there is no full name
   assert.equal(mapMetaLead({ id: 'L2', field_data: [{ name: 'first_name', values: ['רון'] }, { name: 'last_name', values: ['לוי'] }] }).name, 'רון לוי');
 });
@@ -118,6 +121,7 @@ test('sync: a SaGabot lead lands in SaGabot only — even when FollowMe has the 
   const act = tables.lead_activities[0];
   assert.deepEqual([act.business_id, act.lead_id, act.kind], [SG, sg[0].id, 'note'], 'the note gets the lead\'s business');
   assert.match(act.body, /עשית בעבר טיפול גבות\?: כן/);
+  assert.equal(sg[0].notes, 'עשית בעבר טיפול גבות?: כן', 'the form\'s answers fill the card\'s notes field');
   assert.ok(tables.meta_lead_sync.find((s) => s.social_account_id === 'acc-sg').last_synced_at);
 });
 

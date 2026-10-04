@@ -37,6 +37,9 @@ const STRUCTURAL = new Set([...NAME_KEYS, ...PHONE_KEYS, ...EMAIL_KEYS, 'first_n
 /** field keys look like "did_you_do_eyebrows_before?" — the label is nicer when the form gave one */
 const prettyKey = (k: string) => k.replace(/_/g, ' ').trim();
 
+/** marks a note so the same Meta lead is never noted twice */
+export const noteMarker = (externalId: string) => `(מזהה Meta: ${externalId})`;
+
 /** a custom question can still be the phone / email / name: recognised by its key or by the question's text */
 const PHONE_RX = /phone|mobile|טלפון|נייד|פלאפון/i;
 const EMAIL_RX = /e-?mail|מייל|אימייל|דוא"?ל/i;
@@ -72,14 +75,21 @@ export function mapMetaLead(raw: MetaLeadRaw, labels: Record<string, string> = {
   };
 }
 
-/** Every answer of the form as one note on the contact card. The Meta id marks it (never added twice). */
-export function leadNote(formName: string, m: MappedLead): string {
-  const lines = [`ליד מטופס Meta · ${formName}${m.adName ? ` · מודעה: ${m.adName}` : ''}`];
+/** The form's answers, one per line ("עשית בעבר טיפול גבות?: כן אבל מזמן") — the card's "הערות" field. */
+export const leadDetails = (m: MappedLead) => m.answers.map(({ q, a }) => `${q}: ${a}`).join('\n');
+
+/**
+ * The history entry for the enquiry. Name / phone / email live in their own fields, so they are not repeated.
+ * withMarker: a lead that only became a note on an EXISTING contact is remembered by its Meta id (never twice);
+ * a new contact is remembered by leads.external_id, so its note stays clean.
+ */
+export function leadNote(formName: string, m: MappedLead, withMarker = false): string {
+  const lines = [`פנייה מטופס Meta · ${formName}${m.adName ? ` · מודעה: ${m.adName}` : ''}`];
   for (const { q, a } of m.answers) lines.push(`${q}: ${a}`);
-  lines.push(`(Meta lead ${m.externalId})`);
+  if (withMarker) lines.push(noteMarker(m.externalId));
   return lines.join('\n');
 }
-export const noteMarker = (externalId: string) => `(Meta lead ${externalId})`;
+
 
 /**
  * What to do with each incoming lead, given what the business already has:

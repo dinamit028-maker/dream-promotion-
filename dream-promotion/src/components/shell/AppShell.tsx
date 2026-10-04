@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { AIService } from '@/lib/services';
@@ -66,6 +66,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   type BizItem = { id: string; name: string; state: 'active' | 'locked' | 'expired' };
   const [biz, setBiz] = useState<{ current: BizItem | null; list: BizItem[]; superAdmin: boolean } | null>(null);
   const [switching, setSwitching] = useState(false);
+  // the cloud is the source of truth: every app open loads fresh data once (leads imported by the timer,
+  // fixes made on the server) — the device cache only bridges the first paint
+  const loadedOnce = useRef(false);
 
   // with accounts configured, nothing renders until we know who this is
   useEffect(() => {
@@ -83,7 +86,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       } catch { /* the app still opens; data comes from row-level security anyway */ }
       if (!alive) return;
       // a different user or a different business → load that business's data (never mix two businesses)
-      if (u.id !== userId || (current && current !== businessId)) await hydrate(u.id, current);
+      if (!loadedOnce.current || u.id !== userId || (current && current !== businessId)) {
+        loadedOnce.current = true;
+        await hydrate(u.id, current);
+      }
       setChecking(false);
     });
     const { data: sub } = supabase().auth.onAuthStateChange((_e, session) => {
