@@ -34,9 +34,9 @@
 |---|---|
 | 1 | ✅ migration `20261004001900_businesses.sql` הוחל. is_super_admin=true לאביב. טריגר `guard_super_admin` חוסם שינוי מה-API (נבדק חי). meta_connections סגורה לדפדפן. RLS פעיל בלי policies על הטבלאות החדשות (עד שלב 4). |
 | 2 | ✅ `20261004002000_business_id.sql` + `20261004002100_business_id_required.sql` הוחלו. עסקים FollowMe (slug followme) ו-SaGabot (slug sagabot), חברים, backfill מלא, NOT NULL בכל הטבלאות חוץ מ-`ai_generations` (יומן עלויות, user_id nullable). |
-| 3 | 🟡 קוד בענף (commit d520dcf, 56/56 בדיקות, typecheck עובר; build עוד לא הורץ). migration `20261004002200_social_assets.sql`: **חלק A הוחל** (עמודות connection_id/status/missing_since, fill_business_id מדלג על social_accounts, view `social_accounts_public`, grants ברמת עמודה — הטוקן של שורת FollowMe של אביב (fd1e8c04…) עודכן לחדש ביותר). **חלק B הוחל חלקית**: `business_id` כבר nullable (✅). ה-`delete` נחסם (timeout — אישור ההרשאה של Supabase לא מגיע לסשן גם ב-Always), ולכן גם האינדקס והרישום טרם בוצעו. build עובר ✅. |
+| 3 | ✅ (ממתין ל-PR) קוד בענף (commit d520dcf, 56/56 בדיקות, typecheck עובר; build עוד לא הורץ). migration `20261004002200_social_assets.sql`: **חלק A הוחל** (עמודות connection_id/status/missing_since, fill_business_id מדלג על social_accounts, view `social_accounts_public`, grants ברמת עמודה — הטוקן של שורת FollowMe של אביב (fd1e8c04…) עודכן לחדש ביותר). **חלק B הוחל** (ה-delete/אינדקס/רישום הורצו ידנית ע"י אביב ב-SQL Editor, כי פקודות מחיקה נחסמות ב-MCP; נבדק: שורה אחת לעמוד, business_id nullable, האינדקס קיים, migration רשום). build עובר ✅. |
 
-### חלק B שנשאר (השורה הראשונה כבר בוצעה; ה-delete נחסם ב-MCP — להריץ ב-SQL Editor של Supabase או לאשר בחלון)
+### חלק B (בוצע — לתיעוד)
 ```sql
 alter table public.social_accounts alter column business_id drop not null;
 delete from public.social_accounts
@@ -46,7 +46,9 @@ insert into supabase_migrations.schema_migrations(version, name, statements)
   values ('20261004002200', 'social_assets_2200', array['-- applied via execute_sql; full text in supabase/migrations/20261004002200_social_assets.sql'])
   on conflict (version) do nothing;
 ```
-אחרי זה: לבדוק (נשארה שורה אחת לעמוד FollowMe, business_id nullable, האינדקס קיים), להריץ build, לתת סיכום שלב 3, ורק באישור — PR ומיזוג.
+הבא: PR ומיזוג שלב 3 (באישור), ואז שלב 4.
+
+**חשוב לשיחות הבאות:** פקודות `delete`/`drop` דרך Supabase MCP נחסמות תמיד (timeout) — להכין SQL ולבקש מאביב להריץ ב-SQL Editor, ואז לוודא בשאילתה.
 
 ## הערות טכניות חשובות
 - **Supabase MCP**: פקודה עם `drop`/`delete` דרשה אישור ונתקעה (timeout 60s, בלי לבצע). המשתמש שינה את הרשאות הכלים ל-"Always" — אמור לעבוד בשיחה חדשה. `apply_migration` נתקע גם הוא; עבד: `execute_sql` + רישום ידני ב-`supabase_migrations.schema_migrations`. **אחרי כל כתיבה — לוודא בשאילתה שהיא באמת רצה.**
