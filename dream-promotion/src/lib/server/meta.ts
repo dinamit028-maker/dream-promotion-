@@ -374,7 +374,7 @@ export async function formLeads(pageToken: string, formId: string, sinceUnix: nu
 const tooMuch = (m: string) => /reduce the amount of data|meta_1:|meta_http_500/i.test(m);
 
 /** pages through an edge in small batches; on "too much data" retries the batch with the next smaller size */
-async function pagedSmall(path: string, base: Record<string, string>, fieldsFor: (n: number) => string, sizes: number[], maxPages = 8, stop?: (row: any) => boolean) {
+async function pagedSmall(path: string, base: Record<string, string>, fieldsFor: (n: number) => string, sizes: number[], maxPages = 8, stop?: (row: any) => boolean, deadline = Infinity) {
   const out: any[] = [];
   let after: string | undefined; let pages = 0;
   do {
@@ -388,29 +388,44 @@ async function pagedSmall(path: string, base: Record<string, string>, fieldsFor:
     out.push(...rows);
     if (stop && rows.some(stop)) break;
     after = j.paging?.next ? j.paging?.cursors?.after : undefined;
-  } while (after && ++pages < maxPages);
+  } while (after && ++pages < maxPages && Date.now() < deadline);
   return out;
 }
 
-/** a Page's posts since a moment, each with its latest comments */
-export async function pagePostsWithComments(pageToken: string, pageId: string, sinceUnix: number) {
-  return pagedSmall(`/${pageId}/posts`, { access_token: pageToken, since: String(Math.floor(sinceUnix)) },
-    (n) => `id,message,permalink_url,comments.limit(${n * 3}).order(reverse_chronological){id,message,created_time,from{id,name},parent{id}}`,
-    [10, 5, 2]);
+/** a Page's posts since a moment, each with its latest comments — posts first, then each post's comments
+ *  separately (Meta refuses a Page's posts with nested comments as "too much data") */
+export async function pagePostsWithComments(pageToken: string, pageId: string, sinceUnix: number, deadline = Infinity) {
+  const posts = await pagedSmall(`/${pageId}/posts`, { access_token: pageToken, since: String(Math.floor(sinceUnix)) },
+    () => 'id,message,permalink_url', [25, 10, 5], 4, undefined, deadline);
+  for (const p of posts) {
+    if (Date.now() > deadline) { p.comments = { data: [] }; continue; } // out of time: the next run continues
+    const comments = await pagedSmall(`/${p.id}/comments`, { access_token: pageToken, order: 'reverse_chronological', filter: 'stream' },
+      () => 'id,message,created_time,from{id,name},parent{id}', [50, 25, 10], 4, undefined, deadline);
+    p.comments = { data: comments };
+  }
+  return posts;
 }
 
 /** an Instagram account's media (newest first) with comments and replies, back to `sinceIso` */
-export async function igMediaWithComments(pageToken: string, igId: string, sinceIso: string) {
+export async function igMediaWithComments(pageToken: string, igId: string, sinceIso: string, deadline = Infinity) {
   return pagedSmall(`/${igId}/media`, { access_token: pageToken },
     (n) => `id,caption,permalink,timestamp,comments.limit(${n * 3}){id,text,timestamp,username,from{id,username},replies.limit(10){id,text,timestamp,username,from{id,username}}}`,
-    [10, 5, 2], 8, (m) => Boolean(m.timestamp && new Date(m.timestamp).toISOString() < sinceIso));
+    [10, 5, 2], 8, (m) => Boolean(m.timestamp && new Date(m.timestamp).toISOString() < sinceIso), deadline);
 }
 
-/** a Page's conversations on Messenger or Instagram Direct (latest first), back to `sinceIso` */
-export async function pageConversations(pageToken: string, pageId: string, platform: 'messenger' | 'instagram', sinceIso: string) {
-  return pagedSmall(`/${pageId}/conversations`, { access_token: pageToken, platform },
-    (n) => `id,updated_time,participants,messages.limit(${Math.max(5, n * 2)}){id,message,created_time,from}`,
-    [10, 5, 2], 8, (c) => Boolean(c.updated_time && new Date(c.updated_time).toISOString() < sinceIso));
+/** a Page's conversations on Messenger or Instagram Direct (latest first), back to `sinceIso` —
+ *  the conversations first, then each one's messages separately */
+export async function pageConversations(pageToken: string, pageId: string, platform: 'messenger' | 'instagram', sinceIso: string, deadline = Infinity) {
+  const convs = await pagedSmall(`/${pageId}/conversations`, { access_token: pageToken, platform },
+    () => 'id,updated_time,participants', [25, 10, 5], 8,
+    (c) => Boolean(c.updated_time && new Date(c.updated_time).toISOString() < sinceIso), deadline);
+  const fresh = convs.filter((c) => !c.updated_time || new Date(c.updated_time).toISOString() >= sinceIso);
+  for (const c of fresh) {
+    if (Date.now() > deadline) { c.messages = { data: [] }; continue; }
+    const msgs = await pagedSmall(`/${c.id}/messages`, { access_token: pageToken }, () => 'id,message,created_time,from', [25, 10, 5], 2);
+    c.messages = { data: msgs };
+  }
+  return fresh;
 }
 
 /** the Instagram account linked to a Page (for Instagram Direct), or null */

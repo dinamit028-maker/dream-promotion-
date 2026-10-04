@@ -28,18 +28,26 @@ async function ownerOf(businessId: string, fallback: string) {
   return (rows.find((r) => r.role === 'owner') ?? rows[0])?.user_id ?? fallback;
 }
 
-/** Reads one account's new comments / messages (pure parsing in features/crm/meta-inbox). Exported for tests. */
-export async function fetchItems(acc: AccountRow, sinceIso: string): Promise<InboxItem[]> {
+/** Reads one account's new comments / messages (pure parsing in features/crm/meta-inbox). Exported for tests.
+ *  Each channel is read on its own: one refused channel (say Messenger) never blocks the others —
+ *  its error is reported with the channel's name. */
+export async function fetchItems(acc: AccountRow, sinceIso: string, deadline = Infinity): Promise<{ items: InboxItem[]; errors: string[]; partial: boolean }> {
   const token = open(acc.access_token);
   const sinceUnix = +new Date(sinceIso) / 1000;
+  const items: InboxItem[] = []; const errors: string[] = [];
+  const step = async (label: string, run: () => Promise<InboxItem[]>) => {
+    try { items.push(...(await run())); }
+    catch (e: any) { errors.push(`${label}: ${String(e?.message ?? e)}`); }
+  };
   if (acc.provider === 'instagram') {
-    return igCommentItems(acc.external_id, acc.display_name ?? '', await igMediaWithComments(token, acc.external_id, sinceIso), sinceIso);
+    await step('תגובות באינסטגרם', async () => igCommentItems(acc.external_id, acc.display_name ?? '', await igMediaWithComments(token, acc.external_id, sinceIso, deadline), sinceIso));
+    return { items, errors, partial: Date.now() > deadline };
   }
-  const items = fbCommentItems(acc.external_id, await pagePostsWithComments(token, acc.external_id, Math.min(sinceUnix, Date.now() / 1000 - FIRST_SYNC_DAYS * 86400)), sinceIso);
-  items.push(...conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso), sinceIso));
+  await step('תגובות בפייסבוק', async () => fbCommentItems(acc.external_id, await pagePostsWithComments(token, acc.external_id, Math.min(sinceUnix, Date.now() / 1000 - FIRST_SYNC_DAYS * 86400), deadline), sinceIso));
+  await step('מסנג׳ר', async () => conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso, deadline), sinceIso));
   const ig = await linkedInstagram(token, acc.external_id).catch(() => null);
-  if (ig) items.push(...conversationItems('ig_dm', [ig.id, acc.external_id], await pageConversations(token, acc.external_id, 'instagram', sinceIso), sinceIso));
-  return items;
+  if (ig) await step('הודעות אינסטגרם', async () => conversationItems('ig_dm', [ig.id, acc.external_id], await pageConversations(token, acc.external_id, 'instagram', sinceIso, deadline), sinceIso));
+  return { items, errors, partial: Date.now() > deadline };
 }
 
 /** Stores a batch for one business: new messages only, one contact per new person. Exported for tests. */
@@ -86,20 +94,27 @@ export async function storeItems(businessId: string, owner: string, accountId: s
   return out;
 }
 
-export async function syncAccount(acc: AccountRow, now = new Date()): Promise<InboxResult> {
+const friendly = (m: string) => (isLeadsPermissionError(m) || /reconnect_required/.test(m) ? RECONNECT_FOR_INBOX
+  : m.replace(/\b[a-z_]+_\d+:\s*/gi, '').replace(/Please reduce the amount of data you're asking for, then retry your request/g, 'Meta ביקשה לקרוא פחות בבת אחת').slice(0, 300));
+
+export async function syncAccount(acc: AccountRow, now = new Date(), deadline = Infinity): Promise<InboxResult> {
   const db = adminDb();
   const res: InboxResult = { accountId: acc.id, account: acc.display_name ?? acc.external_id, stored: 0, contacts: 0 };
   const { data: st } = await db.from('meta_inbox_sync').select('last_synced_at').eq('social_account_id', acc.id).maybeSingle();
   const since = new Date(st?.last_synced_at ? +new Date(st.last_synced_at) - OVERLAP_MS : +now - FIRST_SYNC_DAYS * 864e5).toISOString();
   const save = (patch: Record<string, unknown>) => db.from('meta_inbox_sync').upsert({ social_account_id: acc.id, business_id: acc.business_id, ...patch }, { onConflict: 'social_account_id' });
   try {
-    const items = await fetchItems(acc, since);
+    const { items, errors, partial } = await fetchItems(acc, since, deadline);
     const r = await storeItems(acc.business_id, await ownerOf(acc.business_id, acc.user_id), acc.id, items);
     res.stored = r.stored; res.contacts = r.contacts;
-    await save({ last_synced_at: now.toISOString(), last_error: '' });
+    if (errors.length && !items.length) throw new Error(errors.join(' · '));
+    // what worked is saved; a channel that failed is reported (and read again next time — the window does not move)
+    if (errors.length) { res.error = friendly(errors.join(' · ')); await save({ last_error: res.error }); }
+    // out of time: what was read is saved, and the next run reads the same window again (nothing is stored twice)
+    else if (partial) await save({ last_error: '' });
+    else await save({ last_synced_at: now.toISOString(), last_error: '' });
   } catch (e: any) {
-    const m = String(e?.message ?? e);
-    res.error = isLeadsPermissionError(m) || /reconnect_required/.test(m) ? RECONNECT_FOR_INBOX : m.replace(/^[a-z_0-9]+:\s*/i, '').slice(0, 240);
+    res.error = friendly(String(e?.message ?? e));
     await save({ last_error: res.error });
   }
   return res;
@@ -119,7 +134,7 @@ export async function syncInbox(opts: { deadline: number; businessId?: string })
     if (Date.now() > opts.deadline) break;
     if (!open_.has(a.business_id)) open_.set(a.business_id, await businessOpen(a.business_id));
     if (!open_.get(a.business_id)) { summary.lockedSkipped++; continue; }
-    const r = await syncAccount(a);
+    const r = await syncAccount(a, new Date(), opts.deadline);
     summary.accounts++; summary.stored += r.stored; summary.contacts += r.contacts;
     if (r.error) summary.errors++;
     summary.results.push(r);
