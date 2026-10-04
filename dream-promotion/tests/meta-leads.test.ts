@@ -43,6 +43,17 @@ test('form fields: name, phone, email and every answer with the question the cus
   assert.equal(mapMetaLead({ id: 'L2', field_data: [{ name: 'first_name', values: ['רון'] }, { name: 'last_name', values: ['לוי'] }] }).name, 'רון לוי');
 });
 
+test('a custom phone question (as in SaGabot\'s form) is still the phone; choice answers get spaces', () => {
+  const m = mapMetaLead({ id: 'L9', field_data: [
+    { name: 'full_name', values: ['שירן'] },
+    { name: 'custom_q_1', values: ['+972521234567'] },
+    { name: 'custom_q_2', values: ['dana@x.com'] },
+    { name: 'עשית_בעבר_טיפול_גבות?', values: ['כן_אבל_מזמן'] },
+  ] }, { custom_q_1: 'Phone number', custom_q_2: 'אימייל' });
+  assert.deepEqual([m.phone, m.email], ['052-1234567', 'dana@x.com']);
+  assert.deepEqual(m.answers, [{ q: 'עשית בעבר טיפול גבות?', a: 'כן אבל מזמן' }], 'phone / email are not repeated as answers');
+});
+
 test('duplicates: same Meta id skipped, same phone becomes a note, twice in one batch too', () => {
   const lead = (id: string, phone: string) => mapMetaLead({ id, field_data: [{ name: 'full_name', values: ['x'] }, { name: 'phone_number', values: [phone] }] });
   const plan = planImport(

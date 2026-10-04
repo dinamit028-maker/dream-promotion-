@@ -37,20 +37,36 @@ const STRUCTURAL = new Set([...NAME_KEYS, ...PHONE_KEYS, ...EMAIL_KEYS, 'first_n
 /** field keys look like "did_you_do_eyebrows_before?" — the label is nicer when the form gave one */
 const prettyKey = (k: string) => k.replace(/_/g, ' ').trim();
 
+/** a custom question can still be the phone / email / name: recognised by its key or by the question's text */
+const PHONE_RX = /phone|mobile|טלפון|נייד|פלאפון/i;
+const EMAIL_RX = /e-?mail|מייל|אימייל|דוא"?ל/i;
+const NAME_RX = /full.?name|^name$|שם מלא|^שם$/i;
+
+/** multiple-choice answers come as keys ("כן_אבל_מזמן") — shown with spaces */
+const prettyAnswer = (v: string) => v.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+
 export function mapMetaLead(raw: MetaLeadRaw, labels: Record<string, string> = {}): MappedLead {
   const fields = new Map<string, string>();
   for (const f of raw.field_data ?? []) fields.set(String(f.name), (f.values ?? []).map(String).join(', ').trim());
-  const first = (keys: string[]) => keys.map((k) => fields.get(k)).find((v) => v) ?? '';
+  const textOf = (k: string) => `${k} ${labels[k] ?? ''}`;
+  const pick = (keys: string[], rx: RegExp) => {
+    const k = keys.find((x) => fields.get(x)) ?? [...fields.keys()].find((x) => fields.get(x) && rx.test(textOf(x)));
+    return k ? { key: k, value: fields.get(k)! } : null;
+  };
+  const phone = pick(PHONE_KEYS, PHONE_RX);
+  const email = pick(EMAIL_KEYS, EMAIL_RX);
+  const name = pick(NAME_KEYS, NAME_RX);
+  const used = new Set([...STRUCTURAL, phone?.key, email?.key, name?.key].filter(Boolean) as string[]);
   const split = [fields.get('first_name'), fields.get('last_name')].filter(Boolean).join(' ');
   const answers = [...fields.entries()]
-    .filter(([k, v]) => !STRUCTURAL.has(k) && v)
-    .map(([k, v]) => ({ q: labels[k] || prettyKey(k), a: v }));
+    .filter(([k, v]) => !used.has(k) && v)
+    .map(([k, v]) => ({ q: labels[k] || prettyKey(k), a: prettyAnswer(v) }));
   return {
     externalId: String(raw.id),
     createdAt: raw.created_time ? new Date(raw.created_time).toISOString() : null,
-    name: (first(NAME_KEYS) || split || 'ליד מ-Meta').slice(0, 120),
-    phone: ilPhone(first(PHONE_KEYS)),
-    email: first(EMAIL_KEYS).toLowerCase().slice(0, 160),
+    name: (name?.value || split || 'ליד מ-Meta').slice(0, 120),
+    phone: ilPhone(phone?.value ?? ''),
+    email: (email?.value ?? '').toLowerCase().slice(0, 160),
     answers,
     adName: raw.ad_name ?? '',
   };
