@@ -7,7 +7,7 @@ import { PRICES } from '@/lib/server/ai/config';
 import { logGeneration } from '@/lib/server/ai/ledger';
 import { commitUsage, releaseUsage, reserveUsage } from '@/lib/server/quota';
 import { MOTIONS, renderReel, type RenderJob } from '@/lib/server/reel-render';
-import { LOCKED, userLocked, workBusiness } from '@/lib/server/business';
+import { blockedFor, workBusiness } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,8 @@ export async function POST(req: Request) {
   const { data: u } = token ? await admin.auth.getUser(token) : { data: null as any };
   const user = u?.user;
   if (!user) return Response.json({ error: 'sign in required', code: 'no_session' }, { status: 401 });
-  if (await userLocked(user.id)) return Response.json({ ...LOCKED, error: LOCKED.message }, { status: 403 });
+  const blocked = await blockedFor(user.id);
+  if (blocked) return Response.json({ ...blocked, error: blocked.message }, { status: 403 });
   const biz = await workBusiness(user.id); // the reel and its file belong to the business being worked in
 
   let body: any;

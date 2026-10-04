@@ -12,6 +12,8 @@ export interface HeldCustomer { name: string; phone: string; leadId: string | nu
 export interface HeldSale {
   id: string; heldAt: string; lines: Line[]; customer: HeldCustomer;
   discount: { kind: 'sum' | 'percent'; value: number }; note: string; employeeId: string;
+  /** an invoice to a business, when one was being filled in */
+  billing?: { name: string; dealer: string; street: string; city: string } | null;
 }
 export type Cart = Omit<HeldSale, 'id' | 'heldAt'>;
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>;
@@ -23,8 +25,12 @@ const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0
 /** one stored entry → a clean held sale, or null when it is not usable (old format, edited by hand, empty) */
 function clean(x: any): HeldSale | null {
   if (!x || typeof x !== 'object' || !Array.isArray(x.lines)) return null;
-  const lines = x.lines.filter((l: any) => l && typeof l.name === 'string').map((l: any) => ({ name: l.name, price: num(l.price), qty: Math.max(0, Math.floor(num(l.qty))) }))
-    .filter((l: Line) => l.qty > 0);
+  const KINDS = ['service', 'product', 'package', 'other'];
+  const lines = x.lines.filter((l: any) => l && typeof l.name === 'string').map((l: any): Line => ({
+    name: l.name, price: num(l.price), qty: Math.max(0, Math.floor(num(l.qty))),
+    // the price-list link (stock, commissions) survives the hold
+    ...(str(l.itemId) ? { itemId: str(l.itemId) } : {}), ...(KINDS.includes(l.kind) ? { kind: l.kind } : {}),
+  })).filter((l: Line) => l.qty > 0);
   if (!lines.length || !str(x.id)) return null;
   const c = x.customer ?? {};
   return {
@@ -32,6 +38,8 @@ function clean(x: any): HeldSale | null {
     customer: { name: str(c.name), phone: str(c.phone), leadId: strOrNull(c.leadId), appointmentId: strOrNull(c.appointmentId) },
     discount: { kind: x.discount?.kind === 'percent' ? 'percent' : 'sum', value: Math.max(0, num(x.discount?.value)) },
     note: str(x.note), employeeId: str(x.employeeId),
+    ...(x.billing && typeof x.billing === 'object'
+      ? { billing: { name: str(x.billing.name), dealer: str(x.billing.dealer), street: str(x.billing.street), city: str(x.billing.city) } } : {}),
   };
 }
 

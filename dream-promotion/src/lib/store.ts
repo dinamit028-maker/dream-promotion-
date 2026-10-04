@@ -34,6 +34,12 @@ interface AppState {
   userId: string | null;
   /** the business whose data is in this store (null = not known yet / device only) */
   businessId: string | null;
+  /** this user's access in that business: 'register' = a cashier — the register only (the database enforces it too) */
+  access: 'full' | 'register';
+  setAccess: (a: 'full' | 'register') => void;
+  /** the register fills the whole screen (no menus) — a tablet / POS at the counter */
+  kiosk: boolean;
+  setKiosk: (k: boolean) => void;
   syncing: boolean;
   hydrate: (userId: string, businessId?: string | null) => Promise<void>;
   signOutLocal: () => void;
@@ -51,6 +57,8 @@ interface AppState {
   saveContentNow: (id: string, patch: Partial<ContentItem>) => Promise<string | null>;
   removeMedia: (id: string) => void;
   addLead: (l: Omit<Lead, 'id'>) => string;
+  /** like addLead, but resolves once the contact is saved — before a row that points to it (a sale) is written */
+  addLeadNow: (l: Omit<Lead, 'id'>) => Promise<string>;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   deleteLead: (id: string) => void;
   /** logs an event on a contact; calls / messages / meetings also update "last contact" */
@@ -90,6 +98,10 @@ export const useApp = create<AppState>()(
       },
       userId: null,
       businessId: null,
+      access: 'full',
+      setAccess: (access) => set({ access }),
+      kiosk: false,
+      setKiosk: (kiosk) => set({ kiosk }),
       syncing: false,
 
       /**
@@ -137,7 +149,7 @@ export const useApp = create<AppState>()(
       },
 
       signOutLocal: () => set({
-        userId: null, businessId: null, onboarded: false, brand: emptyBrand, analysis: null,
+        userId: null, businessId: null, access: 'full', kiosk: false, onboarded: false, brand: emptyBrand, analysis: null,
         content: [], media: [], leads: [], activities: [], ads: [], pronunciations: [],
       }),
       openEditor: (id) => set({ editingId: id }),
@@ -203,6 +215,13 @@ export const useApp = create<AppState>()(
         set((s) => ({ leads: [lead, ...s.leads] }));
         const u = get().userId;
         if (u) void Repo.saveLead(u, lead);
+        return lead.id;
+      },
+      addLeadNow: async (l) => {
+        const lead: Lead = { ...l, id: crypto.randomUUID() };
+        set((s) => ({ leads: [lead, ...s.leads] }));
+        const u = get().userId;
+        if (u) await Repo.saveLead(u, lead);
         return lead.id;
       },
       deleteLead: (id) => {

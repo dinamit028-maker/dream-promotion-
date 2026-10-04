@@ -14,6 +14,8 @@ export const dynamic = 'force-dynamic';
  *  GET   → every business: state, payment, members, assets (+ disconnected), this month's posts / leads / cost
  *  POST  { name, slug, ownerEmail?, paidUntil? } → a new business (+ its owner, who must already have signed up)
  *  PATCH { id, action: 'extend' | 'paid_until' | 'lock' | 'unlock' | 'enter', paidUntil?, reason? }
+ *  PATCH { id, action: 'add_member', email, access: 'full' | 'register' } — a person who already signed up joins the
+ *        business (register = "קופאי/ת": the register only) and starts working in it; 'remove_member' { email }
  */
 /** the super admin's id, or a ready refusal */
 async function superAdminOnly(req: Request): Promise<string | Response> {
@@ -32,7 +34,7 @@ export async function GET(req: Request) {
   const monthStart = israelToIso(`${todayIL().slice(0, 7)}-01`, '00:00');
   const [biz, members, assets, posts, leads, costs, me] = await Promise.all([
     db.from('businesses').select('id, name, slug, status, paid_until, grace_days, lock_reason, notes, created_at').order('created_at'),
-    db.from('business_members').select('business_id, user_id, role'),
+    db.from('business_members').select('*'),
     db.from('social_accounts').select('business_id, provider, display_name, status'),
     db.from('scheduled_posts').select('business_id').in('status', ['done', 'partial']).gte('last_run_at', monthStart),
     db.from('leads').select('business_id').gte('created_at', monthStart),
@@ -56,7 +58,7 @@ export async function GET(req: Request) {
         id: b.id, name: b.name, slug: b.slug, status: b.status, paidUntil: b.paid_until, graceDays: b.grace_days,
         lockReason: b.lock_reason, ...bizView(b),
         members: (members.data ?? []).filter((m) => m.business_id === b.id)
-          .map((m) => ({ role: m.role, email: person.get(m.user_id)?.email ?? '', name: person.get(m.user_id)?.full_name ?? '' })),
+          .map((m: any) => ({ role: m.role, access: m.access === 'register' ? 'register' : 'full', email: person.get(m.user_id)?.email ?? '', name: person.get(m.user_id)?.full_name ?? '' })),
         assets: mine.length,
         missing: mine.filter((s) => s.status === 'missing').map((s) => `${s.provider} · ${s.display_name ?? ''}`),
         month: { posts: count(posts.data, b.id), leads: count(leads.data, b.id), costUsd: Math.round(cost * 100) / 100 },
@@ -122,6 +124,28 @@ export async function PATCH(req: Request) {
       // the super admin works inside this business from now on (new rows are filed under it)
       const { error } = await db.from('profiles').update({ current_business_id: id }).eq('id', userId);
       return error ? bad(error.message) : NextResponse.json({ ok: true });
+    }
+    case 'add_member': {
+      const email = String(body.email ?? '').trim().toLowerCase();
+      const access = body.access === 'register' ? 'register' : 'full';
+      if (!email) return bad('נא לכתוב מייל');
+      const { data: p } = await db.from('profiles').select('id').ilike('email', email).maybeSingle();
+      if (!p) return bad(`${email} עוד לא נרשם/ה לאפליקציה. אחרי ההרשמה אפשר להוסיף.`);
+      const { error } = await db.from('business_members').upsert(
+        { business_id: id, user_id: p.id, role: access === 'register' ? 'editor' : 'owner', access }, { onConflict: 'business_id,user_id' });
+      if (error) return bad(/access/.test(error.message) ? 'צריך להריץ את מיגרציה 20261004003000 (הרשאות קופה).' : error.message);
+      // a new member works in this business from now on (a cashier has nowhere else to work)
+      await db.from('profiles').update({ current_business_id: id }).eq('id', p.id);
+      return NextResponse.json({ ok: true });
+    }
+    case 'remove_member': {
+      const email = String(body.email ?? '').trim().toLowerCase();
+      const { data: p } = await db.from('profiles').select('id').ilike('email', email).maybeSingle();
+      if (!p) return bad('המשתמש לא נמצא');
+      const { error } = await db.from('business_members').delete().eq('business_id', id).eq('user_id', p.id);
+      if (error) return bad(error.message);
+      await db.from('profiles').update({ current_business_id: null }).eq('id', p.id).eq('current_business_id', id);
+      return NextResponse.json({ ok: true });
     }
     default: return bad('פעולה לא מוכרת');
   }

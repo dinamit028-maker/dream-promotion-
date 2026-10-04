@@ -9,12 +9,13 @@ import { STATE_HE, validSlug, type BizState } from './business-state';
 /**
  * Admin → "עסקים": the super admin's dashboard — one card per business with its state, payment date
  * (warning a week before it ends), assets (warning when one was disconnected) and this month's
- * activity; actions: extend a month, set a date, lock / unlock, add a business, assign assets, enter.
+ * activity; actions: extend a month, set a date, lock / unlock, add a business, assign assets, enter,
+ * add a person (full access, or the register only — "קופאי/ת") and remove one.
  */
 type Biz = {
   id: string; name: string; slug: string; status: string; paidUntil: string | null; graceDays: number; lockReason: string;
   state: BizState; lastDay: string | null; daysLeft: number | null; endingSoon: boolean;
-  members: { role: string; email: string; name: string }[];
+  members: { role: string; access?: 'full' | 'register'; email: string; name: string }[];
   assets: number; missing: string[];
   month: { posts: number; leads: number; costUsd: number };
 };
@@ -70,6 +71,18 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
   async function enter(b: Biz) {
     if (await act(b, 'enter', {}, `עברת לעבוד בעסק "${b.name}".`)) window.location.href = '/dashboard';
   }
+  /** a person who signed up joins this business: full access, or the register only ("קופאי/ת") */
+  async function addMember(b: Biz) {
+    const email = window.prompt(`הוספת אדם ל"${b.name}" — מייל (חייב להיות רשום/ה לאפליקציה):`, '');
+    if (!email?.trim()) return;
+    const kind = window.prompt('הרשאה: 1 = קופה בלבד (קופאי/ת), 2 = גישה מלאה', '1');
+    if (kind === null) return;
+    const access = kind.trim() === '2' ? 'full' : 'register';
+    await act(b, 'add_member', { email: email.trim(), access }, `${email.trim()} נוסף/ה ל"${b.name}" — ${access === 'register' ? 'קופה בלבד' : 'גישה מלאה'}.`);
+  }
+  function removeMember(b: Biz, email: string) {
+    if (window.confirm(`להסיר את ${email} מ"${b.name}"? הנתונים שלו/ה בעסק נשארים.`)) void act(b, 'remove_member', { email }, `${email} הוסר/ה מ"${b.name}".`);
+  }
   async function add() {
     if (await call('POST', { ...form, slug: form.slug.trim().toLowerCase() }, 'add', `העסק "${form.name}" נוסף.`)) {
       setAdding(false); setForm({ name: '', slug: '', ownerEmail: '', paidUntil: '' });
@@ -96,7 +109,12 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
               <div className="min-w-0">
                 <strong className="text-[18px]">{b.name}</strong>
                 {data.current === b.id && <span className="ms-2 text-xs text-muted">(את/ה עובד/ת בו עכשיו)</span>}
-                <p className="text-xs text-muted">{b.members.map((m) => m.email || m.name).join(' · ') || 'אין בעלים'}</p>
+                <p className="text-xs text-muted">{b.members.filter((m) => m.access !== 'register').map((m) => m.email || m.name).join(' · ') || 'אין בעלים'}</p>
+                {b.members.some((m) => m.access === 'register') && (
+                  <p className="mt-0.5 text-xs text-muted">🧾 קופה בלבד: {b.members.filter((m) => m.access === 'register').map((m) => (
+                    <button key={m.email} type="button" className="me-1 underline decoration-dotted" title="הסרה" onClick={() => removeMember(b, m.email)}>{m.email || m.name}</button>
+                  ))}</p>
+                )}
               </div>
               <span className={cx('rounded-full px-3 py-1 text-sm font-bold', TONE[b.state])}>{STATE_HE[b.state]}</span>
             </div>
@@ -127,6 +145,7 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                 ? <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => act(b, 'unlock', {}, `"${b.name}" נפתח.`)}>פתיחה</Button>
                 : <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => lock(b)}>נעילה</Button>}
               <Button size="sm" variant="ghost" disabled={!!busy} onClick={onAssets}>שיוך נכסים</Button>
+              <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => void addMember(b)}>+ אדם / קופאי/ת</Button>
               <Button size="sm" variant="ghost" disabled={!!busy || data.current === b.id} onClick={() => enter(b)}>כניסה לעסק</Button>
             </div>
           </Card>

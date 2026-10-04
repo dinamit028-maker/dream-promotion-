@@ -7,17 +7,10 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
-import { DOC_LABEL, PAY_LABEL, creditFor } from './documents';
+import { DOC_LABEL, PAY_LABEL, creditFor, creditedTotals, toDoc, type DocRow } from './documents';
 
 /** Legal documents: list, view & print (original / true copy), credit invoice, and the "ממשק פתוח" export. */
-export interface DocRow extends Doc { id: string; printCount: number; saleId: string | null; shareToken?: string }
-export const toDoc = (r: any): DocRow => ({
-  id: r.id, docType: r.doc_type, docNumber: Number(r.doc_number), linkNo: Number(r.link_no), issuedAt: r.issued_at, docDate: r.doc_date,
-  customerName: r.customer_name, customerPhone: r.customer_phone, customerDealer: r.customer_dealer, customerStreet: r.customer_street, customerCity: r.customer_city,
-  beforeDiscount: Number(r.before_discount), discount: Number(r.discount), afterDiscount: Number(r.after_discount), vatAmount: Number(r.vat_amount), total: Number(r.total),
-  baseDocType: r.base_doc_type, baseDocNumber: r.base_doc_number == null ? null : Number(r.base_doc_number), issuedBy: r.issued_by,
-  lines: r.lines ?? [], payments: r.payments ?? [], printCount: r.print_count ?? 0, saleId: r.sale_id, shareToken: r.share_token,
-});
+export { toDoc, type DocRow } from './documents';
 export const docInsertRow = (userId: string, d: Omit<Doc, 'docNumber' | 'linkNo' | 'issuedAt'>, extra: { saleId?: string | null; leadId?: string | null; vatRate: number }) => ({
   user_id: userId, doc_type: d.docType, doc_number: 0, doc_date: d.docDate, customer_name: d.customerName, customer_phone: d.customerPhone ?? '',
   customer_dealer: d.customerDealer ?? '', customer_street: d.customerStreet ?? '', customer_city: d.customerCity ?? '', lines: d.lines, payments: d.payments,
@@ -50,7 +43,9 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
     setDocs((data ?? []).map(toDoc));
   };
   useEffect(() => { void load(); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const credited = useMemo(() => new Set((docs ?? []).filter((d) => d.docType === 330).map((d) => `${d.baseDocType}:${d.baseDocNumber}`)), [docs]);
+  // a document can be credited in parts (refunds) — how much of each was credited so far
+  const credited = useMemo(() => creditedTotals(docs ?? []), [docs]);
+  const creditNote = (d: DocRow) => { const c = credited.get(`${d.docType}:${d.docNumber}`) ?? 0; return !c ? '' : c >= d.total ? ' · זוכתה' : ` · זוכתה חלקית (${ils(c)})`; };
 
   async function printDoc(d: DocRow) {
     const { data, error } = await supabase().from('documents').update({ print_count: d.printCount + 1 }).eq('id', d.id).select('*').single();
@@ -82,7 +77,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
           {docs.map((d) => (
             <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
               <span className="min-w-0 flex-1"><strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber} · {d.customerName || 'לקוח מזדמן'}</strong>
-                <span className="text-xs text-muted">{ddmmyyyy(d.docDate)}{credited.has(`${d.docType}:${d.docNumber}`) ? ' · זוכתה' : ''}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</span></span>
+                <span className="text-xs text-muted">{ddmmyyyy(d.docDate)}{creditNote(d)}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</span></span>
               <strong className="tabular-nums">{ils(d.total)}</strong>
             </button>
           ))}
@@ -98,9 +93,10 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
             <Button variant="primary" onClick={() => printDoc(open)}>{open.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
             {licensed && (open.docType === 320 || open.docType === 305) && !credited.has(`${open.docType}:${open.docNumber}`) &&
               <Button variant="ghost" onClick={() => credit(open)}>חשבונית מס זיכוי</Button>}
+            {open.shareToken && <a href={`/api/doc/${open.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex h-10 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">🔏 PDF חתום</a>}
             <Button variant="ghost" onClick={() => setOpen(null)}>סגירה</Button>
           </div>
-          <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. לתיקון — חשבונית זיכוי.</p>
+          <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. לתיקון — חשבונית זיכוי. החזר כספי על חלק מעסקה עושים מהעסקה עצמה (מכירות ודוחות ← העסקה ← החזר כספי).</p>
         </>}
       </Modal>
     </>
@@ -162,7 +158,7 @@ export function docBody(d: Doc, b: Business, mark: string) {
   const pays = d.payments.map((p) => `<tr><td>${esc(PAY_LABEL[p.method] ?? 'אחר')}</td><td>${ddmmyyyy(p.date)}</td><td>${p.amount.toFixed(2)}</td></tr>`).join('');
   return `<div class="h"><div><strong style="font-size:18px">${esc(b.name)}</strong><br>עוסק מורשה / ח.פ ${esc(b.dealerNumber)}<br>${esc([b.street, b.houseNo, b.city].filter(Boolean).join(' '))}</div>
 <div style="text-align:left"><span class="mark">${esc(mark)}</span><br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${d.docNumber}</strong><br>תאריך: ${ddmmyyyy(d.docDate)}</div></div>
-<p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}</p>
+<p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ / ח.פ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}${d.customerStreet || d.customerCity ? `<br>${esc([d.customerStreet, d.customerCity].filter(Boolean).join(', '))}` : ''}</p>
 ${d.baseDocNumber ? `<p>זיכוי עבור ${esc(DOC_LABEL[d.baseDocType ?? 0] ?? '')} מס׳ ${d.baseDocNumber}</p>` : ''}
 <table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>
 <table><tr><td>סה״כ לפני הנחה</td><td>${d.beforeDiscount.toFixed(2)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${d.discount.toFixed(2)}</td></tr>` : ''}

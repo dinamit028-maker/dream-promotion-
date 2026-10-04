@@ -6,7 +6,7 @@ import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL, israelParts, israelToIso } from '@/lib/il-time';
 import { DOC_LABEL } from '@/features/documents/documents';
-import { ils, methodLabel, type Sale } from './money';
+import { ils, methodLabel, type Refund, type Sale } from './money';
 import { cashDifference, daySummary, shiftDay, toShift, type DocLite, type Shift } from './shift';
 
 /** "סגירת יום": open the drawer in the morning, count it in the evening, see the day — and keep every closing */
@@ -22,7 +22,7 @@ async function loadDocs(userId: string, day: string): Promise<DocLite[]> {
   return ((data ?? []) as any[]).map((d) => ({ docType: d.doc_type, docNumber: Number(d.doc_number), issuedAt: d.issued_at }));
 }
 
-export function ShiftTab({ userId, sales, employees, businessName }: { userId: string; sales: Sale[]; employees: { id: string; name: string }[]; businessName: string }) {
+export function ShiftTab({ userId, sales, refunds = [], employees, businessName }: { userId: string; sales: Sale[]; refunds?: Refund[]; employees: { id: string; name: string }[]; businessName: string }) {
   const [shifts, setShifts] = useState<Shift[] | null>(null);
   const [docs, setDocs] = useState<DocLite[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function ShiftTab({ userId, sales, employees, businessName }: { userId: s
   useEffect(() => { void loadDocs(userId, day).then(setDocs); }, [userId, day, sales.length]);
 
   if (shifts === null) return <div className="py-8 text-center"><Spinner /></div>;
-  const sum = daySummary({ sales, docs, day, openingCash: open?.openingCash ?? 0 });
+  const sum = daySummary({ sales, docs, day, openingCash: open?.openingCash ?? 0, refunds });
   const countedA = amount(counted);
   const diff = countedA == null ? null : cashDifference(countedA, sum.expectedCash);
 
@@ -94,7 +94,8 @@ export function ShiftTab({ userId, sales, employees, businessName }: { userId: s
             {day !== israelParts(Date.now()).date && ' · היום הזה עדיין פתוח מתאריך קודם'}</p>
           <ul className="mb-3 grid gap-1 rounded-2xl bg-surface-2 p-3 text-sm tabular-nums">
             <li className="flex justify-between"><span>מזומן בפתיחה</span><span>{ils(open.openingCash)}</span></li>
-            <li className="flex justify-between"><span>+ מזומן שנכנס היום (אחרי עודף)</span><span>{ils(sum.cashIn)}</span></li>
+            <li className="flex justify-between"><span>+ מזומן שנכנס היום (אחרי עודף{sum.cashRefunds ? ', פחות החזרים' : ''})</span><span>{ils(sum.cashIn)}</span></li>
+            {sum.cashRefunds > 0 && <li className="flex justify-between text-xs text-muted"><span>מתוכו החזרים במזומן</span><span>−{ils(sum.cashRefunds)}</span></li>}
             <li className="flex justify-between border-t border-line pt-1 text-base font-bold"><span>צריך להיות במגירה</span><span>{ils(sum.expectedCash)}</span></li>
           </ul>
           <Field label="כמה מזומן יש במגירה בפועל? (ספרו והקלידו) ₪">
@@ -128,7 +129,7 @@ export function ShiftTab({ userId, sales, employees, businessName }: { userId: s
                 <DiffBadge difference={s.difference ?? 0} />
                 <Button size="sm" variant="ghost" onClick={async () => {
                   const w = window.open('', '_blank'); const d = shiftDay(s);
-                  printReport(w, s, daySummary({ sales, docs: await loadDocs(userId, d), day: d, openingCash: s.openingCash }), businessName);
+                  printReport(w, s, daySummary({ sales, docs: await loadDocs(userId, d), day: d, openingCash: s.openingCash, refunds }), businessName);
                 }}>הדפסה</Button>
               </li>
             ))}
@@ -152,7 +153,8 @@ function DaySummaryCard({ sum, day }: { sum: Summary; day: string }) {
     <Card className="p-4">
       <p className="mb-3 font-bold">סיכום היום · {ddmmyyyy(day)}</p>
       <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-2xl bg-surface-2 p-3"><span className="block text-xs text-muted">הכנסות</span><strong className="text-xl tabular-nums">{ils(sum.total)}</strong></div>
+        <div className="rounded-2xl bg-surface-2 p-3"><span className="block text-xs text-muted">הכנסות{sum.refunds ? ' (נטו)' : ''}</span><strong className="text-xl tabular-nums">{ils(sum.net)}</strong>
+          {sum.refunds > 0 && <span className="block text-xs text-muted">החזרים −{ils(sum.refunds)}</span>}</div>
         <div className="rounded-2xl bg-surface-2 p-3"><span className="block text-xs text-muted">עסקאות</span><strong className="text-xl tabular-nums">{sum.count}</strong></div>
         <div className="rounded-2xl bg-surface-2 p-3"><span className="block text-xs text-muted">מתוכו מע״מ</span><strong className="text-xl tabular-nums">{ils(sum.vat)}</strong></div>
         <div className="rounded-2xl bg-surface-2 p-3"><span className="block text-xs text-muted">ממתין לתשלום</span><strong className="text-xl tabular-nums">{ils(sum.pendingTotal)}</strong>{sum.pendingCount > 0 && <span className="text-xs text-muted"> ({sum.pendingCount})</span>}</div>
@@ -160,7 +162,7 @@ function DaySummaryCard({ sum, day }: { sum: Summary; day: string }) {
       <p className="mb-1 text-sm font-semibold">לפי אמצעי תשלום</p>
       {!sum.byMethod.length ? <p className="mb-3 text-sm text-muted">אין מכירות היום.</p> : (
         <ul className="mb-3 grid gap-1 text-sm tabular-nums">
-          {sum.byMethod.map((m) => <li key={m.method} className="flex justify-between"><span>{methodLabel(m.method)} ({m.count})</span><span>{ils(m.total)}</span></li>)}
+          {sum.byMethod.map((m) => <li key={m.method} className="flex justify-between"><span>{methodLabel(m.method)} ({m.count}){m.refunded ? ` · הוחזרו ${ils(m.refunded)}` : ''}</span><span>{ils(m.total)}</span></li>)}
         </ul>
       )}
       <p className="mb-1 text-sm font-semibold">מסמכים שהופקו היום</p>
@@ -180,7 +182,7 @@ export function reportHtml(shift: Shift | null, sum: Summary, business: string, 
   const row = (a: string, b: string, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}><td>${esc(a)}</td><td>${esc(b)}</td></tr>`;
   const k = shift?.difference == null ? null : cashDifference(shift.difference, 0).kind;
   const cash = shift?.closedAt
-    ? row('מזומן בפתיחה', ils(shift.openingCash)) + row('מזומן שנכנס (אחרי עודף)', ils(sum.cashIn)) + row('צריך להיות במגירה', ils(shift.expectedCash ?? 0), 'tot')
+    ? row('מזומן בפתיחה', ils(shift.openingCash)) + row('מזומן שנכנס (אחרי עודף)', ils(sum.cashIn)) + (sum.cashRefunds ? row('מתוכו החזרים במזומן', `−${ils(sum.cashRefunds)}`) : '') + row('צריך להיות במגירה', ils(shift.expectedCash ?? 0), 'tot')
       + row('נספר בפועל', ils(shift.countedCash ?? 0)) + row('הפרש', k === 'even' ? 'מאוזן' : `${k === 'short' ? 'חוסר' : 'עודף'} ${ils(Math.abs(shift.difference ?? 0))}`, 'tot')
     : row('מזומן בפתיחה', ils(interim?.openingCash ?? shift?.openingCash ?? 0)) + row('מזומן שנכנס עד עכשיו (אחרי עודף)', ils(sum.cashIn)) + row('צריך להיות במגירה', ils(sum.expectedCash), 'tot');
   return `<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>סגירת יום ${esc(ddmmyyyy(day))}</title>
@@ -190,7 +192,7 @@ th{background:#f2f2f2}.tot td{font-weight:bold}h1{font-size:20px;margin:0}h2{fon
 <p class="muted">${shift ? `נפתח ${esc(formatIL(shift.openedAt))}` : ''}${shift?.closedAt ? ` · נסגר ${esc(formatIL(shift.closedAt))}` : ` · הופק ${esc(formatIL(new Date()))}`}${shift?.employeeName ? ` · ${esc(shift.employeeName)}` : ''}</p>
 <h2>מזומן במגירה</h2><table>${cash}</table>
 ${shift?.note ? `<p>הערה: ${esc(shift.note)}</p>` : ''}
-<h2>סיכום היום</h2><table>${row('הכנסות', ils(sum.total))}${row('מתוכו מע״מ', ils(sum.vat))}${row('מספר עסקאות', String(sum.count))}${row('הנחות', ils(sum.discounts))}${row('ממתין לתשלום', `${ils(sum.pendingTotal)} (${sum.pendingCount})`)}</table>
+<h2>סיכום היום</h2><table>${row('מכירות', ils(sum.total))}${sum.refunds ? row('החזרים', `−${ils(sum.refunds)} (${sum.refundCount})`) + row('הכנסות נטו', ils(sum.net), 'tot') : ''}${row('מתוכו מע״מ', ils(sum.vat))}${row('מספר עסקאות', String(sum.count))}${row('הנחות', ils(sum.discounts))}${row('ממתין לתשלום', `${ils(sum.pendingTotal)} (${sum.pendingCount})`)}</table>
 <h2>לפי אמצעי תשלום</h2><table><tr><th>אמצעי</th><th>עסקאות</th><th>סכום</th></tr>${sum.byMethod.map((m) => `<tr><td>${esc(methodLabel(m.method))}</td><td>${m.count}</td><td>${esc(ils(m.total))}</td></tr>`).join('') || '<tr><td colspan="3">אין מכירות</td></tr>'}</table>
 <h2>מסמכים שהופקו</h2><table><tr><th>סוג</th><th>מספרים</th><th>כמות</th></tr>${sum.docs.map((d) => `<tr><td>${esc(DOC_LABEL[d.docType] ?? d.docType)}</td><td>${d.from === d.to ? d.from : `${d.from}–${d.to}`}</td><td>${d.count}</td></tr>`).join('') || '<tr><td colspan="3">לא הופקו מסמכים</td></tr>'}</table>
 <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;

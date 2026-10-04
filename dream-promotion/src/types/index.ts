@@ -129,6 +129,8 @@ export interface Lead {
   /** CRM (toolbox stage 1) */
   email?: string; tags?: string[]; value?: number;
   lastContact?: string | null; nextFollowup?: string | null;
+  /** details for an invoice to a business (register 2.50): name on the invoice, dealer / company number, address */
+  billingName?: string; billingDealer?: string; billingStreet?: string; billingCity?: string;
 }
 
 export type LeadActivityKind = 'note' | 'call' | 'whatsapp' | 'email' | 'meeting' | 'status' | 'purchase';

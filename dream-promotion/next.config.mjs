@@ -12,6 +12,8 @@ const nextConfig = {
     serverComponentsExternalPackages: ['ffmpeg-static'],
     outputFileTracingIncludes: {
       '/api/reel/render': ['./node_modules/ffmpeg-static/ffmpeg', './assets/fonts/**'],
+      // the signed PDF of a document is drawn with the bundled Hebrew font (static Rubik, OFL)
+      '/api/doc/[token]/pdf': ['./assets/fonts/Rubik-Regular.ttf', './assets/fonts/Rubik-Bold.ttf'],
     },
   },
   // the client compares this with /api/version and reloads itself after every deploy

@@ -68,3 +68,39 @@ export async function businessOf(userId: string): Promise<string | null> {
   const { data } = await adminDb().rpc('business_for_user', { uid: userId });
   return (data as string | null) ?? null;
 }
+
+/**
+ * Register-only members ("קופאי/ת", business_members.access = 'register') sell in the register and nothing
+ * else: no AI, publishing, rendering or Meta. The database enforces the same (migration 20261004003000).
+ */
+export const REGISTER_ONLY = { code: 'register_only', message: 'ההרשאה שלך היא לקופה בלבד.' } as const;
+export type Access = 'full' | 'register';
+
+/** the access of a member in a business; the super admin, and rows from before 2.50, are 'full' */
+export async function memberAccess(userId: string, businessId: string | null): Promise<Access> {
+  if (!businessId || await isSuperAdmin(userId)) return 'full';
+  const { data, error } = await adminDb().from('business_members').select('access').eq('business_id', businessId).eq('user_id', userId).maybeSingle();
+  if (error) return 'full'; // before the migration there is no access column — nobody is register-only yet
+  return (data as { access?: string } | null)?.access === 'register' ? 'register' : 'full';
+}
+export async function registerOnly(userId: string): Promise<boolean> {
+  return (await memberAccess(userId, await businessOf(userId))) === 'register';
+}
+
+/** one check for routes that spend or publish: a locked business, or a register-only member → the refusal to send */
+export async function blockedFor(userId: string): Promise<typeof LOCKED | typeof REGISTER_ONLY | null> {
+  if (await userLocked(userId)) return LOCKED;
+  if (await registerOnly(userId)) return REGISTER_ONLY;
+  return null;
+}
+
+/** who gets the business's notifications (a sale, low stock): its full-access members */
+export async function businessManagers(businessId: string): Promise<string[]> {
+  const db = adminDb();
+  const { data, error } = await db.from('business_members').select('user_id, access').eq('business_id', businessId);
+  if (error) { // before the migration: the owners
+    const { data: owners } = await db.from('business_members').select('user_id').eq('business_id', businessId).eq('role', 'owner');
+    return (owners ?? []).map((r: any) => r.user_id);
+  }
+  return ((data ?? []) as { user_id: string; access?: string }[]).filter((r) => r.access !== 'register').map((r) => r.user_id);
+}
