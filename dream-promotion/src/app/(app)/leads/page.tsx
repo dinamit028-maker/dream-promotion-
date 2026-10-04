@@ -16,6 +16,9 @@ import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
  * Search, stages, follow-ups that are due, quick call / WhatsApp, a pipeline board, and a contact
  * card with the full history. Works on the phone first.
  */
+/** "2026-09-23" → "23.9.26" — when the contact came in, readable at a glance on the board */
+const shortDate = (d: string) => { const [y, m, dd] = d.split('-'); return y && m && dd ? `${Number(dd)}.${Number(m)}.${y.slice(2)}` : d; };
+
 export default function LeadsPage() {
   const { leads, addLead } = useApp();
   const [q, setQ] = useState('');
@@ -58,7 +61,7 @@ export default function LeadsPage() {
             {fs === 'today' && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">לחזור היום</span>}
           </span>
           <span className="mt-0.5 block truncate text-xs text-muted" dir="auto">
-            {[l.phone, l.source, ...(l.tags ?? []).map((t) => `#${t}`)].filter(Boolean).join(' · ')}
+            {[l.date && `נכנס ${shortDate(l.date)}`, l.phone, l.source, ...(l.tags ?? []).map((t) => `#${t}`)].filter(Boolean).join(' · ')}
             {fs === 'upcoming' && l.nextFollowup ? ` · תזכורת ${formatIL(l.nextFollowup, { dateStyle: 'short' })}` : ''}
           </span>
         </button>
@@ -135,6 +138,7 @@ export default function LeadsPage() {
                           <button key={l.id} type="button" onClick={() => setOpenId(l.id)} className="rounded-xl border border-line bg-surface p-2.5 text-start hover:border-primary">
                             <strong className="block truncate text-sm">{l.name}</strong>
                             <span className="block truncate text-[11px] text-muted">{l.phone || l.source}</span>
+                            {l.date && <span className="block text-[11px] text-muted">נכנס {shortDate(l.date)}</span>}
                             {(fs === 'overdue' || fs === 'today') && <span className="mt-1 block text-[11px] font-bold text-amber-700 dark:text-amber-300">לחזור {fs === 'today' ? 'היום' : '— עבר הזמן'}</span>}
                           </button>
                         );

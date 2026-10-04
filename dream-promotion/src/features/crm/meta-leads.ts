@@ -13,6 +13,8 @@ export type MetaFieldDatum = { name: string; values?: string[] };
 export type MetaLeadRaw = { id: string; created_time?: string; field_data?: MetaFieldDatum[]; ad_name?: string; form_id?: string };
 export type MappedLead = {
   externalId: string; createdAt: string | null; name: string; phone: string; email: string;
+  /** the phone exactly as the customer typed it in the form — kept in the history to check against */
+  rawPhone: string;
   answers: { q: string; a: string }[]; adName: string;
 };
 
@@ -69,6 +71,7 @@ export function mapMetaLead(raw: MetaLeadRaw, labels: Record<string, string> = {
     createdAt: raw.created_time ? new Date(raw.created_time).toISOString() : null,
     name: (name?.value || split || 'ליד מ-Meta').slice(0, 120),
     phone: ilPhone(phone?.value ?? ''),
+    rawPhone: phone?.value ?? '',
     email: (email?.value ?? '').toLowerCase().slice(0, 160),
     answers,
     adName: raw.ad_name ?? '',
@@ -79,12 +82,13 @@ export function mapMetaLead(raw: MetaLeadRaw, labels: Record<string, string> = {
 export const leadDetails = (m: MappedLead) => m.answers.map(({ q, a }) => `${q}: ${a}`).join('\n');
 
 /**
- * The history entry for the enquiry. Name / phone / email live in their own fields, so they are not repeated.
+ * The history entry for the enquiry — with the phone exactly as it came from Meta, to check the contact's phone against.
  * withMarker: a lead that only became a note on an EXISTING contact is remembered by its Meta id (never twice);
  * a new contact is remembered by leads.external_id, so its note stays clean.
  */
 export function leadNote(formName: string, m: MappedLead, withMarker = false): string {
   const lines = [`פנייה מטופס Meta · ${formName}${m.adName ? ` · מודעה: ${m.adName}` : ''}`];
+  if (m.rawPhone) lines.push(`טלפון בטופס: ${m.rawPhone}`);
   for (const { q, a } of m.answers) lines.push(`${q}: ${a}`);
   if (withMarker) lines.push(noteMarker(m.externalId));
   return lines.join('\n');
