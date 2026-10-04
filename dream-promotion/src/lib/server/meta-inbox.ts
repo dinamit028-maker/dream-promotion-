@@ -1,7 +1,7 @@
 import { adminDb } from './admin';
 import { open } from './secrets';
 import { businessOpen } from './business';
-import { igMediaWithComments, pageConversations, pagePostsWithComments, replyToComment, sendMessengerText } from './meta';
+import { igMediaWithComments, keepPostImage, pageConversations, pagePostsWithComments, replyToComment, sendMessengerText } from './meta';
 import { isLeadsPermissionError } from '@/features/crm/meta-leads';
 import {
   INBOX_STAGE, INBOX_TAG, SOCIAL_SOURCE, contactKey, contactsToCreate, conversationItems, fallbackName, fbCommentItems,
@@ -62,6 +62,7 @@ export async function storeItems(businessId: string, owner: string, accountId: s
     .in('external_id', items.map((i) => i.externalId));
   const seen = new Set(((have ?? []) as { channel: string; external_id: string }[]).map((h) => `${h.channel}|${h.external_id}`));
   const fresh = items.filter((i) => !seen.has(`${i.channel}|${i.externalId}`));
+  const imageOf = await postImages(businessId, owner, items);
   if (!fresh.length) return out;
 
   // contacts: existing cards of these people, then a 'פנייה' card for each new person who wrote
@@ -91,7 +92,7 @@ export async function storeItems(businessId: string, owner: string, accountId: s
     const ins = await db.from('social_messages').insert({
       business_id: businessId, social_account_id: accountId, lead_id: leadOf.get(contactKey(i.channel, i.contactId)) ?? null,
       channel: i.channel, external_id: i.externalId, thread_id: i.threadId, parent_id: i.parentId, post_url: i.postUrl,
-      post_text: i.postText, author_id: i.authorId, author_name: i.authorName, direction: i.direction, body: i.body.slice(0, 4000), sent_at: i.sentAt,
+      post_text: i.postText, post_image: imageOf.get(i.threadId) ?? '', author_id: i.authorId, author_name: i.authorName, direction: i.direction, body: i.body.slice(0, 4000), sent_at: i.sentAt,
       ...(i.direction === 'out' ? { read_at: i.sentAt } : {}),
     });
     if (ins.error) { if (ins.error.code === '23505') continue; throw new Error(`insert_message: ${ins.error.message}`); }
@@ -103,6 +104,29 @@ export async function storeItems(businessId: string, owner: string, accountId: s
         user_id: owner, business_id: businessId, lead_id: leadId, kind: 'note', body: historyEntry(i).slice(0, 4000), created_at: i.sentAt,
       });
     }
+  }
+  return out;
+}
+
+/**
+ * The picture of each post that was commented on: copied once into storage and remembered on its messages
+ * (also filled in on messages stored before pictures were kept). Never stops the sync — no picture is fine.
+ */
+async function postImages(businessId: string, owner: string, items: InboxItem[]) {
+  const db = adminDb();
+  const want = new Map<string, string>();
+  for (const i of items) if (i.postImage && !want.has(i.threadId)) want.set(i.threadId, i.postImage);
+  const out = new Map<string, string>();
+  if (!want.size) return out;
+  const { data: have } = await db.from('social_messages').select('thread_id, post_image').eq('business_id', businessId)
+    .in('thread_id', [...want.keys()]).neq('post_image', '');
+  for (const h of (have ?? []) as { thread_id: string; post_image: string }[]) out.set(h.thread_id, h.post_image);
+  for (const [thread, url] of want) {
+    if (out.has(thread)) continue;
+    const kept = await keepPostImage(owner, thread, url);
+    if (!kept) continue;
+    out.set(thread, kept);
+    await db.from('social_messages').update({ post_image: kept }).eq('business_id', businessId).eq('thread_id', thread).eq('post_image', '');
   }
   return out;
 }

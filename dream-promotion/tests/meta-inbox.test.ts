@@ -59,7 +59,7 @@ const tables: Record<string, any[]> = {
   social_accounts: [], leads: [], social_messages: [], meta_inbox_sync: [], lead_activities: [],
 };
 const graphData: Record<string, any> = {
-  '/page-sg/posts': { data: [{ id: 'post-1', message: 'מבצע', permalink_url: 'https://fb/p1' }] },
+  '/page-sg/posts': { data: [{ id: 'post-1', message: 'מבצע', permalink_url: 'https://fb/p1', full_picture: 'https://scontent.example/p1.jpg' }] },
   '/post-1/comments': { data: [{ id: 'c1', message: 'כמה עולה?', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] },
   '/page-sg/conversations': { data: [{ id: 't1', updated_time: new Date().toISOString(), participants: { data: [{ id: 'page-sg' }, { id: 'u1', name: 'דנה' }] } }] },
   '/t1/messages': { data: [{ id: 'mm1', message: 'שלום', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] },

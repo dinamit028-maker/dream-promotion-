@@ -396,7 +396,7 @@ async function pagedSmall(path: string, base: Record<string, string>, fieldsFor:
  *  separately (Meta refuses a Page's posts with nested comments as "too much data") */
 export async function pagePostsWithComments(pageToken: string, pageId: string, sinceUnix: number, deadline = Infinity) {
   const posts = await pagedSmall(`/${pageId}/posts`, { access_token: pageToken, since: String(Math.floor(sinceUnix)) },
-    () => 'id,message,permalink_url', [25, 10, 5], 4, undefined, deadline);
+    () => 'id,message,permalink_url,full_picture', [25, 10, 5], 4, undefined, deadline);
   for (const p of posts) {
     if (Date.now() > deadline) { p.comments = { data: [] }; continue; } // out of time: the next run continues
     const comments = await pagedSmall(`/${p.id}/comments`, { access_token: pageToken, order: 'reverse_chronological', filter: 'stream' },
@@ -409,7 +409,7 @@ export async function pagePostsWithComments(pageToken: string, pageId: string, s
 /** an Instagram account's media (newest first) with comments and replies, back to `sinceIso` */
 export async function igMediaWithComments(pageToken: string, igId: string, sinceIso: string, deadline = Infinity) {
   return pagedSmall(`/${igId}/media`, { access_token: pageToken },
-    (n) => `id,caption,permalink,timestamp,comments.limit(${n * 3}){id,text,timestamp,username,from{id,username},replies.limit(10){id,text,timestamp,username,from{id,username}}}`,
+    (n) => `id,caption,permalink,timestamp,media_type,media_url,thumbnail_url,comments.limit(${n * 3}){id,text,timestamp,username,from{id,username},replies.limit(10){id,text,timestamp,username,from{id,username}}}`,
     [10, 5, 2], 8, (m) => Boolean(m.timestamp && new Date(m.timestamp).toISOString() < sinceIso), deadline);
 }
 
@@ -422,7 +422,7 @@ export async function pageConversations(pageToken: string, pageId: string, platf
   const fresh = convs.filter((c) => !c.updated_time || new Date(c.updated_time).toISOString() >= sinceIso);
   for (const c of fresh) {
     if (Date.now() > deadline) { c.messages = { data: [] }; continue; }
-    const msgs = await pagedSmall(`/${c.id}/messages`, { access_token: pageToken }, () => 'id,message,created_time,from', [25, 10, 5], 2);
+    const msgs = await pagedSmall(`/${c.id}/messages`, { access_token: pageToken }, () => 'id,message,created_time,from,sticker,attachments{mime_type}', [25, 10, 5], 2);
     c.messages = { data: msgs };
   }
   return fresh;
@@ -448,4 +448,22 @@ export async function sendMessengerText(pageToken: string, pageId: string, psid:
 export async function replyToComment(pageToken: string, commentId: string, text: string, platform: 'facebook' | 'instagram'): Promise<string> {
   const j = await graph(`/${commentId}/${platform === 'instagram' ? 'replies' : 'comments'}`, { access_token: pageToken, message: text }, 'POST');
   return String(j.id ?? '');
+}
+
+/**
+ * A copy of a post's picture in storage (Meta's own link expires within days) → a long-lived link, '' if it failed.
+ * One file per post: the second comment on the same post reuses it.
+ */
+export async function keepPostImage(folder: string, threadId: string, url: string): Promise<string> {
+  if (!url) return '';
+  try {
+    const db = adminDb();
+    const path = `${folder}/inbox-posts/${threadId.replace(/[^\w-]/g, '_')}.jpg`;
+    const file = await safeFetch(url, { maxBytes: 15 * 1024 * 1024, timeoutMs: 20_000 });
+    if (!file.ok) return '';
+    const up = await db.storage.from('assets').upload(path, Buffer.from(await file.arrayBuffer()), { contentType: file.headers.get('content-type') || 'image/jpeg', upsert: true });
+    if (up.error) return '';
+    const signed = await db.storage.from('assets').createSignedUrl(path, 60 * 60 * 24 * 365 * 5);
+    return signed.data?.signedUrl ?? '';
+  } catch { return ''; }
 }
