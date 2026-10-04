@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { cx } from '@/lib/utils';
 import { missingBanner } from '@/lib/server/meta-sync';
+import { RECONNECT_FOR_LEADS } from '@/features/crm/meta-leads';
 
 /**
  * Admin → "חיבורים": the ONE Meta connection (every permission in one approval) and every page /
@@ -100,6 +101,11 @@ export function ConnectionsPanel() {
             משתמש פייסבוק: <strong>{c.fbUserName || '—'}</strong>
             {c.lastSyncedAt && ` · סונכרן ${formatIL(c.lastSyncedAt)}`}
             {c.expiresAt && ` · החיבור בתוקף עד ${formatIL(c.expiresAt, { dateStyle: 'short' })}`}
+            {!c.scopes?.includes('leads_retrieval') && (
+              <span className="mt-1 block font-semibold text-warn">
+                ⚠️ {RECONNECT_FOR_LEADS} — הוסיפו לתצורה ב-Meta את leads_retrieval ו-pages_manage_ads, ואז "חיבור מחדש".
+              </span>
+            )}
           </p>
         ))}
         <p className="my-2 text-sm text-muted">

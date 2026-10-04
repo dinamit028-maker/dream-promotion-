@@ -9,6 +9,7 @@ import type { Lead, LeadStatus } from '@/types';
 import { UsersThree } from '@/components/ui/Icon';
 import { STAGES, followupState, matches, parseTags, stageOf, telLink, waLink } from '@/features/crm/crm';
 import { ContactSheet } from '@/features/crm/ContactSheet';
+import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
 
 /**
  * CRM — the business's contacts: leads and customers in one place (toolbox stage 1).
@@ -22,6 +23,7 @@ export default function LeadsPage() {
   const [view, setView] = useState<'list' | 'board'>('list');
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', source: '', tags: '' });
 
   const due = useMemo(() => leads.filter((l) => { const s = followupState(l); return s === 'overdue' || s === 'today'; }), [leads]);
@@ -69,7 +71,10 @@ export default function LeadsPage() {
   return (
     <>
       <PageHead title="לקוחות" sub={`${leads.length} אנשי קשר · ${customers.length} לקוחות${revenue ? ` · ₪${revenue.toLocaleString('he-IL')}` : ''}`}
-        action={<Button variant="primary" onClick={() => setAdding(true)}>+ איש קשר</Button>} />
+        action={<div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setSettings(true)} aria-label="הגדרות לקוחות">⚙️ הגדרות</Button>
+          <Button variant="primary" onClick={() => setAdding(true)}>+ איש קשר</Button>
+        </div>} />
 
       {leads.length === 0 ? (
         <EmptyState icon={<UsersThree />} title="עוד אין אנשי קשר"
@@ -143,6 +148,11 @@ export default function LeadsPage() {
           )}
         </>
       )}
+
+      <Modal open={settings} onClose={() => setSettings(false)}>
+        <MetaLeadsSettings />
+        <div className="mt-4 flex justify-end"><Button variant="ghost" onClick={() => setSettings(false)}>סגירה</Button></div>
+      </Modal>
 
       <Modal open={adding} onClose={() => setAdding(false)}>
         <h3 className="mb-4 font-display text-xl font-extrabold">איש קשר חדש</h3>
