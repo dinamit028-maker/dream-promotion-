@@ -1,13 +1,16 @@
 import { adminDb } from './admin';
+import { businessOpen } from './business';
 import type { Busy, SlotRules } from '@/features/booking/slots';
 import { phoneDigits } from '@/features/crm/crm';
 
-/** Server side of the public booking page — only what a customer may see, nothing private. */
+/** Server side of the public booking page — only what a customer may see, nothing private.
+ *  null = no such page; 'locked' = the business is locked (the page says the service is unavailable). */
 export async function loadBusiness(slug: string) {
   if (!/^[a-z0-9][a-z0-9-]{2,40}$/.test(slug)) return null;
   const db = adminDb();
   const { data: s } = await db.from('booking_settings').select('*').eq('slug', slug).eq('enabled', true).maybeSingle();
   if (!s) return null;
+  if (!(await businessOpen((s as any).business_id))) return 'locked' as const;
   const { data: services } = await db.from('booking_services').select('id, name, minutes, price')
     .eq('user_id', s.user_id).eq('active', true).order('sort').order('created_at');
   return { settings: s as any, services: (services ?? []) as { id: string; name: string; minutes: number; price: number | null }[] };

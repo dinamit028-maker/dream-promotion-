@@ -20,7 +20,7 @@ const dayLabel = (d: string) => {
 
 export default function BookPage({ params }: { params: { slug: string } }) {
   const [biz, setBiz] = useState<Biz | null>(null);
-  const [missing, setMissing] = useState(false);
+  const [missing, setMissing] = useState<string | false>(false);
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [day, setDay] = useState<string | null>(null);
   const [slots, setSlots] = useState<{ time: string; start: string }[] | null>(null);
@@ -32,10 +32,10 @@ export default function BookPage({ params }: { params: { slug: string } }) {
 
   useEffect(() => {
     fetch(`/api/book/${params.slug}`).then(async (r) => {
-      if (!r.ok) { setMissing(true); return; }
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setMissing(j.code === 'unavailable' ? j.message : 'דף ההזמנות לא זמין כרגע.'); return; }
       const j = await r.json(); setBiz(j);
       if (j.services?.length === 1) setServiceId(j.services[0].id);
-    }).catch(() => setMissing(true));
+    }).catch(() => setMissing('דף ההזמנות לא זמין כרגע.'));
   }, [params.slug]);
 
   const service = useMemo(() => biz?.services.find((s) => s.id === serviceId) ?? null, [biz, serviceId]);
@@ -67,7 +67,7 @@ export default function BookPage({ params }: { params: { slug: string } }) {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'appointment.ics'; a.click();
   }
 
-  if (missing) return <Shell><p className="text-center text-ink-2">דף ההזמנות לא זמין כרגע.</p></Shell>;
+  if (missing) return <Shell><p className="text-center text-ink-2">{missing}</p></Shell>;
   if (!biz) return <Shell><div className="flex justify-center py-10"><Spinner /></div></Shell>;
 
   if (done) return (

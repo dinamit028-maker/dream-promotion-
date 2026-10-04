@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/server/admin';
 import { israelToIso, israelParts } from '@/lib/il-time';
 import { distanceMeters } from '@/features/timeclock/hours';
+import { UNAVAILABLE, businessOpen } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 
@@ -12,8 +13,9 @@ export const runtime = 'nodejs';
 async function employeeOf(token: string) {
   if (!/^[A-Za-z0-9_-]{20,80}$/.test(token)) return null;
   const db = adminDb();
-  const { data: emp } = await db.from('employees').select('id, user_id, name, active').eq('token', token).maybeSingle();
+  const { data: emp } = await db.from('employees').select('id, user_id, business_id, name, active').eq('token', token).maybeSingle();
   if (!emp) return null;
+  if (!(await businessOpen((emp as any).business_id))) return 'locked' as const;
   const { data: brand } = await db.from('brands').select('name').eq('user_id', emp.user_id).maybeSingle();
   // the business's QR rules (table from migration 20261003001300; absent = not set up yet)
   const { data: rules } = await db.from('timeclock_settings').select('site_code, require_qr, geo_lat, geo_lng, geo_radius_m')
@@ -45,6 +47,7 @@ async function state(emp: any) {
 export async function GET(req: Request, { params }: { params: { token: string } }) {
   const emp = await employeeOf(params.token);
   if (!emp) return NextResponse.json({ code: 'not_found', message: 'הקישור לא תקין או שבוטל' }, { status: 404 });
+  if (emp === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   const site = new URL(req.url).searchParams.get('site');
   const siteOk = !scanRequired(emp) || (Boolean(site) && site === emp.rules.site_code);
   return NextResponse.json({ ...(await state(emp)), siteOk }, { headers: { 'Cache-Control': 'no-store' } });
@@ -53,6 +56,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   const emp = await employeeOf(params.token);
   if (!emp) return NextResponse.json({ code: 'not_found', message: 'הקישור לא תקין או שבוטל' }, { status: 404 });
+  if (emp === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   if (!emp.active) return NextResponse.json({ code: 'inactive', message: 'העובד/ת לא פעיל/ה. פנו למנהל/ת.' }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 180 ? v : null);
