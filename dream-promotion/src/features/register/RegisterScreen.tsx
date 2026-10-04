@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { supabase, isCloudConfigured } from '@/lib/supabase/client';
-import { Button, Card, Chip, Field, Input, PageHead, Select } from '@/components/ui/primitives';
+import { Button, Card, Chip, Field, Input, PageHead, Select, SmallSelect } from '@/components/ui/primitives';
 import { EmptyState, Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL, israelParts } from '@/lib/il-time';
@@ -341,9 +341,9 @@ function CatalogTab({ userId, items, reload, onError }: { userId: string; items:
           <button type="button" aria-pressed={i.favorite} aria-label={i.favorite ? `הסרה מהמועדפים: ${i.name}` : `הוספה למועדפים: ${i.name}`} className="text-xl"
             onClick={() => run(supabase().from('catalog_items').update({ favorite: !i.favorite, fav_order: i.favorite ? 0 : favs.length }).eq('id', i.id))}>{i.favorite ? '⭐' : '☆'}</button>
           <span className="min-w-0 flex-1"><strong className={cx('block truncate', !i.active && 'text-muted line-through')}>{i.name}</strong><span className="text-xs text-muted">{ils(i.price)} · {KIND_HE[i.kind]}</span></span>
-          <Select value={i.kind} onChange={(e) => run(supabase().from('catalog_items').update({ kind: e.target.value }).eq('id', i.id))} className="h-9 w-32 py-1 text-sm" aria-label={`קטגוריה: ${i.name}`}>
+          <SmallSelect value={i.kind} onChange={(e) => run(supabase().from('catalog_items').update({ kind: e.target.value }).eq('id', i.id))} className="w-32" aria-label={`קטגוריה: ${i.name}`}>
             {Object.entries(KIND_HE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </Select>
+          </SmallSelect>
           {i.favorite && <span className="flex">
             <button type="button" className="h-9 w-8 rounded-full border border-line" aria-label={`למעלה: ${i.name}`} onClick={() => moveFav(i.id, -1)}>↑</button>
             <button type="button" className="h-9 w-8 rounded-full border border-line" aria-label={`למטה: ${i.name}`} onClick={() => moveFav(i.id, 1)}>↓</button>

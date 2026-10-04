@@ -60,6 +60,11 @@ const fieldBase = 'w-full rounded-md border-[1.5px] border-line bg-surface px-4 
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={cx(fieldBase, p.className)} />;
 export const Textarea = (p: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={cx(fieldBase, 'min-h-28 resize-y leading-relaxed', p.className)} />;
 export const Select = (p: SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cx(fieldBase, p.className)} />;
+/** A small select for rows and lists. Its own size — the big field padding would hide the chosen text
+ *  (classes are joined, not merged, so "py-1" can not override fieldBase's "py-3"). Width: pass w-… */
+export const SmallSelect = (p: SelectHTMLAttributes<HTMLSelectElement>) => (
+  <select {...p} className={cx('h-10 min-w-0 rounded-md border-[1.5px] border-line bg-surface px-3 text-sm font-semibold outline-none focus:border-primary', p.className)} />
+);
 
 /**
  * A labelled form row. When the child is a single input / select / textarea, the label is tied to it

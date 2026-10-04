@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { authHeaders } from '@/lib/services/http';
-import { Button, Card, Pill, Select } from '@/components/ui/primitives';
+import { Button, Card, Pill, SmallSelect } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { cx } from '@/lib/utils';
@@ -122,15 +122,15 @@ export function ConnectionsPanel() {
             <ul className="grid gap-1.5">
               {list.map((a) => (
                 <li key={a.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl bg-surface-2 p-2 text-sm">
-                  {a.avatar ? <img src={a.avatar} alt="" className="h-8 w-8 rounded-full" /> : <span className="h-8 w-8 rounded-full bg-line" />}
+                  {a.avatar ? <img src={a.avatar} alt="" className="h-8 w-8 rounded-full bg-line" onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /> : <span className="h-8 w-8 rounded-full bg-line" />}
                   <span className="min-w-0 flex-1 truncate">
                     <span className="text-muted">{PROVIDER[a.provider] ?? a.provider} · </span>{a.name}
                     {a.status === 'missing' && <span className="block text-xs text-red-600">נותק{a.missingSince ? ` מ-${formatIL(a.missingSince, { dateStyle: 'short' })}` : ''}</span>}
                   </span>
-                  <Select value={a.businessId ?? ''} onChange={(e) => assign(a, e.target.value)} disabled={busy === a.id} className="h-9 w-40 py-1 text-sm" aria-label={`עסק עבור ${a.name ?? ''}`}>
+                  <SmallSelect value={a.businessId ?? ''} onChange={(e) => assign(a, e.target.value)} disabled={busy === a.id} className="w-full sm:w-48" aria-label={`עסק עבור ${a.name ?? ''}`}>
                     <option value="">לא משויך</option>
                     {data.businesses.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </Select>
+                  </SmallSelect>
                   {busy === a.id && <Spinner />}
                 </li>
               ))}
