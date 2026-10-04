@@ -104,14 +104,31 @@ export function conversationItems(channel: 'messenger' | 'ig_dm', selfIds: strin
   return out;
 }
 
+/** words that alone are only a compliment or a greeting, not an enquiry ("מהממתתת 😍", "תותחית על", "שנה טובה") */
+const PRAISE_WORDS = ['מהמם', 'מהממת', 'מהממים', 'וואו', 'יפה', 'יפהפה', 'יפיפה', 'מדהים', 'מדהימה', 'מושלם', 'מושלמת', 'אהבתי', 'אהובה',
+  'תותחית', 'תותח', 'על', 'אלופה', 'אלוף', 'אליפות', 'שלי', 'כל', 'הכבוד', 'מספר', 'אחת', 'אחד', 'בהצלחה', 'הצלחה', 'שנה', 'טובה', 'חג', 'שמח',
+  'חיים', 'מטורף', 'מטורפת', 'וואי', 'wow', 'nice', 'amazing', 'beautiful', 'love', 'it', 'perfect', 'gorgeous', 'cute', 'queen'];
+/** "מהממתתתת" = "מהממת": letters repeated for emphasis are collapsed, on both sides */
+const squeeze = (w: string) => w.replace(/(.)\1+/gu, '$1');
+const PRAISE = new Set(PRAISE_WORDS.map(squeeze));
+
 /**
- * Which contacts to create: one per person who WROTE something new and has no card yet in this business.
- * A person who only got a reply from the business is not a new contact.
+ * A comment or message that is not an enquiry: only emojis / punctuation, only tagging friends ("@noa @dana"),
+ * or only praise / a greeting. It is still stored, but does not open a card in "💬 תגובות".
+ */
+export function isNoise(_channel: Channel, body: string): boolean {
+  const words = body.replace(/@[\w.]+/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').toLowerCase().split(/\s+/).filter(Boolean);
+  return words.every((w) => /^\d$/.test(w) || w.length < 2 || PRAISE.has(squeeze(w)));
+}
+
+/**
+ * Which contacts to create: one per person who WROTE something new and relevant and has no card yet in this business.
+ * A person who only got a reply from the business, or only wrote noise (emojis, tags, praise), is not a new contact.
  */
 export function contactsToCreate(items: InboxItem[], existingKeys: Set<string>): { key: string; channel: Channel; name: string; firstAt: string }[] {
   const want = new Map<string, { key: string; channel: Channel; name: string; firstAt: string }>();
   for (const it of items) {
-    if (it.direction !== 'in') continue;
+    if (it.direction !== 'in' || isNoise(it.channel, it.body)) continue;
     const key = contactKey(it.channel, it.contactId);
     if (existingKeys.has(key)) continue;
     const cur = want.get(key);

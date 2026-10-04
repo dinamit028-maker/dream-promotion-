@@ -40,7 +40,7 @@ test('Messenger / Instagram Direct: the other participant is the contact, both d
 });
 
 test('contacts: one per person who wrote; a person with a card is not created again', () => {
-  const base = { threadId: '', parentId: '', postUrl: '', postText: '', authorId: '', authorName: '', body: '', contactName: 'דנה' };
+  const base = { threadId: '', parentId: '', postUrl: '', postText: '', authorId: '', authorName: '', body: 'כמה עולה?', contactName: 'דנה' };
   const items = [
     { ...base, channel: 'fb_comment' as const, externalId: '1', direction: 'in' as const, sentAt: '2026-10-04T10:00:00Z', contactId: 'u1' },
     { ...base, channel: 'messenger' as const, externalId: '2', direction: 'in' as const, sentAt: '2026-10-04T09:00:00Z', contactId: 'u1' },

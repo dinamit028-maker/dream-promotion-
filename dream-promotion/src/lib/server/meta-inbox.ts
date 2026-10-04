@@ -5,7 +5,7 @@ import { igMediaWithComments, pageConversations, pagePostsWithComments, replyToC
 import { isLeadsPermissionError } from '@/features/crm/meta-leads';
 import {
   INBOX_STAGE, INBOX_TAG, SOCIAL_SOURCE, contactKey, contactsToCreate, conversationItems, fallbackName, fbCommentItems,
-  historyEntry, igCommentItems, introNote, sourceOf, type InboxItem,
+  historyEntry, igCommentItems, introNote, isNoise, sourceOf, type InboxItem,
 } from '@/features/crm/meta-inbox';
 
 /**
@@ -68,7 +68,7 @@ export async function storeItems(businessId: string, owner: string, accountId: s
   const keys = [...new Set(fresh.map((i) => contactKey(i.channel, i.contactId)))];
   const { data: leads } = await db.from('leads').select('id, external_id').eq('business_id', businessId).eq('external_source', SOCIAL_SOURCE).in('external_id', keys);
   const leadOf = new Map(((leads ?? []) as { id: string; external_id: string }[]).map((l) => [l.external_id, l.id]));
-  const firstIn = (key: string) => fresh.filter((i) => i.direction === 'in' && contactKey(i.channel, i.contactId) === key)
+  const firstIn = (key: string) => fresh.filter((i) => i.direction === 'in' && !isNoise(i.channel, i.body) && contactKey(i.channel, i.contactId) === key)
     .sort((a, b) => a.sentAt.localeCompare(b.sentAt))[0];
   for (const c of contactsToCreate(fresh, new Set(leadOf.keys()))) {
     const first = firstIn(c.key);
