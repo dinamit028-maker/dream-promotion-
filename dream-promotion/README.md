@@ -48,7 +48,7 @@ Next.js 14 (App Router) · TypeScript · Tailwind · Zustand · Supabase · Verc
 | Anthropic | `ANTHROPIC_API_KEY` | מסכי היצירה מציגים "ה-AI לא מוגדר" |
 | fal.ai | `FAL_KEY` | אין תמונות, וידאו ותמלול |
 | ElevenLabs | `ELEVENLABS_API_KEY` | אין קריינות |
-| Meta | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_FULL`, `META_CONFIG_READ`, `META_REDIRECT_URI` | אין חיבור לאינסטגרם/פייסבוק |
+| Meta | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_FULL` (התצורה חייבת לכלול גם `leads_retrieval` ו-`pages_manage_ads` לייבוא לידים), `META_REDIRECT_URI` | אין חיבור לאינסטגרם/פייסבוק |
 | TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI` | אין שליחה ל-TikTok |
 | Cron | `CRON_SECRET` + `supabase/cron-stories.sql` + `supabase/cron-publish.sql` | סטוריז נמשכים רק כשמסך המדיה פתוח; פרסום מתוזמן לא רץ |
 

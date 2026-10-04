@@ -330,3 +330,39 @@ export async function checkMetaAccount(acc: MetaAccount): Promise<{ ok: true } |
     return { ok: false, reason: m.replace(/^[a-z_0-9]+:\s*/i, '').slice(0, 240), reconnect: /reconnect_required|permission_denied/.test(m) };
   }
 }
+
+// ------------------------------------------------------------------ lead ads --
+
+export type LeadForm = { id: string; name: string; status: string; labels: Record<string, string> };
+
+/** A Page's instant forms, with each question's label (field key → the text the customer saw). */
+export async function leadForms(pageToken: string, pageId: string): Promise<LeadForm[]> {
+  const out: LeadForm[] = [];
+  let after: string | undefined;
+  do {
+    const j = await graph(`/${pageId}/leadgen_forms`, { access_token: pageToken, fields: 'id,name,status,questions{key,label}', limit: '100', ...(after ? { after } : {}) });
+    for (const f of j.data ?? []) {
+      const labels: Record<string, string> = {};
+      for (const q of f.questions ?? []) if (q?.key && q?.label) labels[String(q.key)] = String(q.label);
+      out.push({ id: String(f.id), name: String(f.name ?? ''), status: String(f.status ?? ''), labels });
+    }
+    after = j.paging?.next ? j.paging?.cursors?.after : undefined;
+  } while (after && out.length < 500);
+  return out;
+}
+
+/** A form's leads created after `sinceUnix` (seconds), oldest pages first as Meta returns them. */
+export async function formLeads(pageToken: string, formId: string, sinceUnix: number, max = 1000) {
+  const out: { id: string; created_time?: string; field_data?: { name: string; values?: string[] }[]; ad_name?: string; form_id?: string }[] = [];
+  let after: string | undefined;
+  do {
+    const j = await graph(`/${formId}/leads`, {
+      access_token: pageToken, fields: 'created_time,id,field_data,ad_name,form_id', limit: '100',
+      filtering: JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(sinceUnix) }]),
+      ...(after ? { after } : {}),
+    });
+    out.push(...(j.data ?? []));
+    after = j.paging?.next ? j.paging?.cursors?.after : undefined;
+  } while (after && out.length < max);
+  return out;
+}
