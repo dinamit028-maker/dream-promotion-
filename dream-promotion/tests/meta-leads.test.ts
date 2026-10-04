@@ -39,7 +39,7 @@ test('form fields: name, phone, email and every answer with the question the cus
   assert.match(note, /פנייה מטופס Meta · טופס גבות · מודעה: גבות סתיו/);
   assert.match(note, /עשית בעבר טיפול גבות\?: כן/);
   assert.ok(!/מזהה Meta/.test(note), 'a new contact\'s note stays clean (it is remembered by external_id)');
-  assert.ok(!/050|972/.test(note), 'the phone lives in its own field, not in the note');
+  assert.match(note, /טלפון בטופס: \+972501234567/, 'the original phone stays in the history, to check against');
   assert.match(leadNote('טופס גבות', m, true), /\(מזהה Meta: L1\)/, 'a note on an existing contact is marked');
   assert.equal(leadDetails(m), 'עשית בעבר טיפול גבות?: כן\npreferred time: בוקר', 'answers → the card\'s notes field');
   // first + last name when there is no full name
