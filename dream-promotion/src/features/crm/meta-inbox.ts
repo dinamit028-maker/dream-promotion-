@@ -122,3 +122,17 @@ export function contactsToCreate(items: InboxItem[], existingKeys: Set<string>):
 
 export const sourceOf = (c: Channel) => ({ fb_comment: 'Facebook · תגובה', ig_comment: 'Instagram · תגובה', messenger: 'Messenger', ig_dm: 'Instagram · הודעה' }[c]);
 export const fallbackName = (c: Channel) => (platformOf(c) === 'fb' ? 'משתמש/ת פייסבוק' : 'משתמש/ת אינסטגרם');
+
+/** "על הפוסט: …" — the post a comment was written on, shortened, with its link */
+const onPost = (it: InboxItem) => (it.postText || it.postUrl ? ` על הפוסט: "${it.postText.slice(0, 80)}${it.postText.length > 80 ? '…' : ''}"${it.postUrl ? ` (${it.postUrl})` : ''}` : '');
+
+/** The card's "הערות": how this person came in and how the conversation started (their first message). */
+export function introNote(first: InboxItem): string {
+  return [`נכנס/ה דרך: ${CHANNEL_HE[first.channel]}${onPost(first)}`, `כתב/ה: ${first.body}`].join('\n');
+}
+
+/** One history entry per comment / message — theirs and the business's replies — in time order on the card. */
+export function historyEntry(it: InboxItem): string {
+  if (it.direction === 'out') return `↩️ תשובה של העסק (${CHANNEL_HE[it.channel]}):\n${it.body}`;
+  return `${CHANNEL_ICON[it.channel]} ${CHANNEL_HE[it.channel]}${onPost(it)}:\n${it.body}`;
+}

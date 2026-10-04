@@ -71,8 +71,8 @@ export function InboxSettings() {
       <div>
         <h3 className="text-[17px] font-bold">תגובות והודעות</h3>
         <p className="text-sm text-muted">
-          תגובות על פוסטים, הודעות מסנג׳ר והודעות אינסטגרם נכנסות לעמודה "💬 תגובות" בלוח, כל 10 דקות.
-          כל אדם מופיע פעם אחת, וכל מה שכתב נשמר אצלו. עמוד פייסבוק מביא גם את ההודעות של האינסטגרם המחובר אליו.
+          תגובות על פוסטים בפייסבוק ובאינסטגרם והודעות מסנג׳ר נכנסות לעמודה "💬 תגובות" בלוח, כל 10 דקות.
+          כל אדם מופיע פעם אחת: בכרטיס רואים איך נכנס, על איזה פוסט, ואת כל השיחה.
         </p>
       </div>
       {notice && <p className={cx('rounded-2xl p-3 text-sm', notice.ok ? 'bg-emerald-500/15' : 'bg-warn/10 text-warn')}>{notice.text}</p>}
@@ -89,7 +89,7 @@ export function InboxSettings() {
                 <span className="min-w-0 flex-1">
                   <strong className="block truncate">{p.provider === 'instagram' ? '📷 ' : '👍 '}{p.name || 'חשבון'}</strong>
                   <span className="block text-xs text-muted">
-                    {p.provider === 'instagram' ? 'תגובות באינסטגרם' : 'תגובות בפייסבוק · מסנג׳ר · הודעות אינסטגרם'}
+                    {p.provider === 'instagram' ? 'תגובות באינסטגרם' : 'תגובות בפייסבוק · מסנג׳ר'}
                     {' · '}{p.lastSyncedAt ? `סונכרן ${formatIL(p.lastSyncedAt)}` : p.enabled ? 'עוד לא סונכרן' : 'כבוי'}
                   </span>
                 </span>

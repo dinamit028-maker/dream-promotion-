@@ -1,17 +1,17 @@
 import { adminDb } from './admin';
 import { open } from './secrets';
 import { businessOpen } from './business';
-import { igMediaWithComments, linkedInstagram, pageConversations, pagePostsWithComments } from './meta';
+import { igMediaWithComments, pageConversations, pagePostsWithComments } from './meta';
 import { isLeadsPermissionError } from '@/features/crm/meta-leads';
 import {
   INBOX_STAGE, INBOX_TAG, SOCIAL_SOURCE, contactKey, contactsToCreate, conversationItems, fallbackName, fbCommentItems,
-  igCommentItems, sourceOf, type InboxItem,
+  historyEntry, igCommentItems, introNote, sourceOf, type InboxItem,
 } from '@/features/crm/meta-inbox';
 
 /**
  * Comments and messages from Meta → the business's leads board (every 10 minutes, and "סנכרון עכשיו").
- * A switched-on Facebook Page brings its comments, its Messenger conversations and — when an Instagram
- * account is linked to it — Instagram Direct; a switched-on Instagram account brings its comments.
+ * A switched-on Facebook Page brings its post comments and its Messenger conversations; a switched-on
+ * Instagram account brings its comments. (Instagram Direct is not read — a chat, not an enquiry.)
  * Everything lands in the account's business (business_id set explicitly). A locked business is skipped.
  * Nothing is stored twice (unique business + channel + Meta id); a person is one contact ('פנייה' column).
  */
@@ -45,8 +45,7 @@ export async function fetchItems(acc: AccountRow, sinceIso: string, deadline = I
   }
   await step('תגובות בפייסבוק', async () => fbCommentItems(acc.external_id, await pagePostsWithComments(token, acc.external_id, Math.min(sinceUnix, Date.now() / 1000 - FIRST_SYNC_DAYS * 86400), deadline), sinceIso));
   await step('מסנג׳ר', async () => conversationItems('messenger', [acc.external_id], await pageConversations(token, acc.external_id, 'messenger', sinceIso, deadline), sinceIso));
-  const ig = await linkedInstagram(token, acc.external_id).catch(() => null);
-  if (ig) await step('הודעות אינסטגרם', async () => conversationItems('ig_dm', [ig.id, acc.external_id], await pageConversations(token, acc.external_id, 'instagram', sinceIso, deadline), sinceIso));
+  // Instagram Direct is deliberately not read: it is a chat, not an enquiry (business decision, 4.10.2026)
   return { items, errors, partial: Date.now() > deadline };
 }
 
@@ -66,9 +65,13 @@ export async function storeItems(businessId: string, owner: string, accountId: s
   const keys = [...new Set(fresh.map((i) => contactKey(i.channel, i.contactId)))];
   const { data: leads } = await db.from('leads').select('id, external_id').eq('business_id', businessId).eq('external_source', SOCIAL_SOURCE).in('external_id', keys);
   const leadOf = new Map(((leads ?? []) as { id: string; external_id: string }[]).map((l) => [l.external_id, l.id]));
+  const firstIn = (key: string) => fresh.filter((i) => i.direction === 'in' && contactKey(i.channel, i.contactId) === key)
+    .sort((a, b) => a.sentAt.localeCompare(b.sentAt))[0];
   for (const c of contactsToCreate(fresh, new Set(leadOf.keys()))) {
+    const first = firstIn(c.key);
     const ins = await db.from('leads').insert({
       user_id: owner, business_id: businessId, name: (c.name || fallbackName(c.channel)).slice(0, 120), phone: '',
+      notes: first ? introNote(first) : '',
       source: sourceOf(c.channel), status: INBOX_STAGE, tags: [INBOX_TAG],
       external_source: SOCIAL_SOURCE, external_id: c.key, date: c.firstAt.slice(0, 10),
     }).select('id').single();
@@ -90,6 +93,13 @@ export async function storeItems(businessId: string, owner: string, accountId: s
     });
     if (ins.error) { if (ins.error.code === '23505') continue; throw new Error(`insert_message: ${ins.error.message}`); }
     out.stored++;
+    // the conversation on the card's history, in time order (written once — with the message itself)
+    const leadId = leadOf.get(contactKey(i.channel, i.contactId));
+    if (leadId) {
+      await db.from('lead_activities').insert({
+        user_id: owner, business_id: businessId, lead_id: leadId, kind: 'note', body: historyEntry(i).slice(0, 4000), created_at: i.sentAt,
+      });
+    }
   }
   return out;
 }
