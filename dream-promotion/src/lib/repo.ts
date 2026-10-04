@@ -48,17 +48,19 @@ export const Repo = {
   },
 
   /** Loads everything that belongs to the signed-in user. */
+  /** The current business's data — row-level security returns only the business the user works in now
+   *  (profiles.current_business_id, see migration 20261004002500); per-user lists (pronunciations) stay per user. */
   async load(userId: string): Promise<CloudSnapshot> {
     const sb = supabase();
     // the contact timeline (CRM); an empty list until migration 20261002000900 is run
-    const activitiesQ = sb.from('lead_activities').select('id, lead_id, kind, body, created_at').eq('user_id', userId)
+    const activitiesQ = sb.from('lead_activities').select('id, lead_id, kind, body, created_at')
       .order('created_at', { ascending: false }).limit(2000).then((r) => r, () => ({ data: [] as any[] }));
     const [brand, content, media, leads, ads, pron, acts] = await Promise.all([
-      sb.from('brands').select('*').eq('user_id', userId).maybeSingle(),
-      sb.from('content').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      sb.from('media').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      sb.from('leads').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-      sb.from('ad_drafts').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+      sb.from('brands').select('*').maybeSingle(),
+      sb.from('content').select('*').order('created_at', { ascending: false }),
+      sb.from('media').select('*').order('created_at', { ascending: false }),
+      sb.from('leads').select('*').order('created_at', { ascending: false }),
+      sb.from('ad_drafts').select('*').order('created_at', { ascending: false }),
       sb.from('pronunciations').select('*').eq('user_id', userId),
       activitiesQ,
     ]);
@@ -100,7 +102,7 @@ export const Repo = {
       user_id: userId, name: brand.name, industry: brand.industry, description: brand.description,
       website: brand.website, city: brand.city, audience: brand.audience, goals: brand.goals,
       tone: brand.tone, cta: brand.cta, colors: brand.colors, onboarded, analysis,
-    });
+    }, { onConflict: 'business_id' }); // one brand per business (business_id is filled by the database)
   },
 
   /** Returns an error code when a reel project could not be stored (missing migration). */

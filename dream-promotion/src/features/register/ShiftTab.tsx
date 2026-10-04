@@ -17,7 +17,7 @@ const errText = (e: any) => /relation .* does not exist|schema cache/i.test(Stri
   : /register_shifts_one_open/.test(String(e?.message)) ? 'כבר יש יום פתוח. סוגרים אותו לפני שפותחים חדש.' : 'משהו השתבש. נסו שוב.';
 
 async function loadDocs(userId: string, day: string): Promise<DocLite[]> {
-  const { data } = await supabase().from('documents').select('doc_type, doc_number, issued_at').eq('user_id', userId)
+  const { data } = await supabase().from('documents').select('doc_type, doc_number, issued_at')
     .gte('issued_at', israelToIso(day, '00:00')).lt('issued_at', israelToIso(nextDay(day), '00:00'));
   return ((data ?? []) as any[]).map((d) => ({ docType: d.doc_type, docNumber: Number(d.doc_number), issuedAt: d.issued_at }));
 }
@@ -33,7 +33,7 @@ export function ShiftTab({ userId, sales, employees, businessName }: { userId: s
   const [note, setNote] = useState('');
 
   const load = useCallback(async () => {
-    const { data, error: e } = await supabase().from('register_shifts').select('*').eq('user_id', userId).order('opened_at', { ascending: false }).limit(60);
+    const { data, error: e } = await supabase().from('register_shifts').select('*').order('opened_at', { ascending: false }).limit(60);
     if (e) { setError(errText(e)); setShifts([]); return; }
     setShifts((data ?? []).map(toShift)); setError(null);
   }, [userId]);

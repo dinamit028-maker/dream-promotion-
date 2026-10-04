@@ -11,8 +11,8 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   if (!d) return NextResponse.json({ code: 'not_found' }, { status: 404 });
   if (!(await businessOpen((d as any).business_id))) return NextResponse.json(UNAVAILABLE, { status: 403 });
   const [{ data: s }, { data: b }] = await Promise.all([
-    db.from('register_settings').select('dealer_number, legal_name, street, house_no, city, zip').eq('user_id', d.user_id).maybeSingle(),
-    db.from('brands').select('name').eq('user_id', d.user_id).maybeSingle(),
+    db.from('register_settings').select('dealer_number, legal_name, street, house_no, city, zip').eq('business_id', (d as any).business_id).maybeSingle(),
+    db.from('brands').select('name').eq('business_id', (d as any).business_id).maybeSingle(),
   ]);
   const { user_id: _u, business_id: _b, lead_id: _l, sale_id: _s, share_token: _t, ...doc } = d as any;
   return NextResponse.json({

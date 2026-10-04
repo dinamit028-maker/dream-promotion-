@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { LOCKED, businessOf, userLocked } from '@/lib/server/business';
+import { LOCKED, userLocked, workBusiness } from '@/lib/server/business';
 import type { Destination } from '@/lib/server/scheduler';
 
 export const runtime = 'nodejs';
@@ -16,8 +16,9 @@ export async function GET(req: Request) {
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
   const contentId = new URL(req.url).searchParams.get('contentId');
   const db = adminDb();
+  const biz = await workBusiness(userId);
   const { data } = await db.from('scheduled_posts').select('id, run_at, status, destinations, results, caption, media_id, last_run_at')
-    .eq('user_id', userId).eq('content_id', contentId).neq('status', 'cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle();
+    .eq('business_id', biz).eq('content_id', contentId).neq('status', 'cancelled').order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (!data) return NextResponse.json({ schedule: null });
   const ids = (data.destinations as Destination[]).map((d) => d.accountId);
   const { data: accs } = await db.from('social_accounts').select('id, provider, display_name').in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
@@ -41,12 +42,12 @@ export async function POST(req: Request) {
   if (Number.isNaN(+runAt)) return NextResponse.json({ code: 'bad_request', message: 'bad time' }, { status: 400 });
   if (+runAt < Date.now() - 2 * 60_000) return NextResponse.json({ code: 'in_the_past', message: 'השעה שנבחרה כבר עברה' }, { status: 400 });
 
-  const { data: media } = await db.from('media').select('id, kind').eq('id', body.mediaId).eq('user_id', userId).maybeSingle();
+  const biz = await workBusiness(userId);
+  const { data: media } = await db.from('media').select('id, kind').eq('id', body.mediaId).eq('business_id', biz).maybeSingle();
   if (!media || media.kind === 'audio') return NextResponse.json({ code: 'bad_media', message: 'אין קובץ לפרסום' }, { status: 400 });
 
   const wanted: Destination[] = (Array.isArray(body.destinations) ? body.destinations : []).slice(0, 10);
-  const biz = await businessOf(userId);
-  const { data: accs } = await db.from('social_accounts').select('id, provider, scope').eq('business_id', biz ?? '00000000-0000-0000-0000-000000000000').eq('status', 'active')
+  const { data: accs } = await db.from('social_accounts').select('id, provider, scope').eq('business_id', biz).eq('status', 'active')
     .in('id', wanted.map((d) => String(d.accountId)).filter(Boolean).length ? wanted.map((d) => String(d.accountId)) : ['00000000-0000-0000-0000-000000000000']);
   const own = new Map((accs ?? []).map((a) => [a.id, a]));
   const destinations: Destination[] = wanted.filter((d) => {
@@ -66,9 +67,9 @@ export async function POST(req: Request) {
   }
 
   const contentId = typeof body.contentId === 'string' ? body.contentId : null;
-  const row = { user_id: userId, content_id: contentId, media_id: media.id, caption: String(body.caption ?? '').slice(0, 2200), destinations, run_at: runAt.toISOString(), status: 'scheduled', results: {}, attempts: 0 };
+  const row = { user_id: userId, business_id: biz, content_id: contentId, media_id: media.id, caption: String(body.caption ?? '').slice(0, 2200), destinations, run_at: runAt.toISOString(), status: 'scheduled', results: {}, attempts: 0 };
   // one plan per item: a schedule that has not started yet is replaced
-  if (contentId) await db.from('scheduled_posts').update({ status: 'cancelled' }).eq('user_id', userId).eq('content_id', contentId).eq('status', 'scheduled');
+  if (contentId) await db.from('scheduled_posts').update({ status: 'cancelled' }).eq('business_id', biz).eq('content_id', contentId).eq('status', 'scheduled');
   const { data, error } = await db.from('scheduled_posts').insert(row).select('id').single();
   if (error) return NextResponse.json({ code: 'db_error', message: `${error.message} — run migration 20261001000600` }, { status: 500 });
   return NextResponse.json({ id: data.id });
@@ -79,6 +80,6 @@ export async function DELETE(req: Request) {
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
   const id = new URL(req.url).searchParams.get('id');
   const { data } = await adminDb().from('scheduled_posts').update({ status: 'cancelled' })
-    .eq('id', id).eq('user_id', userId).eq('status', 'scheduled').select('id').maybeSingle();
+    .eq('id', id).eq('business_id', await workBusiness(userId)).eq('status', 'scheduled').select('id').maybeSingle();
   return data ? NextResponse.json({ ok: true }) : NextResponse.json({ code: 'not_cancellable', message: 'הפרסום כבר התחיל או הסתיים' }, { status: 409 });
 }

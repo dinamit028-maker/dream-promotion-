@@ -57,6 +57,12 @@ export async function userLocked(userId: string): Promise<boolean> {
   return !(await businessOpen(biz));
 }
 
+/** The business a signed-in user's request works in, or a uuid that matches nothing (no business = no rows). */
+export const NO_BUSINESS = '00000000-0000-0000-0000-000000000000';
+export async function workBusiness(userId: string): Promise<string> {
+  return (await businessOf(userId)) ?? NO_BUSINESS;
+}
+
 /** the business this user is working in now (their choice, else their first membership) */
 export async function businessOf(userId: string): Promise<string | null> {
   const { data } = await adminDb().rpc('business_for_user', { uid: userId });

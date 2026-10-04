@@ -50,7 +50,7 @@ async function publishOne(row: Row, d: Destination, media: { url: string; kind: 
       if (!file.ok) throw new Error(`video_download_${file.status}`);
       const id = await uploadToInbox(token, Buffer.from(await file.arrayBuffer()));
       await adminDb().from('social_posts').insert({
-        user_id: row.user_id, account_id: d.accountId, provider: 'tiktok', content_id: row.content_id,
+        user_id: row.user_id, business_id: row.business_id, account_id: d.accountId, provider: 'tiktok', content_id: row.content_id,
         media_id: row.media_id, mode: 'draft', status: 'uploaded', external_id: id,
       });
       return { state: 'sent_to_drafts', externalId: id, at };
@@ -132,7 +132,7 @@ export async function publishDue(opts: { deadline: number; limit?: number }) {
       continue;
     }
 
-    const { data: media } = await db.from('media').select('url, kind').eq('id', row.media_id).eq('user_id', row.user_id).maybeSingle();
+    const { data: media } = await db.from('media').select('url, kind').eq('id', row.media_id).eq('business_id', row.business_id).maybeSingle();
     const late = Date.now() - new Date(row.run_at).getTime() > EXPIRE_MS;
     for (const d of row.destinations ?? []) {
       const prev = results[d.accountId] ?? { state: 'waiting' as DestState };
@@ -152,7 +152,7 @@ export async function publishDue(opts: { deadline: number; limit?: number }) {
       results, status, attempts: (row.attempts ?? 0) + 1, last_run_at: new Date().toISOString(), locked_until: null,
     }).eq('id', row.id);
     if (row.content_id && (status === 'done' || status === 'partial')) {
-      await db.from('content').update({ status: 'published' }).eq('id', row.content_id).eq('user_id', row.user_id);
+      await db.from('content').update({ status: 'published' }).eq('id', row.content_id).eq('business_id', row.business_id);
     }
     summary[status as 'done' | 'partial' | 'failed' | 'publishing']++;
   }

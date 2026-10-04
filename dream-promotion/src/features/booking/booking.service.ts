@@ -37,7 +37,7 @@ export const bookingError = (e: any): string => {
 
 export const BookingAPI = {
   async settings(userId: string): Promise<BookingSettings> {
-    const { data, error } = await supabase().from('booking_settings').select('*').eq('user_id', userId).maybeSingle();
+    const { data, error } = await supabase().from('booking_settings').select('*').maybeSingle();
     if (error) throw error;
     if (!data) return DEFAULT_SETTINGS;
     return {
@@ -50,11 +50,11 @@ export const BookingAPI = {
     const { error } = await supabase().from('booking_settings').upsert({
       user_id: userId, slug: s.slug || null, enabled: s.enabled, title: s.title, address: s.address, phone: s.phone, message: s.message,
       slot_minutes: s.slotMinutes, min_notice_minutes: s.minNoticeMinutes, max_days_ahead: s.maxDaysAhead, hours: s.hours, closed_dates: s.closedDates,
-    });
+    }, { onConflict: 'business_id' }); // one row per business (business_id is filled by the database)
     if (error) throw error;
   },
   async services(userId: string): Promise<BookingServiceRow[]> {
-    const { data, error } = await supabase().from('booking_services').select('*').eq('user_id', userId).order('sort').order('created_at');
+    const { data, error } = await supabase().from('booking_services').select('*').order('sort').order('created_at');
     if (error) throw error;
     return (data ?? []).map((r: any) => ({ id: r.id, name: r.name, minutes: r.minutes, price: r.price == null ? null : Number(r.price), active: r.active, sort: r.sort }));
   },
@@ -68,7 +68,7 @@ export const BookingAPI = {
     if (error) throw error;
   },
   async appointments(userId: string, fromIso: string, toIso: string): Promise<Appointment[]> {
-    const { data, error } = await supabase().from('appointments').select('*').eq('user_id', userId)
+    const { data, error } = await supabase().from('appointments').select('*')
       .gte('start_at', fromIso).lt('start_at', toIso).order('start_at');
     if (error) throw error;
     return (data ?? []).map(fromRow);

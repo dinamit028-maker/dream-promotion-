@@ -16,10 +16,10 @@ async function employeeOf(token: string) {
   const { data: emp } = await db.from('employees').select('id, user_id, business_id, name, active').eq('token', token).maybeSingle();
   if (!emp) return null;
   if (!(await businessOpen((emp as any).business_id))) return 'locked' as const;
-  const { data: brand } = await db.from('brands').select('name').eq('user_id', emp.user_id).maybeSingle();
+  const { data: brand } = await db.from('brands').select('name').eq('business_id', (emp as any).business_id).maybeSingle();
   // the business's QR rules (table from migration 20261003001300; absent = not set up yet)
   const { data: rules } = await db.from('timeclock_settings').select('site_code, require_qr, geo_lat, geo_lng, geo_radius_m')
-    .eq('user_id', emp.user_id).maybeSingle().then((r) => r, () => ({ data: null }));
+    .eq('business_id', (emp as any).business_id).maybeSingle().then((r) => r, () => ({ data: null }));
   return { ...(emp as any), business: (brand as any)?.name ?? '', rules: (rules as any) ?? null };
 }
 
@@ -77,7 +77,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
 
   if (body.action === 'in') {
     if (open) return NextResponse.json({ code: 'already_in', message: 'כבר במשמרת', ...(await state(emp)) }, { status: 409 });
-    const { error } = await db.from('time_entries').insert({ user_id: emp.user_id, employee_id: emp.id, clock_in: now, in_lat: lat, in_lng: lng, source: scanRequired(emp) ? 'qr' : 'self' });
+    const { error } = await db.from('time_entries').insert({ user_id: emp.user_id, business_id: emp.business_id, employee_id: emp.id, clock_in: now, in_lat: lat, in_lng: lng, source: scanRequired(emp) ? 'qr' : 'self' });
     if (error) {
       if (error.code === '23505') return NextResponse.json({ code: 'already_in', message: 'כבר במשמרת', ...(await state(emp)) }, { status: 409 });
       console.error('[clock] in', error.message);

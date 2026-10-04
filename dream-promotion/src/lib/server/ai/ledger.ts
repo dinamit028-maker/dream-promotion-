@@ -1,4 +1,5 @@
 import { adminDb } from '@/lib/server/admin';
+import { workBusiness } from '@/lib/server/business';
 
 /**
  * The generation ledger (public.ai_generations): one row per provider call, written by the
@@ -39,7 +40,7 @@ export async function contentIdFrom(req: Request, userId: string | null): Promis
   const id = req.headers.get('x-dp-content') || '';
   if (!userId || !UUID.test(id)) return null;
   try {
-    const { data } = await adminDb().from('content').select('id').eq('id', id).eq('user_id', userId).maybeSingle();
+    const { data } = await adminDb().from('content').select('id').eq('id', id).eq('business_id', await workBusiness(userId)).maybeSingle();
     return data?.id ?? null;
   } catch { return null; }
 }

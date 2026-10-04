@@ -7,7 +7,7 @@ import { PRICES } from '@/lib/server/ai/config';
 import { logGeneration } from '@/lib/server/ai/ledger';
 import { commitUsage, releaseUsage, reserveUsage } from '@/lib/server/quota';
 import { MOTIONS, renderReel, type RenderJob } from '@/lib/server/reel-render';
-import { LOCKED, userLocked } from '@/lib/server/business';
+import { LOCKED, userLocked, workBusiness } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +33,7 @@ export async function POST(req: Request) {
   const user = u?.user;
   if (!user) return Response.json({ error: 'sign in required', code: 'no_session' }, { status: 401 });
   if (await userLocked(user.id)) return Response.json({ ...LOCKED, error: LOCKED.message }, { status: 403 });
+  const biz = await workBusiness(user.id); // the reel and its file belong to the business being worked in
 
   let body: any;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad json', code: 'bad_request' }, { status: 400 }); }
@@ -90,7 +91,7 @@ export async function POST(req: Request) {
       const started = Date.now();
       // the render's own cost (function time) goes into the reel's cost, like every AI call
       const ownContent = contentId
-        ? (await admin.from('content').select('id').eq('id', contentId).eq('user_id', user.id).maybeSingle()).data?.id ?? null
+        ? (await admin.from('content').select('id').eq('id', contentId).eq('business_id', biz).maybeSingle()).data?.id ?? null
         : null;
       const logRender = (status: 'succeeded' | 'failed', extra: { durationSec?: number; error?: string } = {}) => {
         const minutes = (Date.now() - started) / 60_000;
@@ -111,31 +112,31 @@ export async function POST(req: Request) {
         const signed = await admin.storage.from('assets').createSignedUrl(storagePath, 60 * 60 * 24 * 365);
         if (!signed.data?.signedUrl) throw new Error('signed_url_failed');
         const row = await admin.from('media').insert({
-          user_id: user.id, url: signed.data.signedUrl, storage_path: storagePath,
+          user_id: user.id, business_id: biz, url: signed.data.signedUrl, storage_path: storagePath,
           name: `${title} · ריל סופי`, kind: 'video', source: 'generated',
         }).select('id').single();
         if (row.error) throw new Error(`media_row_failed: ${row.error.message}`);
         // link the finished file to its reel so it opens with the project
         if (contentId) {
-          await admin.from('content').update({ media_id: row.data.id }).eq('id', contentId).eq('user_id', user.id);
+          await admin.from('content').update({ media_id: row.data.id }).eq('id', contentId).eq('business_id', biz);
           // the finished reel is written into the project on the server too: a refresh, a closed phone or
           // a lost connection during the render never loses it
           try {
-            const cur = await admin.from('content').select('reel').eq('id', contentId).eq('user_id', user.id).maybeSingle();
+            const cur = await admin.from('content').select('reel').eq('id', contentId).eq('business_id', biz).maybeSingle();
             const reel = (cur.data as any)?.reel;
             if (reel && typeof reel === 'object') {
               await admin.from('content').update({
                 reel: { ...reel, final: { mediaId: row.data.id, url: signed.data.signedUrl, durationSec, renderedAt: Date.now() } },
-              }).eq('id', contentId).eq('user_id', user.id);
+              }).eq('id', contentId).eq('business_id', biz);
             }
           } catch { /* the browser saves it too */ }
         }
         // a re-render replaces the previous final of this reel instead of piling up copies
         if (replaceMediaId && replaceMediaId !== row.data.id) {
-          const old = await admin.from('media').select('id, storage_path, name').eq('id', replaceMediaId).eq('user_id', user.id).maybeSingle();
+          const old = await admin.from('media').select('id, storage_path, name').eq('id', replaceMediaId).eq('business_id', biz).maybeSingle();
           if (old.data && String(old.data.name || '').includes('ריל סופי')) {
             if (old.data.storage_path) await admin.storage.from('assets').remove([old.data.storage_path]).catch(() => {});
-            await admin.from('media').delete().eq('id', old.data.id).eq('user_id', user.id);
+            await admin.from('media').delete().eq('id', old.data.id).eq('business_id', biz);
           }
         }
         await logRender('succeeded', { durationSec });
