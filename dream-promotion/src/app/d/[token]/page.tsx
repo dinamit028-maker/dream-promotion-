@@ -6,17 +6,17 @@ import { docBody, toDoc } from '@/features/documents/DocumentsTab';
 /** The customer's link to a document (sent on WhatsApp): view, print or save as PDF. */
 export default function SharedDocPage({ params }: { params: { token: string } }) {
   const [html, setHtml] = useState<string | null>(null);
-  const [missing, setMissing] = useState(false);
+  const [missing, setMissing] = useState<string | false>(false);
   useEffect(() => {
     fetch(`/api/doc/${params.token}`).then(async (r) => {
-      if (!r.ok) { setMissing(true); return; }
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setMissing(j.code === 'unavailable' ? j.message : 'המסמך לא נמצא.'); return; }
       const j = await r.json();
       setHtml(docBody(toDoc(j.doc), j.business, 'מסמך ממוחשב'));
-    }).catch(() => setMissing(true));
+    }).catch(() => setMissing('המסמך לא נמצא.'));
   }, [params.token]);
   return (
     <main dir="rtl" className="mx-auto min-h-screen max-w-3xl bg-white p-4 text-black print:p-0">
-      {missing ? <p className="mt-16 text-center">המסמך לא נמצא.</p> : !html ? <div className="flex justify-center py-16"><Spinner /></div> : <>
+      {missing ? <p className="mt-16 text-center">{missing}</p> : !html ? <div className="flex justify-center py-16"><Spinner /></div> : <>
         <div className="mb-4 flex justify-end gap-2 print:hidden">
           <button type="button" onClick={() => window.print()} className="rounded-full bg-[#6b3bf5] px-5 py-2.5 font-semibold text-white">הדפסה / שמירה כ-PDF</button>
         </div>

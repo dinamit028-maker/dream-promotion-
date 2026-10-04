@@ -34,6 +34,16 @@ export async function canUseBusiness(userId: string, businessId: string | null):
   return Boolean(m && b && businessIsActive(b));
 }
 
+/** Public pages (booking, a shared document, the employee clock) answer "השירות אינו זמין" for a locked business. */
+export const UNAVAILABLE = { code: 'unavailable', message: 'השירות אינו זמין' } as const;
+
+/** Is the business behind a public page open? business_id is NOT NULL on every business table since stage 2. */
+export async function businessOpen(businessId: string | null | undefined): Promise<boolean> {
+  if (!businessId) return true; // rows from before stage 2 (tests only — the column is required in the database)
+  const { data } = await adminDb().from('businesses').select('status, paid_until, grace_days').eq('id', businessId).maybeSingle();
+  return Boolean(data && businessIsActive(data as BusinessRow));
+}
+
 /** the business this user is working in now (their choice, else their first membership) */
 export async function businessOf(userId: string): Promise<string | null> {
   const { data } = await adminDb().rpc('business_for_user', { uid: userId });

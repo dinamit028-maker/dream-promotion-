@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { busyBetween, loadBusiness, rulesOf } from '@/lib/server/booking';
 import { freeSlots } from '@/features/booking/slots';
 import { israelToIso } from '@/lib/il-time';
+import { UNAVAILABLE } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 
@@ -9,6 +10,7 @@ export const runtime = 'nodejs';
 export async function GET(req: Request, { params }: { params: { slug: string } }) {
   const b = await loadBusiness(params.slug);
   if (!b) return NextResponse.json({ code: 'not_found' }, { status: 404 });
+  if (b === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   const url = new URL(req.url);
   const service = b.services.find((x) => x.id === url.searchParams.get('service'));
   const date = String(url.searchParams.get('date') ?? '');

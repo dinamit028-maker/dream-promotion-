@@ -4,6 +4,7 @@ import { attachToCrm, busyBetween, loadBusiness, rulesOf } from '@/lib/server/bo
 import { isFree, openDays } from '@/features/booking/slots';
 import { formatIL } from '@/lib/il-time';
 import { phoneDigits } from '@/features/crm/crm';
+import { UNAVAILABLE } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 
@@ -15,6 +16,7 @@ export const runtime = 'nodejs';
 export async function GET(_req: Request, { params }: { params: { slug: string } }) {
   const b = await loadBusiness(params.slug);
   if (!b) return NextResponse.json({ code: 'not_found' }, { status: 404 });
+  if (b === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   const s = b.settings;
   return NextResponse.json({
     title: s.title, address: s.address, phone: s.phone, message: s.message,
@@ -25,6 +27,7 @@ export async function GET(_req: Request, { params }: { params: { slug: string } 
 export async function POST(req: Request, { params }: { params: { slug: string } }) {
   const b = await loadBusiness(params.slug);
   if (!b) return NextResponse.json({ code: 'not_found', message: 'דף ההזמנות לא זמין' }, { status: 404 });
+  if (b === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   const body = await req.json().catch(() => ({}));
   if (body.website) return NextResponse.json({ ok: true }); // honeypot: bots fill hidden fields
   const name = String(body.name ?? '').trim().slice(0, 80);

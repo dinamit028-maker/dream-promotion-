@@ -1,6 +1,6 @@
 # משימה רב-עסקית (דשבורד-על) — מסמך העברה בין שיחות
 
-עודכן: 2026-10-04, באמצע שלב 3. הענף: `claude/adoring-maxwell-ffx5gz` (לא מוזג ל-main; אין PR עדיין).
+עודכן: 2026-10-04, סוף שלב 4 (ממתין לאישור + PR). הענף: `claude/adoring-maxwell-ffx5gz`. שלבים 1–3 מוזגו ל-main (PR #6).
 פרויקט Supabase: `dream-promotion`, ref `nljnbixgjsjbdgutryun`, תוכנית free (אין branches/גיבוי מובנה).
 
 ## כללי עבודה (מהמשתמש — אביב)
@@ -34,9 +34,10 @@
 |---|---|
 | 1 | ✅ migration `20261004001900_businesses.sql` הוחל. is_super_admin=true לאביב. טריגר `guard_super_admin` חוסם שינוי מה-API (נבדק חי). meta_connections סגורה לדפדפן. RLS פעיל בלי policies על הטבלאות החדשות (עד שלב 4). |
 | 2 | ✅ `20261004002000_business_id.sql` + `20261004002100_business_id_required.sql` הוחלו. עסקים FollowMe (slug followme) ו-SaGabot (slug sagabot), חברים, backfill מלא, NOT NULL בכל הטבלאות חוץ מ-`ai_generations` (יומן עלויות, user_id nullable). |
-| 3 | ✅ (ממתין ל-PR) קוד בענף (commit d520dcf, 56/56 בדיקות, typecheck עובר; build עוד לא הורץ). migration `20261004002200_social_assets.sql`: **חלק A הוחל** (עמודות connection_id/status/missing_since, fill_business_id מדלג על social_accounts, view `social_accounts_public`, grants ברמת עמודה — הטוקן של שורת FollowMe של אביב (fd1e8c04…) עודכן לחדש ביותר). **חלק B הוחל** (ה-delete/אינדקס/רישום הורצו ידנית ע"י אביב ב-SQL Editor, כי פקודות מחיקה נחסמות ב-MCP; נבדק: שורה אחת לעמוד, business_id nullable, האינדקס קיים, migration רשום). build עובר ✅. |
+| 3 | ✅ מוזג (PR #6). קוד בענף (commit d520dcf, 56/56 בדיקות, typecheck עובר; build עוד לא הורץ). migration `20261004002200_social_assets.sql`: **חלק A הוחל** (עמודות connection_id/status/missing_since, fill_business_id מדלג על social_accounts, view `social_accounts_public`, grants ברמת עמודה — הטוקן של שורת FollowMe של אביב (fd1e8c04…) עודכן לחדש ביותר). **חלק B הוחל** (ה-delete/אינדקס/רישום הורצו ידנית ע"י אביב ב-SQL Editor, כי פקודות מחיקה נחסמות ב-MCP; נבדק: שורה אחת לעמוד, business_id nullable, האינדקס קיים, migration רשום). build עובר ✅. |
+| 4 | ✅ הוחל ונבדק, ממתין ל-PR. migration `20261004002300_business_rls.sql` (בלי drop): פונקציות is_super_admin / business_is_active (שעון ישראל) / can_access_business / accessible_business_ids; לכל 23 הטבלאות policy restrictive `<t>_business_gate` + permissive `<t>_business` (אותן פקודות כמו קודם; documents בלי delete; ai_generations/scheduled_posts בלי policy לקוח). המדיניות הישנות `user_id = auth.uid()` נשארו — ה-gate הוא שנועל. businesses/business_members: קריאה לחבר, כתיבה רק ל-super admin. הטריגר על profiles חוסם גם שינוי מכסות. דפים ציבוריים (book, doc, clock) → 403 `unavailable` "השירות אינו זמין". בדיקות: `tests/business-lock.test.ts` + בדיקה חיה בטרנזקציה שבוטלה. |
 
-### חלק B (בוצע — לתיעוד)
+### חלק B של שלב 3 (בוצע — לתיעוד)
 ```sql
 alter table public.social_accounts alter column business_id drop not null;
 delete from public.social_accounts
@@ -46,7 +47,7 @@ insert into supabase_migrations.schema_migrations(version, name, statements)
   values ('20261004002200', 'social_assets_2200', array['-- applied via execute_sql; full text in supabase/migrations/20261004002200_social_assets.sql'])
   on conflict (version) do nothing;
 ```
-הבא: PR ומיזוג שלב 3 (באישור), ואז שלב 4.
+הבא: אישור שלב 4 → PR (המיזוג נעשה ע"י אביב בגיטהאב — המיזוג מהסשן נחסם) → שלב 5.
 
 **חשוב לשיחות הבאות:** פקודות `delete`/`drop` דרך Supabase MCP נחסמות תמיד (timeout) — להכין SQL ולבקש מאביב להריץ ב-SQL Editor, ואז לוודא בשאילתה.
 
@@ -55,7 +56,9 @@ insert into supabase_migrations.schema_migrations(version, name, statements)
 - **מילוי אוטומטי**: טריגר `a_fill_business_id` (BEFORE INSERT) על 23 הטבלאות ממלא business_id מ-`business_for_user(user_id)` (profiles.current_business_id אם מותר, אחרת החברות הראשונה). לכן האפליקציה הקיימת עובדת בלי שינוי. social_accounts מדולג (נכס חדש = לא משויך; השרת קובע business_id ב-TikTok).
 - **נדחה לשלב 7** (כי הקוד עושה upsert לפי user_id): החלפת PK של brands/register_settings/booking_settings/timeclock_settings ל-business_id (כבר יש `unique (business_id)`); החלפת PK של `document_counters` (עדיין `(user_id, doc_type)`; קיים `unique (business_id, doc_type)` והטריגר סופר לפי business_id) והסרת `unique (user_id, doc_type, doc_number)` במסמכים (קיים `unique (business_id, doc_type, doc_number)`) — חובה לפני שאדמין מפיק מסמכים לשני עסקים.
 - **מסמכים**: `documents_immutable` מאפשר רק שיוך business_id פעם אחת (null → ערך); תוכן ומחיקה נעולים (נבדק).
-- **לתקן בשלב 4**: המדיניות `profiles_self` מאפשרת לכל משתמש לעדכן את כל השורה שלו — כולל `clip_quota`/`image_quota`. is_super_admin עצמו מוגן בטריגר.
+- ✅ תוקן בשלב 4: מכסות ב-profiles מוגנות בטריגר `profiles_guard_super_admin`.
+- **פתוח**: משתמש חדש שנרשם בלי להיות חבר בעסק — אין לו business_id, כך שלא יוכל לשמור כלום (NOT NULL + RLS). עסקים וחברים נוספים ע"י האדמין (שלב 6).
+- **פתוח לשלב 5/6**: בעל עסק נעול רואה מסכים ריקים (RLS) — צריך הודעה "העסק נעול" באפליקציה; ה-API בצד השרת (service role) עוד לא בודק נעילה (שלב 5).
 - **אדמין בקוד**: `src/lib/server/admin-auth.ts` — admin = is_super_admin או ADMIN_EMAILS. עזרים: `src/lib/server/business.ts` (isSuperAdmin, canUseBusiness, businessIsActive, businessOf). סנכרון Meta טהור: `src/lib/server/meta-sync.ts`. מסך: `/admin` → לשונית "חיבורים ונכסים" (`src/features/admin/ConnectionsPanel.tsx`).
 - README עדיין מזכיר `META_CONFIG_READ` — כבר לא בשימוש (חיבור אחד מלא).
 - בדיקת מיגרציות מקומית: Postgres 16 מותקן (`/usr/lib/postgresql/16/bin`, להריץ כ-`su postgres`, תיקייה ב-/tmp).
