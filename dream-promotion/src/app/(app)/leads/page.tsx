@@ -10,6 +10,7 @@ import { UsersThree } from '@/components/ui/Icon';
 import { STAGES, followupState, matches, parseTags, stageOf, telLink, waLink } from '@/features/crm/crm';
 import { ContactSheet } from '@/features/crm/ContactSheet';
 import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
+import { InboxSettings } from '@/features/crm/InboxSettings';
 
 /**
  * CRM — the business's contacts: leads and customers in one place (toolbox stage 1).
@@ -155,6 +156,8 @@ export default function LeadsPage() {
 
       <Modal open={settings} onClose={() => setSettings(false)}>
         <MetaLeadsSettings />
+        <hr className="my-5 border-line" />
+        <InboxSettings />
         <div className="mt-4 flex justify-end"><Button variant="ghost" onClick={() => setSettings(false)}>סגירה</Button></div>
       </Modal>
 

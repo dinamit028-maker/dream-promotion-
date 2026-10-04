@@ -121,7 +121,7 @@ export interface MediaAsset {
   id: string; url: string; name: string; kind: 'image' | 'video' | 'audio'; tags?: string[]; persistent: boolean;
 }
 
-export type LeadStatus = 'חדש' | 'נוצר קשר' | 'מעוניין' | 'נקבע תור' | 'נסגר' | 'לא רלוונטי';
+export type LeadStatus = 'פנייה' | 'חדש' | 'נוצר קשר' | 'מעוניין' | 'נקבע תור' | 'נסגר' | 'לא רלוונטי';
 
 export interface Lead {
   id: string; name: string; phone: string; source: string;

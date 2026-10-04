@@ -3,6 +3,8 @@ import { israelParts } from '@/lib/il-time';
 
 /** The pipeline, in order. Stored values stay as they always were; only the labels are new. */
 export const STAGES: { id: LeadStatus; label: string; tone: string }[] = [
+  // comments and messages from Facebook / Instagram / Messenger land here; "🔥 ליד חם" moves them on
+  { id: 'פנייה', label: '💬 תגובות', tone: 'bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300' },
   { id: 'חדש', label: 'חדש', tone: 'bg-sky-500/15 text-sky-600 dark:text-sky-300' },
   { id: 'נוצר קשר', label: 'נוצר קשר', tone: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300' },
   { id: 'מעוניין', label: 'מעוניין', tone: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
@@ -10,7 +12,7 @@ export const STAGES: { id: LeadStatus; label: string; tone: string }[] = [
   { id: 'נסגר', label: 'לקוח ✓', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
   { id: 'לא רלוונטי', label: 'לא רלוונטי', tone: 'bg-zinc-500/15 text-zinc-500' },
 ];
-export const stageOf = (s: LeadStatus) => STAGES.find((x) => x.id === s) ?? STAGES[0];
+export const stageOf = (s: LeadStatus) => STAGES.find((x) => x.id === s) ?? STAGES[1];
 
 export const ACTIVITY_HE: Record<LeadActivityKind, { label: string; icon: string }> = {
   note: { label: 'הערה', icon: '📝' }, call: { label: 'שיחה', icon: '📞' }, whatsapp: { label: 'וואטסאפ', icon: '💬' },

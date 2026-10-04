@@ -1,0 +1,124 @@
+/**
+ * Comments and messages from Meta → the leads board ("פנייה" column). Pure (no database, no network).
+ * Four channels: Facebook comments, Instagram comments, Messenger, Instagram Direct.
+ * A person is ONE contact per business and platform: external_id 'fb:<id>' or 'ig:<id>'.
+ */
+export type Channel = 'fb_comment' | 'ig_comment' | 'messenger' | 'ig_dm';
+export const SOCIAL_SOURCE = 'meta_social';
+export const INBOX_STAGE = 'פנייה';
+export const INBOX_TAG = 'תגובות';
+
+export const CHANNEL_HE: Record<Channel, string> = {
+  fb_comment: 'תגובה בפייסבוק', ig_comment: 'תגובה באינסטגרם', messenger: 'מסנג׳ר', ig_dm: 'הודעה באינסטגרם',
+};
+export const CHANNEL_ICON: Record<Channel, string> = { fb_comment: '👍', ig_comment: '📷', messenger: '💬', ig_dm: '✉️' };
+
+export type InboxItem = {
+  channel: Channel; externalId: string; threadId: string; parentId: string; postUrl: string; postText: string;
+  authorId: string; authorName: string; direction: 'in' | 'out'; body: string; sentAt: string;
+  /** the person this is about (for an outgoing message: the one it was sent to) */
+  contactId: string; contactName: string;
+};
+
+const iso = (t?: string) => (t ? new Date(t).toISOString() : new Date().toISOString());
+const short = (s: string | undefined, n = 120) => (s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+export const platformOf = (c: Channel) => (c === 'fb_comment' || c === 'messenger' ? 'fb' : 'ig');
+export const contactKey = (c: Channel, personId: string) => `${platformOf(c)}:${personId}`;
+
+type FbComment = { id: string; message?: string; created_time?: string; from?: { id: string; name?: string }; parent?: { id: string } };
+type FbPost = { id: string; message?: string; permalink_url?: string; comments?: { data?: FbComment[] } };
+
+/** /{page}/posts with nested comments → items; the Page's own replies are 'out' and belong to the comment they answer */
+export function fbCommentItems(pageId: string, posts: FbPost[], sinceIso: string): InboxItem[] {
+  const out: InboxItem[] = [];
+  for (const p of posts) {
+    const comments = p.comments?.data ?? [];
+    const byId = new Map(comments.map((c) => [c.id, c]));
+    for (const c of comments) {
+      if (!c.from?.id || iso(c.created_time) <= sinceIso) continue;
+      const mine = c.from.id === pageId;
+      const parent = c.parent?.id ? byId.get(c.parent.id) : undefined;
+      const person = mine ? parent?.from : c.from;
+      if (!person?.id || person.id === pageId) continue; // a Page talking to itself is nobody's conversation
+      out.push({
+        channel: 'fb_comment', externalId: c.id, threadId: p.id, parentId: c.parent?.id ?? '', postUrl: p.permalink_url ?? '',
+        postText: short(p.message), authorId: c.from.id, authorName: c.from.name ?? '', direction: mine ? 'out' : 'in',
+        body: c.message ?? '', sentAt: iso(c.created_time), contactId: person.id, contactName: person.name ?? '',
+      });
+    }
+  }
+  return out;
+}
+
+type IgComment = { id: string; text?: string; timestamp?: string; username?: string; from?: { id: string; username?: string }; replies?: { data?: IgComment[] } };
+type IgMedia = { id: string; caption?: string; permalink?: string; comments?: { data?: IgComment[] } };
+
+/** /{ig}/media with comments and replies → items; replies by the account itself are 'out' */
+export function igCommentItems(igId: string, igUsername: string, media: IgMedia[], sinceIso: string): InboxItem[] {
+  const out: InboxItem[] = [];
+  const me = igUsername.replace(/^@/, '').toLowerCase();
+  const push = (m: IgMedia, c: IgComment, parent?: IgComment) => {
+    if (iso(c.timestamp) <= sinceIso) return;
+    const who = c.from?.id ?? '', name = c.from?.username ?? c.username ?? '';
+    const mine = who === igId || (me !== '' && name.toLowerCase() === me);
+    const person = mine ? parent : c;
+    const personId = person?.from?.id ?? '';
+    if (!personId || personId === igId) return;
+    out.push({
+      channel: 'ig_comment', externalId: c.id, threadId: m.id, parentId: parent?.id ?? '', postUrl: m.permalink ?? '',
+      postText: short(m.caption), authorId: who, authorName: name ? `@${name}` : '', direction: mine ? 'out' : 'in',
+      body: c.text ?? '', sentAt: iso(c.timestamp), contactId: personId,
+      contactName: (person?.from?.username ?? person?.username) ? `@${person?.from?.username ?? person?.username}` : '',
+    });
+  };
+  for (const m of media) for (const c of m.comments?.data ?? []) {
+    push(m, c);
+    for (const r of c.replies?.data ?? []) push(m, r, c);
+  }
+  return out;
+}
+
+type ConvMessage = { id: string; message?: string; created_time?: string; from?: { id: string; name?: string; username?: string } };
+type Conversation = { id: string; updated_time?: string; participants?: { data?: { id: string; name?: string; username?: string }[] }; messages?: { data?: ConvMessage[] } };
+
+/** /{page}/conversations (Messenger or Instagram) → items; the other participant is the contact */
+export function conversationItems(channel: 'messenger' | 'ig_dm', selfIds: string[], convs: Conversation[], sinceIso: string): InboxItem[] {
+  const out: InboxItem[] = [];
+  const self = new Set(selfIds.filter(Boolean));
+  for (const cv of convs) {
+    const msgs = cv.messages?.data ?? [];
+    const other = (cv.participants?.data ?? []).find((p) => !self.has(p.id))
+      ?? msgs.map((m) => m.from).find((f) => f?.id && !self.has(f.id));
+    if (!other?.id) continue;
+    const otherName = other.name ?? (other.username ? `@${other.username}` : '');
+    for (const m of msgs) {
+      if (!m.from?.id || iso(m.created_time) <= sinceIso || !m.message) continue;
+      const mine = self.has(m.from.id);
+      out.push({
+        channel, externalId: m.id, threadId: cv.id, parentId: '', postUrl: '', postText: '',
+        authorId: m.from.id, authorName: m.from.name ?? (m.from.username ? `@${m.from.username}` : ''), direction: mine ? 'out' : 'in',
+        body: m.message, sentAt: iso(m.created_time), contactId: other.id, contactName: otherName,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Which contacts to create: one per person who WROTE something new and has no card yet in this business.
+ * A person who only got a reply from the business is not a new contact.
+ */
+export function contactsToCreate(items: InboxItem[], existingKeys: Set<string>): { key: string; channel: Channel; name: string; firstAt: string }[] {
+  const want = new Map<string, { key: string; channel: Channel; name: string; firstAt: string }>();
+  for (const it of items) {
+    if (it.direction !== 'in') continue;
+    const key = contactKey(it.channel, it.contactId);
+    if (existingKeys.has(key)) continue;
+    const cur = want.get(key);
+    if (!cur || it.sentAt < cur.firstAt) want.set(key, { key, channel: it.channel, name: it.contactName || cur?.name || '', firstAt: it.sentAt });
+  }
+  return [...want.values()];
+}
+
+export const sourceOf = (c: Channel) => ({ fb_comment: 'Facebook · תגובה', ig_comment: 'Instagram · תגובה', messenger: 'Messenger', ig_dm: 'Instagram · הודעה' }[c]);
+export const fallbackName = (c: Channel) => (platformOf(c) === 'fb' ? 'משתמש/ת פייסבוק' : 'משתמש/ת אינסטגרם');
