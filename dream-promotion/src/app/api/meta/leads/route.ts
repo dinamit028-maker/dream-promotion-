@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { LOCKED, userLocked, workBusiness } from '@/lib/server/business';
+import { blockedFor, workBusiness } from '@/lib/server/business';
 import { syncLeads } from '@/lib/server/meta-leads';
 
 export const runtime = 'nodejs';
@@ -18,7 +18,8 @@ export const maxDuration = 60;
 async function context(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return { res: NextResponse.json({ code: 'no_session' }, { status: 401 }) };
-  if (await userLocked(userId)) return { res: NextResponse.json(LOCKED, { status: 403 }) };
+  const blocked = await blockedFor(userId);
+  if (blocked) return { res: NextResponse.json(blocked, { status: 403 }) };
   return { userId, biz: await workBusiness(userId) };
 }
 

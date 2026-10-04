@@ -83,6 +83,7 @@ export const Repo = {
         date: r.date, status: r.status, notes: r.notes ?? '',
         email: r.email ?? '', tags: r.tags ?? [], value: Number(r.value ?? 0),
         lastContact: r.last_contact_at ?? null, nextFollowup: r.next_followup_at ?? null,
+        billingName: r.billing_name ?? '', billingDealer: r.billing_dealer ?? '', billingStreet: r.billing_street ?? '', billingCity: r.billing_city ?? '',
       })),
       activities: ((acts as any)?.data ?? []).map((r: any): LeadActivity => ({
         id: r.id, leadId: r.lead_id, kind: r.kind, body: r.body ?? '', at: r.created_at,
@@ -142,11 +143,13 @@ export const Repo = {
       id: l.id, user_id: userId, name: l.name, phone: l.phone, source: l.source,
       status: l.status, notes: l.notes ?? '', date: l.date,
     };
-    const { error } = await supabase().from('leads').upsert({
-      ...base, email: l.email ?? '', tags: l.tags ?? [], value: l.value ?? 0,
-      last_contact_at: l.lastContact ?? null, next_followup_at: l.nextFollowup ?? null,
-    });
-    // before migration 20261002000900 the CRM columns do not exist — keep the contact itself
+    const crm = { ...base, email: l.email ?? '', tags: l.tags ?? [], value: l.value ?? 0,
+      last_contact_at: l.lastContact ?? null, next_followup_at: l.nextFollowup ?? null };
+    // the invoice details are sent only when known — an older row is never blanked by a save that lacks them
+    const billing = l.billingDealer !== undefined ? { billing_name: l.billingName ?? '', billing_dealer: l.billingDealer ?? '', billing_street: l.billingStreet ?? '', billing_city: l.billingCity ?? '' } : {};
+    let { error } = await supabase().from('leads').upsert({ ...crm, ...billing });
+    // before migration 20261004003000 there are no billing columns; before 20261002000900 no CRM columns — keep the contact itself
+    if (error && /billing_/i.test(error.message)) ({ error } = await supabase().from('leads').upsert(crm));
     if (error && /column|schema cache/i.test(error.message)) await supabase().from('leads').upsert(base);
   },
   async deleteLead(id: string) {

@@ -1,5 +1,5 @@
 import { israelParts } from '@/lib/il-time';
-import { paymentsOf, saleDay, summarize, type Sale } from './money';
+import { paymentsOf, refundDay, saleDay, summarize, type Refund, type Sale } from './money';
 
 /**
  * Close of day ("סגירת יום"): the cash drawer is counted against what should be in it.
@@ -23,17 +23,22 @@ const sh = (a: number) => a / 100;
 /** the Israeli calendar day a shift belongs to (the day it was opened) */
 export const shiftDay = (s: Pick<Shift, 'openedAt'>) => israelParts(new Date(s.openedAt)).date;
 
-/** cash that stayed in the drawer on that Israeli day: paid sales only, cash part of split payments included */
-export function cashIn(sales: Sale[], day: string) {
+/**
+ * cash that stayed in the drawer on that Israeli day: paid sales only, cash part of split payments included,
+ * minus cash given back that day (a refund leaves the drawer the day it is made, whatever the sale's day)
+ */
+export function cashIn(sales: Sale[], day: string, refunds: Refund[] = []) {
   let a = 0;
   for (const s of sales) {
     if (s.status !== 'paid' || saleDay(s) !== day) continue;
     for (const p of paymentsOf(s)) if (p.method === 'cash') a += ag(p.amount);
   }
-  return sh(a);
+  return sh(a - ag(cashOut(refunds, day)));
 }
+/** cash refunds of that Israeli day */
+export const cashOut = (refunds: Refund[], day: string) => sh(refunds.filter((r) => r.method === 'cash' && refundDay(r) === day).reduce((a, r) => a + ag(r.amount), 0));
 
-export const expectedCash = (openingCash: number, sales: Sale[], day: string) => sh(ag(openingCash) + ag(cashIn(sales, day)));
+export const expectedCash = (openingCash: number, sales: Sale[], day: string, refunds: Refund[] = []) => sh(ag(openingCash) + ag(cashIn(sales, day, refunds)));
 
 /** counted − expected: below zero the drawer is short, above zero there is extra cash */
 export function cashDifference(counted: number, expected: number) {
@@ -51,8 +56,9 @@ export function docRanges(docs: DocLite[], day: string) {
 }
 
 /** everything the close-of-day report shows */
-export function daySummary(o: { sales: Sale[]; docs: DocLite[]; day: string; openingCash: number }) {
-  const sum = summarize(o.sales, o.day, o.day);
-  const cash = cashIn(o.sales, o.day);
-  return { ...sum, cashIn: cash, expectedCash: expectedCash(o.openingCash, o.sales, o.day), docs: docRanges(o.docs, o.day) };
+export function daySummary(o: { sales: Sale[]; docs: DocLite[]; day: string; openingCash: number; refunds?: Refund[] }) {
+  const refunds = o.refunds ?? [];
+  const sum = summarize(o.sales, o.day, o.day, refunds);
+  const cash = cashIn(o.sales, o.day, refunds);
+  return { ...sum, cashIn: cash, cashRefunds: cashOut(refunds, o.day), expectedCash: expectedCash(o.openingCash, o.sales, o.day, refunds), docs: docRanges(o.docs, o.day) };
 }

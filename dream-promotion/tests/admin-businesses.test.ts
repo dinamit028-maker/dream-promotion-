@@ -99,3 +99,32 @@ test('admin API: extend opens at once; lock, unlock, manual date, enter, add', a
   assert.equal(roni.paid_until, '2026-12-31');
   assert.ok(tables.business_members.some((m) => m.business_id === roni.id && m.user_id === 'sagit' && m.role === 'owner'));
 });
+
+test('admin API: a cashier ("קופה בלבד") joins a business, works in it, and leaves it', async () => {
+  const api = await import('../src/app/api/admin/businesses/route');
+  const me = await import('../src/app/api/business/me/route');
+  const { businessManagers, registerOnly, blockedFor } = await import('../src/lib/server/business');
+  tables.profiles.push({ id: 'noa', email: 'noa@x.com', is_super_admin: false, current_business_id: null });
+  assert.equal((await api.PATCH(req('sagit', 'PATCH', { id: 'fm', action: 'add_member', email: 'noa@x.com', access: 'register' }))).status, 403, 'only the super admin adds people');
+  const nobody = await api.PATCH(req('aviv', 'PATCH', { id: 'fm', action: 'add_member', email: 'ghost@x.com', access: 'register' }));
+  assert.match((await nobody.json()).message, /עוד לא נרשם/);
+  assert.equal((await api.PATCH(req('aviv', 'PATCH', { id: 'fm', action: 'add_member', email: 'NOA@x.com', access: 'register' }))).status, 200);
+  const row = tables.business_members.find((m) => m.business_id === 'fm' && m.user_id === 'noa');
+  assert.deepEqual([row.access, row.role], ['register', 'editor']);
+  assert.equal(tables.profiles.find((p) => p.id === 'noa').current_business_id, 'fm', 'she works in the business she was added to');
+
+  (globalThis as any).__DP_TEST_ADMIN_DB__.rpc = async (_fn: string, a: { uid: string }) => ({ data: tables.profiles.find((p) => p.id === a.uid)?.current_business_id ?? null });
+  const emails: Record<string, string> = { aviv: 'aviv@x.com', sagit: 'sagit@x.com', noa: 'noa@x.com' };
+  (globalThis as any).__DP_TEST_ADMIN_DB__.auth = { getUser: async (t: string) => ({ data: { user: emails[t] ? { id: t, email: emails[t] } : null } }) };
+  const j = await (await me.GET(new Request('http://x/api/business/me', { headers: { authorization: 'Bearer noa' } }))).json();
+  assert.equal(j.access, 'register', 'the app opens the register only');
+  assert.equal(await registerOnly('noa'), true);
+  assert.equal((await blockedFor('noa'))?.code, 'register_only', 'AI, publishing and Meta refuse a cashier');
+  assert.deepEqual(await businessManagers('fm'), ['aviv'], 'sale notifications go to the managers, not to the cashier');
+
+  const card = (await (await api.GET(req('aviv'))).json()).businesses.find((b: any) => b.id === 'fm');
+  assert.ok(card.members.some((m: any) => m.email === 'noa@x.com' && m.access === 'register'));
+  assert.equal((await api.PATCH(req('aviv', 'PATCH', { id: 'fm', action: 'remove_member', email: 'noa@x.com' }))).status, 200);
+  assert.ok(!tables.business_members.some((m) => m.user_id === 'noa'));
+  assert.equal(tables.profiles.find((p) => p.id === 'noa').current_business_id, null);
+});

@@ -1,6 +1,6 @@
 {
   "name": "dream-promotion",
-  "version": "2.49.0",
+  "version": "2.50.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,17 +8,26 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "npx -y tsx --test tests/*.test.ts"
+    "test": "npx -y tsx --test tests/*.test.ts",
+    "test:sql": "bash tests/sql/run.sh",
+    "test:e2e": "npx -y tsx tests/e2e/register.e2e.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",
     "@fal-ai/client": "^1.10.1",
+    "@pdf-lib/fontkit": "^1.1.1",
     "@phosphor-icons/react": "^2.1.7",
+    "@signpdf/placeholder-pdf-lib": "^3.3.0",
+    "@signpdf/signer-p12": "^3.3.0",
+    "@signpdf/signpdf": "^3.3.0",
     "@supabase/supabase-js": "^2.117.1",
+    "bidi-js": "^1.1.0",
     "ffmpeg-static": "^5.2.0",
     "framer-motion": "^11.3.0",
     "jszip": "^3.10.1",
     "next": "14.2.35",
+    "node-forge": "^1.4.0",
+    "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -27,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/node-forge": "^1.3.14",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

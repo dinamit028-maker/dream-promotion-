@@ -61,6 +61,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const userId = useApp((s) => s.userId);
   const businessId = useApp((s) => s.businessId);
   const hydrate = useApp((s) => s.hydrate);
+  // a cashier ("קופאי/ת") works in the register only; the database refuses everything else anyway
+  const cashier = useApp((s) => s.access === 'register');
+  const kiosk = useApp((s) => s.kiosk);
   const [checking, setChecking] = useState(isCloudConfigured);
   // the business this user works in (banner when locked) and the ones they may switch to
   type BizItem = { id: string; name: string; state: 'active' | 'locked' | 'expired' };
@@ -82,7 +85,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       try {
         const r = await fetch('/api/business/me', { headers: await authHeaders() });
         const j = await r.json();
-        if (r.ok) { current = j.business?.id ?? null; setBiz({ current: j.business, list: j.businesses ?? [], superAdmin: Boolean(j.superAdmin) }); }
+        if (r.ok) {
+          current = j.business?.id ?? null; setBiz({ current: j.business, list: j.businesses ?? [], superAdmin: Boolean(j.superAdmin) });
+          useApp.getState().setAccess(j.access === 'register' ? 'register' : 'full');
+        }
       } catch { /* the app still opens; data comes from row-level security anyway */ }
       if (!alive) return;
       // a different user or a different business → load that business's data (never mix two businesses)
@@ -117,7 +123,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.location.reload();
     } catch (e: any) { setSwitching(false); window.alert(`לא הצלחנו לעבור עסק: ${e.message}`); }
   }
-  const NAV_BOTTOM = isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
+  const NAV_BOTTOM = cashier ? [] : isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
+  const NAV_MAIN = cashier ? NAV.filter((n) => n.href === '/register') : NAV;
+  // a cashier opening any other screen lands in the register
+  useEffect(() => { if (cashier && !checking && path !== '/register') router.replace('/register'); }, [cashier, checking, path, router]);
   useEffect(() => { setMoreOpen(false); }, [path]);
   useEffect(() => {
     if (!moreOpen) return;
@@ -140,7 +149,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (useApp.persist?.hasHydrated?.() ?? true) setHydrated(true);
     return useApp.persist?.onFinishHydration?.(() => setHydrated(true));
   }, []);
-  useEffect(() => { if (hydrated && !checking && !onboarded) router.replace('/onboarding'); }, [hydrated, checking, onboarded, router]);
+  useEffect(() => { if (hydrated && !checking && !onboarded && !cashier) router.replace('/onboarding'); }, [hydrated, checking, onboarded, cashier, router]);
 
   const sideItem = ({ href, label, Icon }: NavItem) => {
     const on = path === href;
@@ -169,11 +178,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const signOut = signOutEverywhere;
 
   const current = [...NAV, ...NAV_BOTTOM].find((n) => n.href === path);
+  const register = path === '/register';
 
   if (checking) {
     return (
       <div className="flex min-h-screen items-center justify-center gap-3 text-muted">
         <span className="spinner" aria-hidden />טוען את החשבון…
+      </div>
+    );
+  }
+
+  // the register on the whole screen: no menus, no header — the counter's tablet / POS (exit inside the register)
+  if (register && kiosk) {
+    return (
+      <div className="min-h-screen">
+        <main className="w-full px-3 pb-6 pt-3 sm:px-4">{children}</main>
+        <ContentEditor />
+        <JobRunner />
       </div>
     );
   }
@@ -185,7 +206,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2.5 px-2 pb-6 max-lg:justify-center">
           <Logo /><span className="whitespace-nowrap font-display text-[16px] font-bold max-lg:sr-only">Dream Promotion</span>
         </div>
-        <nav className="flex flex-col gap-1">{NAV.map(sideItem)}</nav>
+        <nav className="flex flex-col gap-1">{NAV_MAIN.map(sideItem)}</nav>
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-4">
           {NAV_BOTTOM.map(sideItem)}
           <button type="button" onClick={signOut}
@@ -213,14 +234,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </select>
             )}
             <ThemeToggle />
-            {aiReady !== null && <Pill tone={aiReady ? 'ai' : 'warn'}>{aiReady ? 'AI פעיל' : 'AI לא מוגדר'}</Pill>}
-            <Link href="/create" className="max-md:hidden">
-              <Button variant="primary" size="sm"><Plus size={16} weight="bold" aria-hidden />יצירה</Button>
-            </Link>
+            {cashier ? (
+              <button type="button" onClick={signOut} className="flex h-9 items-center gap-1.5 rounded-full border border-line px-3 text-sm font-semibold text-ink-2 md:hidden">
+                <SignOut size={18} aria-hidden />יציאה
+              </button>
+            ) : <>
+              {aiReady !== null && <Pill tone={aiReady ? 'ai' : 'warn'}>{aiReady ? 'AI פעיל' : 'AI לא מוגדר'}</Pill>}
+              <Link href="/create" className="max-md:hidden">
+                <Button variant="primary" size="sm"><Plus size={16} weight="bold" aria-hidden />יצירה</Button>
+              </Link>
+            </>}
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-[1240px] px-4 pb-32 pt-6 sm:px-6">
+        {/* the register uses the whole width of a big screen (1920 and up) — every other screen stays readable at 1240 */}
+        <main className={cx('mx-auto w-full px-4 pb-32 pt-6 sm:px-6', register ? 'max-w-none' : 'max-w-[1240px]')}>
           {biz?.current && biz.current.state !== 'active' && (
             <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">
               {biz.superAdmin
@@ -232,7 +260,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-[color:var(--glass)] px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
+      {!cashier && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-[color:var(--glass)] px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
         {MOBILE_LEFT.map(tabItem)}
         <Link href="/create" aria-label="יצירת תוכן חדש"
           className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">
@@ -245,10 +273,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SquaresFour size={23} weight={moreOpen ? 'fill' : 'regular'} aria-hidden />
           עוד
         </button>
-      </nav>
+      </nav>}
 
       {/* phone: every screen, one tap away */}
-      {moreOpen && (
+      {moreOpen && !cashier && (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="כל המסכים">
           <button type="button" aria-label="סגירה" onClick={() => setMoreOpen(false)} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
           <div className="safe-b absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[28px] border-t border-line bg-surface px-4 pb-6 pt-3 shadow-[0_-20px_60px_rgba(0,0,0,.5)]">

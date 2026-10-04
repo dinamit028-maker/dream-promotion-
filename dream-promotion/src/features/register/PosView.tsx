@@ -1,20 +1,26 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Input, Select } from '@/components/ui/primitives';
+import { Button, Input, Select, SmallSelect } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL } from '@/lib/il-time';
 import { matches, phoneDigits, waLink } from '@/features/crm/crm';
 import type { Lead } from '@/types';
-import { computeSale, customerSnapshot, ils, methodLabel, remaining, topSellers, type Line, type Method, type Pay, type Sale } from './money';
+import { computeSale, customerSnapshot, ils, methodLabel, remaining, topSellers, type ItemKind, type Line, type Method, type Pay, type Sale } from './money';
 import { MAX_HELD, holdCart, loadHeld, removeHeld, resumeHeld, saveHeld, type Cart, type HeldSale } from './held';
+import { stockLevel, stockText } from './stock';
+import { EMPTY_BILLING, billingError, dealerDigits, type Billing } from './billing';
 
 /**
  * The register, touch-first (UX redesign — same sales logic, CRM link, VAT and documents underneath).
  * Desktop / physical POS: CART | BUTTONS. Phone: buttons + a sticky cart bar that opens a bottom sheet.
  * A normal sale: tap an item → "לתשלום" → tap a payment method.
  */
-export type PosItem = { id: string; name: string; price: number; kind: 'service' | 'product' | 'package' | 'other'; active: boolean; favorite: boolean; favOrder: number; imageUrl: string };
+export type PosItem = {
+  id: string; name: string; price: number; kind: ItemKind; active: boolean; favorite: boolean; favOrder: number; imageUrl: string;
+  /** stock (2.50): only items with trackStock count; lowStock = the alert level */
+  trackStock: boolean; stockQty: number; lowStock: number;
+};
 export type TodayAppt = { id: string; name: string; phone: string; leadId: string | null; serviceName: string; start: string; price: number | null };
 export type Customer = { name: string; phone: string; leadId: string | null; appointmentId: string | null };
 export interface CheckoutInput {
@@ -22,8 +28,10 @@ export interface CheckoutInput {
   employee: { id: string; name: string } | null; paidNow: boolean; method: Method; payments: Pay[];
   /** cash: what the customer handed over (the change is computed from it) */
   cashReceived?: number;
+  /** an invoice to a business (name, dealer / company number, address) — null for a private customer */
+  billing?: Billing | null;
 }
-export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; error?: string }
+export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; error?: string; lowStock?: string[] }
 
 const CATS = [
   { id: 'fav', label: '❤️ מועדפים' }, { id: 'top', label: '🔥 הכי נמכרים' }, { id: 'service', label: '✨ טיפולים' },
@@ -44,17 +52,20 @@ export function cashSuggestions(total: number) {
   return [...new Set([total, up(10), up(50), up(100), up(200), 200, 500].filter((v) => v >= total))].sort((a, b) => a - b).slice(0, 6);
 }
 
-export function PosView({ userId, items, sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog }: {
+export function PosView({ userId, items, sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog, wide }: {
   userId: string; items: PosItem[]; sales: Sale[]; leads: Lead[]; employees: { id: string; name: string }[]; todayAppts: TodayAppt[];
   vat: { type: 'exempt' | 'licensed'; rate: number }; payLinkReady: boolean;
-  onCheckout: (c: CheckoutInput) => Promise<CheckoutResult>; onShowDoc: () => void;
+  onCheckout: (c: CheckoutInput) => Promise<CheckoutResult>; onShowDoc?: () => void;
   prefill?: { customer: Customer; line: Line | null } | null; onGoCatalog?: () => void;
+  /** the whole screen is the register (full-screen mode): more buttons per row */
+  wide?: boolean;
 }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [customer, setCustomer] = useState<Customer>(EMPTY);
   const [discount, setDiscount] = useState<{ kind: 'sum' | 'percent'; value: number }>({ kind: 'sum', value: 0 });
   const [note, setNote] = useState('');
   const [extras, setExtras] = useState<{ discount: boolean; note: boolean }>({ discount: false, note: false });
+  const [billing, setBilling] = useState<Billing | null>(null);
   const [employeeId, setEmployeeId] = useState('');
   const [cat, setCat] = useState<Cat>('fav');
   const [q, setQ] = useState('');
@@ -91,27 +102,35 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
   }, [active, cat, q, top]);
   const peopleHits = q.trim().length >= 2 ? leads.filter((l) => matches(l, q)).slice(0, 4) : [];
 
-  const add = (name: string, price: number, qty = 1) => setLines((ls) => {
+  /** a line in the cart; a price-list item brings its id and kind (stock, commissions) */
+  const add = (name: string, price: number, qty = 1, meta?: { itemId?: string; kind?: ItemKind }) => setLines((ls) => {
     const i = ls.findIndex((l) => l.name === name && l.price === price);
-    return i >= 0 ? ls.map((l, k) => (k === i ? { ...l, qty: l.qty + qty } : l)) : [...ls, { name, price, qty }];
+    if (i >= 0) return ls.map((l, k) => (k === i ? { ...l, qty: l.qty + qty } : l));
+    const known = meta?.itemId ? meta : (() => { const it = items.find((x) => x.name === name && x.price === price); return it ? { itemId: it.id, kind: it.kind } : meta; })();
+    return [...ls, { name, price, qty, ...(known?.itemId ? { itemId: known.itemId } : {}), ...(known?.kind ? { kind: known.kind } : {}) }];
   });
+  const addItem = (i: PosItem) => add(i.name, i.price, 1, { itemId: i.id, kind: i.kind });
   const setQty = (i: number, d: number) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, qty: l.qty + d } : l)).filter((l) => l.qty > 0));
-  const chooseLead = (l: Lead | null) => { setCustomer(l ? { name: l.name, phone: l.phone, leadId: l.id, appointmentId: null } : EMPTY); setPicker(false); setQ(''); };
+  /** a business customer's invoice details come back by themselves next time */
+  const billingOf = (l: Lead | null | undefined): Billing | null => (l?.billingDealer ? { name: l.billingName || l.name, dealer: l.billingDealer, street: l.billingStreet ?? '', city: l.billingCity ?? '' } : null);
+  const chooseLead = (l: Lead | null) => { setCustomer(l ? { name: l.name, phone: l.phone, leadId: l.id, appointmentId: null } : EMPTY); setBilling(billingOf(l)); setPicker(false); setQ(''); };
   const fromAppt = (a: TodayAppt) => {
     setCustomer({ name: a.name, phone: a.phone, leadId: a.leadId, appointmentId: a.id });
+    setBilling(billingOf(leads.find((l) => l.id === a.leadId)));
     const item = active.find((i) => i.name === a.serviceName);
-    add(a.serviceName || 'טיפול', item?.price ?? a.price ?? 0);
+    add(a.serviceName || 'טיפול', item?.price ?? a.price ?? 0, 1, item ? { itemId: item.id, kind: item.kind } : { kind: 'service' });
   };
   const snap = customer.leadId ? customerSnapshot(customer.leadId, sales) : null;
   const lead = customer.leadId ? leads.find((l) => l.id === customer.leadId) : null;
   const apptToday = customer.leadId ? todayAppts.find((a) => a.leadId === customer.leadId) : null;
-  const reset = () => { setWaPhone(''); setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setDone(null); setSheet(false); };
+  const reset = () => { setWaPhone(''); setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setBilling(null); setDone(null); setSheet(false); };
+  const billErr = billing ? billingError(billing) : null;
   const employee = employees.find((e) => e.id === employeeId) ?? null;
 
   // ---- held sales: park this cart for later, serve the next customer, resume it as it was ----
   const say = (m: string) => { setHeldMsg(m); setTimeout(() => setHeldMsg(null), 3000); };
-  const currentCart = (): Cart => ({ lines, customer, discount, note, employeeId });
-  const clearCart = () => { setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setSheet(false); };
+  const currentCart = (): Cart => ({ lines, customer, discount, note, employeeId, ...(billing ? { billing } : {}) });
+  const clearCart = () => { setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setBilling(null); setSheet(false); };
   const keepHeld = (list: HeldSale[]) => { setHeld(list); if (!saveHeld(deviceStore(), userId, list)) say('המכשיר לא מאפשר שמירה — העסקאות המושהות יימחקו ברענון הדף.'); };
   function hold() {
     const r = holdCart(held, currentCart());
@@ -125,17 +144,19 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
     keepHeld(r.list);
     const c = r.cart;
     setLines(c.lines); setCustomer(c.customer); setDiscount(c.discount); setNote(c.note); setExtras({ discount: c.discount.value > 0, note: Boolean(c.note) });
+    setBilling(c.billing ?? null);
     if (c.employeeId && employees.some((e) => e.id === c.employeeId)) setEmployeeId(c.employeeId);
     say(keepCurrent ? 'העסקה הקודמת הושהתה, והעסקה המושהית חזרה לסל' : 'העסקה חזרה לסל');
   }
   const askToResume = (id: string) => (lines.length ? setAskResume(id) : resume(id, false));
 
   async function finish(c: Pick<CheckoutInput, 'paidNow' | 'method' | 'payments' | 'cashReceived'>) {
-    const r = await onCheckout({ lines, discount, customer, note, employee, ...c });
+    if (billing && billErr) return { ok: false, error: billErr };
+    const r = await onCheckout({ lines, discount, customer, note, employee, billing, ...c });
     if (r.ok) {
       // the sold items leave the cart immediately — nothing can be charged twice behind the confirmation
       const who = customer.name || 'לקוח מזדמן'; const phone = customer.phone;
-      setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false });
+      setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setBilling(null);
       setPaying(false); setSheet(false); setDone({ ...r, customer: who, phone, change: c.cashReceived != null ? Math.round((c.cashReceived - (r.sale?.total ?? 0)) * 100) / 100 : null });
     }
     return r;
@@ -160,7 +181,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
           <div className="mt-2 border-t border-line pt-2 text-xs text-ink-2">
             {snap.lastPurchase && <p>רכישה אחרונה: {snap.lastPurchase.items.map((l) => l.name).join(' + ')} · {formatIL(snap.lastPurchase.paidAt ?? snap.lastPurchase.createdAt, { dateStyle: 'short' })}</p>}
             {apptToday && <p>תור היום: {apptToday.serviceName} · {formatIL(apptToday.start, { hour: '2-digit', minute: '2-digit' })}</p>}
-            {snap.lastPurchase && <button type="button" className="mt-1 font-semibold text-primary" onClick={() => snap.lastPurchase!.items.forEach((l) => add(l.name, l.price, l.qty))}>↺ חזור על רכישה אחרונה</button>}
+            {snap.lastPurchase && <button type="button" className="mt-1 font-semibold text-primary" onClick={() => snap.lastPurchase!.items.forEach((l) => add(l.name, l.price, l.qty, { itemId: l.itemId, kind: l.kind }))}>↺ חזור על רכישה אחרונה</button>}
           </div>
         )}
       </div>
@@ -184,6 +205,8 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
         <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
           <button type="button" className={cx('rounded-full border px-3 py-1.5', extras.discount ? 'border-primary' : 'border-line')} onClick={() => setExtras({ ...extras, discount: !extras.discount })}>הנחה</button>
           <button type="button" className={cx('rounded-full border px-3 py-1.5', extras.note ? 'border-primary' : 'border-line')} onClick={() => setExtras({ ...extras, note: !extras.note })}>הערה</button>
+          <button type="button" className={cx('rounded-full border px-3 py-1.5', billing ? 'border-primary' : 'border-line')} aria-pressed={Boolean(billing)}
+            onClick={() => setBilling(billing ? null : { ...EMPTY_BILLING, name: customer.name })}>🧾 חשבונית לעסק</button>
           <button type="button" className="rounded-full border border-line px-3 py-1.5" onClick={hold} aria-label="השהיית העסקה">⏸ השהיה</button>
           <button type="button" className="rounded-full border border-line px-3 py-1.5" onClick={reset}>עסקה חדשה</button>
         </div>
@@ -194,6 +217,18 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
           </div>
         )}
         {extras.note && <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="הערה לעסקה" className="mt-2 h-10 py-1" aria-label="הערה" />}
+        {billing && (
+          <div className="mt-2 grid gap-2 rounded-2xl bg-surface-2 p-2.5 text-sm">
+            <p className="text-xs font-semibold text-ink-2">חשבונית לעסק — יופיע במסמך</p>
+            <Input value={billing.name} onChange={(e) => setBilling({ ...billing, name: e.target.value })} placeholder="שם העסק לחשבונית" className="h-10 py-1" aria-label="שם העסק לחשבונית" />
+            <Input value={billing.dealer} onChange={(e) => setBilling({ ...billing, dealer: dealerDigits(e.target.value) })} placeholder="ע.מ / ח.פ (9 ספרות)" inputMode="numeric" dir="ltr" className="h-10 py-1" aria-label="מספר עוסק או ח.פ" />
+            <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] gap-2">
+              <Input value={billing.street} onChange={(e) => setBilling({ ...billing, street: e.target.value })} placeholder="רחוב ומספר" className="h-10 py-1" aria-label="כתובת: רחוב ומספר" />
+              <Input value={billing.city} onChange={(e) => setBilling({ ...billing, city: e.target.value })} placeholder="עיר" className="h-10 py-1" aria-label="כתובת: עיר" />
+            </div>
+            {billErr && (billing.dealer || billing.name) && <p className="text-xs text-warn">{billErr}</p>}
+          </div>
+        )}
         <div className="mt-3 border-t border-line pt-3 text-sm">
           <p className="flex justify-between text-muted"><span>סכום ביניים</span><span className="tabular-nums">{ils(t.subtotal)}</span></p>
           {t.discount > 0 && <p className="flex justify-between text-muted"><span>הנחה</span><span className="tabular-nums">−{ils(t.discount)}</span></p>}
@@ -201,7 +236,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
           <p className="mt-1 flex items-baseline justify-between"><span className="font-bold">סה״כ</span><span className="text-4xl font-black tabular-nums">{ils(t.total)}</span></p>
         </div>
       </>}
-      <Button variant="primary" size="lg" className="mt-3 h-14 w-full text-lg" disabled={!lines.length || t.total <= 0} onClick={() => setPaying(true)}>
+      <Button variant="primary" size="lg" className="mt-3 h-14 w-full text-lg" disabled={!lines.length || t.total <= 0 || Boolean(billing && billErr)} onClick={() => setPaying(true)}>
         לתשלום — {ils(t.total)}
       </Button>
     </div>
@@ -221,9 +256,9 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
         {employees.length > 0 && (
           <label className="flex items-center gap-2 text-sm">
             <span className="text-muted">מוכר/מטפל:</span>
-            <Select value={employeeId} onChange={(e) => pickEmployee(e.target.value)} className="h-10 w-auto py-1" aria-label="מוכר/מטפל">
+            <SmallSelect value={employeeId} onChange={(e) => pickEmployee(e.target.value)} className="w-auto min-w-[8rem]" aria-label="מוכר/מטפל">
               <option value="">—</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </Select>
+            </SmallSelect>
           </label>
         )}
         <span className="flex-1" />
@@ -231,7 +266,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
         <button type="button" onClick={toggleQuick} aria-pressed={quick} className={cx('rounded-full border px-4 py-2 text-sm font-semibold', quick ? 'border-primary bg-primary-soft' : 'border-line')}>⚡ כפתורים גדולים</button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(340px,400px)_1fr]">
+      <div className={cx('grid gap-4', wide ? 'lg:grid-cols-[minmax(360px,440px)_1fr]' : 'lg:grid-cols-[minmax(340px,400px)_1fr]')}>
         {/* CART — always visible on desktop / tablet landscape / physical POS */}
         <aside className="hidden lg:block"><div className="sticky top-4 rounded-3xl border border-line bg-surface p-4">{cart}</div></aside>
 
@@ -269,17 +304,21 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
               <button type="button" onClick={() => setCat('all')} className={cx('shrink-0 rounded-full px-4 py-2 text-sm font-semibold', cat === 'all' ? 'bg-primary text-white' : 'bg-surface-2')}>הכל</button>
             </div>
           )}
-          <div className={cx('grid gap-2', quick ? 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5')}>
+          <div className={cx('grid gap-2', quick
+            ? cx('grid-cols-2 sm:grid-cols-3 xl:grid-cols-4', wide && '2xl:grid-cols-5 min-[1800px]:grid-cols-6')
+            : cx('grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5', wide && '2xl:grid-cols-6 min-[1800px]:grid-cols-7'))}>
             {shown.map((i) => {
               const inCart = lines.find((l) => l.name === i.name && l.price === i.price)?.qty ?? 0;
+              const level = stockLevel(i);
               return (
-                <button key={i.id} type="button" onClick={() => add(i.name, i.price)}
+                <button key={i.id} type="button" onClick={() => addItem(i)}
                   className={cx('relative flex flex-col justify-between rounded-2xl border bg-surface text-start shadow-sm transition-transform active:scale-[.97]',
                     inCart ? 'border-primary' : 'border-line', quick ? 'min-h-[120px] p-4' : 'min-h-[92px] p-3')}>
                   {i.imageUrl && !quick && <img src={i.imageUrl} alt="" className="mb-2 h-16 w-full rounded-xl object-cover" />}
                   <span className={cx('font-bold leading-tight', quick ? 'text-lg' : 'text-sm')}>{i.name}</span>
                   <span className={cx('mt-1 tabular-nums text-ink-2', quick ? 'text-lg font-semibold' : 'text-sm')}>{ils(i.price)}</span>
                   {inCart > 0 && <span className="absolute end-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{inCart}</span>}
+                  {level !== 'ok' && <span className={cx('mt-1 self-start rounded-full px-2 py-0.5 text-[11px] font-bold', level === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : 'bg-amber-500/15 text-amber-800 dark:text-amber-200')}>{stockText(i)}</span>}
                 </button>
               );
             })}
@@ -304,7 +343,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
       )}
 
       <CustomerPicker open={picker} leads={leads} onClose={() => setPicker(false)} onPick={chooseLead} onNew={(c) => { setCustomer({ ...c, leadId: null, appointmentId: null }); setPicker(false); }} />
-      <Keypad open={keypad} onClose={() => setKeypad(false)} onAdd={(price, name) => { add(name || 'סכום חופשי', price); setKeypad(false); }} />
+      <Keypad open={keypad} onClose={() => setKeypad(false)} onAdd={(price, name) => { add(name || 'סכום חופשי', price, 1, { kind: 'other' }); setKeypad(false); }} />
       <PayPanel open={paying} total={t.total} payLinkReady={payLinkReady && Boolean(phoneDigits(customer.phone))} onClose={() => setPaying(false)} onPay={finish} />
 
       <Modal open={heldOpen} onClose={() => setHeldOpen(false)}>
@@ -348,6 +387,9 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
               <p className="mt-3 rounded-2xl bg-amber-500/15 p-3 text-2xl font-black text-amber-700 dark:text-amber-300">עודף: {ils(done.change)}</p>
             )}
             {done.docLabel && <p className="mt-2 text-sm font-semibold">{done.docLabel}</p>}
+            {done.lowStock && done.lowStock.length > 0 && (
+              <p className="mt-2 rounded-2xl bg-amber-500/15 p-2 text-sm font-semibold text-amber-800 dark:text-amber-200">⚠️ מלאי נמוך: {done.lowStock.join(' · ')}</p>
+            )}
             {done.docUrl && (
               <div className="mt-3 rounded-2xl bg-surface-2 p-3 text-start">
                 <p className="mb-2 text-sm font-semibold">שליחת החשבונית בוואטסאפ</p>
@@ -362,7 +404,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
             )}
             <div className="mt-5 grid gap-2">
               <Button variant="primary" size="lg" className="h-14 text-lg" onClick={reset}>עסקה חדשה</Button>
-              {done.docLabel && <Button variant="ghost" onClick={() => { reset(); onShowDoc(); }}>צפייה במסמך</Button>}
+              {done.docLabel && onShowDoc && <Button variant="ghost" onClick={() => { reset(); onShowDoc(); }}>צפייה במסמך</Button>}
             </div>
           </div>
         )}
