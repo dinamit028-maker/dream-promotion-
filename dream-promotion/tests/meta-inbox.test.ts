@@ -40,7 +40,7 @@ test('Messenger / Instagram Direct: the other participant is the contact, both d
 });
 
 test('contacts: one per person who wrote; a person with a card is not created again', () => {
-  const base = { threadId: '', parentId: '', postUrl: '', postText: '', authorId: '', authorName: '', body: '', contactName: 'דנה' };
+  const base = { threadId: '', parentId: '', postUrl: '', postText: '', authorId: '', authorName: '', body: 'כמה עולה?', contactName: 'דנה' };
   const items = [
     { ...base, channel: 'fb_comment' as const, externalId: '1', direction: 'in' as const, sentAt: '2026-10-04T10:00:00Z', contactId: 'u1' },
     { ...base, channel: 'messenger' as const, externalId: '2', direction: 'in' as const, sentAt: '2026-10-04T09:00:00Z', contactId: 'u1' },
@@ -59,7 +59,7 @@ const tables: Record<string, any[]> = {
   social_accounts: [], leads: [], social_messages: [], meta_inbox_sync: [], lead_activities: [],
 };
 const graphData: Record<string, any> = {
-  '/page-sg/posts': { data: [{ id: 'post-1', message: 'מבצע', permalink_url: 'https://fb/p1' }] },
+  '/page-sg/posts': { data: [{ id: 'post-1', message: 'מבצע', permalink_url: 'https://fb/p1', full_picture: 'https://scontent.example/p1.jpg' }] },
   '/post-1/comments': { data: [{ id: 'c1', message: 'כמה עולה?', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] },
   '/page-sg/conversations': { data: [{ id: 't1', updated_time: new Date().toISOString(), participants: { data: [{ id: 'page-sg' }, { id: 'u1', name: 'דנה' }] } }] },
   '/t1/messages': { data: [{ id: 'mm1', message: 'שלום', created_time: new Date().toISOString(), from: { id: 'u1', name: 'דנה' } }] },

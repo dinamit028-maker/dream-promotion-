@@ -6,7 +6,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeDb } from './fakedb';
-import { channelOfSource, conversationItems } from '../src/features/crm/meta-inbox';
+import { channelOf, channelOfSource, contactsToCreate, conversationItems, fbCommentItems, igCommentItems, isNoise } from '../src/features/crm/meta-inbox';
 
 process.env.TOKEN_ENCRYPTION_KEY = 'test-key-for-meta-inbox-reply';
 const SG = 'biz-sg', FM = 'biz-fm';
@@ -112,4 +112,42 @@ test('the board\'s channel filter: Messenger / Facebook comments / Instagram com
   assert.equal(channelOfSource('Instagram · תגובה'), 'ig');
   assert.equal(channelOfSource('Meta · טופס גבות'), null);
   assert.equal(channelOfSource(undefined), null);
+});
+
+test('irrelevant comments (emojis, tagging friends, only praise) do not open a card; questions and Messenger do', () => {
+  for (const b of ['😍😍', '🔥🔥🔥🔥', '@noa @dana', 'מהמם!!', 'וואווו 🔥', 'Wow amazing', 'כל הכבוד ❤️', '', 'תותחית על🪬🩷🪬', '👏👏👏 אליפות', 'מספר אחת !!!☝️', 'שנה טובה מהמממתתתת', 'חיים ב♥️']) assert.equal(isNoise('ig_comment', b), true, b);
+  for (const b of ['כמה עולה?', '@noa תראי, בא לי', 'מהמם, יש תור לשבוע הבא?', 'מחיר']) assert.equal(isNoise('fb_comment', b), false, b);
+  assert.equal(isNoise('messenger', 'כמה עולה לעשות גבות?'), false);
+  const base = { threadId: '', parentId: '', postUrl: '', postText: '', authorId: '', authorName: '', contactName: '', direction: 'in' as const, sentAt: '2026-10-04T10:00:00Z' };
+  const plan = contactsToCreate([
+    { ...base, channel: 'ig_comment', externalId: '1', body: '😍', contactId: 'fan' },
+    { ...base, channel: 'ig_comment', externalId: '2', body: 'כמה עולה?', contactId: 'buyer' },
+  ], new Set());
+  assert.deepEqual(plan.map((p) => p.key), ['ig:buyer']);
+});
+
+test('the post\'s picture comes with each comment (Facebook: full_picture, Instagram: the image or the video\'s cover)', () => {
+  const fb = fbCommentItems('page-1', [{ id: 'p', full_picture: 'https://cdn/fb.jpg', comments: { data: [{ id: 'c', message: 'כמה?', created_time: '2026-10-04T10:00:00Z', from: { id: 'u' } }] } }], '1970-01-01T00:00:00Z');
+  assert.equal(fb[0].postImage, 'https://cdn/fb.jpg');
+  const ig = igCommentItems('ig-1', '', [
+    { id: 'm1', media_type: 'IMAGE', media_url: 'https://cdn/img.jpg', comments: { data: [{ id: 'k1', text: 'מחיר?', timestamp: '2026-10-04T10:00:00Z', from: { id: 'x', username: 'x' } }] } },
+    { id: 'm2', media_type: 'VIDEO', media_url: 'https://cdn/v.mp4', thumbnail_url: 'https://cdn/v.jpg', comments: { data: [{ id: 'k2', text: 'מחיר?', timestamp: '2026-10-04T10:00:00Z', from: { id: 'y', username: 'y' } }] } },
+  ], '1970-01-01T00:00:00Z');
+  assert.deepEqual(ig.map((i) => i.postImage), ['https://cdn/img.jpg', 'https://cdn/v.jpg']);
+});
+
+test('Messenger: a picture or a sticker with no text is still part of the conversation', () => {
+  const items = conversationItems('messenger', ['page-1'], [{ id: 't', participants: { data: [{ id: 'page-1' }, { id: 'p' }] }, messages: { data: [
+    { id: 'a', created_time: '2026-07-07T06:19:00Z', from: { id: 'p' }, attachments: { data: [{ mime_type: 'image/jpeg' }] } },
+    { id: 'b', created_time: '2026-07-08T23:38:00Z', from: { id: 'p' }, sticker: 'https://sticker' },
+    { id: 'c', created_time: '2026-07-09T10:00:00Z', from: { id: 'p' } },
+  ] } }], '1970-01-01T00:00:00Z');
+  assert.deepEqual(items.map((i) => i.body), ['🖼️ (תמונה)', '🙂 (מדבקה)']);
+});
+
+test('the "לידים" filter: contacts from a Meta form (paid), apart from comments and messages', () => {
+  assert.equal(channelOf({ source: 'Meta · טופס גבות', tags: ['ליד ממומן'] }), 'leads');
+  assert.equal(channelOf({ source: 'ידני', tags: ['ליד ממומן'] }), 'leads');
+  assert.equal(channelOf({ source: 'Messenger', tags: ['תגובות'] }), 'messenger');
+  assert.equal(channelOf({ source: 'ידני', tags: [] }), null);
 });

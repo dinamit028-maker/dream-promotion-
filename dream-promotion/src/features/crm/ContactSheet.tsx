@@ -10,6 +10,7 @@ import type { Lead, LeadActivityKind, LeadStatus } from '@/types';
 import { ACTIVITY_HE, STAGES, followupState, parseTags, stageOf, telLink, waLink } from './crm';
 import { channelOfSource } from './meta-inbox';
 import { authHeaders } from '@/lib/services/http';
+import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 
 /** what the reply box says it answers in, per inbox channel */
 const REPLY_IN = { messenger: 'תשובה במסנג׳ר', fb: 'תשובה לתגובה בפייסבוק', ig: 'תשובה לתגובה באינסטגרם' } as const;
@@ -29,6 +30,8 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
   const [amount, setAmount] = useState('');
   const [fu, setFu] = useState({ date: '', time: '10:00' });
   const [ai, setAi] = useState<{ busy: boolean; text: string; error: string | null }>({ busy: false, text: '', error: null });
+  // the posts this contact commented on — picture, text and link (inbox contacts only)
+  const [posts, setPosts] = useState<{ url: string; text: string; image: string }[]>([]);
   const [reply, setReply] = useState<{ text: string; busy: boolean; error: string | null; sent: boolean }>({ text: '', busy: false, error: null, sent: false });
 
   useEffect(() => {
@@ -38,6 +41,17 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
     setFu(p ? { date: p.date, time: p.time } : { date: '', time: '10:00' });
     setAi({ busy: false, text: '', error: null }); setLogText(''); setAmount('');
     setReply({ text: '', busy: false, error: null, sent: false });
+    setPosts([]);
+    if (leadId && isCloudConfigured && channelOfSource(lead?.source)) {
+      supabase().from('social_messages').select('thread_id, post_url, post_text, post_image, sent_at').eq('lead_id', leadId).neq('post_url', '')
+        .order('sent_at', { ascending: true }).then(({ data }) => {
+          const byPost = new Map<string, { url: string; text: string; image: string }>();
+          for (const m of (data ?? []) as { thread_id: string; post_url: string; post_text: string; post_image: string | null }[]) {
+            if (!byPost.has(m.thread_id)) byPost.set(m.thread_id, { url: m.post_url, text: m.post_text, image: m.post_image ?? '' });
+          }
+          setPosts([...byPost.values()]);
+        });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId]);
 
@@ -120,6 +134,22 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         {lead.email && <a href={`mailto:${lead.email}`} onClick={() => addActivity(lead.id, 'email', 'שלחתי מייל')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">✉️ מייל</a>}
         <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>
       </div>
+
+      {posts.length > 0 && (
+        <div className="mb-4">
+          <p className="mb-1.5 text-sm font-semibold">הגיב/ה על {posts.length === 1 ? 'הפוסט' : 'הפוסטים'}</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {posts.map((p) => (
+              <a key={p.url} href={p.url} target="_blank" rel="noopener" className="w-40 shrink-0 overflow-hidden rounded-xl border border-line hover:border-primary">
+                {p.image
+                  ? <img src={p.image} alt="" loading="lazy" className="h-40 w-40 object-cover" />
+                  : <span className="flex h-20 w-40 items-center justify-center bg-primary-soft text-2xl">🖼️</span>}
+                <span className="line-clamp-2 block p-1.5 text-xs text-ink-2" dir="auto">{p.text || 'פתיחת הפוסט'}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {inbox && (
         <div className="mb-4 rounded-2xl border border-line p-3">

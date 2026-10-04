@@ -16,6 +16,8 @@ export const CHANNEL_ICON: Record<Channel, string> = { fb_comment: '👍', ig_co
 export type InboxItem = {
   channel: Channel; externalId: string; threadId: string; parentId: string; postUrl: string; postText: string;
   authorId: string; authorName: string; direction: 'in' | 'out'; body: string; sentAt: string;
+  /** the post's picture as Meta gives it (a temporary link — the server keeps a copy) */
+  postImage?: string;
   /** the person this is about (for an outgoing message: the one it was sent to) */
   contactId: string; contactName: string;
 };
@@ -26,7 +28,7 @@ export const platformOf = (c: Channel) => (c === 'fb_comment' || c === 'messenge
 export const contactKey = (c: Channel, personId: string) => `${platformOf(c)}:${personId}`;
 
 type FbComment = { id: string; message?: string; created_time?: string; from?: { id: string; name?: string }; parent?: { id: string } };
-type FbPost = { id: string; message?: string; permalink_url?: string; comments?: { data?: FbComment[] } };
+type FbPost = { id: string; message?: string; permalink_url?: string; full_picture?: string; comments?: { data?: FbComment[] } };
 
 /** /{page}/posts with nested comments → items; the Page's own replies are 'out' and belong to the comment they answer */
 export function fbCommentItems(pageId: string, posts: FbPost[], sinceIso: string): InboxItem[] {
@@ -41,7 +43,7 @@ export function fbCommentItems(pageId: string, posts: FbPost[], sinceIso: string
       const person = mine ? parent?.from : c.from;
       if (!person?.id || person.id === pageId) continue; // a Page talking to itself is nobody's conversation
       out.push({
-        channel: 'fb_comment', externalId: c.id, threadId: p.id, parentId: c.parent?.id ?? '', postUrl: p.permalink_url ?? '',
+        channel: 'fb_comment', externalId: c.id, threadId: p.id, parentId: c.parent?.id ?? '', postUrl: p.permalink_url ?? '', postImage: p.full_picture ?? '',
         postText: short(p.message), authorId: c.from.id, authorName: c.from.name ?? '', direction: mine ? 'out' : 'in',
         body: c.message ?? '', sentAt: iso(c.created_time), contactId: person.id, contactName: person.name ?? '',
       });
@@ -51,7 +53,7 @@ export function fbCommentItems(pageId: string, posts: FbPost[], sinceIso: string
 }
 
 type IgComment = { id: string; text?: string; timestamp?: string; username?: string; from?: { id: string; username?: string }; replies?: { data?: IgComment[] } };
-type IgMedia = { id: string; caption?: string; permalink?: string; comments?: { data?: IgComment[] } };
+type IgMedia = { id: string; caption?: string; permalink?: string; media_type?: string; media_url?: string; thumbnail_url?: string; comments?: { data?: IgComment[] } };
 
 /** /{ig}/media with comments and replies → items; replies by the account itself are 'out' */
 export function igCommentItems(igId: string, igUsername: string, media: IgMedia[], sinceIso: string): InboxItem[] {
@@ -66,6 +68,7 @@ export function igCommentItems(igId: string, igUsername: string, media: IgMedia[
     if (!personId || personId === igId) return;
     out.push({
       channel: 'ig_comment', externalId: c.id, threadId: m.id, parentId: parent?.id ?? '', postUrl: m.permalink ?? '',
+      postImage: (m.media_type === 'VIDEO' ? m.thumbnail_url : m.media_url) ?? m.thumbnail_url ?? '',
       postText: short(m.caption), authorId: who, authorName: name ? `@${name}` : '', direction: mine ? 'out' : 'in',
       body: c.text ?? '', sentAt: iso(c.timestamp), contactId: personId,
       contactName: (person?.from?.username ?? person?.username) ? `@${person?.from?.username ?? person?.username}` : '',
@@ -78,7 +81,15 @@ export function igCommentItems(igId: string, igUsername: string, media: IgMedia[
   return out;
 }
 
-type ConvMessage = { id: string; message?: string; created_time?: string; from?: { id: string; name?: string; username?: string } };
+type ConvMessage = { id: string; message?: string; created_time?: string; from?: { id: string; name?: string; username?: string }; sticker?: string; attachments?: { data?: { mime_type?: string }[] } };
+
+/** a message with no text: a picture, a file or a sticker — still part of the conversation */
+const noTextBody = (m: ConvMessage) => {
+  if (m.sticker) return '🙂 (מדבקה)';
+  const t = m.attachments?.data?.[0]?.mime_type ?? '';
+  if (!m.attachments?.data?.length) return '';
+  return t.startsWith('image/') ? '🖼️ (תמונה)' : t.startsWith('video/') ? '🎬 (סרטון)' : t.startsWith('audio/') ? '🎤 (הקלטה)' : '📎 (קובץ)';
+};
 type Conversation = { id: string; updated_time?: string; participants?: { data?: { id: string; name?: string; username?: string }[] }; messages?: { data?: ConvMessage[] } };
 
 /** /{page}/conversations (Messenger or Instagram) → items; the other participant is the contact */
@@ -92,26 +103,44 @@ export function conversationItems(channel: 'messenger' | 'ig_dm', selfIds: strin
     if (!other?.id) continue;
     const otherName = other.name ?? (other.username ? `@${other.username}` : '');
     for (const m of msgs) {
-      if (!m.from?.id || iso(m.created_time) <= sinceIso || !m.message) continue;
+      const body = m.message || noTextBody(m);
+      if (!m.from?.id || iso(m.created_time) <= sinceIso || !body) continue;
       const mine = self.has(m.from.id);
       out.push({
         channel, externalId: m.id, threadId: cv.id, parentId: '', postUrl: '', postText: '',
         authorId: m.from.id, authorName: m.from.name ?? (m.from.username ? `@${m.from.username}` : ''), direction: mine ? 'out' : 'in',
-        body: m.message, sentAt: iso(m.created_time), contactId: other.id, contactName: otherName,
+        body, sentAt: iso(m.created_time), contactId: other.id, contactName: otherName,
       });
     }
   }
   return out;
 }
 
+/** words that alone are only a compliment or a greeting, not an enquiry ("מהממתתת 😍", "תותחית על", "שנה טובה") */
+const PRAISE_WORDS = ['מהמם', 'מהממת', 'מהממים', 'וואו', 'יפה', 'יפהפה', 'יפיפה', 'מדהים', 'מדהימה', 'מושלם', 'מושלמת', 'אהבתי', 'אהובה',
+  'תותחית', 'תותח', 'על', 'אלופה', 'אלוף', 'אליפות', 'שלי', 'כל', 'הכבוד', 'מספר', 'אחת', 'אחד', 'בהצלחה', 'הצלחה', 'שנה', 'טובה', 'חג', 'שמח',
+  'חיים', 'מטורף', 'מטורפת', 'וואי', 'wow', 'nice', 'amazing', 'beautiful', 'love', 'it', 'perfect', 'gorgeous', 'cute', 'queen'];
+/** "מהממתתתת" = "מהממת": letters repeated for emphasis are collapsed, on both sides */
+const squeeze = (w: string) => w.replace(/(.)\1+/gu, '$1');
+const PRAISE = new Set(PRAISE_WORDS.map(squeeze));
+
 /**
- * Which contacts to create: one per person who WROTE something new and has no card yet in this business.
- * A person who only got a reply from the business is not a new contact.
+ * A comment or message that is not an enquiry: only emojis / punctuation, only tagging friends ("@noa @dana"),
+ * or only praise / a greeting. It is still stored, but does not open a card in "💬 תגובות".
+ */
+export function isNoise(_channel: Channel, body: string): boolean {
+  const words = body.replace(/@[\w.]+/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').toLowerCase().split(/\s+/).filter(Boolean);
+  return words.every((w) => /^\d$/.test(w) || w.length < 2 || PRAISE.has(squeeze(w)));
+}
+
+/**
+ * Which contacts to create: one per person who WROTE something new and relevant and has no card yet in this business.
+ * A person who only got a reply from the business, or only wrote noise (emojis, tags, praise), is not a new contact.
  */
 export function contactsToCreate(items: InboxItem[], existingKeys: Set<string>): { key: string; channel: Channel; name: string; firstAt: string }[] {
   const want = new Map<string, { key: string; channel: Channel; name: string; firstAt: string }>();
   for (const it of items) {
-    if (it.direction !== 'in') continue;
+    if (it.direction !== 'in' || isNoise(it.channel, it.body)) continue;
     const key = contactKey(it.channel, it.contactId);
     if (existingKeys.has(key)) continue;
     const cur = want.get(key);
@@ -145,6 +174,12 @@ export function channelOfSource(source: string | undefined): 'messenger' | 'fb' 
   if (source === sourceOf('ig_comment')) return 'ig';
   return null;
 }
+/** where a contact came from, for the filter row: a paid lead (Meta Lead Ads form) or one of the inbox channels */
+export function channelOf(l: { source?: string; tags?: string[] }): 'leads' | 'messenger' | 'fb' | 'ig' | null {
+  if ((l.source ?? '').startsWith('Meta · ') || (l.tags ?? []).includes('ליד ממומן')) return 'leads';
+  return channelOfSource(l.source);
+}
 export const INBOX_FILTERS = [
+  { id: 'leads', label: '💰 לידים' },
   { id: 'messenger', label: '💬 מסנג׳ר' }, { id: 'fb', label: '👍 תגובות בפייסבוק' }, { id: 'ig', label: '📷 תגובות באינסטגרם' },
 ] as const;

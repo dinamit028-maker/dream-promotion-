@@ -11,7 +11,7 @@ import { STAGES, followupState, matches, parseTags, stageOf, telLink, waLink } f
 import { ContactSheet } from '@/features/crm/ContactSheet';
 import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
 import { InboxSettings } from '@/features/crm/InboxSettings';
-import { INBOX_FILTERS, channelOfSource } from '@/features/crm/meta-inbox';
+import { INBOX_FILTERS, channelOf } from '@/features/crm/meta-inbox';
 
 /**
  * CRM — the business's contacts: leads and customers in one place (toolbox stage 1).
@@ -30,10 +30,10 @@ export default function LeadsPage() {
   const [adding, setAdding] = useState(false);
   const [settings, setSettings] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', source: '', tags: '' });
-  // where a contact came from Meta: Messenger / Facebook comments / Instagram comments
-  const [channel, setChannel] = useState<'all' | 'messenger' | 'fb' | 'ig'>('all');
-  const inChannel = (l: Lead) => channel === 'all' || channelOfSource(l.source) === channel;
-  const channelCount = (id: string) => leads.filter((l) => channelOfSource(l.source) === id).length;
+  // where a contact came from: paid leads (Meta forms) / Messenger / Facebook comments / Instagram comments
+  const [channel, setChannel] = useState<'all' | 'leads' | 'messenger' | 'fb' | 'ig'>('all');
+  const inChannel = (l: Lead) => channel === 'all' || channelOf(l) === channel;
+  const channelCount = (id: string) => leads.filter((l) => channelOf(l) === id).length;
 
   const due = useMemo(() => leads.filter((l) => { const s = followupState(l); return s === 'overdue' || s === 'today'; }), [leads]);
   const shown = useMemo(() => {
@@ -111,7 +111,7 @@ export default function LeadsPage() {
 
           {INBOX_FILTERS.some((f) => channelCount(f.id) > 0) && (
             <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="סינון לפי ערוץ">
-              <Chip on={channel === 'all'} onClick={() => setChannel('all')}>כל הערוצים</Chip>
+              <Chip on={channel === 'all'} onClick={() => setChannel('all')}>כללי {leads.length}</Chip>
               {INBOX_FILTERS.map((f) => {
                 const n = channelCount(f.id);
                 return n ? <Chip key={f.id} on={channel === f.id} onClick={() => setChannel(f.id)}>{f.label} {n}</Chip> : null;
