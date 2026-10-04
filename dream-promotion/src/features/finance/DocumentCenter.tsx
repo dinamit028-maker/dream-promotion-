@@ -127,6 +127,10 @@ export function DocumentCenter() {
         </div>
       )}
 
+      {!process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER && (
+        <p className="rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">התוכנה עוד לא רשומה ברשות המסים כתוכנה להפקת מסמכים. עד הרישום ובדיקת יועץ מס — השתמשו במסמכים לבדיקה בלבד.</p>
+      )}
+
       {open && <DocView doc={open} onClose={() => setOpen(null)} onChanged={() => void load(false)} />}
       {composer && <Composer mode={composer.mode} initial={composer.initial} onClose={() => setComposer(null)}
         onDone={(r) => {

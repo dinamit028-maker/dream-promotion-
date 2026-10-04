@@ -126,6 +126,8 @@ async function main() {
 
     await step('a tax invoice to a customer from the contacts: numbered, issuer kept, logged in the CRM', async () => {
       await tab(page, 'מסמכים');
+      // until the software is registered with the Tax Authority, the documents say they are for testing
+      if (!process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER) await page.getByText(/התוכנה עוד לא רשומה ברשות המסים/).waitFor();
       await page.getByRole('button', { name: '+ מסמך חדש' }).click();
       const d = dialog(page);
       await d.getByRole('radio', { name: 'חשבונית מס', exact: true }).click();
