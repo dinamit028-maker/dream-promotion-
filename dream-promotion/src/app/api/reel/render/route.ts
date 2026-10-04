@@ -7,6 +7,7 @@ import { PRICES } from '@/lib/server/ai/config';
 import { logGeneration } from '@/lib/server/ai/ledger';
 import { commitUsage, releaseUsage, reserveUsage } from '@/lib/server/quota';
 import { MOTIONS, renderReel, type RenderJob } from '@/lib/server/reel-render';
+import { LOCKED, userLocked } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
   const { data: u } = token ? await admin.auth.getUser(token) : { data: null as any };
   const user = u?.user;
   if (!user) return Response.json({ error: 'sign in required', code: 'no_session' }, { status: 401 });
+  if (await userLocked(user.id)) return Response.json({ ...LOCKED, error: LOCKED.message }, { status: 403 });
 
   let body: any;
   try { body = await req.json(); } catch { return Response.json({ error: 'bad json', code: 'bad_request' }, { status: 400 }); }

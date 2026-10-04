@@ -7,7 +7,9 @@ export function fakeDb(tables: Record<string, Row[]>, rules: { onInsert?: (table
     let op: 'select' | 'insert' | 'update' | 'delete' = 'select';
     let payload: any = null; let single = false; let maybe = false; let limit = Infinity;
     const q: any = {
-      select() { return q; }, order() { return q; }, limit(n: number) { limit = n; return q; },
+      select() { return q; }, order() { return q; }, or() { return q; }, // or(): not modelled — rows are claimed as if free
+      not(k: string, op: string, v: any) { if (op === 'is') filters.push((r) => (r[k] ?? null) !== v); return q; },
+      lte(k: string, v: any) { filters.push((r) => r[k] <= v); return q; }, limit(n: number) { limit = n; return q; },
       eq(k: string, v: any) { filters.push((r) => r[k] === v); return q; },
       in(k: string, v: any[]) { filters.push((r) => v.includes(r[k])); return q; },
       lt(k: string, v: any) { filters.push((r) => r[k] < v); return q; },
@@ -28,7 +30,7 @@ export function fakeDb(tables: Record<string, Row[]>, rules: { onInsert?: (table
         return { data: single ? list[0] : list, error: null };
       }
       const hit = rows.filter((r) => filters.every((f) => f(r)));
-      if (op === 'update') { hit.forEach((r) => Object.assign(r, payload)); return { data: hit, error: null }; }
+      if (op === 'update') { hit.forEach((r) => Object.assign(r, payload)); return { data: single || maybe ? hit[0] ?? null : hit, error: null }; }
       if (op === 'delete') { tables[table] = rows.filter((r) => !hit.includes(r)); return { data: hit, error: null }; }
       const out = hit.slice(0, limit);
       if (single || maybe) return { data: out[0] ?? null, error: single && !out[0] ? { message: 'no rows' } : null };

@@ -2,6 +2,7 @@ import { adminDb } from './admin';
 import { createIgContainer, igContainerStep, metaAccount, publishToPage, type IgTarget } from './meta';
 import { accessTokenFor, uploadToInbox } from './tiktok';
 import { safeFetch } from './safe-fetch';
+import { LOCKED_REASON, businessOpen } from './business';
 
 /**
  * Scheduled publishing. A post (public.scheduled_posts) has a time and destinations; the timer
@@ -13,6 +14,8 @@ import { safeFetch } from './safe-fetch';
  *                    for unaudited apps) — reported as "sent_to_drafts", never as "published"
  * Every destination keeps its own result; one failing never blocks the others, and a
  * destination that already succeeded is never sent twice.
+ * A post whose business is locked when its time comes is cancelled ("העסק נעול") — never published;
+ * unlocking the business does not bring it back by itself (the owner schedules it again).
  */
 export type Destination = { accountId: string; provider: 'facebook' | 'instagram' | 'tiktok'; target?: 'feed' | 'story'; coverMs?: number };
 export type DestState = 'waiting' | 'processing' | 'published' | 'sent_to_drafts' | 'failed';
@@ -33,7 +36,7 @@ export function classifyFailure(error: string): 'retry' | 'fail' {
 }
 
 type Row = {
-  id: string; user_id: string; content_id: string | null; media_id: string; caption: string;
+  id: string; user_id: string; business_id?: string | null; content_id: string | null; media_id: string; caption: string;
   destinations: Destination[]; run_at: string; status: string; results: Record<string, DestResult>; attempts: number;
 };
 
@@ -102,7 +105,7 @@ export async function publishDue(opts: { deadline: number; limit?: number }) {
     .order('run_at').limit(opts.limit ?? 10);
   if (error) throw new Error(error.message);
 
-  const summary = { claimed: 0, done: 0, partial: 0, failed: 0, publishing: 0 };
+  const summary = { claimed: 0, done: 0, partial: 0, failed: 0, publishing: 0, cancelled: 0 };
   for (const { id } of due ?? []) {
     if (Date.now() > opts.deadline) break;
     // claim: only one run may work on a row at a time
@@ -114,6 +117,20 @@ export async function publishDue(opts: { deadline: number; limit?: number }) {
     summary.claimed++;
     const row = claimed as Row;
     const results: Record<string, DestResult> = { ...(row.results ?? {}) };
+
+    if (!(await businessOpen(row.business_id))) {
+      const at = new Date().toISOString();
+      for (const d of row.destinations ?? []) {
+        const prev = results[d.accountId] ?? { state: 'waiting' as DestState };
+        if (!TERMINAL.includes(prev.state)) results[d.accountId] = { ...prev, state: 'failed', error: LOCKED_REASON, at };
+      }
+      await db.from('scheduled_posts').update({
+        results, status: 'cancelled', cancel_reason: LOCKED_REASON, last_run_at: at, locked_until: null,
+      }).eq('id', row.id);
+      console.log(`[publish] ${row.id} cancelled: ${LOCKED_REASON}`);
+      summary.cancelled++;
+      continue;
+    }
 
     const { data: media } = await db.from('media').select('url, kind').eq('id', row.media_id).eq('user_id', row.user_id).maybeSingle();
     const late = Date.now() - new Date(row.run_at).getTime() > EXPIRE_MS;
