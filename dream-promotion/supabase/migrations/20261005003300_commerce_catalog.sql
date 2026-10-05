@@ -6,8 +6,9 @@
 --                         price, SKU, barcode, tags, custom fields, manufacturer and country of origin (distance-sale
 --                         disclosure — NEEDS_LEGAL_VERIFICATION), has_variants, published_at, updated_at
 --   2. new tables         catalog_options (size / colour / material: up to 3 per item), catalog_variants (SKU, barcode,
---                         price, online price, picture, stock), catalog_media (pictures of the store-media bucket, alt),
---                         catalog_field_defs (the business's own fields: size chart, ingredients, washing)
+--                         price, online price, picture, stock), catalog_media (pictures of the store-media bucket, alt;
+--                         the first one is the item's image_url — the register's tiles), catalog_field_defs (the
+--                         business's own fields: size chart, ingredients, washing)
 --   3. stock per variant  stock_movements.variant_id; stock_lines_v / stock_move_v / stock_move_ref_v; the existing movers
 --                         (stock_move, stock_move_ref) and every stock trigger (sales, refunds, documents, cancellations,
 --                         expenses) now read a line's "variantId". An item with variants keeps the sum of its variants in
@@ -200,6 +201,22 @@ revoke execute on function public.catalog_fill_from_item() from public, anon, au
 create or replace trigger a_fill_from_item before insert or update on public.catalog_options  for each row execute function public.catalog_fill_from_item();
 create or replace trigger a_fill_from_item before insert or update on public.catalog_variants for each row execute function public.catalog_fill_from_item();
 create or replace trigger a_fill_from_item before insert or update on public.catalog_media    for each row execute function public.catalog_fill_from_item();
+
+-- the item's main picture (catalog_items.image_url: the register's tiles) is its first picture, in the 400 size — whoever
+-- added, moved or deleted a picture (the server, a screen, a cascade); no picture → ''
+create or replace function public.catalog_media_main() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare it uuid := coalesce(new.item_id, old.item_id); main text;
+begin
+  select coalesce(nullif(m.sizes->>'400', ''), m.url) into main from public.catalog_media m
+   where m.item_id = it order by m.position, m.created_at, m.id limit 1;
+  main := case when main ~ '^https://' then main else '' end;
+  update public.catalog_items set image_url = main where id = it and image_url is distinct from main;
+  return null;
+end $$;
+revoke execute on function public.catalog_media_main() from public, anon, authenticated;
+create or replace trigger catalog_media_main after insert or delete or update of position, url, sizes on public.catalog_media
+  for each row execute function public.catalog_media_main();
 
 create or replace function public.catalog_variants_touch() returns trigger
 language plpgsql set search_path = public as $$
@@ -614,9 +631,9 @@ on conflict (id) do nothing;
 -- Rollback (by hand, if ever needed — not recommended once variants hold stock):
 --   restore stock_move, stock_move_ref, sales_stock, sale_refunds_restock, documents_after_insert, document_cancellations_after,
 --   expenses_after, receive_expense_stock and adjust_stock from 20261004003000 / 20261004003100 / 20261005003200;
---   drop the triggers a_fill_from_item, b_catalog_variants_touch, catalog_variants_after, catalog_variants_guard_stock,
+--   drop the triggers a_fill_from_item, catalog_media_main, b_catalog_variants_touch, catalog_variants_after, catalog_variants_guard_stock,
 --   b_catalog_codes_check, b_catalog_items_touch; drop the functions stock_move_v, stock_move_ref_v, stock_lines_v,
---   adjust_variant_stock, reconcile_variant_stock, catalog_fill_from_item, catalog_variants_touch, catalog_variants_after,
+--   adjust_variant_stock, reconcile_variant_stock, catalog_fill_from_item, catalog_media_main, catalog_variants_touch, catalog_variants_after,
 --   catalog_variants_guard_stock, catalog_codes_check, catalog_items_touch; drop table catalog_field_defs, catalog_media,
 --   catalog_variants, catalog_options (cascade); alter table stock_movements drop column variant_id; drop the new
 --   catalog_items columns and constraints; delete the bucket store-media (and its files).

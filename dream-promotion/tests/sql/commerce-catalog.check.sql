@@ -275,10 +275,13 @@ select pg_temp.check((select bool_and(v.stock_qty = coalesce((select sum(m.delta
 -- ======================================================================================================================
 -- the server (here: the superuser, as the service role would) registers two pictures after the upload
 insert into public.catalog_media (id, item_id, path, url, sizes, width, height, position) values
-  ('00000000-0000-0000-0000-0000000334d1', '00000000-0000-0000-0000-0000000331f1', '00000000-0000-0000-0000-00000033b001/p1', 'https://cdn.test/p1-1280.webp',
-   '{"320":"https://cdn.test/p1-320.webp","1280":"https://cdn.test/p1-1280.webp"}', 1280, 1280, 0),
+  ('00000000-0000-0000-0000-0000000334d1', '00000000-0000-0000-0000-0000000331f1', '00000000-0000-0000-0000-00000033b001/p1', 'https://cdn.test/p1-1600.webp',
+   '{"400":"https://cdn.test/p1-400.webp","1600":"https://cdn.test/p1-1600.webp"}', 1600, 1600, 0),
   ('00000000-0000-0000-0000-0000000334d2', '00000000-0000-0000-0000-0000000331f2', '00000000-0000-0000-0000-00000033b001/p2', 'https://cdn.test/p2.webp', '{}', 800, 800, 0);
 select pg_temp.check((select bool_and(business_id = '00000000-0000-0000-0000-00000033b001') from public.catalog_media), 'a picture takes its item''s business');
+select pg_temp.check((select image_url from public.catalog_items where id = '00000000-0000-0000-0000-0000000331f1') = 'https://cdn.test/p1-400.webp',
+  'the first picture is the item''s main picture, in the 400 size (the register''s tile)');
+select pg_temp.check((select image_url from public.catalog_items where id = '00000000-0000-0000-0000-0000000331f2') = 'https://cdn.test/p2.webp', 'without a 400 size: the main size');
 select pg_temp.refused($$insert into public.catalog_media (item_id, path, url) values ('00000000-0000-0000-0000-0000000331f1', 'x', 'http://cdn.test/x.webp')$$, 'a picture that is not https');
 
 begin;
@@ -287,6 +290,18 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000330a1');
 select pg_temp.refused_with($$insert into public.catalog_media (item_id, path, url) values ('00000000-0000-0000-0000-0000000331f1', 'x', 'https://evil.test/x.webp')$$,
   'permission denied', 'a picture inserted from the browser');
 select pg_temp.check(pg_temp.affected($$update public.catalog_media set alt = 'חולצה לבנה', position = 1 where id = '00000000-0000-0000-0000-0000000334d1'$$) = 1, 'alt text and order');
+commit;
+-- a second picture of the shirt (the server), moved before the first by the owner: it becomes the main picture
+insert into public.catalog_media (id, item_id, path, url, position) values
+  ('00000000-0000-0000-0000-0000000334d3', '00000000-0000-0000-0000-0000000331f1', '00000000-0000-0000-0000-00000033b001/p3', 'https://cdn.test/p3.webp', 2);
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000330a1');
+select pg_temp.check((select image_url from public.catalog_items where id = '00000000-0000-0000-0000-0000000331f1') = 'https://cdn.test/p1-400.webp', 'a picture added last is not the main one');
+update public.catalog_media set position = 0 where id = '00000000-0000-0000-0000-0000000334d3';
+select pg_temp.check((select image_url from public.catalog_items where id = '00000000-0000-0000-0000-0000000331f1') = 'https://cdn.test/p3.webp', 'moved first: it is the main picture');
+select pg_temp.check(pg_temp.affected($$delete from public.catalog_media where id = '00000000-0000-0000-0000-0000000334d3'$$) = 1, 'a picture is deleted');
+select pg_temp.check((select image_url from public.catalog_items where id = '00000000-0000-0000-0000-0000000331f1') = 'https://cdn.test/p1-400.webp', 'the next picture is the main one again');
 select pg_temp.refused_with($$update public.catalog_media set url = 'https://evil.test/x.webp' where id = '00000000-0000-0000-0000-0000000334d1'$$, 'permission denied',
   'the browser changes a picture''s address');
 update public.catalog_media set variant_id = '00000000-0000-0000-0000-0000000333a1' where id = '00000000-0000-0000-0000-0000000334d1';
@@ -313,6 +328,7 @@ select pg_temp.check(not exists (select 1 from public.catalog_variants where ite
 -- deleting a picture clears it from its variant; deleting a variant keeps the stock log (without the link)
 select pg_temp.check(pg_temp.affected($$delete from public.catalog_media where id = '00000000-0000-0000-0000-0000000334d1'$$) = 1, 'a picture is deleted');
 select pg_temp.check((select media_id is null from public.catalog_variants where id = '00000000-0000-0000-0000-0000000333a1'), 'and its variant has no picture');
+select pg_temp.check((select image_url from public.catalog_items where id = '00000000-0000-0000-0000-0000000331f1') = '', 'no picture left: no main picture');
 select pg_temp.check(pg_temp.affected($$delete from public.catalog_variants where id = '00000000-0000-0000-0000-0000000333a3'$$) = 1, 'a variant is deleted');
 select pg_temp.check(not (select has_variants from public.catalog_items where id = '00000000-0000-0000-0000-0000000331f3')
   and pg_temp.qty('00000000-0000-0000-0000-0000000331f3') = 2, 'its item has no variants now, and keeps its units');

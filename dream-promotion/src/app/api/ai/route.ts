@@ -3,8 +3,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   adCopyPrompt, assistantPrompt, brandAnalysisPrompt,
   contentPrompt, rewritePrompt, scenePrompt, storyboardPrompt, weeklyPlanPrompt,
-  socialPrompt, captionPolishPrompt, ideasPrompt, followupPrompt, collectionPrompt,
+  socialPrompt, captionPolishPrompt, ideasPrompt, followupPrompt, collectionPrompt, productCopyPrompt,
 } from '@/lib/services/prompts';
+import { cleanProductCopy } from '@/features/catalog/catalog';
 import { aiDraftIsSafe, reminderTemplate, type Tone } from '@/features/finance/receivables';
 import { accessDenied } from '@/lib/server/access';
 import { commitUsage, releaseUsage, requestUser, reserveUsage, type Reservation } from '@/lib/server/quota';
@@ -43,6 +44,8 @@ function buildPrompt(task: string, p: any): { prompt: string; json: boolean } {
       return { prompt: collectionPrompt({ tone, template: reminderTemplate(tone), business: String(p.business ?? '') }), json: true }; }
     case 'social':     return { prompt: socialPrompt(p.brand, p), json: true };
     case 'captions':   return { prompt: captionPolishPrompt(p.brand, p), json: true };
+    // Dream Commerce: a product page's text — the product's own words in, a suggestion out (cleaned below)
+    case 'product':    return { prompt: productCopyPrompt(p.brand, p), json: true };
     default: throw new Error('unknown_task');
   }
 }
@@ -103,6 +106,11 @@ export async function POST(req: Request) {
       // a reminder that wrote its own amount, date or link is refused here too (the client checks again)
       if (task === 'collection' && !aiDraftIsSafe(parsed?.message)) {
         return NextResponse.json({ code: 'unsafe_draft', message: 'the draft did not keep the placeholders' }, { status: 422 });
+      }
+      // a product's text: plain text within the limits (no HTML reaches a page) — or nothing
+      if (task === 'product') {
+        const copy = cleanProductCopy(parsed);
+        return copy ? NextResponse.json(copy) : NextResponse.json({ code: 'empty_draft', message: 'no text came back' }, { status: 422 });
       }
       return NextResponse.json(parsed);
     } catch {
