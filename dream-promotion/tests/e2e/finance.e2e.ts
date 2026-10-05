@@ -369,8 +369,9 @@ async function main() {
       await d.getByRole('button', { name: /דנה כהן/ }).click();
       await d.getByLabel('תיאור שורה 1').fill('חבילת סטיילינג');
       await d.getByLabel('מחיר שורה 1').fill('2360');
+      // the window opens on the tap itself (phones block one opened after the save) and gets WhatsApp's address after it
       const [popup] = await Promise.all([page.waitForEvent('popup'), d.getByRole('button', { name: 'שמירה ושליחה ללקוח' }).click()]);
-      await popup.waitForLoadState().catch(() => {});
+      await popup.waitForURL(/wa\.me|api\.whatsapp\.com/, { timeout: 15_000 });
       assert.match(decodeURIComponent(popup.url()), /הצעת מחיר מס׳ 1 .*₪2,360/);
       await popup.close();
       const q = fake.tables.quotes[0];
@@ -423,11 +424,15 @@ async function main() {
       const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
       const zip = await JSZip.loadAsync(readFileSync(await download.path()));
       const names = Object.keys(zip.files);
-      for (const want of ['מסמכים.csv', 'הוצאות.csv', 'יומן-תשלומים.csv', 'חייבים.csv', 'חותמת-יומן.txt', 'INI.TXT', 'BKMVDATA.zip']) {
+      for (const want of ['מסמכים.csv', 'הוצאות.csv', 'יומן-תשלומים.csv', 'חייבים.csv', 'חותמת-יומן.txt', 'INI.TXT', 'BKMVDATA.zip',
+        'סיכום-הפקה-ממשק-פתוח.html', 'דוח-מסמכים-לפי-סוג.html']) {
         assert.ok(names.some((n) => n.endsWith(want)), `${want} is in the package (${names.join(', ')})`);
       }
       const seal = await zip.file(names.find((n) => n.endsWith('חותמת-יומן.txt'))!)!.async('string');
-      assert.match(seal, /בדיקת שלמות: תקין/);
+      assert.match(seal, /בדיקת שלמות: לא נמצא שינוי/);
+      assert.match(seal, /לא מונע שינוי ממי ששולט ישירות במסד הנתונים/, 'the seal does not claim more than it does');
+      const byType = await zip.file(names.find((n) => n.endsWith('דוח-מסמכים-לפי-סוג.html'))!)!.async('string');
+      assert.ok(byType.includes('דוח מסמכים לפי סוג'), 'the 2.6(ב) printout is in the package');
       assert.match(seal, /Hash של הרשומה האחרונה: h\d+/, 'the last hash of the log');
       const docs = await zip.file(names.find((n) => n.endsWith('מסמכים.csv'))!)!.async('string');
       assert.ok(docs.includes('סלון דנה בע״מ'), 'the documents list has the invoice to the customer');

@@ -87,10 +87,26 @@ export async function registerOnly(userId: string): Promise<boolean> {
   return (await memberAccess(userId, await businessOf(userId))) === 'register';
 }
 
-/** one check for routes that spend or publish: a locked business, or a register-only member → the refusal to send */
-export async function blockedFor(userId: string): Promise<typeof LOCKED | typeof REGISTER_ONLY | null> {
+/**
+ * A member with role 'viewer' reads and never writes (the database enforces the same — migration 20261005003200).
+ * The app creates no viewers today; the rule is here so that one added later can not spend, publish or issue.
+ */
+export const VIEW_ONLY = { code: 'view_only', message: 'הרשאת צפייה בלבד — אפשר לראות, לא לשנות או לפרסם.' } as const;
+export type Role = 'owner' | 'editor' | 'viewer';
+/** the role of a member in a business; the super admin, and a missing row, count as 'owner' (the other checks refuse them) */
+export async function memberRole(userId: string, businessId: string | null): Promise<Role> {
+  if (!businessId || await isSuperAdmin(userId)) return 'owner';
+  const { data, error } = await adminDb().from('business_members').select('role').eq('business_id', businessId).eq('user_id', userId).maybeSingle();
+  if (error) return 'owner';
+  const r = (data as { role?: string } | null)?.role;
+  return r === 'viewer' ? 'viewer' : r === 'editor' ? 'editor' : 'owner';
+}
+
+/** one check for routes that spend or publish: a locked business, a register-only member or a viewer → the refusal to send */
+export async function blockedFor(userId: string): Promise<typeof LOCKED | typeof REGISTER_ONLY | typeof VIEW_ONLY | null> {
   if (await userLocked(userId)) return LOCKED;
   if (await registerOnly(userId)) return REGISTER_ONLY;
+  if ((await memberRole(userId, await businessOf(userId))) === 'viewer') return VIEW_ONLY;
   return null;
 }
 

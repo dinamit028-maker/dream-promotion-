@@ -6,8 +6,8 @@ import { Button, Card, Field, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
-import { buildOpenFormat, toIso88598 } from '@/features/documents/openformat';
-import { SOFTWARE } from '@/features/documents/DocumentsTab';
+import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
+import { SOFTWARE, reportHtml as docTypeReportHtml, summaryHtml as openFormatSummaryHtml } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
 import { loadSummary } from './Overview';
 import { reportHtml } from './Reports';
@@ -91,10 +91,14 @@ export function Accountant() {
           lastHash: head.data ? String((head.data as any).hash) : '', lastAt: head.data ? formatIL(String((head.data as any).at)) : '' }));
       }
       if (business.ready && docs.length) {
-        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt: new Date().toISOString() });
+        const startedAt = new Date().toISOString();
+        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt });
         const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
+        // the two printouts of the open-format module (2.6(ב) and נספח 4) — this package is now its one place (2.52.1)
+        zip.file(`${root}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, period.from, period.to));
+        zip.file(`${root}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, period.from, period.to), business, period.from, period.to));
       }
       let files = 0;
       if (withFiles) {

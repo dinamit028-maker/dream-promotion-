@@ -1,5 +1,5 @@
 import { adminDb, userFromRequest } from './admin';
-import { LOCKED, REGISTER_ONLY, businessOf, canUseBusiness, isSuperAdmin, memberAccess } from './business';
+import { LOCKED, REGISTER_ONLY, VIEW_ONLY, businessOf, canUseBusiness, isSuperAdmin, memberAccess } from './business';
 
 /**
  * Money routes on the server (service role — row-level security does not apply, so the same rules are checked here):
@@ -8,7 +8,8 @@ import { LOCKED, REGISTER_ONLY, businessOf, canUseBusiness, isSuperAdmin, member
  * The business always comes from the server (business_for_user), never from the request body.
  */
 export type FinanceCaller = { ok: true; userId: string; businessId: string; member: boolean } | { ok: false; status: number; body: { code: string; message: string } };
-export async function financeCaller(req: Request): Promise<FinanceCaller> {
+/** write: a route that changes something or spends (a viewer may only read) */
+export async function financeCaller(req: Request, opts: { write?: boolean } = {}): Promise<FinanceCaller> {
   const userId = await userFromRequest(req);
   if (!userId) return { ok: false, status: 401, body: { code: 'unauthorized', message: 'צריך להתחבר.' } };
   const businessId = await businessOf(userId);
@@ -16,7 +17,8 @@ export async function financeCaller(req: Request): Promise<FinanceCaller> {
   if (!(await canUseBusiness(userId, businessId))) return { ok: false, status: 403, body: LOCKED };
   if ((await memberAccess(userId, businessId)) === 'register') return { ok: false, status: 403, body: REGISTER_ONLY };
   const db = adminDb();
-  const { data: m } = await db.from('business_members').select('user_id').eq('business_id', businessId).eq('user_id', userId).maybeSingle();
+  const { data: m } = await db.from('business_members').select('user_id, role').eq('business_id', businessId).eq('user_id', userId).maybeSingle();
+  if (m && opts.write && (m as { role?: string }).role === 'viewer') return { ok: false, status: 403, body: VIEW_ONLY };
   if (m) return { ok: true, userId, businessId, member: true };
   if (await isSuperAdmin(userId)) {
     const { data: g } = await db.from('finance_access_grants').select('id').eq('business_id', businessId).eq('user_id', userId).is('revoked_at', null)

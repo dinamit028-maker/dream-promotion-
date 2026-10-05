@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * (append-only, logged by the database). A test gateway's number is stored as a test and never shown as real.
  */
 export async function POST(req: Request) {
-  const c = await financeCaller(req);
+  const c = await financeCaller(req, { write: true });
   if (!c.ok) return Response.json(c.body, { status: c.status });
   const body = await req.json().catch(() => ({}));
   const documentId = typeof body?.documentId === 'string' && /^[0-9a-f-]{36}$/i.test(body.documentId) ? body.documentId : null;

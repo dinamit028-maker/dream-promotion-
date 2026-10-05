@@ -14,16 +14,17 @@ Next.js 14 (App Router) · TypeScript · Tailwind · Zustand · Supabase · Verc
 
 - `npm test` — בדיקות הלוגיקה והשרת (tsx, בלי רשת).
 - `npm run test:sql` — כל המיגרציות על Postgres 16 מקומי, וניסיונות עקיפה כמשתמשים מחוברים: RLS, קופאי/ת, מנהל-על, עסק מול עסק, ועומס מקבילי.
-- `npm run test:e2e` — Chromium אמיתי בגודל טלפון, מול Supabase מדומה: הקופה ו"כספים".
+- `npm run test:e2e` — Chromium אמיתי מול Supabase מדומה, הקופה ו"כספים": טלפון (375 / 390 / 430), טאבלט (768) ומחשב (1440).
 - לפני כל PR: `npm run typecheck`, `npm test`, `npm run build`.
-- מצב מלא ומה נבדק: `STATUS.md`. התאמה לדרישות רשות המסים: `COMPLIANCE_CHECKLIST.md`.
+- מצב מלא ומה נבדק: `STATUS.md`. דרישות רשות המסים: `COMPLIANCE_CHECKLIST.md` ו-`docs/ISRAEL_COMPLIANCE_MATRIX.md`.
+- **התוכנה לא רשומה ברשות המסים ולא אושרה על ידה.** המסמכים מיועדים לבדיקה עד הרישום ובדיקת יועץ מס.
 
 ## ✅ עובד עכשיו
 
 | יכולת | איך |
 |---|---|
-| חשבונות, התחברות, אונבורדינג | Supabase Auth; כל שורה במסד שייכת למשתמש אחד (RLS) |
-| יצירת טקסט: פוסטים, תסריטי רילס, תוכנית שבועית, טקסט לפוסט + האשטגים | Anthropic (`/api/ai`, כל הפרומפטים ב-`lib/services/prompts.ts`) |
+| חשבונות, התחברות, אונבורדינג | Supabase Auth. כל שורה שייכת לעסק (`business_id`); RLS מציג רק את העסק שעובדים בו (`can_access_business`, `current_business_id`). `user_id` = מי יצר את השורה |
+| יצירת טקסט: פוסטים, תסריטי רילס, תוכנית שבועית, טקסט לפוסט + האשטגים | Anthropic (`/api/ai`; הפרומפטים ב-`lib/services/prompts.ts`, וקריאת הוצאה ב-`app/api/finance/expenses/scan/route.ts`) |
 | תמונות | fal.ai — Nano Banana 2 (יצירה ועריכה) |
 | קליפי וידאו | fal.ai — Wan (טקסט→וידאו, תמונה→וידאו), כולל ביטול בזמן המתנה בתור |
 | קריינות בעברית | ElevenLabs, עם מילון הגייה (הכתוביות שומרות את הכתיב המקורי) |
@@ -40,7 +41,7 @@ Next.js 14 (App Router) · TypeScript · Tailwind · Zustand · Supabase · Verc
 | פרסום אוטומטי מתוזמן | בוחרים זמן ויעדים (Instagram רילס/סטורי, עמוד Facebook, TikTok) — השרת מפרסם בזמן, גם כשהאפליקציה סגורה. סטטוס לכל יעד. TikTok: נשלח לטיוטות בזמן שנקבע |
 | שעות מומלצות | בחלון התזמון: השעות הכי טובות לכל יעד — מהנתונים של החשבון (לייקים ותגובות לפי שעה, רילס ופוסטים) ומחקרי 2026 מותאמים לישראל (סטורי, TikTok, פייסבוק) |
 | מכסות ובקרת עלויות | שמירה אטומית של מכסה ב-Postgres, הגבלת עבודות במקביל ובקשות לדקה |
-| כספים (`/finance`, 2.51; כאפליקציה בפני עצמה מ-2.52) | נפתח עם תפריט משלו (תפריט מימין, סרגל תחתון ו-"+" בטלפון, סרגל צד במחשב) וכתובת לכל מסך (`/finance/documents` …). מסמכים חוקיים (305/300/320/400/330) מהמסך ומהקופה, קבלות, זיכויים, הכנסות (יומן תשלומים), הוצאות (כולל קריאה עם AI באישור), חייבים ותזכורות, הצעות מחיר עם קישור ללקוח, דוחות מע״מ ורווח, חבילה לרואה החשבון (ממשק פתוח 1.31), יומן פעולות חתום. **רישום תשלומים — לא סליקה.** בלי ספקי חשבוניות חיצוניים. פירוט: `STATUS.md` סעיף 4טז |
+| כספים (`/finance`, 2.51; כאפליקציה בפני עצמה מ-2.52) | נפתח עם תפריט משלו (תפריט מימין, סרגל תחתון ו-"+" בטלפון, סרגל צד במחשב) וכתובת לכל מסך (`/finance/documents` …). מסמכים (305/300/320/400/330) מהמסך ומהקופה — **לבדיקה בלבד עד רישום התוכנה ובדיקת יועץ מס**, קבלות, זיכויים, הכנסות (יומן תשלומים), הוצאות (קריאה עם AI רק בלחיצה, ובאישור), חייבים ותזכורות, הצעות מחיר עם קישור ללקוח, דוחות מע״מ ורווח, חבילה לרואה החשבון (ממשק פתוח לפי הקריאה שלנו בהוראות 1.31 — לא נבדק בסימולטור), יומן פעולות בשרשרת hash (מגלה שינוי, לא מונע). **רישום תשלומים — לא סליקה.** בלי ספקי חשבוניות חיצוניים. פירוט: `STATUS.md` סעיף 4טז |
 | מסך ניהול (`/admin`) | למנהלים בלבד (`ADMIN_EMAILS`): עלות היום/החודש/לתקופה, ממוצע לריל ולמשתמש, פירוק לפי סוג/ספק/מודל/איכות/משתמש, רילים יקרים, כישלונות וניסיונות חוזרים, מצב ספקים (אחוז הצלחה, זמן, שגיאות), והשוואת ספקים ידנית עם אישור הוצאה |
 
 ## 🔑 דורש הגדרת מפתחות
@@ -56,7 +57,7 @@ Next.js 14 (App Router) · TypeScript · Tailwind · Zustand · Supabase · Verc
 | Meta | `META_APP_ID`, `META_APP_SECRET`, `META_CONFIG_FULL` (התצורה חייבת לכלול גם `leads_retrieval` ו-`pages_manage_ads` לייבוא לידים), `META_REDIRECT_URI` | אין חיבור לאינסטגרם/פייסבוק |
 | TikTok | `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI` | אין שליחה ל-TikTok |
 | Cron | `CRON_SECRET` + `supabase/cron-stories.sql` + `supabase/cron-publish.sql` | סטוריז נמשכים רק כשמסך המדיה פתוח; פרסום מתוזמן לא רץ |
-| רשות המסים (לא חובה) | `APP_URL`, `ITA_OAUTH_AUTHORIZE_URL`, `ITA_OAUTH_TOKEN_URL`, `ITA_CLIENT_ID`, `ITA_CLIENT_SECRET`, `ITA_OAUTH_SCOPE`, `ITA_ENVIRONMENT`; לשליחה: `TAX_GATEWAY_MODE=live`, `ITA_API_BASE_URL`, `ITA_ALLOCATION_PATH`, `ITA_SPEC_VERIFIED=1` (רק אחרי אימות מול המפרט) | אין בקשת מספר הקצאה אוטומטית — מזינים ידנית מספר שהתקבל מהרשות |
+| רשות המסים (לא חובה) | `APP_URL`, `ITA_OAUTH_AUTHORIZE_URL`, `ITA_OAUTH_TOKEN_URL`, `ITA_CLIENT_ID`, `ITA_CLIENT_SECRET`, `ITA_OAUTH_SCOPE`, `ITA_ENVIRONMENT`; לשליחה: `TAX_GATEWAY_MODE=live`, `ITA_API_BASE_URL`, `ITA_ALLOCATION_PATH`, `ITA_SPEC_VERIFIED=1` (רק אחרי שמממשים את `mapRequest` / `mapResponse` לפי המפרט הרשמי) | אין בקשת מספר הקצאה אוטומטית — מזינים ידנית מספר שהתקבל מהרשות |
 | קריאת הוצאות עם AI | `ANTHROPIC_API_KEY` (+ `AI_SCAN_MODEL`, לא חובה) | ממלאים הוצאה ידנית |
 
 ## 🚧 עוד לא / מוגבל
@@ -122,7 +123,7 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
   - סכומים, מע״מ וסוגי מסמך נבדקים בטריגר בכל הפקה, וכך גם תקרת זיכוי.
   - מספור רציף בלי פערים.
   - מפתח `idempotency_key` נגד כפילויות.
-  - יומן תשלומים ויומן פעולות שלא משתנים, עם שרשרת hash.
+  - יומן תשלומים ויומן פעולות שלא נערכים מהאפליקציה (append-only), עם שרשרת hash שמגלה שינוי.
   - סגירת תקופה.
 - **בצד הלקוח** (`src/features/finance/`):
   - מנוע אחד: `vat.ts` (שיעורים היסטוריים), `rules.ts` (סוג העוסק → מסמכים מותרים), `compose.ts` (הרכבת מסמך / קבלה / זיכוי באגורות).
@@ -139,6 +140,7 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
   - `src/features/finance/module.ts` — התפריט, הסרגל וה-"+" של הכספים.
   - `src/features/finance/routes.ts` — הכתובות. קישורים ישנים (`/finance?tab=…`) מועברים ב-`src/middleware.ts`.
 - **סקירת אבטחה:** `docs/finance-security-review.md`.
+- **2.52.1 — מוכנות לפיילוט:** תיקוני אבטחה וכפילויות בקוד; מיגרציה `20261005003200_pilot_hardening.sql` נבדקה מקומית וממתינה לאישור (פירוט: `STATUS.md` סעיף 4יח).
 
 ## הריל הסופי — איך זה עובד
 
@@ -152,13 +154,20 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
 
 ```
 src/
-  app/(app)/          המסכים מאחורי ה-shell: dashboard create reels content calendar media
-                      strategy ads leads analytics integrations settings
-  app/api/            ai image video voice transcribe media archive reel/render
-                      meta/* tiktok/* social/* cron/meta-stories
-  components/         ui (primitives, MicButton…) · shell/AppShell
-  features/           reels (FinalReelPanel, CaptionEditor, captionImages) · social · media · content …
-  lib/server/         quota · safe-fetch · reel-render · meta · tiktok · secrets · access
+  app/(app)/          המסכים מאחורי ה-shell: dashboard create reels content calendar media strategy ads leads
+                      appointments register finance/* attendance analytics integrations settings admin
+                      error.tsx (שגיאה בעברית במקום מסך לבן)
+  app/                d/[token] (מסמך ללקוח) · q/[token] (הצעת מחיר) · book/[slug] (תורים) · c/ · clock/ (נוכחות)
+                      error.tsx · global-error.tsx · not-found.tsx
+  app/api/            ai image video voice transcribe media archive reel/render meta/* tiktok/* social/* cron/*
+                      finance/* (רשות המסים, מספרי הקצאה, סריקת הוצאה) · doc/[token] (+pdf) · quote/[token] · book/*
+                      clock/* · notify/* · business/me · admin/*
+  components/         ui (primitives, feedback, MicButton…) · shell (AppShell, ModuleShell) · system (VersionWatcher,
+                      ErrorScreen, SaveErrorBanner)
+  features/           finance · documents · register · booking · crm · timeclock · admin · reels · social · media · content …
+  lib/server/         finance (financeCaller) · business · tax/* (gateway, oauth) · sign-pdf · doc-pdf · doc-share
+                      rate-limit · admin-users · quota · safe-fetch · reel-render · meta · tiktok · secrets · access
   lib/services/       לקוחות ה-API בדפדפן + prompts
+  middleware.ts       קישורים ישנים של הכספים (/finance?tab=…) → הכתובת של המסך
 supabase/migrations/  מקור האמת של מסד הנתונים
 ```

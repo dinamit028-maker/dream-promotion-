@@ -1,6 +1,7 @@
 # Database migrations
 
-**Status (2026-10-05): every migration in this folder has run on the live database** — 1600 to 3100 appear in Supabase's migration list; 100 to 1500 were run by hand in the SQL Editor earlier (their tables exist). See "מצב מיגרציות" in STATUS.md.
+**Status (2026-10-05): every migration up to 3100 has run on the live database** — 1600 to 3100 appear in Supabase's migration list; 100 to 1500 were run by hand in the SQL Editor earlier (their tables exist).
+**3200 (`20261005003200_pilot_hardening.sql`) is NOT applied — it waits for the owner's explicit approval** (tested on a local Postgres 16: `tests/sql/pilot-hardening.check.sql`). See "מצב מיגרציות" in STATUS.md.
 
 Every database object the app uses is created by these files, in order. All of them are
 idempotent (safe on the existing production project, nothing is deleted).
@@ -12,13 +13,6 @@ idempotent (safe on the existing production project, nothing is deleted).
 | `20261001000300_atomic_usage_reservation.sql` | Atomic quota reservation (`reserve_usage`, `commit_usage`, `release_usage`, `finish_usage`) + rate and concurrency limits |
 | `20261001000400_storage_upload_limits.sql` | Size and type limits on the `assets` bucket |
 
-Run them in Supabase → SQL Editor, one file at a time, in the order above
-(or with the Supabase CLI: `supabase db push`).
-
-`supabase/cron-stories.sql` is separate: it contains the cron secret, so it is run by hand
-once per project and never committed with the real value.
-
-`supabase/schema.sql` is kept for reference; the migrations are the source of truth.
 | `20261001000500_ai_generations_ledger.sql` | `ai_generations` (every AI call and render: provider, model, units, estimated/actual cost, retries, fallbacks) + views `reel_costs` and `provider_health` |
 | `20261001000600_scheduled_posts.sql` | `scheduled_posts` — posts planned for a time, with destinations and per-destination results (published by `/api/cron/publish-due`) |
 | `20261002000700_transcribe_quota.sql` | `usage.kind` accepts `transcribe`, `text`, `render` — every paid endpoint is reserved and counted |
@@ -45,6 +39,15 @@ once per project and never committed with the real value.
 | `20261004002800_social_inbox.sql` | Comments and messages → CRM: `social_messages` (every comment / message, in and out, per business), `meta_inbox_sync`, `social_accounts.inbox_enabled` (applied live) |
 | `20261004002900_social_messages_post_image.sql` | `social_messages.post_image` — a stored copy of the post's picture (applied live as `20261004182752`) |
 | `20261004003000_register_pro.sql` | Register 2.50: `sale_refunds`, `stock_movements`, stock / commission columns, business billing details, `business_members.access` ('full' / 'register'), `my_access()`, `adjust_stock()`, cashier RESTRICTIVE policies (applied live as `20261004201025`) |
-| `20261004003100_dream_finance.sql` | **Dream Finance 2.51 — applied live on 2026-10-05 after explicit approval (live name `20261005055117`); verified identical to the tested schema (184 objects).** Finance profile, drafts, cancellations, quotes, expenses, payments ledger, allocation rules / requests, Tax Authority connections (server only), hash-chained audit log, super-admin access grants, period locks, `receivables` view, `finance_summary()`, `finance-files` bucket; 9 new columns on `documents`; RESTRICTIVE `_finance_privacy` also on documents / sales / refunds / shifts. Additions only, no drop. Before / after checks: `docs/finance-security-review.md` §5 |
+| `20261004003100_dream_finance.sql` | **Dream Finance 2.51 — applied live on 2026-10-05 after explicit approval (live name `20261005055117`); verified identical to the tested schema (184 objects).** Finance profile, drafts, cancellations, quotes, expenses, payments ledger, allocation rules / requests, Tax Authority connections (server only), hash-chained audit log, super-admin access grants, period locks, `receivables` view, `finance_summary()`, `finance-files` bucket; 9 new columns on `documents`; RESTRICTIVE `_finance_privacy` also on documents / document_counters / sales / refunds / shifts (14 in all). Additions only, no drop. Before / after checks: `docs/finance-security-review.md` §5 |
+| `20261005003200_pilot_hardening.sql` | **2.52.1 — NOT applied (waits for approval); tested locally.** `a_gate_caller` on documents / sale_refunds / document_cancellations / quotes / expenses / document_drafts (no error message tells one business another's numbers); `business_for_user` / `business_is_active` server only; `finance_locked_until` only for a business whose money the caller sees; no self-membership from the browser + `business_members_audit`; `profiles.email` not writable by users; `can_write()` + `_viewer_insert/_update/_delete` on every business table (viewer = read only) and in the write RPCs; `d_documents_checks` (a receipt never above the invoice's balance; 400 pays 300 only without VAT; lines / payments content); a register refund and a credit refund together never above the sale; TRUNCATE revoked from anon / authenticated. Checks after applying: `TESTING.md` §19 |
 
 **Note on live names:** migrations applied through the Supabase MCP get a timestamp of the moment they were applied (e.g. `20261004201025` for `register_pro`), not the file's name. `list_migrations` shows the live names.
+
+Run them in Supabase → SQL Editor, one file at a time, in the order above
+(or with the Supabase CLI: `supabase db push`).
+
+`supabase/cron-stories.sql` is separate: it contains the cron secret, so it is run by hand
+once per project and never committed with the real value.
+
+`supabase/schema.sql` is kept for reference; the migrations are the source of truth.

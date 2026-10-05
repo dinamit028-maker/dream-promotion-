@@ -202,7 +202,8 @@ ${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${i.note ? `<p class="muted">${
 }
 const docHtml = (d: Doc, b: Business, mark: string) => page(`${DOC_LABEL[d.docType]} ${d.docNumber}`, docBody(d, b, mark));
 
-function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string }, b: Business, from: string, to: string) {
+/** נספח 4: the summary of an open-format run (also in the accountant's package, 2.52.1) */
+export function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string }, b: Business, from: string, to: string) {
   const names: Record<string, string> = { A100: 'רשומת פתיחה', C100: 'כותרת מסמך', D110: 'פרטי מסמך', D120: 'פרטי קבלות', Z900: 'רשומת סיום' };
   const t = israelParts(new Date(r.startedAt));
   return page('הפקת קבצים במבנה אחיד', `<h2>הפקת קבצים במבנה אחיד עבור:</h2>
@@ -211,7 +212,8 @@ function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string
 <table><tr><th>קוד רשומה</th><th>תיאור רשומה</th><th>סך רשומות</th></tr>${Object.entries(r.counts).filter(([, n]) => n > 0).map(([k, n]) => `<tr><td>${k}</td><td>${names[k] ?? ''}</td><td>${n}</td></tr>`).join('')}</table>
 <p>הנתונים הופקו באמצעות תוכנת: ${esc(SOFTWARE.name)}, מספר תעודת הרישום: ${softwareRegistered(SOFTWARE.regNumber) ? esc(SOFTWARE.regNumber) : 'טרם נרשמה'} בתאריך ${t.date.split('-').reverse().map((x, i) => (i === 2 ? x.slice(2) : x)).join('/')} בשעה: ${t.time}.</p>`);
 }
-function reportHtml(rep: ReturnType<typeof docTypeReport>, b: Business, from: string, to: string) {
+/** 2.6(ב): documents by type for the period (also in the accountant's package, 2.52.1) */
+export function reportHtml(rep: ReturnType<typeof docTypeReport>, b: Business, from: string, to: string) {
   return page('דוח מסמכים לפי סוג', `<h2>${esc(b.name)} · ע.מ ${esc(b.dealerNumber)}</h2><p>דוח מסמכים לפי סוג · ${ddmmyyyy(from)} – ${ddmmyyyy(to)}</p>
 <table><tr><th>מספר המסמך</th><th>סוג המסמך</th><th>סה״כ כמותי</th><th>סה״כ כספי (בש״ח)</th></tr>${rep.map((x) => `<tr><td>${x.code}</td><td>${esc(x.name)}</td><td>${x.count}</td><td>${x.total.toFixed(2)}</td></tr>`).join('')}</table>`);
 }

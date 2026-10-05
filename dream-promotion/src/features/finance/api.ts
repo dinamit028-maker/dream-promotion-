@@ -30,6 +30,12 @@ export function financeError(e: unknown): string {
   if (/digits only/.test(m)) return 'מספר הקצאה — ספרות בלבד.';
   if (/future/.test(m)) return 'אי אפשר לרשום תאריך עתידי.';
   if (/due date is before/.test(m)) return 'מועד התשלום לפני תאריך המסמך.';
+  // 2.52.1 (migration 20261005003200): the database's own checks of receipts, contents and money back
+  if (/receipt_exceeds_balance/.test(m)) return 'הסכום גדול מהיתרה לתשלום על החשבונית (אולי כבר נרשם תשלום ממכשיר אחר). רעננו ובדקו.';
+  if (/tax invoice-receipt \(320\), not a receipt/.test(m)) return 'בעסק שגובה מע״מ, תשלום על חשבונית עסקה מקבל חשבונית מס / קבלה — לא קבלה.';
+  if (/refund_exceeds_paid/.test(m)) return 'הסכום גדול ממה שנשאר להחזיר על העסקה (חלק כבר הוחזר בקופה).';
+  if (/method and amount are numbers|cheque's details/.test(m)) return 'פרטי התשלום לא תקינים (סכום, תאריך או פרטי הצ׳ק).';
+  if (/names are text/.test(m)) return 'שורות המסמך לא תקינות (כמות, מחיר או שיעור מע״מ). רעננו ונסו שוב.';
   if (/payments:/.test(m)) return 'סכום התשלומים לא שווה לסכום המסמך.';
   if (/totals:|lines:/.test(m)) return 'הסכומים במסמך לא מסתדרים. רעננו ונסו שוב.';
   if (/the draft was|draft was not found/.test(m)) return 'הטיוטה כבר הופקה כמסמך.';
