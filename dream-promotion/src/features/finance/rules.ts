@@ -1,7 +1,7 @@
 /**
  * Business-type rules — one place that says what a business may issue and whether it charges VAT.
  * The database enforces the same matrix on every document (entity_doc_types() in migration 20261004003100);
- * tests/finance-rules.test.ts keeps the two in line.
+ * tests/finance-engine.test.ts keeps the two in line.
  *   עוסק פטור (exempt dealer) and מלכ"ר / עמותה (non-profit): no VAT, never a tax invoice — 300 / 400 only
  *   עוסק מורשה, חברה בע"מ, שותפות: VAT, every type — 305 / 320 / 330 / 300 / 400
  */

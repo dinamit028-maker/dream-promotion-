@@ -182,6 +182,32 @@ async function main() {
   const names = (links: any) => links.evaluateAll((els: Element[]) => els.map((e) => e.getAttribute('aria-label') ?? ''));
   const focused = (page: any) => page.evaluate(() => { const e = document.activeElement; return (e?.getAttribute('aria-label') || e?.textContent || '').trim(); });
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date());
+  /** the screen fits a finger and an eye: nothing sideways, every control on the screen (or in a row that scrolls by
+   *  design), and no text under 10px */
+  const fits = async (page: any, what: string) => {
+    await settle(page);
+    await noSideScroll(page, what);
+    // plain JavaScript in a string: the test runner's compiler would wrap named helpers in a function the page lacks
+    const bad: string[] = await page.evaluate(`(() => {
+      const w = window.innerWidth;
+      const shown = function (e) { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+      const inScroller = function (e) {
+        for (let p = e.parentElement; p; p = p.parentElement) { const cs = getComputedStyle(p); if (/(auto|scroll)/.test(cs.overflowX) && p.scrollWidth > p.clientWidth + 1) return true; }
+        return false;
+      };
+      const label = function (e) { return (e.getAttribute('aria-label') || e.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 30); };
+      const outside = Array.from(document.querySelectorAll('button, a, input, select, textarea'))
+        .filter(function (e) { return shown(e) && !inScroller(e); })
+        .filter(function (e) { const b = e.getBoundingClientRect(); return b.left < -1 || b.right > w + 1; })
+        .map(function (e) { return 'off screen: "' + label(e) + '"'; });
+      const tiny = Array.from(document.querySelectorAll('body *'))
+        .filter(function (e) { return shown(e) && Array.from(e.childNodes).some(function (n) { return n.nodeType === 3 && (n.textContent || '').trim(); }); })
+        .filter(function (e) { return parseFloat(getComputedStyle(e).fontSize) < 10; })
+        .map(function (e) { return 'tiny text: "' + label(e) + '" ' + getComputedStyle(e).fontSize; });
+      return outside.concat(tiny).slice(0, 8);
+    })()`);
+    assert.deepEqual(bad, [], `${what}: ${bad.join(' · ')}`);
+  };
 
   const { page } = await open({ access: 'full', userId: OWNER, path: '/finance' });
   current = page;
@@ -343,8 +369,9 @@ async function main() {
       await d.getByRole('button', { name: /דנה כהן/ }).click();
       await d.getByLabel('תיאור שורה 1').fill('חבילת סטיילינג');
       await d.getByLabel('מחיר שורה 1').fill('2360');
+      // the window opens on the tap itself (phones block one opened after the save) and gets WhatsApp's address after it
       const [popup] = await Promise.all([page.waitForEvent('popup'), d.getByRole('button', { name: 'שמירה ושליחה ללקוח' }).click()]);
-      await popup.waitForLoadState().catch(() => {});
+      await popup.waitForURL(/wa\.me|api\.whatsapp\.com/, { timeout: 15_000 });
       assert.match(decodeURIComponent(popup.url()), /הצעת מחיר מס׳ 1 .*₪2,360/);
       await popup.close();
       const q = fake.tables.quotes[0];
@@ -389,7 +416,7 @@ async function main() {
       await menuTo(page, 'רואה חשבון');
       await page.getByText('מסמך הופק', { exact: false }).first().waitFor();
       await page.getByRole('button', { name: 'בדיקת שלמות היומן' }).click();
-      await page.getByText(/היומן שלם/).waitFor();
+      await page.getByText(/לא נמצא שינוי ביומן/).waitFor();
       await noSideScroll(page, 'accountant');
     });
 
@@ -397,11 +424,15 @@ async function main() {
       const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
       const zip = await JSZip.loadAsync(readFileSync(await download.path()));
       const names = Object.keys(zip.files);
-      for (const want of ['מסמכים.csv', 'הוצאות.csv', 'יומן-תשלומים.csv', 'חייבים.csv', 'חותמת-יומן.txt', 'INI.TXT', 'BKMVDATA.zip']) {
+      for (const want of ['מסמכים.csv', 'הוצאות.csv', 'יומן-תשלומים.csv', 'חייבים.csv', 'חותמת-יומן.txt', 'INI.TXT', 'BKMVDATA.zip',
+        'סיכום-הפקה-ממשק-פתוח.html', 'דוח-מסמכים-לפי-סוג.html']) {
         assert.ok(names.some((n) => n.endsWith(want)), `${want} is in the package (${names.join(', ')})`);
       }
       const seal = await zip.file(names.find((n) => n.endsWith('חותמת-יומן.txt'))!)!.async('string');
-      assert.match(seal, /בדיקת שלמות: תקין/);
+      assert.match(seal, /בדיקת שלמות: לא נמצא שינוי/);
+      assert.match(seal, /לא מונע שינוי ממי ששולט ישירות במסד הנתונים/, 'the seal does not claim more than it does');
+      const byType = await zip.file(names.find((n) => n.endsWith('דוח-מסמכים-לפי-סוג.html'))!)!.async('string');
+      assert.ok(byType.includes('דוח מסמכים לפי סוג'), 'the 2.6(ב) printout is in the package');
       assert.match(seal, /Hash של הרשומה האחרונה: h\d+/, 'the last hash of the log');
       const docs = await zip.file(names.find((n) => n.endsWith('מסמכים.csv'))!)!.async('string');
       assert.ok(docs.includes('סלון דנה בע״מ'), 'the documents list has the invoice to the customer');
@@ -501,6 +532,55 @@ async function main() {
       await shot(page, 'm4-phone-light.jpg');
       await page.getByRole('button', { name: 'מעבר למצב כהה' }).click();
       assert.equal(await bg(page.getByRole('button', { name: 'יצירה חדשה' })), TEAL_DARK);
+    });
+
+    await step('pilot widths — 375, 390, 430, tablet, computer: every finance screen, the forms (document, quote, expense, payment), the CRM card and the register fit, close and read', async () => {
+      const saved = () => [fake.tables.documents.length, fake.tables.quotes.length, fake.tables.expenses.length, fake.tables.payments.length];
+      const before = saved();
+      const widths = [{ width: 375, height: 812 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 768, height: 1024 }, { width: 1440, height: 900 }];
+      try {
+        for (const vp of widths) {
+          await page.setViewportSize(vp);
+          const w = `${vp.width}px`;
+          for (const s of FINANCE_SECTIONS) {
+            await goto(page, s.path);
+            await heading(page, s.label);
+            await fits(page, `${s.label} · ${w}`);
+          }
+          // the forms: each fits the screen with its buttons on it, and closes
+          for (const [where, opener, title] of [
+            ['/finance/documents', '+ מסמך חדש', 'מסמך חדש'], ['/finance/quotes', '+ הצעת מחיר', 'הצעת מחיר חדשה'], ['/finance/expenses', /\+ הוצאה/, 'הוצאה חדשה'],
+          ] as const) {
+            await goto(page, where);
+            await page.getByRole('button', { name: opener }).first().click();
+            const d = dialog(page);
+            await d.getByRole('heading', { name: title }).waitFor();
+            await fits(page, `${title} · ${w}`);
+            await page.keyboard.press('Escape');
+            await d.getByRole('heading', { name: title }).waitFor({ state: 'detached' });
+          }
+          // a payment on the open invoice: the receipt form, then everything closes
+          await goto(page, '/finance/receivables');
+          await page.getByText('סלון דנה בע״מ · חשבונית מס 2').click();
+          await dialog(page).getByRole('button', { name: 'קבלה על תשלום' }).click();
+          await dialog(page).getByRole('button', { name: 'הפקת קבלה' }).waitFor();
+          await fits(page, `קבלה על תשלום · ${w}`);
+          for (let i = 0; i < 3 && await page.getByRole('dialog').count(); i++) await page.keyboard.press('Escape');
+          assert.equal(await page.getByRole('dialog').count(), 0, `${w}: the payment forms close`);
+          // the customer's money in the CRM card, and the register
+          await goto(page, '/leads');
+          await page.getByRole('button', { name: /דנה כהן/ }).first().click();
+          await dialog(page).getByRole('button', { name: /💰 כספים/ }).click();
+          await dialog(page).getByText(/חשבונית מס 1 ·/).waitFor();
+          await fits(page, `כרטיס CRM · ${w}`);
+          await page.keyboard.press('Escape');
+          await goto(page, '/register');
+          await page.getByRole('heading', { name: 'קופה' }).waitFor();
+          await fits(page, `קופה · ${w}`);
+          if (vp.width === 430 || vp.width === 768) await shot(page, `m9-register-${vp.width}.jpg`);
+        }
+      } finally { await page.setViewportSize(PHONE); }
+      assert.deepEqual(saved(), before, 'looking saved nothing');
     });
 
     await step('the CRM card: the customer\'s money, and a new document straight from it', async () => {

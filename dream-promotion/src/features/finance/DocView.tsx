@@ -11,7 +11,8 @@ import { docBody, printDocRow } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
 import { composeCredit, composeReceipt, type CreditMode } from './compose';
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, toAllocationRow, toRule, type AllocationRule, type AllocationRow, type AllocationState } from './allocation';
-import { documentRow, financeError, issueDocumentRow, logEvent, newKey } from './api';
+import { documentRow, financeError, issueDocumentRow, logEvent } from './api';
+import { followKey } from './keys';
 import { PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
 import { toReceivable, type Receivable } from './receivables';
 import { Note, PaymentsEditor, Pill, ils, todayIL } from './ui';
@@ -111,12 +112,14 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
       <div className="max-h-[50vh] overflow-auto rounded-xl bg-white p-2 text-black" dangerouslySetInnerHTML={{ __html: html }} />
       <div className="mt-3 flex flex-wrap gap-2">
         <Button variant="primary" onClick={() => void print()}>{doc.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
-        {doc.shareToken && <a href={`/api/doc/${doc.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">🔏 PDF</a>}
+        {doc.shareToken && <a href={`/api/doc/${doc.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">📄 PDF</a>}
         {doc.shareToken && <Button variant="ghost" onClick={share}>💬 שליחה ללקוח</Button>}
         {recv && !recv.cancelled && recv.balance > 0 && <Button variant="ghost" onClick={() => setDialog('receipt')}>קבלה על תשלום</Button>}
         {vat && (doc.docType === 305 || doc.docType === 320) && !fullyCredited && <Button variant="ghost" onClick={() => setDialog('credit')}>חשבונית זיכוי</Button>}
-        {(doc.docType === 300 || doc.docType === 400) && !cancelled && <Button variant="ghost" onClick={() => setDialog('cancel')}>ביטול מסמך</Button>}
+        {(doc.docType === 300 || doc.docType === 400) && !cancelled && !doc.saleId && <Button variant="ghost" onClick={() => setDialog('cancel')}>ביטול מסמך</Button>}
       </div>
+      {/* a register sale's document is cancelled with its sale (money and stock come back with it) */}
+      {(doc.docType === 300 || doc.docType === 400) && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">המסמך הופק ממכירה בקופה — מבטלים אותו מהעסקה עצמה (קופה ← מכירות ודוחות), כדי שגם הכסף והמלאי יחזרו.</p>}
       {alloc && (alloc.state.kind === 'missing' || alloc.state.kind === 'error' || alloc.state.kind === 'test') && (
         <div className="mt-3 grid gap-2 rounded-2xl border border-line p-3 text-sm">
           <p><strong>מספר הקצאה:</strong> {alloc.state.kind === 'missing' ? alloc.state.reason : alloc.state.kind === 'error' ? `הבקשה האחרונה נכשלה — ${alloc.state.message}` : 'יש רק מספר בדיקה (סביבת בדיקות).'}
@@ -127,7 +130,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
           </div>
         </div>
       )}
-      <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (קבלה / חשבונית עסקה, נרשם עם סיבה).</p>
+      <p className="mt-2 text-xs text-muted">המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (קבלה / חשבונית עסקה, נרשם עם סיבה).</p>
 
       {dialog === 'receipt' && recv && <ReceiptDialog doc={doc} balance={recv.balance} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
       {dialog === 'credit' && <CreditDialog doc={doc} credited={credited} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה חשבונית מס זיכוי מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
@@ -144,14 +147,25 @@ export function ReceiptDialog({ doc, balance, onClose, onIssued }: { doc: DocRow
   const [payments, setPayments] = useState<PaymentEntry[]>([{ method: 'transfer', amount: balance, date: today }]);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [key] = useState(() => newKey('receipt'));
+  // the key of this payment is the invoice's next receipt: two devices paying it at once share it — one receipt only
+  const [key, setKey] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void supabase().from('documents').select('id', { count: 'exact', head: true }).eq('paid_document_id', doc.id)
+      .then(({ count, error }) => { if (alive) { if (error) setErrors([financeError(error)]); else setKey(followKey('receipt', doc.id, count ?? 0)); } });
+    return () => { alive = false; };
+  }, [doc.id]);
   async function go() {
+    if (!key) return;
     const r = composeReceipt({ ...doc, balance }, { entity: settings.entity, vatRate: settings.vatRate, payments, docDate: today, today });
     if (!r.ok) { setErrors(r.errors); return; }
     setBusy(true);
     const out = await issueDocumentRow(documentRow(r.doc, { userId, idempotencyKey: key, vatRate: r.totals.vatRate, leadId: doc.leadId ?? null, paidDocumentId: doc.id }));
     setBusy(false);
     if (!out.ok) { setErrors([out.error]); return; }
+    if (out.again && Math.round(out.doc.total * 100) !== Math.round(r.doc.total * 100)) {
+      setErrors(['כבר הופקה קבלה על החשבונית הזו, כנראה ממכשיר אחר. סגרו ופתחו שוב כדי לראות את היתרה המעודכנת.']); return;
+    }
     onIssued(out.doc);
   }
   return (
@@ -160,7 +174,7 @@ export function ReceiptDialog({ doc, balance, onClose, onIssued }: { doc: DocRow
       <p className="mb-3 text-sm text-muted">יתרה לתשלום: {ils(balance)}. רישום תשלום שהתקבל — לא סליקה; שום כרטיס לא מחויב כאן.</p>
       <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} />
       {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
-      <div className="mt-4 flex gap-2"><Button variant="primary" disabled={busy} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת קבלה'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>
+      <div className="mt-4 flex gap-2"><Button variant="primary" disabled={busy || !key} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת קבלה'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>
     </Modal>
   );
 }
@@ -177,16 +191,27 @@ function CreditDialog({ doc, credited, onClose, onIssued }: { doc: DocRow; credi
   const [refund, setRefund] = useState<{ on: boolean; method: PayMethod }>({ on: doc.docType === 320, method: 'cash' });
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [key] = useState(() => newKey('credit'));
+  // the key is the invoice's next credit: two devices crediting it at once share it — one credit invoice only
+  const [key, setKey] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void supabase().from('documents').select('id', { count: 'exact', head: true }).eq('doc_type', 330).eq('base_doc_type', doc.docType).eq('base_doc_number', doc.docNumber)
+      .then(({ count, error }) => { if (alive) { if (error) setErrors([financeError(error)]); else setKey(followKey('credit', doc.id, count ?? 0)); } });
+    return () => { alive = false; };
+  }, [doc.id, doc.docType, doc.docNumber]);
   const mode: CreditMode = kind === 'full' ? { kind } : kind === 'amount' ? { kind, amount } : { kind, qty, restock };
   const preview = composeCredit(doc, mode, credited, today, { reason, today });
   async function go() {
+    if (!key) return;
     if (!preview.ok) { setErrors(preview.errors); return; }
     if (!window.confirm(`להפיק חשבונית מס זיכוי על ${ils(preview.doc.total)}? החשבונית המקורית נשארת כמו שהיא.`)) return;
     setBusy(true);
     const out = await issueDocumentRow(documentRow(preview.doc, { userId, idempotencyKey: key, vatRate: preview.totals.vatRate, leadId: doc.leadId ?? null, saleId: doc.saleId }));
     if (!out.ok) { setBusy(false); setErrors([out.error]); return; }
-    if (refund.on) {
+    if (out.again && Math.round(out.doc.total * 100) !== Math.round(preview.doc.total * 100)) {
+      setBusy(false); setErrors(['כבר הופקה חשבונית זיכוי על החשבונית הזו, כנראה ממכשיר אחר. סגרו ופתחו שוב כדי לראות כמה נשאר לזכות.']); return;
+    }
+    if (refund.on && !out.again) {
       const { error } = await supabase().rpc('record_credit_refund', { p_document: out.doc.id, p_method: refund.method, p_amount: out.doc.total, p_paid_on: today, p_note: reason.slice(0, 300) });
       if (error) fail(`חשבונית הזיכוי הופקה, אבל ההחזר לא נרשם: ${financeError(error)}`);
     }
@@ -218,7 +243,7 @@ function CreditDialog({ doc, credited, onClose, onIssued }: { doc: DocRow; credi
       {refund.on && <div className="mb-3 flex flex-wrap gap-1.5">{PAY_METHODS.map((m) => <Chip key={m.id} on={refund.method === m.id} onClick={() => setRefund({ ...refund, method: m.id })} className="min-h-9">{m.icon} {m.label}</Chip>)}</div>}
       {preview.ok && <p className="mb-2 text-sm">חשבונית הזיכוי: <strong>{ils(preview.doc.total)}</strong>{preview.doc.vatAmount ? ` (מתוכו מע״מ ${ils(preview.doc.vatAmount)})` : ''}</p>}
       {errors.length > 0 && <Note tone="warn">{errors.join(' · ')}</Note>}
-      <div className="mt-3 flex gap-2"><Button variant="primary" disabled={busy || !preview.ok} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת חשבונית זיכוי'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>
+      <div className="mt-3 flex gap-2"><Button variant="primary" disabled={busy || !preview.ok || !key} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת חשבונית זיכוי'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>
     </Modal>
   );
 }

@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
  * link that was started here and finished by someone else (with their Tax Authority login) connects nothing.
  */
 export async function POST(req: Request) {
-  const c = await financeCaller(req);
+  const c = await financeCaller(req, { write: true });
   if (!c.ok) return Response.json(c.body, { status: c.status });
   if (!c.member) return Response.json({ code: 'members_only', message: 'רק חבר/ה בעסק מחבר/ת אותו לרשות המסים.' }, { status: 403 });
   const cfg = oauthConfig();

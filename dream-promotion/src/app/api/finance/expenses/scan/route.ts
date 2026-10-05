@@ -41,7 +41,7 @@ Today is ${today}.`;
 
 export async function POST(req: Request) {
   if (!KEY) return Response.json({ code: 'no_api_key', message: 'הקריאה האוטומטית לא מוגדרת בשרת — ממלאים ידנית.' }, { status: 503 });
-  const c = await financeCaller(req);
+  const c = await financeCaller(req, { write: true });
   if (!c.ok) return Response.json(c.body, { status: c.status });
   const form = await req.formData().catch(() => null);
   const file = form?.get('file');

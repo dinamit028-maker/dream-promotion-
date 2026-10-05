@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { userFromRequest } from '@/lib/server/admin';
 import { isSuperAdmin } from '@/lib/server/business';
-import { signState } from '@/lib/server/secrets';
-import { metaAuthorizeUrl, metaConfigured } from '@/lib/server/meta';
+import { oauthCookie, oauthOnce, signState } from '@/lib/server/secrets';
+import { META_OAUTH_COOKIE, metaAuthorizeUrl, metaConfigured } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
 
@@ -16,7 +16,11 @@ export async function POST(req: Request) {
   if (!userId) return NextResponse.json({ code: 'no_session', message: 'sign in required' }, { status: 401 });
   if (!(await isSuperAdmin(userId))) return NextResponse.json({ code: 'forbidden', message: 'החיבור ל-Meta מנוהל במסך הניהול' }, { status: 403 });
   try {
-    return NextResponse.json({ url: metaAuthorizeUrl(req, signState({ u: userId, p: 'meta', m: 'full' })) });
+    // finished only in this browser (2.52.1): the one-time value is in the state and in this browser's cookie
+    const once = oauthOnce();
+    const res = NextResponse.json({ url: metaAuthorizeUrl(req, signState({ u: userId, p: 'meta', m: 'full', c: once })) });
+    res.headers.append('Set-Cookie', oauthCookie(META_OAUTH_COOKIE, '/api/meta/callback', once));
+    return res;
   } catch {
     return NextResponse.json({ code: 'not_configured', message: 'META_CONFIG_FULL missing' }, { status: 503 });
   }

@@ -8,6 +8,8 @@ import { missingBanner } from '@/lib/server/meta-sync';
 const REASONS: Record<string, string> = {
   access_denied: 'החיבור בוטל ב-TikTok.',
   expired: 'עבר יותר מדי זמן. נסו שוב.',
+  denied: 'החיבור הושלם בדפדפן אחר מזה שהתחיל אותו, ולכן לא נשמר. מתחילים ומסיימים באותו דפדפן.',
+  other_business: 'חשבון ה-TikTok הזה כבר מחובר לעסק אחר. קודם מנתקים אותו שם.',
 };
 
 

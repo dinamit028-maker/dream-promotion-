@@ -6,7 +6,8 @@ import { accessTokenFor, oauthConfig } from './oauth';
  * TaxAuthorityGateway — the one place the app would talk to the Israel Tax Authority (SHAAM) about allocation numbers.
  * Server only. Three modes, chosen by the environment:
  *   unconfigured  (default)  nothing is sent; the screens say the connection is not set up
- *   mock          TAX_GATEWAY_MODE=mock, never on Vercel production: answers "TEST-…" numbers, stored with is_test = true,
+ *   mock          TAX_GATEWAY_MODE=mock, only in development and tests — never in a production build (Vercel production AND
+ *                 previews, which write to the live database): answers "TEST-…" numbers, stored with is_test = true,
  *                 printed as "מספר בדיקה — לא מספר הקצאה" — a test number can never pass as a real one (the database
  *                 refuses a TEST-number marked real, and a digits-only number marked test)
  *   live          TAX_GATEWAY_MODE=live + the OAuth / API settings below. The transport is here (per-business OAuth token,
@@ -24,7 +25,8 @@ type Env = Record<string, string | undefined>;
 
 export function gatewayMode(env: Env = process.env): GatewayMode {
   const m = (env.TAX_GATEWAY_MODE ?? '').trim().toLowerCase();
-  if (m === 'mock') return env.VERCEL_ENV === 'production' ? 'unconfigured' : 'mock';
+  // a production build (next build — Vercel production and previews alike) never answers test numbers
+  if (m === 'mock') return env.VERCEL_ENV === 'production' || env.NODE_ENV === 'production' ? 'unconfigured' : 'mock';
   if (m === 'live') return liveSettings(env) ? 'live' : 'unconfigured';
   return 'unconfigured';
 }

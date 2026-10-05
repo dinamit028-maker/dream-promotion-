@@ -1,6 +1,6 @@
 import { DOC_LABEL, PAY_LABEL } from '@/features/documents/documents';
 import type { DocRow } from '@/features/documents/documents';
-import { categoryLabel, SUPPLIER_DOC_TYPES, type Expense } from './expenses';
+import { categoryLabel, SUPPLIER_DOC_TYPES, vatDeductible, type Expense } from './expenses';
 import { LEDGER_SOURCE_HE, payLabel, type LedgerRow } from './payments';
 import { STATUS_HE, receivableStatus, type Receivable } from './receivables';
 
@@ -44,7 +44,7 @@ export function expensesCsv(list: Expense[], businessChargesVat: boolean) {
   return csv(['מספר', 'תאריך', 'ספק', 'ע.מ ספק', 'סוג מסמך', 'מספר מסמך', 'מספר הקצאה', 'קטגוריה', 'תיאור', 'לפני מע״מ', 'מע״מ', 'סה״כ', '% מע״מ לקיזוז', 'מע״מ לקיזוז', 'שולם', 'סטטוס', 'קובץ'],
     list.map((e) => [e.number, day(e.docDate), e.supplierName, e.supplierDealer, SUPPLIER_DOC_TYPES.find((t) => t.id === e.supplierDocType)?.label ?? e.supplierDocType,
       e.supplierDocNumber, e.allocationNumber, categoryLabel(e.category), e.description, money(e.amountBeforeVat), money(e.vatAmount), money(e.total), e.vatDeductiblePct,
-      money(businessChargesVat && e.status === 'confirmed' ? Math.round(e.vatAmount * e.vatDeductiblePct) / 100 : 0),
+      money(e.status === 'confirmed' ? vatDeductible(e, businessChargesVat) : 0),
       e.paidOn ? `${day(e.paidOn)} · ${payLabel(e.paymentMethod ?? '')}` : '', e.status === 'void' ? `מבוטלת: ${e.voidReason}` : e.status === 'draft' ? 'טיוטה' : 'מאושרת',
       e.filePath ? e.filePath.split('/').pop() : '']));
 }

@@ -22,6 +22,9 @@ export const metaRedirectUri = (req: Request) =>
   process.env.META_REDIRECT_URI || `${new URL(req.url).origin}/api/meta/callback`;
 
 /** one request with every permission (publish + read) — the "read only" configuration is no longer offered */
+/** the one-time cookie of a Meta connection in progress (connect → callback, this browser only) */
+export const META_OAUTH_COOKIE = 'dp_meta_oauth';
+
 export function metaAuthorizeUrl(req: Request, state: string) {
   const config = process.env.META_CONFIG_FULL;
   if (!config) throw new Error('not_configured');

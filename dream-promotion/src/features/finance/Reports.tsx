@@ -8,7 +8,7 @@ import { logEvent } from './api';
 import { categoryLabel } from './expenses';
 import { payLabel } from './payments';
 import { vatReportRows } from './reports';
-import { Note, PeriodPicker, ils, periodNow, type Period } from './ui';
+import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, ils, periodNow, type Period } from './ui';
 
 /**
  * "דוחות": profit and loss (estimate), the VAT working paper of a period, expenses by category, money by method — all from
@@ -33,7 +33,14 @@ export function Reports() {
   const { profile, business, vat, fail } = useFinance();
   const [period, setPeriod] = useState<Period>(() => periodNow(profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'));
   const [s, setS] = useState<Summary | null>(null);
-  useEffect(() => { setS(null); void loadSummary(period).then((r) => (r.ok ? setS(r.s) : fail(r.error))); }, [period, fail]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setS(null); setLoadError(null);
+    void loadSummary(period).then((r) => { if (alive) { if (r.ok) setS(r.s); else setLoadError(r.error); } }, () => alive && setLoadError(LOAD_FAILED));
+    return () => { alive = false; };
+  }, [period, attempt]);
   function print() {
     if (!s) return;
     const w = window.open('', '_blank'); if (!w) return;
@@ -43,7 +50,7 @@ export function Reports() {
   return (
     <div className="grid gap-3">
       <PeriodPicker value={period} onChange={setPeriod} vatKind={profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'} />
-      {!s ? <div className="py-8 text-center"><Spinner /></div> : <>
+      {!s ? (loadError ? <LoadFailed message={loadError} onRetry={() => setAttempt((n) => n + 1)} /> : <div className="py-8 text-center"><Spinner /></div>) : <>
         <Card className="p-4">
           <p className="mb-2 font-bold">רווח והפסד (הערכה)</p>
           <dl className="grid gap-1 text-sm tabular-nums">

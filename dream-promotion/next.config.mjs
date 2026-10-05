@@ -6,7 +6,8 @@ const BUILD_DATE = new Date().toISOString().slice(0, 10);
 
 const nextConfig = {
   reactStrictMode: true,
-  images: { remotePatterns: [{ protocol: 'https', hostname: '**' }] },
+  // next/image is not used: no remote image optimizer (an open remotePatterns '**' let anyone use the server as an image proxy)
+  images: { unoptimized: true },
   experimental: {
     // the final-reel renderer runs the ffmpeg binary and burns captions with the bundled Hebrew font
     serverComponentsExternalPackages: ['ffmpeg-static'],

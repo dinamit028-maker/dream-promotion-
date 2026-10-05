@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { authHeaders } from '@/lib/services/http';
+import { authHeadersForForm } from '@/lib/services/http';
 import { Button, Chip, Field, Input, Select, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { Camera } from '@/components/ui/Icon';
@@ -82,15 +82,18 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
   const [busy, setBusy] = useState(false);
   const [voiding, setVoiding] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const locked = expense?.status === 'void' || Boolean(expense?.paidOn);
   const set = <K extends keyof ExpenseForm>(k: K, v: ExpenseForm[K]) => setF((x) => ({ ...x, [k]: v }));
   const fromTotal = (total: number, withVat = carriesVat(f.supplierDocType) && vat) => setF((x) => ({ ...x, ...splitTotal(total, withVat ? settings.vatRate : 0) }));
 
+  /** a chosen file is only attached; it goes to the AI only when the user asks ("✨ קריאה אוטומטית") — 2.52.1 */
+  function pickFile(fl: File) { setFile(fl); setScan({ busy: false, warnings: [], model: '', raw: null, error: null }); }
   async function readFile(fl: File) {
-    setFile(fl); setScan({ busy: true, warnings: [], model: '', raw: null, error: null });
+    setScan({ busy: true, warnings: [], model: '', raw: null, error: null });
     try {
       const fd = new FormData(); fd.append('file', fl);
-      const r = await fetch('/api/finance/expenses/scan', { method: 'POST', headers: await authHeaders(), body: fd });
+      const r = await fetch('/api/finance/expenses/scan', { method: 'POST', headers: await authHeadersForForm(), body: fd });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setScan({ busy: false, warnings: [], model: '', raw: null, error: j.message ?? 'הקריאה האוטומטית לא זמינה כרגע — ממלאים ידנית.' }); return; }
       const x = j.fields as Extraction;
@@ -135,9 +138,11 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
   }
   async function openFile() {
     if (!expense?.filePath) return;
+    // the window opens on the tap itself (a window opened after the request is blocked by phones), then gets the file's address
+    const w = window.open('', '_blank');
     const { data, error: e } = await supabase().storage.from('finance-files').createSignedUrl(expense.filePath, 120);
-    if (e || !data) { setError('הקובץ לא נפתח.'); return; }
-    window.open(data.signedUrl, '_blank', 'noopener');
+    if (e || !data) { w?.close(); setError('הקובץ לא נפתח.'); return; }
+    if (w) { w.opener = null; w.location.href = data.signedUrl; } else window.open(data.signedUrl, '_blank', 'noopener');
   }
 
   const products = catalog.filter((c) => c.kind === 'product');
@@ -149,12 +154,19 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
       </div>
       {!expense && (
         <div className="mb-3 grid gap-2 rounded-2xl border border-dashed border-line p-3">
-          <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])} aria-label="קובץ החשבונית" />
+          {/* two inputs: "capture" opens only the camera on a phone, so a PDF from the phone needs the plain one */}
+          <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && pickFile(e.target.files[0])} aria-label="קובץ החשבונית" />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && pickFile(e.target.files[0])} aria-label="צילום החשבונית" />
           <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" onClick={() => fileRef.current?.click()}><Camera size={18} aria-hidden />צילום / העלאת קובץ</Button>
-            {file && <span className="self-center text-sm">{file.name}</span>}
+            <Button variant="ghost" onClick={() => cameraRef.current?.click()}><Camera size={18} aria-hidden />צילום</Button>
+            <Button variant="ghost" onClick={() => fileRef.current?.click()}>📎 העלאת קובץ (תמונה / PDF)</Button>
+            {file && <span className="min-w-0 self-center truncate text-sm">{file.name}</span>}
+            {file && !scan.busy && scan.raw == null && <Button variant="primary" onClick={() => void readFile(file)}>✨ קריאה אוטומטית</Button>}
             {scan.busy && <span className="flex items-center gap-2 text-sm"><Spinner />קורא את הקובץ…</span>}
           </div>
+          {file && scan.raw == null && !scan.busy && !scan.error && (
+            <p className="text-xs text-muted">הקובץ יישמר עם ההוצאה. &quot;קריאה אוטומטית&quot; שולחת אותו לשירות AI (Anthropic) שממלא את הטופס — לא חובה, ואפשר למלא ידנית.</p>
+          )}
           {scan.error && <Note tone="warn">{scan.error}</Note>}
           {scan.raw != null && !scan.busy && <Note>✨ הטופס מולא מהקובץ — <strong>בדקו כל שדה</strong> לפני השמירה. מה שלא נקרא בוודאות נשאר ריק.{scan.warnings.map((w) => <span key={w} className="block text-xs">• {w}</span>)}</Note>}
         </div>

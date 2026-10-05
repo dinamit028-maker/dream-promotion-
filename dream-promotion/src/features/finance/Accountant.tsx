@@ -6,8 +6,8 @@ import { Button, Card, Field, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
-import { buildOpenFormat, toIso88598 } from '@/features/documents/openformat';
-import { SOFTWARE } from '@/features/documents/DocumentsTab';
+import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
+import { SOFTWARE, reportHtml as docTypeReportHtml, summaryHtml as openFormatSummaryHtml } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
 import { loadSummary } from './Overview';
 import { reportHtml } from './Reports';
@@ -91,10 +91,14 @@ export function Accountant() {
           lastHash: head.data ? String((head.data as any).hash) : '', lastAt: head.data ? formatIL(String((head.data as any).at)) : '' }));
       }
       if (business.ready && docs.length) {
-        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt: new Date().toISOString() });
+        const startedAt = new Date().toISOString();
+        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt });
         const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
+        // the two printouts of the open-format module (2.6(ב) and נספח 4) — this package is now its one place (2.52.1)
+        zip.file(`${root}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, period.from, period.to));
+        zip.file(`${root}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, period.from, period.to), business, period.from, period.to));
       }
       let files = 0;
       if (withFiles) {
@@ -157,7 +161,7 @@ export function Accountant() {
           <p className="font-bold">יומן ביקורת כספי</p>
           <Button size="sm" variant="ghost" onClick={() => void check()}>בדיקת שלמות היומן</Button>
         </div>
-        {verify && <div className="mb-2"><Note tone={verify.ok ? 'ok' : 'warn'}>{verify.ok ? `היומן שלם: ${verify.rows} רשומות, כל אחת חתומה על הקודמת.` : `נמצאה רשומה שהשתנתה (מס׳ ${verify.firstBad}) — צריך לבדוק.`}</Note></div>}
+        {verify && <div className="mb-2"><Note tone={verify.ok ? 'ok' : 'warn'}>{verify.ok ? `לא נמצא שינוי ביומן: ${verify.rows} רשומות, וכל רשומה משורשרת (hash) לקודמת.` : `נמצאה רשומה שהשתנתה (מס׳ ${verify.firstBad}) — צריך לבדוק.`}</Note></div>}
         {log === null ? <Spinner /> : !log.length ? <p className="text-sm text-muted">אין רשומות עדיין.</p> : (
           <ul className="grid gap-1 text-sm">{log.map((r) => (
             <li key={r.id} className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 border-b border-line py-1.5 last:border-0">
@@ -167,7 +171,8 @@ export function Accountant() {
           ))}</ul>
         )}
         {log && log.length % 50 === 0 && log.length > 0 && <Button size="sm" variant="ghost" className="mt-2" onClick={() => void loadLog(true)}>עוד</Button>}
-        <p className="mt-2 text-xs text-muted">היומן נכתב על ידי מסד הנתונים בלבד, אי אפשר לשנות או למחוק בו שורה, וכל שורה חתומה (hash) על הקודמת.</p>
+        <p className="mt-2 text-xs text-muted">היומן נכתב על ידי מסד הנתונים בלבד, ומהאפליקציה אי אפשר לשנות או למחוק בו שורה. כל שורה משורשרת (hash) לקודמת, ולכן בדיקת השלמות מגלה שורה שהשתנתה.
+          זו הגנה שמגלה שינוי — היא לא מונעת שינוי ממי ששולט ישירות במסד הנתונים. לכן חבילת רואה החשבון כוללת חותמת של היומן, ששומרים מחוץ למערכת.</p>
       </Card>
     </div>
   );

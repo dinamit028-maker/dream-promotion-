@@ -17,7 +17,11 @@ export const AUDIT_ACTION_HE: Record<string, string> = {
   'period.locked': 'תקופה נסגרה', 'settings.business': 'פרטי העסק שונו', 'settings.finance_profile': 'הגדרות הכספים שונו',
   'support.access_opened': 'מנהל-על פתח גישה לנתונים הכספיים', 'support.access_closed': 'מנהל-על סגר את הגישה',
   'export.open_format': 'הופק ממשק פתוח', 'export.csv': 'יוצא קובץ', 'export.package': 'הופקה חבילה לרו״ח', 'reminder.sent': 'נשלחה תזכורת תשלום', 'report.printed': 'דוח הודפס',
+  // 2.52.1: who may work in the business (migration 20261005003200)
+  'member.added': 'אדם צורף לעסק', 'member.changed': 'הרשאה של אדם בעסק שונתה', 'member.removed': 'אדם הוסר מהעסק',
 };
+const ACCESS_HE: Record<string, string> = { full: 'גישה מלאה', register: 'קופה בלבד' };
+const ROLE_HE: Record<string, string> = { owner: 'בעלים', editor: 'עורך/ת', viewer: 'צפייה בלבד' };
 export const ACTOR_HE: Record<AuditRow['actorKind'], string> = { member: 'משתמש בעסק', super_admin: 'מנהל-על', server: 'המערכת' };
 const n = (v: unknown) => (typeof v === 'number' || typeof v === 'string' ? Number(v) : NaN);
 const ils = (v: unknown) => (Number.isFinite(n(v)) ? `₪${n(v).toLocaleString('he-IL', { maximumFractionDigits: 2 })}` : '');
@@ -30,6 +34,8 @@ export function auditLine(r: AuditRow): string {
   if (d.total !== undefined) parts.push(ils(d.total));
   if (d.amount !== undefined) parts.push(ils(d.amount));
   if (d.from && d.to) parts.push(`${d.from} ← ${d.to}`);
+  if (d.email) parts.push(String(d.email).slice(0, 120));
+  if (d.access && String(r.action).startsWith('member.')) parts.push(d.role === 'viewer' ? ROLE_HE.viewer : ACCESS_HE[d.access] ?? String(d.access));
   if (d.reason) parts.push(`סיבה: ${String(d.reason).slice(0, 80)}`);
   if (d.until) parts.push(`עד ${String(d.until).slice(0, 16).replace('T', ' ')}`);
   return parts.filter(Boolean).join(' · ');
@@ -47,10 +53,11 @@ export function auditSeal(s: AuditSeal): string {
     `הופקה: ${s.madeAt}`,
     `תקופת החבילה: ${s.from} עד ${s.to}`,
     `רשומות ביומן (כל התקופות): ${s.rows}`,
-    `בדיקת שלמות: ${s.ok ? 'תקין — כל רשומה חתומה על הקודמת' : `נמצאה רשומה שהשתנתה (מס׳ ${s.firstBad ?? '?'})`}`,
+    `בדיקת שלמות: ${s.ok ? 'לא נמצא שינוי — כל רשומה משורשרת (hash) לקודמת' : `נמצאה רשומה שהשתנתה (מס׳ ${s.firstBad ?? '?'})`}`,
   ];
   if (s.lastId === null) lines.push('היומן ריק.');
   else lines.push(`רשומה אחרונה: מס׳ ${s.lastId} · ${s.lastAt}`, `Hash של הרשומה האחרונה: ${s.lastHash}`);
-  lines.push('', 'כדאי לשמור את הקובץ הזה מחוץ למערכת. אם בעתיד היומן יציג Hash אחר לאותה רשומה — היומן שוּנה אחרי הפקת החבילה.');
+  lines.push('', 'כדאי לשמור את הקובץ הזה מחוץ למערכת. אם בעתיד היומן יציג Hash אחר לאותה רשומה — היומן שוּנה אחרי הפקת החבילה.',
+    'השרשור מגלה שינוי של רשומה; הוא לא מונע שינוי ממי ששולט ישירות במסד הנתונים — ולכן העותק שמחוץ למערכת חשוב.');
   return lines.join('\r\n') + '\r\n';
 }

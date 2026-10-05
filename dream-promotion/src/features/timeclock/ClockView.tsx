@@ -32,8 +32,10 @@ export function ClockView({ token, site, register }: { token: string; site?: str
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/clock/${token}${site ? `?site=${encodeURIComponent(site)}` : ''}`).catch(() => null);
-    if (!r) { setMissing('אין חיבור לאינטרנט'); return; }
-    const j = await r.json();
+    if (!r) { setMissing('אין חיבור לאינטרנט. בדקו את החיבור ורעננו את הדף.'); return; }
+    // a server error page is not JSON: say so instead of a spinner that never stops
+    const j = await r.json().catch(() => null);
+    if (!j) { setMissing('השעון לא נטען כרגע. רעננו את הדף בעוד רגע.'); return; }
     if (!r.ok) { setMissing(j.message || 'הקישור לא תקין'); return; }
     setS(j);
     if (register) rememberEmployee(token, j.name);
@@ -53,7 +55,7 @@ export function ClockView({ token, site, register }: { token: string; site?: str
     try {
       const loc = await position();
       const r = await fetch(`/api/clock/${token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, site: site ?? undefined, ...loc }) });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (j.name) setS(j);
       if (r.ok) setMsg({ ok: true, text: action === 'in' ? `נכנסת ב-${clock(j.at)}. משמרת טובה!` : `יצאת ב-${clock(j.at)}. תודה!` });
       else setMsg({ ok: false, text: j.message || 'לא נשמר. נסו שוב.' });

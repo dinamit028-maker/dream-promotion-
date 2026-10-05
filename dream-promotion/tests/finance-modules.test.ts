@@ -8,6 +8,7 @@ import { PLACEHOLDERS, aging, aiDraftIsSafe, daysOverdue, dueDateFor, fillRemind
 import { QUOTE_NEXT, canMove, editable, quoteMessage, quoteState, validUntilFor, type QuoteStatus } from '../src/features/finance/quotes';
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, isRealAllocation, minimizedRequest, ruleOn, type AllocationRow } from '../src/features/finance/allocation';
 import { EXPENSE_CATEGORIES, carriesVat, expenseError, sanitizeExtraction, splitTotal, vatDeductible, type ExpenseForm } from '../src/features/finance/expenses';
+import { documentDateRateNote, pctOf } from '../src/features/finance/vat';
 import { documentsCsv, expensesCsv, ledgerCsv, periodOf, previousPeriod, receivablesCsv, vatReportRows } from '../src/features/finance/reports';
 import { auditLine, auditSeal } from '../src/features/finance/audit';
 import { toDoc } from '../src/features/documents/documents';
@@ -107,6 +108,15 @@ test('expenses: categories, VAT that may be deducted, the form\'s rules', () => 
   assert.deepEqual(splitTotal(354, 18), { amountBeforeVat: 300, vatAmount: 54, total: 354 });
   assert.equal(vatDeductible({ vatAmount: 54, vatDeductiblePct: 66.67, supplierDocType: 'tax_invoice' }, true), 36, 'the same 36 as finance_summary() in the database');
   assert.equal(vatDeductible({ vatAmount: 54, vatDeductiblePct: 100, supplierDocType: 'tax_invoice' }, false), 0, 'an exempt dealer deducts nothing');
+  // whole agorot, half away from zero — as round(vat × % / 100, 2) in the database (floating point gave 2.01 × 50% = 1.00)
+  assert.equal(vatDeductible({ vatAmount: 2.01, vatDeductiblePct: 50, supplierDocType: 'tax_invoice' }, true), 1.01);
+  assert.equal(vatDeductible({ vatAmount: 0.15, vatDeductiblePct: 66.67, supplierDocType: 'tax_invoice' }, true), 0.1);
+  assert.equal(vatDeductible({ vatAmount: 180, vatDeductiblePct: 0, supplierDocType: 'tax_invoice' }, true), 0);
+  // a back-dated document at today's rate: said before issuing, never changed by itself (a question for the accountant)
+  assert.match(documentDateRateNote(18, '2024-12-31')!, /שונה מהשיעור החוקי בתאריך המסמך \(17%\)/);
+  assert.equal(documentDateRateNote(18, '2025-01-01'), null);
+  assert.equal(documentDateRateNote(0, '2024-12-31'), null, 'no VAT on the document');
+  assert.equal(pctOf(201, 50), 101); assert.equal(pctOf(-201, 50), -101); assert.equal(pctOf(5400, 66.67), 3600); assert.equal(pctOf(12345, 12.5), 1543);
   assert.equal(carriesVat('receipt'), false);
   const f: ExpenseForm = { supplierName: 'ספק', supplierDealer: '', supplierDocType: 'tax_invoice', supplierDocNumber: '7', allocationNumber: '', docDate: TODAY, category: 'rent',
     description: '', amountBeforeVat: 1000, vatAmount: 180, total: 1180, vatDeductiblePct: 100, paidOn: null, paymentMethod: null };
@@ -168,7 +178,9 @@ test('the audit seal in the accountant\'s package: the last hash, kept outside t
   const seal = auditSeal({ business: 'FollowMe (515123456)', from: '2026-09-01', to: '2026-09-30', madeAt: '04/10/2026 10:00', rows: 42, ok: true,
     lastId: 77, lastHash: 'ab'.repeat(32), lastAt: '04/10/2026 09:59' });
   assert.match(seal, /רשומות ביומן \(כל התקופות\): 42/);
-  assert.match(seal, /תקין/);
+  assert.match(seal, /לא נמצא שינוי/);
+  assert.match(seal, /לא מונע שינוי ממי ששולט ישירות במסד הנתונים/, 'the chain detects a change, it does not claim to prevent one');
+  assert.ok(!/חתומה/.test(seal), 'not described as a signature');
   assert.ok(seal.includes(`Hash של הרשומה האחרונה: ${'ab'.repeat(32)}`));
   assert.ok(seal.endsWith('\r\n') && !seal.includes('\n\n'), 'Windows line ends, as the other files');
   const bad = auditSeal({ business: 'x', from: 'a', to: 'b', madeAt: 'c', rows: 3, ok: false, firstBad: 2, lastId: 3, lastHash: 'h', lastAt: 'd' });

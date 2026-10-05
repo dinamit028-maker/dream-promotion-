@@ -40,7 +40,7 @@ export const PREVIEW_LINE = 'שלום, זו דוגמה לקריינות בעבר
 export const VoiceService = {
   async status(language = 'he'): Promise<{ available: boolean; provider: string; voices: VoiceOption[]; usage: { used: number; limit: number; resetsAt: string | null } | null }> {
     try {
-      const r = await fetch(`/api/voice?language=${language}`);
+      const r = await fetch(`/api/voice?language=${language}`, { headers: await authHeaders() });
       const j = await r.json();
       return { available: !!j.available, provider: j.provider ?? 'none', voices: j.voices ?? [], usage: j.usage ?? null };
     } catch {

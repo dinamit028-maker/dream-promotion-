@@ -17,6 +17,7 @@ import { PosView, type CheckoutInput, type CheckoutResult, type PosItem, type To
 import { RefundPanel, refundSlipHtml } from './RefundPanel';
 import { CommissionsTab } from './CommissionsTab';
 import { israelToIso } from '@/lib/il-time';
+import { isDuplicateId } from '@/lib/db-errors';
 import { METHODS, computeSale, ils, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Refund, type Sale } from './money';
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
 import { MOVE_HE, applyStock, lowStockList, planAdjust, stockLevel, stockText } from './stock';
@@ -171,17 +172,28 @@ export function RegisterScreen() {
     // a new customer is saved first — the sale points to it
     if (!leadId && c.customer.name.trim()) leadId = await addLeadNow({ name: c.customer.name.trim(), phone: c.customer.phone.trim(), source: 'קופה', date: israelParts(Date.now()).date, status: c.paidNow ? 'נסגר' : 'מעוניין', value: 0 });
     const now = new Date().toISOString();
-    const { data, error: e } = await supabase().from('sales').insert({
-      user_id: userId, lead_id: leadId, appointment_id: c.customer.appointmentId, customer_name: c.customer.name.trim(), customer_phone: c.customer.phone.trim(),
+    const id = c.saleId ?? crypto.randomUUID();
+    const ins = await supabase().from('sales').insert({
+      id, user_id: userId, lead_id: leadId, appointment_id: c.customer.appointmentId, customer_name: c.customer.name.trim(), customer_phone: c.customer.phone.trim(),
       items: c.lines.filter((l) => l.qty > 0), subtotal: tt.subtotal, discount: tt.discount, total: tt.total, vat_rate: tt.vatRate, vat_amount: tt.vatAmount,
       method: c.paidNow ? c.method : 'link', payments: c.method === 'split' ? c.payments : [], status: c.paidNow ? 'paid' : 'pending', note: c.note, paid_at: c.paidNow ? now : null,
       employee_id: c.employee?.id ?? null, employee_name: c.employee?.name ?? '',
       ...(c.cashReceived != null ? { cash_received: c.cashReceived, change_given: Math.round((c.cashReceived - tt.total) * 100) / 100 } : {}),
       ...(c.billing ? billingColumns(c.billing) : {}),
     }).select('*').single();
-    if (e) return { ok: false, error: errText(e) };
+    let data = ins.data;
+    let replay = false;
+    if (ins.error && isDuplicateId(ins.error, 'sales_pkey')) {
+      // the first try was saved and only its answer was lost: this is the same sale, not a second one
+      const again = await supabase().from('sales').select('*').eq('id', id).maybeSingle();
+      if (!again.data) return { ok: false, error: errText(ins.error) };
+      if (Math.round(Number(again.data.total) * 100) !== Math.round(tt.total * 100)) {
+        return { ok: false, error: `עסקה קודמת על ${ils(Number(again.data.total))} כבר נשמרה. בדקו ב"מכירות ודוחות" לפני שממשיכים.` };
+      }
+      data = again.data; replay = true;
+    } else if (ins.error) return { ok: false, error: errText(ins.error) };
     const sale = toSale(data);
-    setSales((all) => [sale, ...all]);
+    setSales((all) => [sale, ...all.filter((x) => x.id !== sale.id)]);
     // the database moved the stock (trigger); the screen follows at once
     const after = applyStock(items, sale.items);
     setItems(after);
@@ -191,15 +203,19 @@ export function RegisterScreen() {
       const b = billingColumns(c.billing);
       updateLead(leadId, { billingName: b.billing_name, billingDealer: b.customer_dealer, billingStreet: b.customer_street, billingCity: b.customer_city });
     }
-    if (leadId && c.paidNow) crmPurchase(leadId, sale);
-    if (!c.paidNow) { if (leadId) addActivity(leadId, 'note', `נשלחה בקשת תשלום: ${ils(sale.total)}`); requestPayment(sale); }
-    const doc = c.paidNow ? await issueDocumentFull(sale, leadId) : null;
-    void notifySale(sale.id); // the managers' phones — never blocks the sale
-    return { ok: true, sale, docLabel: doc?.label, docUrl: doc?.token ? `${window.location.origin}/d/${doc.token}` : undefined, lowStock: low };
+    if (leadId && c.paidNow && !replay) crmPurchase(leadId, sale);
+    // the payment request opens from a tap on the result screen: a window opened here, after the save, is blocked by phones
+    const payUrl = !c.paidNow ? payRequestUrl(sale) : null;
+    if (!c.paidNow && !replay && leadId) addActivity(leadId, 'note', `בקשת תשלום: ${ils(sale.total)}`);
+    const doc = c.paidNow ? await issueDocumentFull(sale, leadId) : null;   // idempotent: "sale:<id>"
+    if (!replay) void notifySale(sale.id); // the managers' phones — never blocks the sale
+    return { ok: true, sale, docLabel: doc?.label, docUrl: doc?.token ? `${window.location.origin}/d/${doc.token}` : undefined, payUrl: payUrl ?? undefined, lowStock: low };
   }
 
+  const payRequestUrl = (s: Sale) => (settings.payLink && waLink(s.customerPhone, payRequestText({ name: s.customerName, total: s.total, items: s.items.map((l) => l.name).join(', '), business: brand.name, link: settings.payLink }))) || null;
+  /** a reminder from the sales list — opened on the tap itself */
   function requestPayment(s: Sale) {
-    const url = settings.payLink && waLink(s.customerPhone, payRequestText({ name: s.customerName, total: s.total, items: s.items.map((l) => l.name).join(', '), business: brand.name, link: settings.payLink }));
+    const url = payRequestUrl(s);
     if (url) window.open(url, '_blank', 'noopener');
   }
   async function markPaid(s: Sale, m: Method) {
@@ -244,16 +260,24 @@ export function RegisterScreen() {
   }
 
   /** "החזר כספי": the refund is recorded (checked by the database), then its credit invoice and the customer's history */
-  async function refund(sale: Sale, plan: RefundPlan): Promise<{ ok: boolean; error?: string; message?: string }> {
+  async function refund(sale: Sale, plan: RefundPlan & { id?: string }): Promise<{ ok: boolean; error?: string; message?: string }> {
     if (!userId) return { ok: false, error: 'אין חיבור' };
-    const { data, error: e } = await supabase().from('sale_refunds').insert({
-      user_id: userId, sale_id: sale.id, amount: plan.amount, vat_amount: plan.vatAmount, method: plan.method,
+    const id = plan.id ?? crypto.randomUUID();
+    const ins = await supabase().from('sale_refunds').insert({
+      id, user_id: userId, sale_id: sale.id, amount: plan.amount, vat_amount: plan.vatAmount, method: plan.method,
       items: plan.items, restock: plan.restock, reason: plan.reason, employee_name: plan.employeeName,
     }).select('*').single();
-    if (e) return { ok: false, error: refundErrText(e) };
+    let data = ins.data;
+    let replay = false;
+    if (ins.error && isDuplicateId(ins.error, 'sale_refunds_pkey')) {
+      // the same refund, saved by the first try — never a second one
+      const again = await supabase().from('sale_refunds').select('*').eq('id', id).maybeSingle();
+      if (!again.data) return { ok: false, error: refundErrText(ins.error) };
+      data = again.data; replay = true;
+    } else if (ins.error) return { ok: false, error: refundErrText(ins.error) };
     const r = toRefund(data);
-    setRefunds((all) => [r, ...all]);
-    if (r.restock) setItems((all) => applyStock(all, r.items, -1));
+    setRefunds((all) => [r, ...all.filter((x) => x.id !== r.id)]);
+    if (r.restock && !replay) setItems((all) => applyStock(all, r.items, -1));
     let message = `ההחזר נרשם: ${ils(r.amount)} ב${methodLabel(r.method)}`;
     if (business.ready && licensed) {
       const { data } = await supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at');
@@ -269,7 +293,7 @@ export function RegisterScreen() {
         message += !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.doc.docNumber}`;
       }
     }
-    if (sale.leadId) {
+    if (sale.leadId && !replay) {
       addActivity(sale.leadId, 'note', `↩️ ${refundSummary({ ...r, methodLabel: methodLabel(r.method) })}${r.reason ? ` · ${r.reason}` : ''}`);
       const l = useApp.getState().leads.find((x) => x.id === sale.leadId);
       if (l) updateLead(l.id, { value: Math.max(0, Math.round(((l.value ?? 0) - r.amount) * 100) / 100) });

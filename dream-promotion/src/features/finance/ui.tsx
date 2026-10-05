@@ -36,6 +36,17 @@ export function Note({ children, tone = 'info' }: { children: ReactNode; tone?: 
   return <p className={cx('rounded-2xl p-3 text-sm', tone === 'warn' ? 'bg-warn/10 text-warn' : tone === 'ok' ? 'bg-emerald-500/15 font-semibold' : 'bg-surface-2 text-ink-2')}>{children}</p>;
 }
 
+/** a summary or list that did not load: what happened and "try again" — never a spinner that turns forever */
+export function LoadFailed({ message, onRetry }: { message?: string | null; onRetry: () => void }) {
+  return (
+    <div role="alert" className="rounded-2xl bg-surface-2 p-4 text-center text-sm">
+      <p className="font-semibold">{message || 'הנתונים לא נטענו.'}</p>
+      <button type="button" onClick={onRetry} className="mt-2 min-h-11 rounded-full border border-line px-5 font-semibold">לנסות שוב</button>
+    </div>
+  );
+}
+export const LOAD_FAILED = 'הנתונים לא נטענו — בדקו את החיבור לאינטרנט ונסו שוב.';
+
 export interface Period { from: string; to: string; label: string; kind: PeriodKind | 'custom' }
 export function periodNow(kind: PeriodKind): Period { return { ...periodOf(kind, todayIL()), kind }; }
 /** this month / last month / the VAT period / this year / a range */

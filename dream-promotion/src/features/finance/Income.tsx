@@ -9,7 +9,7 @@ import { loadSummary, type Summary } from './Overview';
 import { documentRow, financeError, issueDocumentRow, logEvent } from './api';
 import { LEDGER_SOURCE_HE, ledgerTotals, payLabel, toLedgerRow, type LedgerRow } from './payments';
 import { ledgerCsv } from './reports';
-import { Note, PeriodPicker, Stat, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
+import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Stat, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
 
 /**
  * "הכנסות": income by its documents (the legal source) and the money that actually came in (the payments ledger), side by
@@ -25,22 +25,23 @@ export function Income() {
   const [ledger, setLedger] = useState<LedgerRow[] | null>(null);
   const [missing, setMissing] = useState<Paid[]>([]);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => {
-    setS(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const load = useCallback(async () => { try {
+    setS(null); setLoadError(null);
     const sb = supabase();
     const [sum, led, sales] = await Promise.all([
       loadSummary(period),
       sb.from('payments').select('*').gte('paid_on', period.from).lte('paid_on', period.to).order('paid_on', { ascending: false }).limit(500),
       sb.from('sales').select('*').eq('status', 'paid').gte('paid_at', `${period.from}T00:00:00+03:00`).lte('paid_at', `${period.to}T23:59:59+03:00`).limit(1000),
     ]);
-    if (!sum.ok) { fail(sum.error); return; }
+    if (!sum.ok) { setLoadError(sum.error); return; }
     setS(sum.s);
     setLedger(led.error ? [] : ((led.data ?? []) as any[]).map(toLedgerRow));
     const ids = ((sales.data ?? []) as any[]).map((x) => x.id);
     const docs = ids.length ? await sb.from('documents').select('sale_id').in('sale_id', ids).in('doc_type', [305, 320, 400]) : { data: [] as any[] };
     const has = new Set(((docs.data ?? []) as any[]).map((d) => d.sale_id));
     setMissing(((sales.data ?? []) as any[]).filter((x) => !has.has(x.id)).map((x) => ({ id: x.id, customer: x.customer_name ?? '', total: Number(x.total), at: x.paid_at ?? x.created_at, raw: x })));
-  }, [period, fail]);
+  } catch { setLoadError(LOAD_FAILED); } }, [period]);
   useEffect(() => { void load(); }, [load]);
 
   /** the documents the register would have issued, one per sale, never twice (same key as the register) */
@@ -67,7 +68,7 @@ export function Income() {
   return (
     <div className="grid gap-3">
       <PeriodPicker value={period} onChange={setPeriod} />
-      {!s ? <div className="py-8 text-center"><Spinner /></div> : <>
+      {!s ? (loadError ? <LoadFailed message={loadError} onRetry={() => void load()} /> : <div className="py-8 text-center"><Spinner /></div>) : <>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Stat label={vat ? 'הכנסות לפי מסמכים (לפני מע״מ)' : 'הכנסות לפי קבלות'} value={ils(s.revenue.net)} hint={vat ? `כולל מע״מ ${ils(s.revenue.gross)}` : undefined} />
           <Stat label="נכנס בפועל" value={ils(t.in)} hint="קבלות וחשבוניות מס/קבלה" />
@@ -93,7 +94,7 @@ export function Income() {
               </li>
             ))}</ul>
           )}
-          <p className="mt-2 text-xs text-muted">היומן נכתב רק על ידי המערכת (מסמכים, החזרים, הוצאות, ביטולים) ולא משתנה — תיקון נרשם כתנועה הפוכה. רישום תשלום אינו סליקה.</p>
+          <p className="mt-2 text-xs text-muted">היומן נכתב רק על ידי המערכת (מסמכים, החזרים, הוצאות, ביטולים) ולא נערך מהאפליקציה — תיקון נרשם כתנועה הפוכה. רישום תשלום אינו סליקה.</p>
         </Card>
         {Object.keys(s.documents).length > 0 && (
           <Card className="p-4"><p className="mb-2 font-bold">לפי סוג מסמך</p>

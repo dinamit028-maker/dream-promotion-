@@ -30,6 +30,12 @@ export function financeError(e: unknown): string {
   if (/digits only/.test(m)) return 'מספר הקצאה — ספרות בלבד.';
   if (/future/.test(m)) return 'אי אפשר לרשום תאריך עתידי.';
   if (/due date is before/.test(m)) return 'מועד התשלום לפני תאריך המסמך.';
+  // 2.52.1 (migration 20261005003200): the database's own checks of receipts, contents and money back
+  if (/receipt_exceeds_balance/.test(m)) return 'הסכום גדול מהיתרה לתשלום על החשבונית (אולי כבר נרשם תשלום ממכשיר אחר). רעננו ובדקו.';
+  if (/tax invoice-receipt \(320\), not a receipt/.test(m)) return 'בעסק שגובה מע״מ, תשלום על חשבונית עסקה מקבל חשבונית מס / קבלה — לא קבלה.';
+  if (/refund_exceeds_paid/.test(m)) return 'הסכום גדול ממה שנשאר להחזיר על העסקה (חלק כבר הוחזר בקופה).';
+  if (/method and amount are numbers|cheque's details/.test(m)) return 'פרטי התשלום לא תקינים (סכום, תאריך או פרטי הצ׳ק).';
+  if (/names are text/.test(m)) return 'שורות המסמך לא תקינות (כמות, מחיר או שיעור מע״מ). רעננו ונסו שוב.';
   if (/payments:/.test(m)) return 'סכום התשלומים לא שווה לסכום המסמך.';
   if (/totals:|lines:/.test(m)) return 'הסכומים במסמך לא מסתדרים. רעננו ונסו שוב.';
   if (/the draft was|draft was not found/.test(m)) return 'הטיוטה כבר הופקה כמסמך.';
@@ -56,8 +62,9 @@ export function documentRow(d: NewDoc, x: IssueExtra) {
 }
 
 /**
- * Issue a document once. A retry with the same key (a double tap, a lost answer) returns the document that was already
- * issued instead of a second one. Before migration 20261004003100 the 2.51 columns are left out, so the register keeps working.
+ * Issue a document once. A retry with the same key (a double tap, a lost answer, two devices issuing "the next" receipt
+ * or credit of the same invoice) returns the document that was already issued instead of a second one (`again`).
+ * Never without the key: migration 20261004003100 is on the live database (2.52.1 removed the fallback without it).
  */
 export async function issueDocumentRow(row: Record<string, unknown>): Promise<{ ok: true; doc: DocRow; again: boolean } | { ok: false; error: string; raw?: unknown }> {
   const sb = supabase();
@@ -67,14 +74,6 @@ export async function issueDocumentRow(row: Record<string, unknown>): Promise<{ 
   if (first.error && (first.error.code === '23505' || /duplicate key/.test(m)) && /idempotency/.test(m + String(first.error.details ?? ''))) {
     const { data } = await sb.from('documents').select('*').eq('idempotency_key', String(row.idempotency_key)).maybeSingle();
     if (data) return { ok: true, doc: toDoc(data), again: true };
-  }
-  if (first.error && missing(m)) {
-    // the database is from before 2.51: the same document without its new columns
-    const { idempotency_key: _k, due_date: _d, notes: _n, customer_email: _e, paid_document_id: _p, quote_id: _q, draft_id: _r, source: _s, ...legacy } = row as any;
-    if (_p || _q || _r) return { ok: false, error: FINANCE_MIGRATION, raw: first.error };
-    const second = await sb.from('documents').insert(legacy).select('*').single();
-    if (!second.error && second.data) return { ok: true, doc: toDoc(second.data), again: false };
-    return { ok: false, error: financeError(second.error), raw: second.error };
   }
   return { ok: false, error: financeError(first.error), raw: first.error };
 }

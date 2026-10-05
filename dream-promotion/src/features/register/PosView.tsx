@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Select, SmallSelect } from '@/components/ui/primitives';
-import { Modal } from '@/components/ui/feedback';
+import { CloseButton, Modal } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL } from '@/lib/il-time';
 import { matches, phoneDigits, waLink } from '@/features/crm/crm';
@@ -30,8 +30,11 @@ export interface CheckoutInput {
   cashReceived?: number;
   /** an invoice to a business (name, dealer / company number, address) — null for a private customer */
   billing?: Billing | null;
+  /** the sale's id, chosen once per payment: a retry after a lost answer finds the sale instead of saving a second one */
+  saleId?: string;
 }
-export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; error?: string; lowStock?: string[] }
+/** payUrl: the WhatsApp payment request, opened by a tap on the result screen (a window opened after the save is blocked by phones) */
+export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; payUrl?: string; error?: string; lowStock?: string[] }
 
 const CATS = [
   { id: 'fav', label: '❤️ מועדפים' }, { id: 'top', label: '🔥 הכי נמכרים' }, { id: 'service', label: '✨ טיפולים' },
@@ -71,6 +74,13 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
   const [q, setQ] = useState('');
   const [quick, setQuick] = useState(false);
   const [sheet, setSheet] = useState(false);
+  // the cart sheet closes with Escape too (a keyboard on a tablet at the counter), not only by tapping outside
+  useEffect(() => {
+    if (!sheet) return;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(false); };
+    addEventListener('keydown', k);
+    return () => removeEventListener('keydown', k);
+  }, [sheet]);
   const [picker, setPicker] = useState(false);
   const [keypad, setKeypad] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -150,10 +160,13 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
   }
   const askToResume = (id: string) => (lines.length ? setAskResume(id) : resume(id, false));
 
+  // one id per sale being paid — kept across retries, a new one after the sale went through
+  const saleId = useRef(crypto.randomUUID());
   async function finish(c: Pick<CheckoutInput, 'paidNow' | 'method' | 'payments' | 'cashReceived'>) {
     if (billing && billErr) return { ok: false, error: billErr };
-    const r = await onCheckout({ lines, discount, customer, note, employee, billing, ...c });
+    const r = await onCheckout({ lines, discount, customer, note, employee, billing, ...c, saleId: saleId.current });
     if (r.ok) {
+      saleId.current = crypto.randomUUID();
       // the sold items leave the cart immediately — nothing can be charged twice behind the confirmation
       const who = customer.name || 'לקוח מזדמן'; const phone = customer.phone;
       setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setBilling(null);
@@ -336,8 +349,12 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
       {sheet && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="הסל">
           <button type="button" className="absolute inset-0 bg-black/40" onClick={() => setSheet(false)} aria-label="סגירה" />
-          <div className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-3xl bg-surface p-4" style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
-            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-line" />{cart}
+          <div className="absolute inset-x-0 bottom-0 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-surface p-4" style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="h-1.5 w-12 rounded-full bg-line" aria-hidden />
+              <CloseButton onClick={() => setSheet(false)} />
+            </div>
+            {cart}
           </div>
         </div>
       )}
@@ -379,7 +396,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
         {done && (
           <div className="text-center">
             <p className="text-5xl text-emerald-500">✓</p>
-            <h3 className="mt-2 font-display text-2xl font-extrabold">{done.sale?.status === 'pending' ? 'נשלחה בקשת תשלום' : 'העסקה נשמרה'}</h3>
+            <h3 className="mt-2 font-display text-2xl font-extrabold">{done.sale?.status === 'pending' ? 'העסקה נשמרה — ממתינה לתשלום' : 'העסקה נשמרה'}</h3>
             <p className="mt-2">{done.customer}</p>
             <p className="text-3xl font-black tabular-nums">{ils(done.sale?.total ?? 0)}</p>
             <p className="text-sm text-ink-2">{done.sale?.method === 'split' ? done.sale.payments?.map((p) => `${methodLabel(p.method)} ${ils(p.amount)}`).join(' · ') : methodLabel(done.sale?.method ?? 'other')}</p>
@@ -387,6 +404,9 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
               <p className="mt-3 rounded-2xl bg-amber-500/15 p-3 text-2xl font-black text-amber-700 dark:text-amber-300">עודף: {ils(done.change)}</p>
             )}
             {done.docLabel && <p className="mt-2 text-sm font-semibold">{done.docLabel}</p>}
+            {done.payUrl && (
+              <Button variant="primary" className="mt-3 w-full" onClick={() => { window.open(done.payUrl, '_blank', 'noopener'); }}>💬 שליחת בקשת התשלום בוואטסאפ</Button>
+            )}
             {done.lowStock && done.lowStock.length > 0 && (
               <p className="mt-2 rounded-2xl bg-amber-500/15 p-2 text-sm font-semibold text-amber-800 dark:text-amber-200">⚠️ מלאי נמוך: {done.lowStock.join(' · ')}</p>
             )}

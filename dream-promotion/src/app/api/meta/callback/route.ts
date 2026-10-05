@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { readState } from '@/lib/server/secrets';
+import { oauthCookie, readState, sameBrowser } from '@/lib/server/secrets';
 import { isSuperAdmin } from '@/lib/server/business';
-import { exchangeCode, saveMetaConnection } from '@/lib/server/meta';
+import { META_OAUTH_COOKIE, exchangeCode, saveMetaConnection } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,12 +9,18 @@ export const dynamic = 'force-dynamic';
 /** Facebook returns here after consent: the connection and every page / Instagram account are synced, then back to the admin screen. */
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const back = (q: string) => NextResponse.redirect(new URL(`/admin?tab=connections&${q}`, url.origin));
+  const back = (q: string) => {
+    const r = NextResponse.redirect(new URL(`/admin?tab=connections&${q}`, url.origin));
+    r.headers.append('Set-Cookie', oauthCookie(META_OAUTH_COOKIE, '/api/meta/callback', ''));
+    return r;
+  };
   const err = url.searchParams.get('error');
   if (err) return back(`meta=error&reason=${encodeURIComponent(url.searchParams.get('error_reason') || err)}`);
-  const state = readState<{ u: string; p: string; m: string }>(url.searchParams.get('state'));
+  const state = readState<{ u: string; p: string; m: string; c?: string }>(url.searchParams.get('state'));
   const code = url.searchParams.get('code');
   if (!state || state.p !== 'meta' || !code) return back('meta=error&reason=expired');
+  // a consent link finished in another browser stores nobody's pages (2.52.1)
+  if (!sameBrowser(req, META_OAUTH_COOKIE, state.c)) return back('meta=error&reason=denied');
   if (!(await isSuperAdmin(state.u))) return back('meta=error&reason=admin_only');
   try {
     const r = await saveMetaConnection(state.u, await exchangeCode(req, code));

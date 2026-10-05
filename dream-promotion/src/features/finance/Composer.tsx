@@ -11,8 +11,10 @@ import { DOC_INFO, allowedDocTypes } from './rules';
 import { TERMS, dueDateFor } from './receivables';
 import { validUntilFor, type ComposerBody, type Quote } from './quotes';
 import { documentRow, financeError, issueDocumentRow, newKey } from './api';
+import { quoteKey } from './keys';
 import type { PaymentEntry } from './payments';
 import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from './ui';
+import { documentDateRateNote } from './vat';
 
 /**
  * One composer for a new document, a draft and a quote: customer (from the contacts or typed), lines (free or from
@@ -23,7 +25,8 @@ import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from 
 export type ComposerMode =
   | { kind: 'document'; docType: number; draftId?: string | null; quoteId?: string | null }
   | { kind: 'quote'; quote?: Quote | null };
-export type ComposerDone = { kind: 'issued'; doc: DocRow } | { kind: 'draft'; id: string } | { kind: 'quote'; id: string; sent: boolean };
+/** sentWindow: "save and send" opens WhatsApp's window on the tap itself (phones block a window opened after the save) */
+export type ComposerDone = { kind: 'issued'; doc: DocRow } | { kind: 'draft'; id: string } | { kind: 'quote'; id: string; sent: boolean; sentWindow?: Window | null };
 
 const EMPTY_LINE: ComposeLine = { name: '', qty: 1, unitPrice: 0 };
 
@@ -80,10 +83,13 @@ export function Composer({ mode, initial, onClose, onDone }: {
     if (!res.ok) { setErrors(res.errors); return; }
     if (!window.confirm(`להפיק ${DOC_LABEL[docType]} על ${ils(res.doc.total)}${customer.name ? ` ל${customer.name}` : ''}? מסמך שהופק לא ניתן לשינוי או למחיקה — תיקון רק בחשבונית זיכוי.`)) return;
     setBusy(true); setErrors([]);
-    const out = await issueDocumentRow(documentRow(res.doc, { userId, idempotencyKey: draftId ? `draft:${draftId}` : key, vatRate: res.totals.vatRate, leadId,
-      quoteId: mode.kind === 'document' ? mode.quoteId ?? null : null, draftId }));
+    const quoteId = mode.kind === 'document' ? mode.quoteId ?? null : null;
+    // a draft is one document, a quote is one document (whoever converts it, on any device), otherwise this form's own key
+    const idempotencyKey = draftId ? `draft:${draftId}` : quoteId ? quoteKey(quoteId) : key;
+    const out = await issueDocumentRow(documentRow(res.doc, { userId, idempotencyKey, vatRate: res.totals.vatRate, leadId, quoteId, draftId }));
     setBusy(false);
     if (!out.ok) { setErrors([out.error]); return; }
+    if (out.again && quoteId) { setErrors([`ההצעה כבר הפכה ל${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}.`]); return; }
     if (leadId && !out.again) {
       addActivity(leadId, 'purchase', `הופקה ${DOC_LABEL[docType]} מס׳ ${out.doc.docNumber} · ${ils(out.doc.total)}`);
       if (docType === 305 || docType === 320 || docType === 400) {
@@ -98,6 +104,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
     const t = preview.totals;
     if (!lines.some((l) => l.name.trim() && l.qty > 0) || t.total <= 0) { setErrors(['צריך לפחות שורה אחת עם סכום']); return; }
     setBusy(true); setErrors([]);
+    const w = send ? window.open('', '_blank') : null;
     const row = {
       customer_name: customer.name.trim().slice(0, 120), customer_phone: (customer.phone ?? '').trim().slice(0, 30), customer_email: (customer.email ?? '').trim().slice(0, 120),
       customer_dealer: (customer.dealer ?? '').replace(/\D/g, '').slice(0, 9), customer_street: (customer.street ?? '').slice(0, 120), customer_city: (customer.city ?? '').slice(0, 60),
@@ -107,8 +114,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
     const r = quote ? await supabase().from('quotes').update({ ...row, ...(send && quote.status !== 'sent' ? { status: 'sent' } : {}) }).eq('id', quote.id).select('id').single()
       : await supabase().from('quotes').insert({ ...row, user_id: userId, status: send ? 'sent' : 'draft' }).select('id').single();
     setBusy(false);
-    if (r.error || !r.data) { setErrors([financeError(r.error)]); return; }
-    onDone({ kind: 'quote', id: r.data.id, sent: send });
+    if (r.error || !r.data) { w?.close(); setErrors([financeError(r.error)]); return; }
+    onDone({ kind: 'quote', id: r.data.id, sent: send, sentWindow: w });
   }
 
   const title = mode.kind === 'quote' ? (quote ? `הצעת מחיר מס׳ ${quote.number}` : 'הצעת מחיר חדשה') : draftId ? `טיוטה · ${DOC_LABEL[docType]}` : 'מסמך חדש';
@@ -177,6 +184,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
         {rate > 0 && <div className="flex justify-between"><span>מע״מ {rate}%</span><span>{ils(preview.totals.vatAmount)}</span></div>}
         <div className="mt-1 flex justify-between text-base font-black"><span>סה״כ</span><span>{ils(preview.totals.total)}</span></div>
       </div>
+      {mode.kind === 'document' && documentDateRateNote(rate, docDate) && <div className="mt-3"><Note tone="warn">{documentDateRateNote(rate, docDate)}</Note></div>}
       {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
       {!business.ready && mode.kind === 'document' && <div className="mt-3"><Note tone="warn">חסרים פרטי העסק (מספר עוסק) — אפשר לשמור טיוטה, להפיק אחרי שממלאים בהגדרות.</Note></div>}
 

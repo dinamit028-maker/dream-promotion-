@@ -1,11 +1,12 @@
 # Dream Promotion — כללי עבודה
 - מוצר בעברית, RTL, מובייל קודם. כל טקסט למשתמש בעברית.
 - לפני כל PR: npm run typecheck, npm test, npm run build — כולם חייבים לעבור. לוגיקה חדשה = בדיקה חדשה ב-tests/.
-- מיגרציות: קובץ חדש ב-supabase/migrations בפורמט YYYYMMDDHHMMSS_name.sql, idempotent (if not exists), תוספות בלבד, RLS על כל טבלה חדשה (user_id = auth.uid()). לא להריץ על בסיס הנתונים החי בלי אישור מפורש.
+- מיגרציות: קובץ חדש ב-supabase/migrations בפורמט YYYYMMDDHHMMSS_name.sql, idempotent (if not exists), תוספות בלבד. RLS על כל טבלה חדשה לפי עסק: `_business_gate` (העסק הנוכחי, `current_business_id()` + `accessible_business_ids()`); טבלת כספים — גם `_finance_privacy` ו-`_cashier_none`; ומ-3200 גם `_viewer_insert/_update/_delete` (`can_write()`). לא להריץ על בסיס הנתונים החי בלי אישור מפורש.
+- טריגר BEFORE שהוא security definer ובודק נתונים של העסק (למשל יתרה, תאריך סגירה) רץ לפני ה-RLS: טבלה חדשה כזו מקבלת גם את `a_gate_caller` (מ-3200), אחרת הודעת השגיאה שלו עלולה לספר לעסק אחד נתונים של עסק אחר.
 - מצב מיגרציות:
   - אחרי שמיגרציה רצה על המסד החי — לעדכן מיד את STATUS.md: הסעיף "מצב מיגרציות" בראש המסמך, וכל אזכור שלה.
   - אם אין דרך לבדוק את המסד החי — לכתוב "ממתין לאימות", ולא "לא הורצה".
-- מסמכים חשבונאיים (טבלת documents): לעולם לא לשנות או למחוק מסמך שהופק; תיקון רק בחשבונית זיכוי. לא לשבור את ממשק פתוח (src/features/documents/openformat.ts) — בנוי לפי הוראות רשות המסים 1.31.
+- מסמכים חשבונאיים (טבלת documents): לעולם לא לשנות או למחוק מסמך שהופק; תיקון רק בחשבונית זיכוי. לא לשבור את ממשק פתוח (src/features/documents/openformat.ts) — נבנה לפי הקריאה שלנו בהוראות רשות המסים 1.31, ולא אומת מול עותק רשמי או בסימולטור.
 - סודות: לעולם לא בקוד ולא ב-git. מפתחות רק כמשתני סביבה ב-Vercel.
 - כסף: חישובים באגורות שלמות (ראו src/features/register/money.ts). זמנים: שעון ישראל (src/lib/il-time.ts).
 - לעדכן STATUS.md בכל שינוי משמעותי, ולהעלות גרסה ב-package.json.
@@ -15,13 +16,13 @@
 - עסק נוכחי (מ-2.44.0): RLS מציג רק את העסק שהמשתמש עובד בו (current_business_id()); לכן במסכים לא מסננים לפי user_id. בשרת (service role) — לסנן לפי business_id: של השורה בדפים ציבוריים/טיימר, ו-workBusiness(userId) במסלולי משתמש. אף פעם לא לסמוך על מילוי business_id אוטומטי בשרת שפועל בשם עסק אחר.
 - Supabase דרך ה-MCP: פקודה שמכילה drop נתקעת (ממתינה לאישור). להשתמש ב-create or replace, ולוודא אחרי כל כתיבה שהיא באמת רצה.
 - כספים (מ-2.51.0, src/features/finance):
-  - מסמך מופק רק דרך issueDocumentRow (finance/api.ts), עם idempotency_key — sale:<id> / refund:<id> / cancel:<id> / direct:<uuid>.
-  - מע״מ רק דרך finance/vat.ts (שיעור לפי תאריך). מה מותר לכל סוג עוסק — רק דרך finance/rules.ts.
+  - מסמך מופק רק דרך issueDocumentRow (finance/api.ts), עם idempotency_key — sale:<id> / refund:<id> / cancel:<id> / direct:<uuid>; קבלה וזיכוי על מסמך: `followKey()` (finance/keys.ts, `receipt:<doc>:<n>` / `credit:<doc>:<n>`); הצעה שהופכת למסמך: `quote:<id>`. מכירה והחזר בקופה: המזהה נקבע במכשיר (ניסיון חוזר לא יוצר כפילות).
+  - מע״מ רק דרך finance/vat.ts: המסמך מקבל את השיעור שבהגדרות העסק; טבלת השיעורים לפי תאריך משמשת לאזהרה (מסמך בתאריך עבר — שאלה לרו״ח, לא משנים לבד). מה מותר לכל סוג עוסק — רק דרך finance/rules.ts.
   - payments, finance_audit_log, tax_allocations ו-document_cancellations לא נערכים ולא נמחקים — רק שורה הפוכה.
   - התיקון של חשבונית מס הוא חשבונית זיכוי (330). ביטול — רק 300/400 שהופקו בטעות.
 - רשות המסים:
   - לא ממציאים כתובת, שדה או מספר הקצאה.
-  - מספר TEST לעולם לא מוצג כמספר אמיתי.
+  - מספר TEST לעולם לא מוצג כמספר אמיתי, ולא מופיע בעותק של הלקוח. מצב mock רק בפיתוח ובבדיקות — לא בשום בנייה של production.
   - לא כותבים "מאושר ע״י רשות המסים" או "דווח", בלי תשובה אמיתית מה-API.
 - לא מחברים ספקי חשבוניות חיצוניים: Morning / Green Invoice, iCount, Invoice4U, SUMIT, EZCount, רווחית.
 - AI בכספים: רק ממלא טופס או מנסח טקסט. המשתמש מאשר לפני שמירה או שליחה. ה-AI לא ממציא סכום, מספר, לקוח, סטטוס או תאריך.
@@ -30,3 +31,10 @@
   - מנהל-על רואה כספים של עסק שאינו חבר בו רק אחרי open_finance_access (סיבה + תוקף, נרשם ביומן של העסק).
   - כל טבלת כספים חדשה מקבלת את שלושת ה-RESTRICTIVE: _business_gate, _finance_privacy, _cashier_none.
   - מסלולי שרת של כספים: financeCaller (src/lib/server/finance.ts), העסק מהשרת, אף פעם לא מהלקוח.
+- אבטחה בדפים ובקישורים (מ-2.52.1):
+  - HTML שנבנה ממחרוזת (docBody, dangerouslySetInnerHTML) — כל ערך מהמסד עובר דרך `esc()`, גם מספרים ותאריכים.
+  - קישור ציבורי (/d, /q, /book) מחזיר רק שדות מרשימה מותרת (`doc-share.ts`), עם `rateLimited()` (lib/server/rate-limit.ts).
+  - חלון חדש (וואטסאפ, קובץ, הדפסה) נפתח בלחיצה עצמה, לא אחרי await — טלפונים חוסמים חלון שנפתח אחרי בקשה.
+  - חיבור OAuth חדש: ערך חד-פעמי ב-state ובעוגייה (`oauthOnce` / `sameBrowser`, lib/server/secrets.ts), כמו רשות המסים, Meta ו-TikTok.
+  - שרשרת ה-hash של היומן מגלה שינוי, לא מונעת אותו — לא לכתוב "לא ניתן לשינוי".
+  - תפקיד viewer קורא בלבד: `can_write()` במסד, `blockedFor` / `financeCaller(req, { write: true })` בשרת.

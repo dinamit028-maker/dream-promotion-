@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
 import { getVoiceProvider } from '@/lib/services/voice';
 import { accessDenied } from '@/lib/server/access';
+import { userFromRequest } from '@/lib/server/admin';
 import { commitUsage, releaseUsage, requestUser, reserveUsage, type Reservation } from '@/lib/server/quota';
 import { PRICES } from '@/lib/server/ai/config';
 import { contentIdFrom, logGeneration } from '@/lib/server/ai/ledger';
 
 export const runtime = 'nodejs';
 
+/** the voices and the plan's usage — for a signed-in user only (before 2.52.1 anyone could read the account's usage) */
 export async function GET(req: Request) {
+  if (!(await userFromRequest(req))) return NextResponse.json({ code: 'no_session', available: false, voices: [] }, { status: 401 });
   const provider = getVoiceProvider();
   if (!provider.available()) {
     return NextResponse.json({ available: false, provider: provider.id, voices: [] });

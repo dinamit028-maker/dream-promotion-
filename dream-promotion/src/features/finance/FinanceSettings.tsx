@@ -44,7 +44,8 @@ export function FinanceSettings() {
   useEffect(() => {
     void allocationRules().then(setRules);
     void (async () => {
-      try { const r = await fetch('/api/finance/tax/status', { headers: await authHeaders() }); if (r.ok) setTax(await r.json()); } catch { /* shown as unknown */ }
+      const unknown: TaxStatus = { mode: 'unconfigured', configured: false, connection: null, message: 'מצב החיבור לרשות המסים לא נטען כרגע. אפשר לרענן את הדף ולנסות שוב.' };
+      try { const r = await fetch('/api/finance/tax/status', { headers: await authHeaders() }); setTax(r.ok ? await r.json() : unknown); } catch { setTax(unknown); }
     })();
     void supabase().from('finance_access_grants').select('reason, granted_at, expires_at, revoked_at').eq('business_id', access.business).order('granted_at', { ascending: false }).limit(20)
       .then(({ data }) => setGrants(((data ?? []) as any[]).map((g) => ({ reason: g.reason, grantedAt: g.granted_at, expiresAt: g.expires_at, revokedAt: g.revoked_at }))));

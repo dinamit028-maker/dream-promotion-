@@ -29,8 +29,30 @@ export const netOfGross = (grossA: number, rate: number) => grossA - vatOfGross(
 /** the VAT on an amount before VAT */
 export const vatOfNet = (netA: number, rate: number) => (rate ? Math.round((netA * rate) / 100) : 0);
 
+/**
+ * A percentage of an amount in agorot, rounded half away from zero like the database's round(x, 2) — the percentage has up
+ * to two decimals (numeric(5,2)), so the whole computation stays in integers (no 2.01 × 50 = 100.4999… → 1.00 instead of 1.01).
+ */
+export const pctOf = (amountA: number, pct: number) => {
+  const p = Math.round((Number(pct) || 0) * 100);           // hundredths of a percent
+  const x = amountA * p;                                       // agorot × hundredths of a percent — an integer
+  return Math.sign(x) * Math.round(Math.abs(x) / 10000);
+};
+
 /** the database's own test of a document's VAT, in agorot (same tolerance: one agora) */
 export const vatMatches = (afterA: number, vatA: number, rate: number) => Math.abs(vatA - Math.round((afterA * rate) / 100)) <= 1;
+
+/**
+ * A document dated in the past gets the business's rate of today (the database checks the VAT against the document's own
+ * rate). When that is not the standard rate of the document's date, the screen says so before issuing — which rate is right
+ * for a back-dated document is a question for the accountant (NEEDS_ACCOUNTANT_REVIEW); nothing is changed automatically.
+ */
+export function documentDateRateNote(rate: number, docDate: string): string | null {
+  if (!rate || !/^\d{4}-\d{2}-\d{2}$/.test(docDate)) return null;
+  const legal = legalVatRate(docDate);
+  if (legal === rate) return null;
+  return `שיעור המע״מ במסמך (${rate}%) שונה מהשיעור החוקי בתאריך המסמך (${legal}%). במסמך בתאריך עבר — כדאי לבדוק עם רואה החשבון איזה שיעור נכון לפני ההפקה.`;
+}
 
 /** a warning when the business's rate is not the legal one of that day (Eilat businesses set 0 on purpose) */
 export function rateWarning(rate: number, date: string, chargesVat: boolean): string | null {

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
@@ -18,7 +18,7 @@ const METHODS: { id: RefundMethod; label: string; icon: string }[] = [
 
 export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onRefund, onPrintSlip }: {
   sale: Sale; refunds: Refund[]; employees: { id: string; name: string }[]; licensed: boolean; docsReady: boolean;
-  onRefund: (plan: RefundPlan) => Promise<{ ok: boolean; error?: string; message?: string }>;
+  onRefund: (plan: RefundPlan & { id?: string }) => Promise<{ ok: boolean; error?: string; message?: string }>;
   onPrintSlip: (r: Refund) => void;
 }) {
   const mine = useMemo(() => refunds.filter((r) => r.saleId === sale.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [refunds, sale.id]);
@@ -34,6 +34,8 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
   const [who, setWho] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // one id per refund being recorded — a retry after a lost answer finds it instead of refunding twice
+  const refundId = useRef(crypto.randomUUID());
   useEffect(() => { setOpen(false); setMsg(null); setMode('full'); setQty(sale.items.map(() => 0)); setAmount(''); setReason(''); setMethod(defaultRefundMethod(sale)); }, [sale]);
 
   const req: RefundRequest = mode === 'full' ? { mode } : mode === 'items' ? { mode, qty } : { mode, amount: Number(amount) || 0 };
@@ -44,9 +46,9 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
     if (!plan.ok) return;
     if (!window.confirm(`להחזיר ${ils(plan.refund.amount)} ב${methodLabel(method)}?${licensed && docsReady ? ' תופק חשבונית מס זיכוי.' : ''}`)) return;
     setBusy(true); setMsg(null);
-    const r = await onRefund(plan.refund);
+    const r = await onRefund({ ...plan.refund, id: refundId.current });
     setBusy(false);
-    if (r.ok) { setOpen(false); setMsg({ ok: true, text: r.message ?? 'ההחזר נרשם' }); } else setMsg({ ok: false, text: r.error ?? 'ההחזר לא נרשם. נסו שוב.' });
+    if (r.ok) { refundId.current = crypto.randomUUID(); setOpen(false); setMsg({ ok: true, text: r.message ?? 'ההחזר נרשם' }); } else setMsg({ ok: false, text: r.error ?? 'ההחזר לא נרשם. נסו שוב.' });
   }
 
   if (sale.status !== 'paid') return null;

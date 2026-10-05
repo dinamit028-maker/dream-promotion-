@@ -81,8 +81,9 @@ export function Quotes() {
             await load();
             const { data } = await supabase().from('quotes').select('*').eq('id', r.id).single();
             const q = data ? toQuote(data) : null;
+            // WhatsApp goes into the window "save and send" opened on the tap (one opened here, after the save, is blocked by phones)
             say(r.sent ? 'ההצעה נשמרה — שולחים ללקוח' : 'ההצעה נשמרה');
-            if (q) { setOpen(q); if (r.sent) sendQuote(q); }
+            if (q) { setOpen(q); if (r.sent) sendQuote(q, '', r.sentWindow ?? null); } else r.sentWindow?.close();
           } else if (r.kind === 'issued') { say(`הופקה ${DOC_LABEL[r.doc.docType]} מס׳ ${r.doc.docNumber} מההצעה`); await load(); }
           else if (r.kind === 'draft') { say('נשמרה טיוטת מסמך מההצעה (בלשונית מסמכים)'); await load(); }
         }} />}
@@ -90,10 +91,13 @@ export function Quotes() {
   );
 }
 
-function sendQuote(q: Quote, business = '') {
+/** WhatsApp to the customer — into the window opened on the tap when there is one (w), else a new one; no phone: copy the link */
+function sendQuote(q: Quote, business = '', w: Window | null = null) {
   const url = `${window.location.origin}/q/${q.shareToken}`;
   const link = waLink(q.customerPhone, quoteMessage({ name: q.customerName, number: q.number, business: business || String(q.issuer?.name ?? ''), total: ils(q.total), validUntil: q.validUntil, link: url }));
-  if (link) window.open(link, '_blank', 'noopener'); else void navigator.clipboard?.writeText(url);
+  if (!link) { w?.close(); void navigator.clipboard?.writeText(url); }
+  else if (w) { w.opener = null; w.location.href = link; }
+  else window.open(link, '_blank', 'noopener');
   void logEvent('quote.sent', 'quotes', q.id, { number: q.number });
 }
 
@@ -101,11 +105,12 @@ function QuoteView({ q, onClose, onChanged, onEdit, onConvert }: { q: Quote; onC
   const { fail, business } = useFinance();
   const st = quoteState(q, todayIL());
   const lines = computeLines(q.body.lines ?? [], { pricesIncludeVat: q.body.pricesIncludeVat ?? true, discount: q.body.discount, rate: q.vatRate }).lines;
-  async function move(to: QuoteStatus, label: string) {
-    if (!canMove(q.status, to)) return;
+  async function move(to: QuoteStatus, label: string): Promise<boolean> {
+    if (!canMove(q.status, to)) return false;
     const { error } = await supabase().from('quotes').update({ status: to, ...(to === 'accepted' || to === 'rejected' ? { decision_by: 'העסק' } : {}) }).eq('id', q.id);
-    if (error) { fail(financeError(error)); return; }
+    if (error) { fail(financeError(error)); return false; }
     await onChanged(label); onClose();
+    return true;
   }
   async function duplicate() {
     const { userId } = useApp.getState();
@@ -136,7 +141,12 @@ function QuoteView({ q, onClose, onChanged, onEdit, onConvert }: { q: Quote; onC
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {editable(q.status) && <Button variant="ghost" onClick={onEdit}>עריכה</Button>}
-        {(q.status === 'draft' || q.status === 'sent' || q.status === 'expired') && <Button variant="primary" onClick={async () => { if (q.status !== 'sent') await move('sent', 'ההצעה סומנה כנשלחה'); sendQuote(q, business.name); }}>💬 שליחה ללקוח</Button>}
+        {(q.status === 'draft' || q.status === 'sent' || q.status === 'expired') && <Button variant="primary" onClick={async () => {
+          // the window opens on the tap itself; it gets the WhatsApp address once the quote is marked as sent
+          const w = q.status === 'sent' ? null : window.open('', '_blank');
+          if (q.status !== 'sent' && !(await move('sent', 'ההצעה סומנה כנשלחה'))) { w?.close(); return; }
+          sendQuote(q, business.name, w);
+        }}>💬 שליחה ללקוח</Button>}
         {q.status === 'sent' && <Button variant="ghost" onClick={() => void move('accepted', 'ההצעה סומנה כמאושרת')}>✓ אושרה</Button>}
         {q.status === 'sent' && <Button variant="ghost" onClick={() => void move('rejected', 'ההצעה סומנה כנדחתה')}>נדחתה</Button>}
         {canMove(q.status, 'converted') && <Button variant="primary" onClick={onConvert}>הפיכה למסמך</Button>}
