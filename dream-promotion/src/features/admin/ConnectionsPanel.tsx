@@ -24,6 +24,7 @@ const PROVIDER: Record<Asset['provider'], string> = { facebook: 'Facebook', inst
 const REASONS: Record<string, string> = {
   access_denied: 'החיבור בוטל בפייסבוק.', user_denied: 'החיבור בוטל בפייסבוק.', expired: 'עבר יותר מדי זמן. נסו שוב.',
   no_pages: 'לא חזר אף עמוד. בחלון של פייסבוק בחרו "כל הדפים הנוכחיים והעתידיים".', admin_only: 'רק מנהל-על יכול לחבר את Meta.',
+  denied: 'החיבור הושלם בדפדפן אחר מזה שהתחיל אותו, ולכן לא נשמר. מתחילים ומסיימים באותו דפדפן ובאותה כתובת.',
 };
 
 export function ConnectionsPanel() {

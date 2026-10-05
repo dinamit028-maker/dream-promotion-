@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { blockedFor } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
 
@@ -30,6 +31,9 @@ export async function POST(req: Request) {
   const { data: u } = await admin.auth.getUser(token);
   const user = u?.user;
   if (!user) return NextResponse.json({ code: 'bad_session', message: 'sign in required' }, { status: 401 });
+  // a locked business or a register-only member doesn't spend storage or import (2.52.1)
+  const blocked = await blockedFor(user.id);
+  if (blocked) return NextResponse.json(blocked, { status: 403 });
 
   try {
     const body = await req.json();

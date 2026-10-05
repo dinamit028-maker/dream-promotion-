@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { businessOf } from '@/lib/server/business';
+import { blockedFor, businessOf } from '@/lib/server/business';
 import { importStories, metaAccount, recentStoryMedia } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
@@ -10,6 +10,9 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
+  // a locked business or a register-only member doesn't spend storage or import (2.52.1)
+  const blocked = await blockedFor(userId);
+  if (blocked) return NextResponse.json(blocked, { status: 403 });
   const body = await req.json().catch(() => ({}));
   let ids: string[] = body.accountId ? [String(body.accountId)] : [];
   if (!ids.length) {

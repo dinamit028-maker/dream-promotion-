@@ -25,6 +25,20 @@ export function open(sealed: string): string {
   return Buffer.concat([d.update(Buffer.from(enc, 'base64url')), d.final()]).toString('utf8');
 }
 
+/**
+ * OAuth finished only in the browser that started it (Tax Authority since 2.51; Meta and TikTok since 2.52.1): a
+ * one-time value goes into the signed state and into an HttpOnly cookie that only the callback path receives. A consent
+ * link sent to someone else (who logs in with their own account) then connects nothing.
+ */
+export const oauthOnce = () => b64u(randomBytes(18));
+export const oauthCookie = (name: string, path: string, value: string) =>
+  `${name}=${value}; Path=${path}; Max-Age=${value ? 900 : 0}; HttpOnly; Secure; SameSite=Lax`;
+export function sameBrowser(req: Request, name: string, want: unknown): boolean {
+  const got = new RegExp(`(?:^|;\\s*)${name}=([A-Za-z0-9_-]+)`).exec(req.headers.get('cookie') ?? '')?.[1];
+  if (!got || typeof want !== 'string' || got.length !== want.length) return false;
+  return timingSafeEqual(Buffer.from(got), Buffer.from(want));
+}
+
 /** Signed state: who started the connect flow, valid for 15 minutes. */
 export function signState(data: Record<string, unknown>): string {
   const body = b64u(Buffer.from(JSON.stringify({ ...data, n: b64u(randomBytes(8)), e: Date.now() + 15 * 60_000 })));

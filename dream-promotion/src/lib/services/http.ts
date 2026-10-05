@@ -22,3 +22,10 @@ export async function authHeaders(): Promise<Record<string, string>> {
   }
   return h;
 }
+
+/** The same headers for a FormData body: the browser writes the multipart Content-Type (with its boundary) itself —
+ *  a JSON Content-Type there makes the server see no file at all (2.52.1: every receipt scan failed that way). */
+export async function authHeadersForForm(): Promise<Record<string, string>> {
+  const { 'Content-Type': _json, ...h } = await authHeaders();
+  return h;
+}

@@ -11,6 +11,7 @@ import { DOC_INFO, allowedDocTypes } from './rules';
 import { TERMS, dueDateFor } from './receivables';
 import { validUntilFor, type ComposerBody, type Quote } from './quotes';
 import { documentRow, financeError, issueDocumentRow, newKey } from './api';
+import { quoteKey } from './keys';
 import type { PaymentEntry } from './payments';
 import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from './ui';
 
@@ -80,10 +81,13 @@ export function Composer({ mode, initial, onClose, onDone }: {
     if (!res.ok) { setErrors(res.errors); return; }
     if (!window.confirm(`להפיק ${DOC_LABEL[docType]} על ${ils(res.doc.total)}${customer.name ? ` ל${customer.name}` : ''}? מסמך שהופק לא ניתן לשינוי או למחיקה — תיקון רק בחשבונית זיכוי.`)) return;
     setBusy(true); setErrors([]);
-    const out = await issueDocumentRow(documentRow(res.doc, { userId, idempotencyKey: draftId ? `draft:${draftId}` : key, vatRate: res.totals.vatRate, leadId,
-      quoteId: mode.kind === 'document' ? mode.quoteId ?? null : null, draftId }));
+    const quoteId = mode.kind === 'document' ? mode.quoteId ?? null : null;
+    // a draft is one document, a quote is one document (whoever converts it, on any device), otherwise this form's own key
+    const idempotencyKey = draftId ? `draft:${draftId}` : quoteId ? quoteKey(quoteId) : key;
+    const out = await issueDocumentRow(documentRow(res.doc, { userId, idempotencyKey, vatRate: res.totals.vatRate, leadId, quoteId, draftId }));
     setBusy(false);
     if (!out.ok) { setErrors([out.error]); return; }
+    if (out.again && quoteId) { setErrors([`ההצעה כבר הפכה ל${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}.`]); return; }
     if (leadId && !out.again) {
       addActivity(leadId, 'purchase', `הופקה ${DOC_LABEL[docType]} מס׳ ${out.doc.docNumber} · ${ils(out.doc.total)}`);
       if (docType === 305 || docType === 320 || docType === 400) {

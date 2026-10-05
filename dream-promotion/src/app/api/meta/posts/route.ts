@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
-import { businessOf } from '@/lib/server/business';
+import { blockedFor, businessOf } from '@/lib/server/business';
 import { importPosts, isRateLimited, metaAccount } from '@/lib/server/meta';
 
 export const runtime = 'nodejs';
@@ -15,6 +15,9 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
+  // a locked business or a register-only member doesn't spend storage or import (2.52.1)
+  const blocked = await blockedFor(userId);
+  if (blocked) return NextResponse.json(blocked, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const biz = await businessOf(userId);
   const { data } = await adminDb().from('social_accounts').select('id').eq('business_id', biz ?? '00000000-0000-0000-0000-000000000000').eq('provider', 'instagram').eq('status', 'active').order('created_at');

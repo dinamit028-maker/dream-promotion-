@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { authHeaders } from '@/lib/services/http';
+import { authHeadersForForm } from '@/lib/services/http';
 import { Button, Chip, Field, Input, Select, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { Camera } from '@/components/ui/Icon';
@@ -82,6 +82,7 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
   const [busy, setBusy] = useState(false);
   const [voiding, setVoiding] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const locked = expense?.status === 'void' || Boolean(expense?.paidOn);
   const set = <K extends keyof ExpenseForm>(k: K, v: ExpenseForm[K]) => setF((x) => ({ ...x, [k]: v }));
   const fromTotal = (total: number, withVat = carriesVat(f.supplierDocType) && vat) => setF((x) => ({ ...x, ...splitTotal(total, withVat ? settings.vatRate : 0) }));
@@ -90,7 +91,7 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
     setFile(fl); setScan({ busy: true, warnings: [], model: '', raw: null, error: null });
     try {
       const fd = new FormData(); fd.append('file', fl);
-      const r = await fetch('/api/finance/expenses/scan', { method: 'POST', headers: await authHeaders(), body: fd });
+      const r = await fetch('/api/finance/expenses/scan', { method: 'POST', headers: await authHeadersForForm(), body: fd });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setScan({ busy: false, warnings: [], model: '', raw: null, error: j.message ?? 'הקריאה האוטומטית לא זמינה כרגע — ממלאים ידנית.' }); return; }
       const x = j.fields as Extraction;
@@ -149,9 +150,12 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
       </div>
       {!expense && (
         <div className="mb-3 grid gap-2 rounded-2xl border border-dashed border-line p-3">
-          <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])} aria-label="קובץ החשבונית" />
+          {/* two inputs: "capture" opens only the camera on a phone, so a PDF from the phone needs the plain one */}
+          <input ref={fileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])} aria-label="קובץ החשבונית" />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])} aria-label="צילום החשבונית" />
           <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" onClick={() => fileRef.current?.click()}><Camera size={18} aria-hidden />צילום / העלאת קובץ</Button>
+            <Button variant="ghost" onClick={() => cameraRef.current?.click()}><Camera size={18} aria-hidden />צילום</Button>
+            <Button variant="ghost" onClick={() => fileRef.current?.click()}>📎 העלאת קובץ (תמונה / PDF)</Button>
             {file && <span className="self-center text-sm">{file.name}</span>}
             {scan.busy && <span className="flex items-center gap-2 text-sm"><Spinner />קורא את הקובץ…</span>}
           </div>

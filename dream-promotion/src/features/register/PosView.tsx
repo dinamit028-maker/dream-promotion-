@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Select, SmallSelect } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
@@ -30,6 +30,8 @@ export interface CheckoutInput {
   cashReceived?: number;
   /** an invoice to a business (name, dealer / company number, address) — null for a private customer */
   billing?: Billing | null;
+  /** the sale's id, chosen once per payment: a retry after a lost answer finds the sale instead of saving a second one */
+  saleId?: string;
 }
 export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; error?: string; lowStock?: string[] }
 
@@ -150,10 +152,13 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
   }
   const askToResume = (id: string) => (lines.length ? setAskResume(id) : resume(id, false));
 
+  // one id per sale being paid — kept across retries, a new one after the sale went through
+  const saleId = useRef(crypto.randomUUID());
   async function finish(c: Pick<CheckoutInput, 'paidNow' | 'method' | 'payments' | 'cashReceived'>) {
     if (billing && billErr) return { ok: false, error: billErr };
-    const r = await onCheckout({ lines, discount, customer, note, employee, billing, ...c });
+    const r = await onCheckout({ lines, discount, customer, note, employee, billing, ...c, saleId: saleId.current });
     if (r.ok) {
+      saleId.current = crypto.randomUUID();
       // the sold items leave the cart immediately — nothing can be charged twice behind the confirmation
       const who = customer.name || 'לקוח מזדמן'; const phone = customer.phone;
       setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setBilling(null);

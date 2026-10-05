@@ -1,5 +1,5 @@
 import { adminDb } from './admin';
-import { businessOf, canUseBusiness } from './business';
+import { canUseBusiness } from './business';
 import { open, seal } from './secrets';
 
 /**
@@ -9,6 +9,8 @@ import { open, seal } from './secrets';
 const API = process.env.TIKTOK_API_BASE || 'https://open.tiktokapis.com/v2';
 const AUTH = process.env.TIKTOK_AUTH_BASE || 'https://www.tiktok.com/v2/auth/authorize/';
 export const TIKTOK_SCOPES = 'user.info.basic,video.upload';
+/** the one-time cookie of a TikTok connection in progress (connect → callback, this browser only) */
+export const TIKTOK_OAUTH_COOKIE = 'dp_tiktok_oauth';
 
 export const tiktokConfigured = () => Boolean(process.env.TIKTOK_CLIENT_KEY && process.env.TIKTOK_CLIENT_SECRET);
 export const redirectUri = (req: Request) =>
@@ -50,12 +52,13 @@ export async function revoke(accessToken: string) {
   }).catch(() => {});
 }
 
-export async function saveAccount(userId: string, t: TokenSet) {
+export async function saveAccount(userId: string, biz: string, t: TokenSet) {
   const info = await userInfo(t.access_token);
   const now = Date.now();
-  // a TikTok account belongs to the business it was connected from (social_accounts is not auto-filled)
-  const biz = await businessOf(userId);
-  if (!biz) throw new Error('save_account: no business');
+  // a TikTok account belongs to the business it was connected from (social_accounts is not auto-filled) — and stays
+  // there: connecting it from another business is refused, never a silent move of the account and its tokens
+  const { data: had } = await adminDb().from('social_accounts').select('business_id').eq('provider', 'tiktok').eq('external_id', t.open_id).maybeSingle();
+  if (had?.business_id && had.business_id !== biz) throw new Error('save_account: other_business');
   const row = {
     user_id: userId, business_id: biz, provider: 'tiktok', external_id: t.open_id,
     display_name: info.display_name ?? null, avatar_url: info.avatar_url ?? null,

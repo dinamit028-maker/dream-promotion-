@@ -56,8 +56,9 @@ export function documentRow(d: NewDoc, x: IssueExtra) {
 }
 
 /**
- * Issue a document once. A retry with the same key (a double tap, a lost answer) returns the document that was already
- * issued instead of a second one. Before migration 20261004003100 the 2.51 columns are left out, so the register keeps working.
+ * Issue a document once. A retry with the same key (a double tap, a lost answer, two devices issuing "the next" receipt
+ * or credit of the same invoice) returns the document that was already issued instead of a second one (`again`).
+ * Never without the key: migration 20261004003100 is on the live database (2.52.1 removed the fallback without it).
  */
 export async function issueDocumentRow(row: Record<string, unknown>): Promise<{ ok: true; doc: DocRow; again: boolean } | { ok: false; error: string; raw?: unknown }> {
   const sb = supabase();
@@ -67,14 +68,6 @@ export async function issueDocumentRow(row: Record<string, unknown>): Promise<{ 
   if (first.error && (first.error.code === '23505' || /duplicate key/.test(m)) && /idempotency/.test(m + String(first.error.details ?? ''))) {
     const { data } = await sb.from('documents').select('*').eq('idempotency_key', String(row.idempotency_key)).maybeSingle();
     if (data) return { ok: true, doc: toDoc(data), again: true };
-  }
-  if (first.error && missing(m)) {
-    // the database is from before 2.51: the same document without its new columns
-    const { idempotency_key: _k, due_date: _d, notes: _n, customer_email: _e, paid_document_id: _p, quote_id: _q, draft_id: _r, source: _s, ...legacy } = row as any;
-    if (_p || _q || _r) return { ok: false, error: FINANCE_MIGRATION, raw: first.error };
-    const second = await sb.from('documents').insert(legacy).select('*').single();
-    if (!second.error && second.data) return { ok: true, doc: toDoc(second.data), again: false };
-    return { ok: false, error: financeError(second.error), raw: second.error };
   }
   return { ok: false, error: financeError(first.error), raw: first.error };
 }

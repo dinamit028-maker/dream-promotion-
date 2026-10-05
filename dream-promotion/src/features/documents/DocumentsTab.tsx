@@ -9,6 +9,7 @@ import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
 import { DOC_LABEL, PAY_LABEL, creditFor, creditedTotals, issuerFor, toDoc, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
+import { issueDocumentRow } from '@/features/finance/api';
 
 /** Legal documents: list, view & print (original / true copy), credit invoice, and the "ממשק פתוח" export. */
 export { toDoc, type DocRow } from './documents';
@@ -22,17 +23,34 @@ export const SOFTWARE: SoftwareInfo = {
   regNumber: process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER || '00000000', name: 'Dream Promotion',
   version: process.env.NEXT_PUBLIC_APP_VERSION || '', vendorVat: process.env.NEXT_PUBLIC_SOFTWARE_VENDOR_VAT || '000000000', vendorName: 'Dream Promotion',
 };
-/** print a document: the print is counted first, so the first print is "מקור" and every later one "העתק נאמן למקור" */
+/**
+ * Count a print, then print: the first print is "מקור" and every later one "העתק נאמן למקור".
+ * The count moves only from the value this screen saw (two screens printing at once never both get "מקור"); if another
+ * screen printed meanwhile, the fresh count is taken once more.
+ */
+export async function countPrint(d: DocRow): Promise<DocRow | null> {
+  let seen = d.printCount;
+  for (let i = 0; i < 2; i++) {
+    const { data } = await supabase().from('documents').update({ print_count: seen + 1 }).eq('id', d.id).eq('print_count', seen).select('*').maybeSingle();
+    if (data) return toDoc(data);
+    const now = await supabase().from('documents').select('print_count').eq('id', d.id).maybeSingle();
+    if (!now.data) return null;
+    seen = Number(now.data.print_count ?? 0);
+  }
+  return null;
+}
+/** print a document: the window opens on the tap (iPhone blocks a window opened after waiting for the database) */
 export async function printDocRow(d: DocRow, business: Business): Promise<DocRow | null> {
-  const { data, error } = await supabase().from('documents').update({ print_count: d.printCount + 1 }).eq('id', d.id).select('*').single();
-  if (error) return null;
-  const fresh = toDoc(data);
   const w = window.open('', '_blank');
+  const fresh = await countPrint(d);
+  if (!fresh) { w?.close(); return null; }
   if (w) { w.document.write(docHtml(fresh, business, fresh.printCount === 1 ? 'מקור' : 'העתק נאמן למקור')); w.document.close(); }
   return fresh;
 }
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
-const ddmmyyyy = (d: string) => d.split('-').reverse().join('/');
+const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+/** an amount as written on the document; anything that is not a number prints nothing (never raw text) */
+const n2 = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(2) : ''; };
+const ddmmyyyy = (d: unknown) => String(d ?? '').split('-').reverse().join('/');
 
 export function DocumentsTab({ userId, business, licensed, onError }: { userId: string; business: Business & { ready: boolean }; licensed: boolean; onError: (m: string) => void }) {
   const [docs, setDocs] = useState<DocRow[] | null>(null);
@@ -49,19 +67,20 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
   const creditNote = (d: DocRow) => { const c = credited.get(`${d.docType}:${d.docNumber}`) ?? 0; return !c ? '' : c >= d.total ? ' · זוכתה' : ` · זוכתה חלקית (${ils(c)})`; };
 
   async function printDoc(d: DocRow) {
-    const { data, error } = await supabase().from('documents').update({ print_count: d.printCount + 1 }).eq('id', d.id).select('*').single();
-    if (error) return onError('ההדפסה לא נרשמה. נסו שוב.');
-    const fresh = toDoc(data);
+    const fresh = await printDocRow(d, business);
+    if (!fresh) return onError('ההדפסה לא נרשמה. נסו שוב.');
     setDocs((all) => (all ?? []).map((x) => (x.id === d.id ? fresh : x))); setOpen(fresh);
-    const w = window.open('', '_blank'); if (!w) return;
-    w.document.write(docHtml(fresh, business, fresh.printCount === 1 ? 'מקור' : 'העתק נאמן למקור'));
-    w.document.close();
   }
+  const [crediting, setCrediting] = useState(false);
   async function credit(d: DocRow) {
+    if (crediting) return;
     if (!window.confirm(`להפיק חשבונית מס זיכוי על ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} (${ils(d.total)})? המסמך המקורי נשאר כמו שהוא.`)) return;
     const c = creditFor(d, israelParts(Date.now()).date);
-    const { error } = await supabase().from('documents').insert(docInsertRow(userId, c, { saleId: d.saleId, vatRate: d.lines[0]?.vatRate ?? 0 }));
-    if (error) return onError('לא הצלחנו להפיק את הזיכוי.');
+    setCrediting(true);
+    // through the one engine, with one key: crediting the whole document once (2.52.1 — was a direct insert without a key)
+    const out = await issueDocumentRow({ ...docInsertRow(userId, c, { saleId: d.saleId, vatRate: d.lines[0]?.vatRate ?? 0 }), idempotency_key: `credit:${d.id}:full` });
+    setCrediting(false);
+    if (!out.ok) return onError(`לא הצלחנו להפיק את הזיכוי: ${out.error}`);
     await load(); setOpen(null);
   }
 
@@ -71,7 +90,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
     <>
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <Chip on={view === 'list'} onClick={() => setView('list')}>מסמכים</Chip>
-        <Chip on={view === 'export'} onClick={() => setView('export')}>ממשק פתוח (מבנה אחיד)</Chip>
+        <a href="/finance/accountant" className="inline-flex min-h-9 items-center rounded-full border border-line px-3 text-sm font-semibold hover:border-primary">ממשק פתוח (מבנה אחיד) ← חבילת רואה החשבון</a>
         <a href="/finance/documents" className="ms-auto text-sm font-semibold text-primary">מרכז המסמכים בכספים ←</a>
       </div>
       {view === 'list' && (
@@ -86,7 +105,6 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
           {!docs.length && <p className="py-6 text-center text-sm text-muted">עוד לא הופקו מסמכים. מסמך מופק אוטומטית בכל מכירה ששולמה.</p>}
         </div>
       )}
-      {view === 'export' && <OpenFormatExport docs={docs} business={business} />}
 
       <Modal open={Boolean(open)} onClose={() => setOpen(null)} wide>
         {open && <>
@@ -94,8 +112,8 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
           <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="primary" onClick={() => printDoc(open)}>{open.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
             {licensed && (open.docType === 320 || open.docType === 305) && !credited.has(`${open.docType}:${open.docNumber}`) &&
-              <Button variant="ghost" onClick={() => credit(open)}>חשבונית מס זיכוי</Button>}
-            {open.shareToken && <a href={`/api/doc/${open.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex h-10 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">🔏 PDF חתום</a>}
+              <Button variant="ghost" disabled={crediting} onClick={() => credit(open)}>{crediting ? 'מפיק…' : 'חשבונית מס זיכוי'}</Button>}
+            {open.shareToken && <a href={`/api/doc/${open.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex h-10 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">📄 PDF</a>}
             <Button variant="ghost" onClick={() => setOpen(null)}>סגירה</Button>
           </div>
           <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. לתיקון — חשבונית זיכוי. החזר כספי על חלק מעסקה עושים מהעסקה עצמה (מכירות ודוחות ← העסקה ← החזר כספי).</p>
@@ -158,21 +176,21 @@ th{background:#f2f2f2}.h{display:flex;justify-content:space-between;gap:16px}.ma
 export function docBody(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueDate' | 'notes' | 'customerEmail'>>, b: Business & { entityType?: string }, mark: string,
   extra: { allocation?: string | null } = {}) {
   const i = issuerFor(d, b);
-  const rows = d.lines.map((l) => `<tr><td>${esc(l.name)}</td><td>${l.qty}</td><td>${l.unitPriceExVat.toFixed(2)}</td><td>${l.totalExVat.toFixed(2)}</td></tr>`).join('');
-  const cheque = (p: Doc['payments'][number]) => (p.cheque?.number ? ` · צ׳ק ${esc(p.cheque.number)}${p.cheque.bank ? ` · בנק ${esc(p.cheque.bank)}` : ''}${p.cheque.branch ? ` · סניף ${esc(p.cheque.branch)}` : ''}${p.cheque.dueDate ? ` · פירעון ${ddmmyyyy(p.cheque.dueDate)}` : ''}` : '');
-  const pays = d.payments.map((p) => `<tr><td>${esc(PAY_LABEL[p.method] ?? 'אחר')}${cheque(p)}</td><td>${ddmmyyyy(p.date)}</td><td>${p.amount.toFixed(2)}</td></tr>`).join('');
+  const rows = d.lines.map((l) => `<tr><td>${esc(l.name)}</td><td>${esc(l.qty)}</td><td>${n2(l.unitPriceExVat)}</td><td>${n2(l.totalExVat)}</td></tr>`).join('');
+  const cheque = (p: Doc['payments'][number]) => (p.cheque?.number ? ` · צ׳ק ${esc(p.cheque.number)}${p.cheque.bank ? ` · בנק ${esc(p.cheque.bank)}` : ''}${p.cheque.branch ? ` · סניף ${esc(p.cheque.branch)}` : ''}${p.cheque.dueDate ? ` · פירעון ${esc(ddmmyyyy(p.cheque.dueDate))}` : ''}` : '');
+  const pays = d.payments.map((p) => `<tr><td>${esc(PAY_LABEL[p.method] ?? 'אחר')}${cheque(p)}</td><td>${esc(ddmmyyyy(p.date))}</td><td>${n2(p.amount)}</td></tr>`).join('');
   const contact = [i.phone, i.email].filter(Boolean).join(' · ');
   const rate = d.lines[0]?.vatRate ?? 0;
-  const vatRow = d.vatAmount || rate ? `<tr><td>מע״מ ${rate}%</td><td>${d.vatAmount.toFixed(2)}</td></tr>` : '';
+  const vatRow = d.vatAmount || rate ? `<tr><td>מע״מ ${esc(rate)}%</td><td>${n2(d.vatAmount)}</td></tr>` : '';
   const bank = (d.docType === 305 || d.docType === 300) && i.bankAccount ? `<p>לתשלום בהעברה: ${esc([i.bankName, i.bankBranch ? `סניף ${i.bankBranch}` : '', `חשבון ${i.bankAccount}`].filter(Boolean).join(' · '))}</p>` : '';
   return `<div class="h"><div><strong style="font-size:18px">${esc(i.name)}</strong>${i.tradingName ? `<br>${esc(i.tradingName)}` : ''}<br>${esc(issuerIdLine(i))}<br>${esc([i.street, i.houseNo, i.city].filter(Boolean).join(' '))}${contact ? `<br>${esc(contact)}` : ''}</div>
-<div style="text-align:left"><span class="mark">${esc(mark)}</span>${d.cancelled ? ' <span class="mark" style="color:#b00;border-color:#b00">בוטל</span>' : ''}<br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${d.docNumber}</strong><br>תאריך: ${ddmmyyyy(d.docDate)}${d.dueDate ? `<br>לתשלום עד: ${ddmmyyyy(d.dueDate)}` : ''}${extra.allocation ? `<br>${esc(extra.allocation)}` : ''}</div></div>
+<div style="text-align:left"><span class="mark">${esc(mark)}</span>${d.cancelled ? ' <span class="mark" style="color:#b00;border-color:#b00">בוטל</span>' : ''}<br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${esc(d.docNumber)}</strong><br>תאריך: ${esc(ddmmyyyy(d.docDate))}${d.dueDate ? `<br>לתשלום עד: ${esc(ddmmyyyy(d.dueDate))}` : ''}${extra.allocation ? `<br>${esc(extra.allocation)}` : ''}</div></div>
 <p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ / ח.פ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}${d.customerStreet || d.customerCity ? `<br>${esc([d.customerStreet, d.customerCity].filter(Boolean).join(', '))}` : ''}</p>
-${d.baseDocNumber ? `<p>זיכוי עבור ${esc(DOC_LABEL[d.baseDocType ?? 0] ?? '')} מס׳ ${d.baseDocNumber}</p>` : ''}
+${d.baseDocNumber ? `<p>זיכוי עבור ${esc(DOC_LABEL[d.baseDocType ?? 0] ?? '')} מס׳ ${esc(d.baseDocNumber)}</p>` : ''}
 <table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>
-<table><tr><td>סה״כ לפני הנחה</td><td>${d.beforeDiscount.toFixed(2)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${d.discount.toFixed(2)}</td></tr>` : ''}
-<tr><td>${vatRow ? 'סה״כ לפני מע״מ' : 'סה״כ'}</td><td>${d.afterDiscount.toFixed(2)}</td></tr>${vatRow}
-<tr class="tot"><td>${d.docType === 330 ? 'סה״כ זיכוי' : d.docType === 400 || d.docType === 320 ? 'סה״כ שולם' : 'סה״כ לתשלום'}</td><td>${d.total.toFixed(2)} ₪</td></tr></table>
+<table><tr><td>סה״כ לפני הנחה</td><td>${n2(d.beforeDiscount)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${n2(d.discount)}</td></tr>` : ''}
+<tr><td>${vatRow ? 'סה״כ לפני מע״מ' : 'סה״כ'}</td><td>${n2(d.afterDiscount)}</td></tr>${vatRow}
+<tr class="tot"><td>${d.docType === 330 ? 'סה״כ זיכוי' : d.docType === 400 || d.docType === 320 ? 'סה״כ שולם' : 'סה״כ לתשלום'}</td><td>${n2(d.total)} ₪</td></tr></table>
 ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכום</th></tr>${pays}</table>` : ''}
 ${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
 <p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${SOFTWARE.regNumber !== '00000000' ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;
