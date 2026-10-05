@@ -49,7 +49,8 @@ function Products({ title = 'מוצרים', sub, editHref }: { title?: string; s
   }, [params, editHref, router, pathname]);
 
   const put = (it: CatalogItem) => setData((d) => (d ? { ...d, items: d.items.some((x) => x.id === it.id) ? d.items.map((x) => (x.id === it.id ? it : x)) : [...d.items, it] } : d));
-  const open = (id: string | null, focus?: EditorFocus) => (editHref && id ? router.push(`${editHref(id)}${focus ? `?focus=${focus}` : ''}`) : setEdit({ id, focus }));
+  // the store: a product's own page (a new one: /store/products/new); finance: a window over the screen
+  const open = (id: string | null, focus?: EditorFocus) => (editHref ? router.push(`${editHref(id ?? 'new')}${focus ? `?focus=${focus}` : ''}`) : setEdit({ id, focus }));
 
   const rows = useMemo(() => {
     if (!data) return [];

@@ -2,7 +2,8 @@
  * An in-memory stand-in for Supabase (PostgREST + auth) for browser tests: Playwright routes every request
  * to http://sb.test here. It answers the queries the register makes and mirrors the database rules that the
  * screens rely on (document numbering, stock moving with sales / refunds / cancels, refunds never beyond what
- * was paid). The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
+ * was paid; 2.54: stock per variant, an item's sum of its variants, a signed upload to storage).
+ * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { randomUUID, randomBytes } from 'node:crypto';
 
@@ -109,17 +110,35 @@ export class FakeSupabase {
   }
 
   private t(name: string) { return (this.tables[name] ||= []); }
-  private stock(itemId: string, delta: number, reason: string, ref: { sale?: string; refund?: string; note?: string } = {}) {
+  /** files uploaded with a signed link (store-media), by path */
+  files = new Map<string, { size: number; type: string }>();
+  /** as stock_move_v (3300): the item's sum moves, and the variant named by the line when it is one of this item's */
+  private stock(itemId: string, delta: number, reason: string, ref: { sale?: string; refund?: string; note?: string; variant?: string | null } = {}) {
     const it = this.t('catalog_items').find((i) => i.id === itemId && i.track_stock);
     if (!it || !delta) return;
     it.stock_qty = Number(it.stock_qty ?? 0) + delta;
-    this.t('stock_movements').push({ id: randomUUID(), business_id: this.opts.businessId, item_id: itemId, delta, qty_after: it.stock_qty, reason,
-      sale_id: ref.sale ?? null, refund_id: ref.refund ?? null, note: ref.note ?? '', created_at: now() });
+    const v = ref.variant ? this.t('catalog_variants').find((x) => x.id === ref.variant && x.item_id === itemId) : null;
+    if (v) v.stock_qty = Number(v.stock_qty ?? 0) + delta;
+    const note = !v && it.has_variants ? ['לא משויך לווריאנט', ref.note].filter(Boolean).join(' · ') : ref.note ?? '';
+    this.t('stock_movements').push({ id: randomUUID(), business_id: this.opts.businessId, item_id: itemId, variant_id: v?.id ?? null, delta,
+      qty_after: v ? v.stock_qty : it.stock_qty, reason, sale_id: ref.sale ?? null, refund_id: ref.refund ?? null, note, created_at: now() });
   }
-  private lines(items: any): { id: string; qty: number }[] {
-    const m = new Map<string, number>();
-    for (const l of Array.isArray(items) ? items : []) if (l?.itemId && Number(l.qty) > 0) m.set(l.itemId, (m.get(l.itemId) ?? 0) + Math.floor(Number(l.qty)));
-    return [...m.entries()].map(([id, qty]) => ({ id, qty }));
+  /** units per (item, variant) in a list of lines — as stock_lines_v */
+  private lines(items: any): { id: string; variant: string | null; qty: number }[] {
+    const m = new Map<string, { id: string; variant: string | null; qty: number }>();
+    for (const l of Array.isArray(items) ? items : []) {
+      if (!l?.itemId || !(Number(l.qty) > 0)) continue;
+      const variant = typeof l.variantId === 'string' && l.variantId ? l.variantId : null;
+      const k = `${l.itemId}|${variant ?? ''}`;
+      const e = m.get(k) ?? { id: l.itemId, variant, qty: 0 };
+      e.qty += Math.floor(Number(l.qty)); m.set(k, e);
+    }
+    return [...m.values()];
+  }
+  /** an item "has variants" while one exists (the trigger catalog_variants_after) */
+  private hasVariants(itemId: string) {
+    const it = this.t('catalog_items').find((i) => i.id === itemId);
+    if (it) it.has_variants = this.t('catalog_variants').some((v) => v.item_id === itemId);
   }
 
   /** the database's BEFORE INSERT side: defaults, numbering, checks — an error string refuses the row */
@@ -153,6 +172,23 @@ export class FakeSupabase {
     if (table === 'document_drafts') Object.assign(r, { status: 'open', document_id: null, updated_at: now() });
     if (table === 'document_cancellations' && this.t('document_cancellations').some((c) => c.document_id === r.document_id)) return 'duplicate key value violates unique constraint "document_cancellations_pkey"';
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
+    // the one catalog (3300): the database's defaults and checks the screens rely on
+    if (table === 'catalog_items') {
+      Object.assign(r, { active: r.active ?? true, favorite: r.favorite ?? false, fav_order: r.fav_order ?? 0, sort: r.sort ?? 0, image_url: r.image_url ?? '',
+        track_stock: r.track_stock ?? false, stock_qty: r.stock_qty ?? 0, low_stock: r.low_stock ?? 2, kind: r.kind ?? 'service',
+        slug: r.slug ?? null, description: r.description ?? '', seo_title: r.seo_title ?? '', seo_description: r.seo_description ?? '', publish_online: r.publish_online ?? false,
+        online_price: r.online_price ?? null, compare_at_price: r.compare_at_price ?? null, sku: r.sku ?? '', barcode: r.barcode ?? '', has_variants: false,
+        tags: r.tags ?? [], custom_fields: r.custom_fields ?? {}, manufacturer: r.manufacturer ?? '', country_of_origin: r.country_of_origin ?? '', updated_at: now() });
+      if (r.published_at == null && r.publish_online) r.published_at = now();
+    }
+    if (table === 'catalog_variants') {
+      if (Number(r.stock_qty ?? 0) !== 0) return 'stock changes only through a delivery or a count (adjust_variant_stock)';
+      const dup = this.t('catalog_variants').some((v) => v.item_id === r.item_id && (v.option1 ?? '') === (r.option1 ?? '') && (v.option2 ?? '') === (r.option2 ?? '') && (v.option3 ?? '') === (r.option3 ?? ''));
+      if (dup) return 'duplicate key value violates unique constraint "catalog_variants_item_id_option1_option2_option3_key"';
+      Object.assign(r, { option1: r.option1 ?? '', option2: r.option2 ?? '', option3: r.option3 ?? '', sku: r.sku ?? '', barcode: r.barcode ?? '', price: r.price ?? null,
+        online_price: r.online_price ?? null, compare_at_price: r.compare_at_price ?? null, stock_qty: 0, low_stock: r.low_stock ?? null, media_id: r.media_id ?? null,
+        active: r.active ?? true, position: r.position ?? 0, updated_at: now() });
+    }
     if (table === 'sale_refunds') {
       const s = this.t('sales').find((x) => x.id === r.sale_id);
       if (!s) return 'sale not found';
@@ -183,8 +219,9 @@ export class FakeSupabase {
     }
     if (table === 'expenses') this.log('expense.created', r.id, { number: r.expense_number, total: r.total });
     if (table === 'quotes') this.log('quote.created', r.id, { number: r.quote_number, total: r.total });
-    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) for (const l of this.lines(r.items)) this.stock(l.id, -l.qty, 'sale', { sale: r.id });
-    if (table === 'sale_refunds' && r.restock) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'refund', { sale: r.sale_id, refund: r.id });
+    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) for (const l of this.lines(r.items)) this.stock(l.id, -l.qty, 'sale', { sale: r.id, variant: l.variant });
+    if (table === 'sale_refunds' && r.restock) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'refund', { sale: r.sale_id, refund: r.id, variant: l.variant });
+    if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
     if (table === 'quotes' && patch.status && patch.status !== old.status) {
@@ -198,10 +235,12 @@ export class FakeSupabase {
     if (table === 'expenses' && patch.status === 'void') patch.voided_at = now();
     if (table === 'sales' && patch.status === 'cancelled' && old.status !== 'cancelled' && this.t('sale_refunds').some((x) => x.sale_id === old.id)) return 'a refunded sale can not be cancelled';
     if (table === 'catalog_items' && 'stock_qty' in patch && patch.stock_qty !== old.stock_qty) return 'stock changes only through adjust_stock';
+    if (table === 'catalog_variants' && 'stock_qty' in patch && patch.stock_qty !== old.stock_qty) return 'stock changes only through a delivery or a count (adjust_variant_stock)';
+    if (table === 'catalog_items' && patch.publish_online && !old.published_at) patch.published_at = now();
     return null;
   }
   private afterUpdate(table: string, old: Row, r: Row) {
-    if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id });
+    if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant });
   }
 
   rpc(fn: string, args: any): { status: number; body: any } {
@@ -210,9 +249,29 @@ export class FakeSupabase {
     if (fn === 'adjust_stock') {
       const it = this.t('catalog_items').find((i) => i.id === args.p_item);
       if (!it) return { status: 400, body: { code: '42501', message: 'not allowed' } };
+      if (it.has_variants) return { status: 400, body: { code: '22023', message: 'variant_required: an item with variants is counted per variant' } };
       if (!it.track_stock) { it.track_stock = true; it.stock_qty = 0; }
       const d = args.p_mode === 'add' ? Number(args.p_qty) : Number(args.p_qty) - Number(it.stock_qty);
       this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { note: args.p_note ?? '' });
+      return { status: 200, body: it.stock_qty };
+    }
+    // the one catalog (3300): a variant's delivery / count moves the variant and the item's sum; the reconcile drops what no variant holds
+    if (fn === 'adjust_variant_stock') {
+      const v = this.t('catalog_variants').find((x) => x.id === args.p_variant);
+      const it = v && this.t('catalog_items').find((i) => i.id === v.item_id);
+      if (!v || !it) return { status: 400, body: { code: '42501', message: 'not allowed' } };
+      const qty = Number(args.p_qty);
+      if (args.p_mode === 'add' ? !(qty > 0) : !(qty >= 0)) return { status: 400, body: { code: '22023', message: 'a count is zero or more' } };
+      it.track_stock = true;
+      const d = args.p_mode === 'add' ? qty : qty - Number(v.stock_qty ?? 0);
+      this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { variant: v.id, note: args.p_note ?? '' });
+      return { status: 200, body: v.stock_qty };
+    }
+    if (fn === 'reconcile_variant_stock') {
+      const it = this.t('catalog_items').find((i) => i.id === args.p_item);
+      if (!it || !it.has_variants) return { status: 400, body: { code: '22023', message: 'the item has no variants' } };
+      const total = this.t('catalog_variants').filter((v) => v.item_id === it.id).reduce((a, v) => a + Number(v.stock_qty ?? 0), 0);
+      this.stock(it.id, total - Number(it.stock_qty ?? 0), 'count', { note: 'התאמה לסכום הווריאנטים' });
       return { status: 200, body: it.stock_qty };
     }
     if (fn === 'finance_access_state') {
@@ -248,7 +307,7 @@ export class FakeSupabase {
     if (fn === 'receive_expense_stock') {
       const e = this.t('expenses').find((x) => x.id === args.p_expense);
       let n = 0;
-      for (const l of this.lines(e?.stock_lines)) { this.stock(l.id, l.qty, 'receive', { note: `הוצאה ${e!.expense_number}` }); n++; }
+      for (const l of this.lines(e?.stock_lines)) { this.stock(l.id, l.qty, 'receive', { note: `הוצאה ${e!.expense_number}`, variant: l.variant }); n++; }
       return { status: 200, body: n };
     }
     return { status: 404, body: { code: 'PGRST202', message: `function ${fn} not found` } };
@@ -258,6 +317,13 @@ export class FakeSupabase {
   handle(method: string, href: string, headers: Record<string, string>, bodyText: string | null): { status: number; body?: string; headers?: Record<string, string> } {
     const url = new URL(href);
     const json = (status: number, body: any, extra: Record<string, string> = {}) => ({ status, body: body === undefined ? '' : JSON.stringify(body), headers: { 'content-type': 'application/json', ...extra } });
+    // ---- storage: an upload with a signed link (the store's pictures, 2.54) — a binary body, before any JSON ----
+    const signed = url.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/([^/]+)\/(.+)$/);
+    if (signed && (method === 'PUT' || method === 'POST')) {
+      if (!url.searchParams.get('token')) return json(400, { message: 'no token' });
+      this.files.set(`${signed[1]}/${decodeURIComponent(signed[2])}`, { size: (bodyText ?? '').length, type: headers['content-type'] ?? '' });
+      return json(200, { Key: `${signed[1]}/${decodeURIComponent(signed[2])}` });
+    }
     const body = bodyText ? JSON.parse(bodyText) : null;
     this.calls.push({ method, path: url.pathname + url.search, body });
 
@@ -326,6 +392,7 @@ export class FakeSupabase {
     if (method === 'DELETE') {
       const hit = rows.filter((r) => filtersOf(url).every((f) => f(r)));
       this.tables[table] = rows.filter((r) => !hit.includes(r));
+      if (table === 'catalog_variants') for (const id of new Set(hit.map((r) => r.item_id))) this.hasVariants(id);
       return prefer.includes('return=representation') ? ret(hit) : { status: 204 };
     }
     return json(405, { message: 'method' });

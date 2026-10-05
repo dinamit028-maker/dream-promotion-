@@ -142,6 +142,11 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
 - **סקירת אבטחה:** `docs/finance-security-review.md`.
 - **2.52.1 — מוכנות לפיילוט:** תיקוני אבטחה וכפילויות בקוד; מיגרציה `20261005003200_pilot_hardening.sql` נבדקה מקומית והוחלה על המסד החי ב-5.10.2026, אחרי אישור (פירוט: `STATUS.md` סעיף 4יח).
 - **2.53.0 — Dream Commerce, שלב 0:** תכנון החנות בלבד, בלי קוד ובלי מיגרציה. האפיון: `docs/DREAM_COMMERCE_SPEC.md`. הארכיטקטורה, כולל ההחלטות שמחכות לבעל המערכת: `docs/DREAM_COMMERCE_ARCHITECTURE.md`.
+- **2.54.0 — Dream Commerce, שלב 1: מוצרים.** קטלוג אחד לקופה, לכספים ולחנות:
+  - `src/features/catalog/` — הכללים (`catalog.ts`), הקריאה והכתיבה (`data.ts`), התמונות (`images.ts`, `upload.ts`), עורך המוצר האחד (`ProductEditor.tsx`), המתג "באתר" (`PublishSwitch.tsx`) ורשימת המוצרים (`ProductsScreen.tsx`).
+  - מודול "חנות": `/store/products`, `/store/products/[id]` (`src/features/store/`).
+  - תמונות: `/api/store/media` (קישורי העלאה חתומים ל-bucket `store-media`).
+  - מיגרציה `20261005003300_commerce_catalog.sql` — **לא הוחלה על המסד החי**, ממתינה לאישור. עד אז הקופה והכספים עובדים כמו קודם (פירוט: `STATUS.md` סעיף 4כ).
 
 ## הריל הסופי — איך זה עובד
 

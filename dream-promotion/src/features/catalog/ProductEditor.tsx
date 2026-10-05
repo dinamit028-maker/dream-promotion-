@@ -179,11 +179,12 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   async function ensureSaved(): Promise<CatalogItem | null> { return item ?? (await save()); }
 
   // ---- pictures --------------------------------------------------------------------------------------------------------------
-  async function addPictures(files: FileList | null) {
-    if (!files?.length) return;
+  /** the files are copied when they are picked: the input is cleared at once (to pick the same file again) */
+  async function addPictures(files: File[]) {
+    if (!files.length) return;
     const it = await ensureSaved();
     if (!it) return;
-    const list = [...files].slice(0, Math.max(0, MAX_PICTURES - media.length));
+    const list = files.slice(0, Math.max(0, MAX_PICTURES - media.length));
     if (list.length < files.length) fail(`עד ${MAX_PICTURES} תמונות למוצר — נוספו ${list.length}.`);
     let added = 0;
     for (const [k, f] of list.entries()) {
@@ -363,7 +364,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
               ))}
             </ul>
           )}
-          <input ref={fileInput} type="file" accept="image/*" multiple className="sr-only" aria-label="בחירת תמונות" onChange={(e) => { void addPictures(e.target.files); e.target.value = ''; }} />
+          <input ref={fileInput} type="file" accept="image/*" multiple className="sr-only" aria-label="בחירת תמונות" onChange={(e) => { const picked = [...(e.target.files ?? [])]; e.target.value = ''; void addPictures(picked); }} />
           <Button variant={media.length ? 'ghost' : 'primary'} disabled={Boolean(busy) || media.length >= MAX_PICTURES}
             onClick={async () => { if (!item) { const it = await save(); if (!it) return; } fileInput.current?.click(); }}>
             <ImageGlyph size={18} aria-hidden />{media.length ? 'הוספת תמונות' : item ? 'בחירת תמונות' : 'שמירה ובחירת תמונות'}
