@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { blockedFor, workBusiness } from '@/lib/server/business';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
-import { BUCKET, cleanSizes, cleanType, inBusiness, isUuid, mediaFolder, sizeFile } from '@/features/catalog/images';
+import { BUCKET, cleanSizes, cleanType, inBusiness, isUuid, mediaFolder, sizeFile, storeFolder } from '@/features/catalog/images';
 import { LIMITS, MAX_PICTURES } from '@/features/catalog/catalog';
 
 export const runtime = 'nodejs';
@@ -14,6 +14,8 @@ export const runtime = 'nodejs';
  *              and the picture is recorded (catalog_media; the database makes the first one the item's image_url)
  *   delete   → a picture: its files and its row
  *   purge    → every picture of an item, before the item is deleted (its rows would go with it; its files would stay)
+ *   store-sign / store-register (2.55) → a picture of the store itself (its logo, the home page's pictures), in
+ *              <business>/store/<upload>/: the same checks, no row — the screen saves its address in the setting that uses it
  * Service role, so this route checks everything itself: a signed-in member who may write (not a cashier, not a viewer,
  * not a locked business), the business they work in NOW (never one sent by the browser), and an item of that business.
  */
@@ -104,6 +106,41 @@ export async function POST(req: Request) {
       }).select('*').single();
       if (error || !row) { await removeFolder(folder); return bad('התמונה לא נשמרה — נסו שוב.', 'row_failed', 500); }
       return json(200, { media: row });
+    }
+
+    if (body.action === 'store-sign' || body.action === 'store-register') {
+      const { data: store } = await db.from('stores').select('id').eq('business_id', business).maybeSingle();
+      if (!store) return bad('עוד אין חנות לעסק הזה.', 'no_store', 404);
+      const sizes = cleanSizes(body.sizes), type = cleanType(body.type);
+      if (!sizes || !type) return bad('גדלים או סוג תמונה לא תקינים.');
+      if (body.action === 'store-sign') {
+        const upload = randomUUID();
+        const uploads: { size: number; path: string; token: string }[] = [];
+        for (const size of sizes) {
+          const path = `${storeFolder(business, upload)}/${sizeFile(size, type)}`;
+          const { data, error } = await storage.createSignedUploadUrl(path);
+          if (error || !data?.token) return bad('לא הצלחנו להכין את ההעלאה — נסו שוב.', 'sign_failed', 502);
+          uploads.push({ size, path, token: data.token });
+        }
+        return json(200, { uploadId: upload, uploads });
+      }
+      if (!isUuid(body.uploadId)) return bad('העלאה לא מוכרת.');
+      const folder = storeFolder(business, body.uploadId);
+      const { data: listed } = await storage.list(folder, { limit: 20 });
+      const files = new Map(((listed ?? []) as { name: string; metadata?: any }[]).map((o) => [o.name, o]));
+      const urls: Record<string, string> = {};
+      for (const size of sizes) {
+        const f = files.get(sizeFile(size, type));
+        const mime = String(f?.metadata?.mimetype ?? '').toLowerCase(), bytes = Number(f?.metadata?.size ?? 0);
+        if (!f || mime !== type || !(bytes > 0 && bytes <= MAX_FILE)) {
+          await removeFolder(folder);
+          return bad('התמונה לא הועלתה במלואה (או שהקובץ לא תקין) — נסו שוב.', 'bad_file');
+        }
+        urls[String(size)] = storage.getPublicUrl(`${folder}/${sizeFile(size, type)}`).data.publicUrl;
+      }
+      const main = urls[String(sizes[sizes.length - 1])];
+      if (!/^https:\/\//.test(main)) return bad('כתובת התמונה לא תקינה.', 'bad_url', 500);
+      return json(200, { url: urls['800'] ?? main, sizes: urls });
     }
 
     if (body.action === 'delete') {

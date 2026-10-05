@@ -61,7 +61,9 @@ async function makeSizes(source: CanvasImageSource, w: number, h: number, type: 
   return out.reverse();
 }
 
-export async function uploadPicture(file: File, itemId: string, opts: { alt?: string; variantId?: string | null } = {}): Promise<Result<CatalogMedia>> {
+/** the sizes of a picture, uploaded with the server's signed links: `sign` names the action, `register` turns the upload id
+ *  into the result */
+async function sendSizes<T>(file: File, sign: Record<string, unknown>, register: (upload: string, sizes: { size: number; w: number; h: number }[], type: ImageType) => Promise<Result<T>>): Promise<Result<T>> {
   if (!/^image\//.test(file.type) && !/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(file.name)) return { ok: false, error: `"${file.name}" אינו תמונה.` };
   if (file.size > MAX_SOURCE_BYTES) return { ok: false, error: `"${file.name}" גדול מדי (עד 25MB).` };
   let pic: Awaited<ReturnType<typeof decode>>;
@@ -72,8 +74,7 @@ export async function uploadPicture(file: File, itemId: string, opts: { alt?: st
     let sizes: Awaited<ReturnType<typeof makeSizes>>;
     try { sizes = await makeSizes(pic.source, pic.w, pic.h, type); }
     catch { type = 'image/jpeg'; sizes = await makeSizes(pic.source, pic.w, pic.h, type); }
-    const signed = await mediaApi<{ uploadId: string; uploads: { size: number; path: string; token: string }[] }>(
-      { action: 'sign', itemId, sizes: sizes.map((s) => s.size), type });
+    const signed = await mediaApi<{ uploadId: string; uploads: { size: number; path: string; token: string }[] }>({ ...sign, sizes: sizes.map((s) => s.size), type });
     if (!signed.ok) return signed;
     const store = supabase().storage.from(BUCKET);
     for (const u of signed.data.uploads) {
@@ -82,11 +83,23 @@ export async function uploadPicture(file: File, itemId: string, opts: { alt?: st
       const { error } = await store.uploadToSignedUrl(u.path, u.token, s.blob, { contentType: type, cacheControl: '31536000' });
       if (error) return { ok: false, error: 'ההעלאה נקטעה — בדקו את החיבור ונסו שוב.' };
     }
-    const big = sizes[sizes.length - 1];
-    const reg = await mediaApi<{ media: any }>({ action: 'register', itemId, uploadId: signed.data.uploadId, sizes: sizes.map((s) => s.size), type,
-      width: big.w, height: big.h, alt: opts.alt ?? '', variantId: opts.variantId ?? null });
-    return reg.ok ? { ok: true, data: toMedia(reg.data.media) } : reg;
+    return await register(signed.data.uploadId, sizes, type);
   } catch {
     return { ok: false, error: `לא הצלחנו להכין את "${file.name}" להעלאה. נסו תמונה אחרת.` };
   } finally { pic.close(); }
+}
+
+/** a picture of the store itself — its logo, a picture of the home page (2.55): its address, to save in that setting */
+export function uploadStorePicture(file: File): Promise<Result<{ url: string; sizes: Record<string, string> }>> {
+  return sendSizes(file, { action: 'store-sign' }, (uploadId, sizes, type) =>
+    mediaApi<{ url: string; sizes: Record<string, string> }>({ action: 'store-register', uploadId, sizes: sizes.map((s) => s.size), type }));
+}
+
+export async function uploadPicture(file: File, itemId: string, opts: { alt?: string; variantId?: string | null } = {}): Promise<Result<CatalogMedia>> {
+  return sendSizes(file, { action: 'sign', itemId }, async (uploadId, sizes, type) => {
+    const big = sizes[sizes.length - 1];
+    const reg = await mediaApi<{ media: any }>({ action: 'register', itemId, uploadId, sizes: sizes.map((s) => s.size), type,
+      width: big.w, height: big.h, alt: opts.alt ?? '', variantId: opts.variantId ?? null });
+    return reg.ok ? { ok: true, data: toMedia(reg.data.media) } : reg;
+  });
 }

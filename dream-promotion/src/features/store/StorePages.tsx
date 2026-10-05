@@ -1,0 +1,187 @@
+'use client';
+import { Suspense, useEffect, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Button, PageHead, Pill } from '@/components/ui/primitives';
+import { Spinner } from '@/components/ui/feedback';
+import { Switch } from '@/features/catalog/PublishSwitch';
+import { LIMITS, SEO_SHOWN } from '@/features/catalog/catalog';
+import { deletePage, savePage } from './data';
+import {
+  hasPlaceholders, pageProblem, POLICY_LABEL, policyDraft, policySlug, REQUIRED_POLICIES, STORE_LIMITS, suggestSlug,
+  type PageRow, type PolicyKind, type StoreRow,
+} from './store';
+import { Block, NeedsStore, Notice, TextRow } from './ui';
+import { useStoreData } from './useStoreData';
+
+/**
+ * "עמודים" (2.55): the policies the site must show (returns, privacy, accessibility — the checklist asks for them) and
+ * pages of the business's own (about, delivery…). A policy starts from a draft with "[…]" for what only the business knows;
+ * it is NEEDS_LEGAL_VERIFICATION, never "approved", and it is not published while a "[…]" is left in it.
+ * Text is plain: an empty line between paragraphs, "## " for a title, "- " for a list (the storefront's RichText).
+ */
+export function StorePages() {
+  return <Suspense fallback={<div className="py-10 text-center"><Spinner /></div>}><Pages /></Suspense>;
+}
+
+const POLICIES: PolicyKind[] = ['returns', 'privacy', 'accessibility', 'shipping', 'terms'];
+type Draft = { id: string | null; kind: 'page' | 'policy'; policy: PolicyKind | null; title: string; slug: string; slugTouched: boolean; body: string;
+  seoTitle: string; seoDescription: string; published: boolean };
+const draftOfPage = (p: PageRow): Draft => ({ id: p.id, kind: p.kind, policy: p.policy, title: p.title, slug: p.slug, slugTouched: true, body: p.body,
+  seoTitle: p.seoTitle, seoDescription: p.seoDescription, published: p.published });
+const newPolicy = (kind: PolicyKind, store: StoreRow): Draft => {
+  const t = policyDraft(kind, { name: store.name, phone: store.phone, email: store.email, address: store.address });
+  return { id: null, kind: 'policy', policy: kind, title: t.title, slug: policySlug(kind), slugTouched: true, body: t.body, seoTitle: '', seoDescription: '', published: false };
+};
+const newPage = (): Draft => ({ id: null, kind: 'page', policy: null, title: '', slug: '', slugTouched: false, body: '', seoTitle: '', seoDescription: '', published: false });
+const status = (p: PageRow | undefined) => (!p ? { label: 'לא נכתב', tone: 'default' as const } : p.published ? { label: 'באתר', tone: 'ok' as const } : { label: 'טיוטה', tone: 'warn' as const });
+
+function Pages() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const { data, error, loading, reload } = useStoreData();
+  const [edit, setEdit] = useState<Draft | null>(null);
+  const [msg, setMsg] = useState<string>('');
+  const store = data?.store ?? null;
+  const pages = data?.pages ?? [];
+  const open = (kind: PolicyKind) => { const p = pages.find((g) => g.policy === kind); setEdit(p ? draftOfPage(p) : newPolicy(kind, store!)); setMsg(''); };
+
+  // the checklist's links (?policy=returns) and "+ עמוד חדש" of the module (?new=1)
+  useEffect(() => {
+    if (!store) return;
+    const policy = params?.get('policy') as PolicyKind | null;
+    if (policy && POLICIES.includes(policy)) open(policy);
+    else if (params?.get('new') === '1') setEdit(newPage());
+    else return;
+    router.replace(pathname, { scroll: false });
+  }, [params, store?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading) return <><PageHead title="עמודים" /><p className="flex items-center gap-2 text-muted"><Spinner /> טוען…</p></>;
+  if (error && !data) return <><PageHead title="עמודים" /><Notice tone="error">{error}</Notice></>;
+  if (!store) return <><PageHead title="עמודים" /><NeedsStore /></>;
+
+  if (edit) {
+    return <Editor draft={edit} store={store} taken={pages.filter((g) => g.id !== edit.id).map((g) => g.slug)} onClose={() => setEdit(null)}
+      onSaved={async (text) => { setEdit(null); setMsg(text); await reload(); }} />;
+  }
+
+  const content = pages.filter((g) => g.kind === 'page');
+  return (
+    <>
+      <PageHead title="עמודים" sub="מדיניות, ועמודים משלכם כמו אודות או משלוחים." action={<Button variant="primary" onClick={() => { setMsg(''); setEdit(newPage()); }}>+ עמוד חדש</Button>} />
+      {msg && <Notice tone="ok">{msg}</Notice>}
+      <Block title="מדיניות" sub="שלוש הראשונות נדרשות לפני שהחנות עולה לאוויר. בתחתית כל עמוד באתר יש קישור אליהן.">
+        <Notice tone="warn">הנוסח המוצע הוא נקודת התחלה בלבד, ולא בדיקה משפטית. לפני מכירה אמיתית — לעבור עליו עם עורך דין (NEEDS_LEGAL_VERIFICATION).</Notice>
+        <ul className="space-y-2">
+          {POLICIES.map((kind) => {
+            const p = pages.find((g) => g.policy === kind);
+            const st = status(p);
+            return (
+              <li key={kind} className="flex flex-wrap items-center gap-3 rounded-md border border-line px-3 py-2">
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold">{p?.title || POLICY_LABEL[kind]}</span>
+                  {REQUIRED_POLICIES.includes(kind) && <span className="ms-2 text-xs text-muted">(נדרש)</span>}
+                  <span className="block text-xs text-muted"><bdi dir="ltr">/policies/{kind}</bdi></span>
+                </span>
+                <Pill tone={st.tone}>{st.label}</Pill>
+                <Button variant={p ? 'ghost' : 'soft'} size="sm" onClick={() => open(kind)}>{p ? 'עריכה' : 'כתיבה'}</Button>
+              </li>
+            );
+          })}
+        </ul>
+      </Block>
+      <Block title="עמודים משלכם">
+        {!content.length ? <p className="text-sm text-muted">עוד אין. למשל: אודות, איך מזמינים, הדפסה על שקיות.</p> : (
+          <ul className="space-y-2">
+            {content.map((p) => {
+              const st = status(p);
+              return (
+                <li key={p.id}>
+                  <button type="button" className="flex w-full flex-wrap items-center gap-3 rounded-md border border-line px-3 py-2 text-start hover:bg-surface-2"
+                    onClick={() => { setMsg(''); setEdit(draftOfPage(p)); }}>
+                    <span className="min-w-0 flex-1"><span className="block font-semibold">{p.title}</span><span className="block text-xs text-muted"><bdi dir="ltr">/pages/{p.slug}</bdi></span></span>
+                    <Pill tone={st.tone}>{st.label}</Pill>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Block>
+    </>
+  );
+}
+
+function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store: StoreRow; taken: string[]; onClose: () => void; onSaved: (text: string) => Promise<void> }) {
+  const [d, setD] = useState<Draft>(draft);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const set = (patch: Partial<Draft>) => { setD((x) => ({ ...x, ...patch })); setError(''); };
+  const policy = d.kind === 'policy';
+  const required = policy && d.policy !== null && REQUIRED_POLICIES.includes(d.policy);
+  const address = policy ? `/policies/${d.policy}` : `/pages/${d.slug || '…'}`;
+  // the store is on the air and a required policy would leave the site
+  const leavesLive = (willShow: boolean) => store.status === 'published' && required && draft.published && !willShow;
+
+  const save = async () => {
+    const slug = d.slugTouched ? d.slug.trim() : suggestSlug(d.title, taken, 'עמוד');
+    const problem = pageProblem({ ...d, slug }, taken);
+    if (problem) { setError(problem); return; }
+    if (leavesLive(d.published) && !window.confirm('החנות באוויר, והעמוד הזה נדרש בה. להסתיר אותו בכל זאת?')) return;
+    setBusy(true);
+    const r = await savePage(store.id, d.id, { kind: d.kind, policy: d.policy, slug, title: d.title.trim(), body: d.body.trim(),
+      seo_title: d.seoTitle.trim(), seo_description: d.seoDescription.trim(), published: d.published });
+    setBusy(false);
+    if (!r.ok) { setError(r.error); return; }
+    await onSaved(d.published ? 'העמוד נשמר ומוצג באתר.' : 'העמוד נשמר כטיוטה (לא מוצג באתר).');
+  };
+
+  return (
+    <>
+      <PageHead title={d.id || policy ? d.title || 'עמוד' : 'עמוד חדש'} sub={address} action={<Button variant="ghost" onClick={onClose}>חזרה לרשימה</Button>} />
+      {error && <Notice tone="error">{error}</Notice>}
+      {policy && <Notice tone="warn">נקודת התחלה בלבד — לא בדיקה משפטית. מה שבסוגריים [ … ] רק אתם יודעים: משלימים או מוחקים. לפני מכירה אמיתית — לעבור עם עורך דין (NEEDS_LEGAL_VERIFICATION).</Notice>}
+
+      <Block title="תוכן">
+        <TextRow label="כותרת" value={d.title} max={STORE_LIMITS.pageTitle}
+          onChange={(v) => set({ title: v, ...(d.slugTouched ? {} : { slug: suggestSlug(v, taken, 'עמוד') }) })} />
+        {!policy && <TextRow label="כתובת באתר" value={d.slug} max={LIMITS.slug} dir="ltr" onChange={(v) => set({ slug: v.toLowerCase().replace(/\s+/g, '-'), slugTouched: true })}
+          hint={`/pages/${d.slug || '…'}${d.id && draft.published ? ' · שינוי הכתובת משאיר הפניה מהכתובת הישנה' : ''}`} />}
+        <label className="mb-2 block">
+          <span className="mb-2 block text-sm font-semibold text-ink-2">טקסט</span>
+          <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px] leading-relaxed" rows={16} maxLength={STORE_LIMITS.pageBody}
+            value={d.body} onChange={(e) => set({ body: e.target.value })} />
+          <span className="mt-1 block text-xs text-muted">שורה ריקה = פסקה חדשה · ## בתחילת שורה = כותרת · - בתחילת שורה = רשימה</span>
+        </label>
+        {policy && hasPlaceholders(d.body) && <Notice tone="warn">יש בטקסט סימונים בסוגריים [ … ] שעוד לא הושלמו. אפשר לשמור כטיוטה; לפרסם — רק אחרי שהם מושלמים.</Notice>}
+        <label className="flex min-h-11 items-center justify-between gap-3">
+          <span className="text-sm font-semibold">באתר</span>
+          <Switch on={d.published} onClick={() => set({ published: !d.published })} label="העמוד באתר" />
+        </label>
+      </Block>
+
+      <Block title="בגוגל" sub="ריק = הכותרת ותחילת הטקסט.">
+        <TextRow label="כותרת" value={d.seoTitle} onChange={(v) => set({ seoTitle: v })} max={STORE_LIMITS.seoTitle} hint={`${d.seoTitle.length} תווים · גוגל מציג בערך ${SEO_SHOWN.title}`} />
+        <label className="mb-2 block">
+          <span className="mb-2 block text-sm font-semibold text-ink-2">תיאור</span>
+          <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px]" rows={2} maxLength={STORE_LIMITS.seoDescription}
+            value={d.seoDescription} onChange={(e) => set({ seoDescription: e.target.value })} />
+          <span className="mt-1 block text-xs text-muted">{d.seoDescription.length} תווים · גוגל מציג בערך {SEO_SHOWN.description}</span>
+        </label>
+      </Block>
+
+      <div className="sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-[color:var(--glass)] py-2 backdrop-blur sm:bottom-4">
+        {d.id && (
+          <Button variant="ghost" className="me-auto text-red-700" disabled={busy} onClick={async () => {
+            const live = leavesLive(false) ? ' החנות באוויר, והעמוד הזה נדרש בה.' : '';
+            if (!window.confirm(`למחוק את "${d.title}"?${live}`)) return;
+            setBusy(true); const r = await deletePage(d.id!); setBusy(false);
+            if (!r.ok) setError(r.error); else await onSaved('העמוד נמחק.');
+          }}>מחיקה</Button>
+        )}
+        <Button variant="ghost" disabled={busy} onClick={onClose}>ביטול</Button>
+        <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? <><Spinner /> שומר…</> : 'שמירה'}</Button>
+      </div>
+    </>
+  );
+}
