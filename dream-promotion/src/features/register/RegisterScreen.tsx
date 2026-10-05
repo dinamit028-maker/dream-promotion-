@@ -361,7 +361,7 @@ export function RegisterScreen() {
               dealer_number: settings.dealerNumber, company_number: settings.companyNumber, legal_name: settings.legalName, street: settings.street, house_no: settings.houseNo, city: settings.city, zip: settings.zip }, { onConflict: 'business_id' });
             if (e) setError(errText(e)); else { setError(null); say('ההגדרות נשמרו'); }
           }}>שמירה</Button>
-          <p className="mt-3 text-sm"><a href="/finance?tab=settings" className="font-semibold text-primary">הגדרות כספים מלאות (סוג עסק, בנק, רו״ח, רשות המסים) ←</a></p>
+          <p className="mt-3 text-sm"><a href="/finance/settings" className="font-semibold text-primary">הגדרות כספים מלאות (סוג עסק, בנק, רו״ח, רשות המסים) ←</a></p>
           <SignatureStatus />
           <PushSettings userId={userId} />
           <p className="mt-4 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">

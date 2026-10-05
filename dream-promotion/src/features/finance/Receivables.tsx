@@ -21,8 +21,11 @@ import type { DocRow } from '@/features/documents/documents';
  * or writes amounts — they stay {{placeholders}}); WhatsApp opens with the text and the user sends it.
  */
 export function Receivables() {
-  const { fail } = useFinance();
+  const { fail, params, clearParams } = useFinance();
   const [list, setList] = useState<Receivable[] | null>(null);
+  // ?receipt=1 — from the module's "+" → "קבלה": a receipt is issued on the invoice that was paid, from this list
+  const [receiptHint, setReceiptHint] = useState(false);
+  useEffect(() => { if (params.get('receipt')) { setReceiptHint(true); clearParams(); } }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState<DocRow | null>(null);
   const [remind, setRemind] = useState<Receivable | null>(null);
@@ -44,6 +47,9 @@ export function Receivables() {
   if (list === null) return <div className="py-8 text-center"><Spinner /></div>;
   return (
     <div className="grid gap-3">
+      {receiptHint && <Note>{list.some((r) => r.balance > 0)
+        ? 'קבלה מופקת על החשבונית ששולמה: בוחרים אותה ברשימה, ואז "קבלה על תשלום".'
+        : 'קבלה מופקת על חשבונית פתוחה, ואין כרגע חשבוניות פתוחות. על מכירה חדשה ששולמה — "חשבונית מס / קבלה".'}</Note>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Stat label="סה״כ פתוח" value={ils(a.total)} />
         <Stat label="טרם הגיע מועד" value={ils(a.current)} />

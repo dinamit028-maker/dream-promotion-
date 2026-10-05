@@ -22,7 +22,7 @@ import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
 const STATUS_TONE: Record<QuoteStatus, 'default' | 'ok' | 'warn' | 'bad' | 'info'> = { draft: 'default', sent: 'info', accepted: 'ok', rejected: 'bad', expired: 'warn', converted: 'ok', cancelled: 'bad' };
 
 export function Quotes() {
-  const { params, fail, say, settings } = useFinance();
+  const { params, clearParams, fail, say, settings } = useFinance();
   const leads = useApp((s) => s.leads);
   const [list, setList] = useState<Quote[] | null>(null);
   const [filter, setFilter] = useState<QuoteStatus | 'open' | 'all'>('open');
@@ -43,6 +43,7 @@ export function Quotes() {
     if (!params.get('new')) return;
     const lead = params.get('lead') ? leads.find((l) => l.id === params.get('lead')) : undefined;
     setComposer({ mode: { kind: 'quote' }, initial: lead ? { leadId: lead.id, customer: { name: lead.billingName || lead.name, phone: lead.phone, email: lead.email, dealer: lead.billingDealer, street: lead.billingStreet, city: lead.billingCity } } : undefined });
+    clearParams();
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

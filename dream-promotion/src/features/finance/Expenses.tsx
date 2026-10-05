@@ -22,7 +22,7 @@ const EMPTY = (today: string): ExpenseForm => ({ supplierName: '', supplierDeale
   category: 'other', description: '', amountBeforeVat: 0, vatAmount: 0, total: 0, vatDeductiblePct: 100, paidOn: null, paymentMethod: null });
 
 export function Expenses() {
-  const { params, fail, vat } = useFinance();
+  const { params, clearParams, fail, vat } = useFinance();
   const [period, setPeriod] = useState<Period>(() => periodNow('month'));
   const [list, setList] = useState<Expense[] | null>(null);
   const [status, setStatus] = useState<'all' | 'draft' | 'void'>('all');
@@ -35,7 +35,7 @@ export function Expenses() {
     setList(((data ?? []) as any[]).map(toExpense));
   }, [period, status, fail]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (params.get('new')) setEdit('new'); }, [params]);
+  useEffect(() => { if (params.get('new')) { setEdit('new'); clearParams(); } }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
   const confirmed = (list ?? []).filter((e) => e.status === 'confirmed');
   const totalA = confirmed.reduce((a, e) => a + Math.round(e.total * 100) * (e.supplierDocType === 'credit' ? -1 : 1), 0);
 
