@@ -9,7 +9,7 @@ import { cx } from '@/lib/utils';
 import { ils } from '@/features/register/money';
 import { KIND_HE, MIGRATION_3300, findByCode, level, variantsOf, type CatalogItem } from './catalog';
 import { loadCatalog, type CatalogData } from './data';
-import { PublishSwitch, SITE_NOT_LIVE, type EditorFocus } from './PublishSwitch';
+import { PublishSwitch, SITE_LIVE, SITE_NOT_LIVE, useSiteLive, type EditorFocus } from './PublishSwitch';
 import { ProductEditorDialog } from './ProductEditor';
 
 /**
@@ -30,6 +30,7 @@ function Products({ title = 'מוצרים', sub, editHref }: { title?: string; s
   const pathname = usePathname();
   const params = useSearchParams();
   const [data, setData] = useState<CatalogData | null>(null);
+  const live = useSiteLive();
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -66,7 +67,7 @@ function Products({ title = 'מוצרים', sub, editHref }: { title?: string; s
       <PageHead title={title} sub={sub ?? 'מוצרים ושירותים — אותה רשימה של הקופה והכספים.'}
         action={<Button variant="primary" onClick={() => open(null)}>+ מוצר חדש</Button>} />
       {data && !data.ready && <p role="status" className="mb-4 rounded-2xl bg-amber-500/15 p-3 text-sm font-semibold text-amber-800 dark:text-amber-200">{MIGRATION_3300}</p>}
-      {data?.ready && <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">{SITE_NOT_LIVE}</p>}
+      {data?.ready && <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">{live ? SITE_LIVE : SITE_NOT_LIVE}</p>}
       {error && <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">{error}</p>}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש לפי שם, מק״ט או ברקוד" aria-label="חיפוש מוצר" className="max-w-sm" />

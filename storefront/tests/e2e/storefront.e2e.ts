@@ -307,6 +307,9 @@ async function main() {
       assert.match(home.body, /<link rel="canonical" href="https:\/\/followme\.test"/);
       assert.match(home.body, /<meta property="og:site_name" content="FollowMe Collection"/);
       assert.doesNotMatch(home.body, /noindex/);
+      // the tab's icon: the store's logo, else none — never a request for a /favicon.ico that does not exist (Lighthouse)
+      assert.match(home.body, /<link rel="icon" href="(data:,|https:\/\/[^"]+)"/);
+      assert.match((await raw('nowhere.test', '/')).body, /<link rel="icon" href="data:,"/, 'an unknown domain too');
     });
 
     await step('a store that is not on the air: "בקרוב" — the preview token opens it, and only it', async () => {

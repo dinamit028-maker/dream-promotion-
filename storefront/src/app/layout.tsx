@@ -7,7 +7,7 @@ import { permanentRedirect } from 'next/navigation';
 import { after } from 'next/server';
 import { ComingSoon, StoreChrome } from '@/components/chrome';
 import { getSite, markSeen } from '@/lib/site';
-import { themeCss } from '@/lib/theme';
+import { safeImage, themeCss } from '@/lib/theme';
 import { isFullStore } from '@/lib/types';
 
 export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
@@ -19,7 +19,8 @@ async function current() {
 
 export async function generateMetadata(): Promise<Metadata> {
   const { site } = await current();
-  if (!site) return { title: 'הדף לא נמצא', robots: { index: false, follow: false } };
+  // the tab's icon: the store's logo, else none at all ("data:," — no request for a /favicon.ico that does not exist)
+  if (!site) return { title: 'הדף לא נמצא', robots: { index: false, follow: false }, icons: { icon: 'data:,' } };
   const s = site.store;
   const indexable = !site.preview && !site.platform && s.status === 'published';
   return {
@@ -30,6 +31,7 @@ export async function generateMetadata(): Promise<Metadata> {
     verification: indexable && isFullStore(s) && s.gsc_code ? { google: s.gsc_code } : undefined,
     openGraph: { siteName: s.name, locale: s.lang === 'he' ? 'he_IL' : 'en_US', type: 'website' },
     formatDetection: { telephone: false, email: false, address: false },
+    icons: { icon: safeImage(s.logo_url) ?? 'data:,' },
   };
 }
 

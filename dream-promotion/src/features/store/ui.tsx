@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { cx } from '@/lib/utils';
 import { Button, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
@@ -74,15 +74,34 @@ export function PicturePicker({ label, value, onChange, square }: { label: strin
   );
 }
 
-/** a small text field with its label above (for dense forms) */
+/** a small text field with its label above (for dense forms); the hint is read after the field, not as its name */
 export function TextRow({ label, value, onChange, placeholder, hint, max, type = 'text', dir, id }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string; hint?: string; max?: number; type?: string; dir?: 'ltr' | 'rtl'; id?: string;
 }) {
+  const auto = useId();
+  const fieldId = id ?? auto;
   return (
-    <label className="mb-4 block">
-      <span className="mb-2 block text-sm font-semibold text-ink-2">{label}</span>
-      <Input id={id} type={type} value={value} maxLength={max} placeholder={placeholder} dir={dir} onChange={(e) => onChange(e.target.value)} />
-      {hint && <span className="mt-1 block text-xs text-muted">{hint}</span>}
-    </label>
+    <div className="mb-4">
+      <label htmlFor={fieldId} className="mb-2 block text-sm font-semibold text-ink-2">{label}</label>
+      <Input id={fieldId} type={type} value={value} maxLength={max} placeholder={placeholder} dir={dir} aria-describedby={hint ? `${fieldId}-hint` : undefined}
+        onChange={(e) => onChange(e.target.value)} />
+      {hint && <span id={`${fieldId}-hint`} className="mt-1 block text-xs text-muted">{hint}</span>}
+    </div>
+  );
+}
+
+/** a text area with its label above and a line under it (a count, a hint) that is read after it — the label is not
+ *  wrapped around the field: a text area's text would become part of the label's text */
+export function AreaRow({ label, value, onChange, rows = 3, max, hint, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void; rows?: number; max?: number; hint?: string; placeholder?: string;
+}) {
+  const fieldId = useId();
+  return (
+    <div className="mb-4">
+      <label htmlFor={fieldId} className="mb-2 block text-sm font-semibold text-ink-2">{label}</label>
+      <textarea id={fieldId} className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px] leading-relaxed" rows={rows} maxLength={max}
+        placeholder={placeholder} value={value} aria-describedby={hint ? `${fieldId}-hint` : undefined} onChange={(e) => onChange(e.target.value)} />
+      {hint && <span id={`${fieldId}-hint`} className="mt-1 block text-xs text-muted">{hint}</span>}
+    </div>
   );
 }

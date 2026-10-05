@@ -10,7 +10,7 @@ import {
   hasPlaceholders, pageProblem, POLICY_LABEL, policyDraft, policySlug, REQUIRED_POLICIES, STORE_LIMITS, suggestSlug,
   type PageRow, type PolicyKind, type StoreRow,
 } from './store';
-import { Block, NeedsStore, Notice, TextRow } from './ui';
+import { AreaRow, Block, NeedsStore, Notice, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 
 /**
@@ -62,7 +62,7 @@ function Pages() {
 
   if (edit) {
     return <Editor draft={edit} store={store} taken={pages.filter((g) => g.id !== edit.id).map((g) => g.slug)} onClose={() => setEdit(null)}
-      onSaved={async (text) => { setEdit(null); setMsg(text); await reload(); }} />;
+      onSaved={async (text) => { await reload(); setEdit(null); setMsg(text); }} />;
   }
 
   const content = pages.filter((g) => g.kind === 'page');
@@ -147,12 +147,8 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
           onChange={(v) => set({ title: v, ...(d.slugTouched ? {} : { slug: suggestSlug(v, taken, 'עמוד') }) })} />
         {!policy && <TextRow label="כתובת באתר" value={d.slug} max={LIMITS.slug} dir="ltr" onChange={(v) => set({ slug: v.toLowerCase().replace(/\s+/g, '-'), slugTouched: true })}
           hint={`/pages/${d.slug || '…'}${d.id && draft.published ? ' · שינוי הכתובת משאיר הפניה מהכתובת הישנה' : ''}`} />}
-        <label className="mb-2 block">
-          <span className="mb-2 block text-sm font-semibold text-ink-2">טקסט</span>
-          <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px] leading-relaxed" rows={16} maxLength={STORE_LIMITS.pageBody}
-            value={d.body} onChange={(e) => set({ body: e.target.value })} />
-          <span className="mt-1 block text-xs text-muted">שורה ריקה = פסקה חדשה · ## בתחילת שורה = כותרת · - בתחילת שורה = רשימה</span>
-        </label>
+        <AreaRow label="טקסט" value={d.body} onChange={(v) => set({ body: v })} rows={16} max={STORE_LIMITS.pageBody}
+          hint="שורה ריקה = פסקה חדשה · ## בתחילת שורה = כותרת · - בתחילת שורה = רשימה" />
         {policy && hasPlaceholders(d.body) && <Notice tone="warn">יש בטקסט סימונים בסוגריים [ … ] שעוד לא הושלמו. אפשר לשמור כטיוטה; לפרסם — רק אחרי שהם מושלמים.</Notice>}
         <label className="flex min-h-11 items-center justify-between gap-3">
           <span className="text-sm font-semibold">באתר</span>
@@ -162,12 +158,8 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
 
       <Block title="בגוגל" sub="ריק = הכותרת ותחילת הטקסט.">
         <TextRow label="כותרת" value={d.seoTitle} onChange={(v) => set({ seoTitle: v })} max={STORE_LIMITS.seoTitle} hint={`${d.seoTitle.length} תווים · גוגל מציג בערך ${SEO_SHOWN.title}`} />
-        <label className="mb-2 block">
-          <span className="mb-2 block text-sm font-semibold text-ink-2">תיאור</span>
-          <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px]" rows={2} maxLength={STORE_LIMITS.seoDescription}
-            value={d.seoDescription} onChange={(e) => set({ seoDescription: e.target.value })} />
-          <span className="mt-1 block text-xs text-muted">{d.seoDescription.length} תווים · גוגל מציג בערך {SEO_SHOWN.description}</span>
-        </label>
+        <AreaRow label="תיאור" value={d.seoDescription} onChange={(v) => set({ seoDescription: v })} rows={2} max={STORE_LIMITS.seoDescription}
+          hint={`${d.seoDescription.length} תווים · גוגל מציג בערך ${SEO_SHOWN.description}`} />
       </Block>
 
       <div className="sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-[color:var(--glass)] py-2 backdrop-blur sm:bottom-4">

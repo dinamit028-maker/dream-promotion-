@@ -4,6 +4,10 @@
  * counted, described (✨ AI — a suggestion that is approved), given a picture (sizes made in the browser, a signed upload),
  * published; then the register sells one size of it — by its tile and by its barcode, through a held sale and a reload —
  * and the stock of THAT size moves. A cashier sells variants and never reaches the store.
+ * Stage 2 (2.55), on a phone: the store is opened, its contact and Google codes saved, the domain connected (the DNS
+ * records, the steps in Vercel), the policies written from their drafts (not published while "[…]" is left), a collection
+ * picked by hand and one by tag, the menu, the design (a draft, versions, back to an older one, a preview link), and the
+ * store goes on the air only when the checklist is complete — the domain counts only after the storefront served it.
  *
  * Run: npm run test:e2e   (starts `next dev` on port 3219; needs the preinstalled Chromium)
  * Screenshots go to tests/e2e/shots/ (not committed).
@@ -15,6 +19,8 @@ import { deflateSync } from 'node:zlib';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { FakeSupabase, session, type Tables } from './fake-supabase';
+import { domainRows, normalizeDomain } from '../../src/features/store/store';
+import { recordsFor, wwwRecord } from '../../src/features/store/vercel';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.E2E_COMMERCE_PORT ?? 3219);
@@ -128,6 +134,29 @@ async function main() {
       }
       return r.fulfill({ status: 400, json: { message: 'unknown' } });
     });
+    // the store's server routes (src/app/api/store/domains and preview-token — tested on their own in tests/store-routes.test.ts):
+    // here as they answer without Vercel's token — the domain recorded with its www and the records to set by hand
+    await ctx.route(`${BASE}/api/store/domains`, (r: any) => {
+      const b = JSON.parse(r.request().postData() ?? '{}');
+      const store = fake.tables.stores?.[0];
+      if (!store) return r.fulfill({ status: 404, json: { code: 'no_store', message: 'עוד אין חנות לעסק הזה.' } });
+      const mine = () => (fake.tables.store_domains ??= []).filter((d) => d.store_id === store.id);
+      if (b.action === 'connect') {
+        const d = normalizeDomain(String(b.domain ?? ''));
+        if (!d.ok) return r.fulfill({ status: 400, json: { message: d.error } });
+        for (const row of domainRows(d)) {
+          fake.tables.store_domains.push({ id: randomUUID(), business_id: BIZ, store_id: store.id, domain: row.domain, is_primary: row.isPrimary, status: 'pending',
+            last_seen_at: null, last_checked_at: null, vercel: { added: false, manual: true, records: row.isPrimary ? recordsFor(row.domain, d.bare) : [wwwRecord()] } });
+        }
+      }
+      if (b.action === 'remove') fake.tables.store_domains = fake.tables.store_domains.filter((d) => d.id !== b.domainId);
+      return r.fulfill({ json: { domains: mine(), vercel: 'not_configured' } });
+    });
+    await ctx.route(`${BASE}/api/store/preview-token`, (r: any) => {
+      const store = fake.tables.stores?.[0];
+      return r.fulfill({ json: { url: `https://storefront.test/?preview=${store?.id}.2000000000.sig`, expires: 2_000_000_000 } });
+    });
+    await ctx.route('https://storefront.test/**', (r: any) => r.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><html lang="he"><title>תצוגה מקדימה</title><body>החזית</body></html>' }));
     ctx.setDefaultTimeout(30_000); ctx.setDefaultNavigationTimeout(180_000);
     const page = await ctx.newPage();
     page.on('pageerror', (e: Error) => errors.push(`${o.access}: ${e.message}`));
@@ -307,6 +336,205 @@ async function main() {
     });
   } finally { await reg.context().close(); current = null; }
 
+  const { page: st } = await open({ access: 'full', userId: OWNER, viewport: PHONE, path: '/store/settings' });
+  current = st;
+  const store = () => fake.tables.stores?.[0];
+  const block = (page: any, title: string) => page.locator('section', { has: page.getByRole('heading', { name: title, exact: true }) });
+  try {
+    await step('stage 2 — the store opens from Settings: one per business, a draft, the template "שקיות ממותגות"', async () => {
+      await st.getByRole('heading', { name: 'פתיחת חנות' }).waitFor({ timeout: 120_000 });
+      assert.equal(await st.getByLabel('שם החנות').inputValue(), 'SaGabot', 'the brand\'s name to start from');
+      await st.getByRole('button', { name: 'פתיחת החנות' }).click();
+      await st.getByRole('heading', { name: 'הגדרות ודומיין' }).waitFor();
+      assert.deepEqual([fake.tables.stores.length, store().business_id, store().status, store().template], [1, BIZ, 'draft', 'bags']);
+      const check = block(st, 'לפני שעולים לאוויר');
+      await check.getByText('פרטי העסק (שם, מספר עוסק / ח.פ., כתובת) — קיים').waitFor();
+      await check.getByText('דרך ליצור קשר (טלפון, וואטסאפ או מייל) — חסר').waitFor();
+      assert.equal(await st.getByRole('button', { name: 'העלאת החנות לאוויר' }).isDisabled(), true, 'not before the checklist is complete');
+      await noSideScroll(st, 'the store\'s settings on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c5-store-settings-phone.png'), fullPage: true });
+    });
+
+    await step('details and contact: WhatsApp in the international form, Google\'s codes from the whole tag', async () => {
+      await st.getByLabel('טלפון', { exact: true }).fill('03-1234567');
+      await st.getByLabel('וואטסאפ', { exact: true }).fill('050-1234567');
+      await st.getByLabel('מייל', { exact: true }).fill('bad@');
+      await st.getByRole('button', { name: 'שמירת הפרטים' }).click();
+      await st.getByText('כתובת מייל לא תקינה.').waitFor();
+      assert.equal(store().phone, '', 'nothing saved with a bad field');
+      await st.getByLabel('מייל', { exact: true }).fill('hi@sagabot.test');
+      await st.getByLabel('Google Analytics — מזהה מדידה').fill('g-test1234');
+      await st.getByLabel('Search Console — קוד אימות').fill('<meta name="google-site-verification" content="AbC_def-1234567890xyz" />');
+      await st.getByRole('button', { name: 'שמירת הפרטים' }).click();
+      await st.getByText('נשמר.', { exact: true }).waitFor();
+      assert.deepEqual([store().phone, store().whatsapp, store().email, store().ga4_id, store().gsc_code],
+        ['03-1234567', '972501234567', 'hi@sagabot.test', 'G-TEST1234', 'AbC_def-1234567890xyz']);
+      assert.equal(await st.getByLabel('וואטסאפ', { exact: true }).inputValue(), '972501234567');
+      await block(st, 'לפני שעולים לאוויר').getByText('דרך ליצור קשר (טלפון, וואטסאפ או מייל) — קיים').waitFor();
+    });
+
+    await step('the domain: recorded with its www, the DNS records and the steps in Vercel — never "פעיל" from here', async () => {
+      await st.getByLabel('הדומיין').fill('https://www.FollowMeCollection.com/');
+      await st.getByRole('button', { name: 'חיבור' }).click();
+      const dom = block(st, 'דומיין');
+      await dom.locator('li', { hasText: 'www.followmecollection.com' }).getByText('ממתין לחיבור').waitFor();
+      assert.deepEqual(fake.tables.store_domains.map((d) => [d.domain, d.is_primary, d.status]),
+        [['followmecollection.com', true, 'pending'], ['www.followmecollection.com', false, 'pending']]);
+      assert.equal(await dom.getByText('ממתין לחיבור').count(), 2);
+      await dom.getByRole('cell', { name: '76.76.21.21' }).waitFor();
+      await dom.getByText('החיבור ל-Vercel נעשה ביד').waitFor();
+      await noSideScroll(st, 'the domain on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c6-store-domain-phone.png'), fullPage: true });
+    });
+
+    await step('policies from the checklist: the draft has "[…]" — saved, but not published until completed', async () => {
+      await block(st, 'לפני שעולים לאוויר').getByRole('link', { name: 'כותבים ומפרסמים בעמודים' }).first().click();
+      await st.waitForURL(/\/store\/pages$/);
+      await st.getByRole('heading', { name: 'ביטולים והחזרות' }).waitFor();
+      await st.getByText(/NEEDS_LEGAL_VERIFICATION/).first().waitFor();
+      assert.match(await st.getByLabel('טקסט', { exact: true }).inputValue(), /\[לבדוק עם עורך דין/);
+      await st.getByRole('switch', { name: 'העמוד באתר' }).click();
+      await st.getByRole('button', { name: 'שמירה', exact: true }).click();
+      await st.getByText(/סוגריים מרובעים/).first().waitFor();
+      assert.equal((fake.tables.store_pages ?? []).length, 0, 'not published with "[…]" left');
+      const write = async (title: string, text: string) => {
+        await st.getByLabel('טקסט', { exact: true }).fill(text);
+        if (!(await st.getByRole('switch', { name: 'העמוד באתר' }).getAttribute('aria-checked') === 'true')) await st.getByRole('switch', { name: 'העמוד באתר' }).click();
+        await st.getByRole('button', { name: 'שמירה', exact: true }).click();
+        await st.getByText('העמוד נשמר ומוצג באתר.').waitFor();
+        await st.getByRole('heading', { name: 'עמודים', exact: true }).waitFor();
+        assert.ok(fake.tables.store_pages.some((g) => g.title === title && g.published), title);
+      };
+      await write('ביטולים והחזרות', '## ביטול עסקה\n\nאפשר לבטל לפי חוק הגנת הצרכן.\n\n- פונים בטלפון 03-1234567');
+      for (const [kind, title] of [['privacy', 'מדיניות פרטיות'], ['accessibility', 'הצהרת נגישות']] as const) {
+        await st.locator('li', { hasText: `/policies/${kind}` }).getByRole('button', { name: 'כתיבה' }).click();
+        await st.getByRole('heading', { name: title }).waitFor();
+        await write(title, `## ${title}\n\nטקסט מלא של העסק.`);
+      }
+      assert.deepEqual(fake.tables.store_pages.map((g) => [g.kind, g.policy, g.slug, g.published]),
+        [['policy', 'returns', 'policy-returns', true], ['policy', 'privacy', 'policy-privacy', true], ['policy', 'accessibility', 'policy-accessibility', true]]);
+      await noSideScroll(st, 'the pages on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c7-store-pages-phone.png'), fullPage: true });
+    });
+
+    await step('collections: products picked by hand in their own order; one automatic by tag (a tag is required)', async () => {
+      await st.goto(`${BASE}/store/collections`, { waitUntil: 'domcontentloaded' });
+      await st.getByText('עוד אין קולקציות.').waitFor({ timeout: 60_000 });
+      await st.getByRole('button', { name: '+ קולקציה חדשה' }).click();
+      await st.getByLabel('שם', { exact: true }).fill('שקיות נייר');
+      assert.equal(await st.getByLabel('כתובת באתר').inputValue(), 'שקיות-נייר', 'the address from the name');
+      await st.getByRole('button', { name: /^חולצת כותנה/ }).click();
+      await st.getByRole('button', { name: /^קרם לחות/ }).click();
+      await st.getByRole('button', { name: 'להזיז למעלה: קרם לחות' }).click();
+      await st.getByRole('switch', { name: 'הקולקציה באתר' }).click();
+      await st.getByRole('button', { name: 'שמירה', exact: true }).click();
+      await st.getByText('הקולקציה נשמרה.').waitFor();
+      const paper = fake.tables.catalog_collections.find((c) => c.slug === 'שקיות-נייר')!;
+      assert.deepEqual([paper.title, paper.kind, paper.publish_online, paper.business_id], ['שקיות נייר', 'manual', true, BIZ]);
+      const names = (fake.tables.catalog_collection_items ?? []).filter((x) => x.collection_id === paper.id).sort((a, b) => a.position - b.position)
+        .map((x) => fake.tables.catalog_items.find((i) => i.id === x.item_id)?.name);
+      assert.deepEqual(names, ['קרם לחות', 'חולצת כותנה'], 'in the order chosen');
+
+      await st.getByRole('button', { name: '+ קולקציה חדשה' }).click();
+      await st.getByLabel('שם', { exact: true }).fill('כותנה');
+      await st.getByRole('radio', { name: 'אוטומטית לפי תגית' }).click();
+      await st.getByRole('button', { name: 'שמירה', exact: true }).click();
+      await st.getByText('קולקציה אוטומטית צריכה לפחות תגית אחת.').waitFor();
+      await st.getByLabel('תגית אחרת').fill('כותנה');
+      await st.getByRole('button', { name: 'הוספה', exact: true }).click();
+      await st.getByRole('button', { name: 'שמירה', exact: true }).click();
+      await st.getByText('הקולקציה נשמרה.').waitFor();
+      const auto = fake.tables.catalog_collections.find((c) => c.slug === 'כותנה')!;
+      assert.deepEqual([auto.kind, auto.rules, auto.sort, auto.publish_online], ['auto', { tags: ['כותנה'] }, 'newest', false]);
+      assert.equal(fake.tables.catalog_collection_items.filter((x) => x.collection_id === auto.id).length, 0, 'no hand-picked rows');
+      await st.getByRole('button', { name: 'להזיז למעלה: כותנה' }).click();
+      for (let i = 0; i < 50 && auto.position !== 0; i++) await st.waitForTimeout(100);
+      assert.deepEqual([auto.position, paper.position], [0, 1], 'the order of the collections on the site');
+      await noSideScroll(st, 'the collections on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c8-store-collections-phone.png'), fullPage: true });
+    });
+
+    await step('menus: the store\'s own addresses to choose from; a link that is not https is refused', async () => {
+      await st.goto(`${BASE}/store/navigation`, { waitUntil: 'domcontentloaded' });
+      const main = block(st, 'תפריט ראשי');
+      await main.getByText(/ריק — האתר מציג/).waitFor({ timeout: 60_000 });
+      await main.getByRole('button', { name: '+ קישור' }).click();
+      await main.getByLabel('לאן').selectOption('/collections/שקיות-נייר');
+      assert.equal(await main.getByLabel('שם הקישור').inputValue(), 'שקיות נייר', 'a destination brings its name');
+      await main.getByRole('button', { name: '+ קישור' }).click();
+      await main.getByLabel('לאן').nth(1).selectOption('__other__');
+      await main.getByLabel('שם הקישור').nth(1).fill('אינסטגרם');
+      await main.getByLabel('כתובת', { exact: true }).fill('http://instagram.com/sagabot');
+      await main.getByRole('button', { name: 'שמירת התפריט' }).click();
+      await main.getByText(/https:\/\//).first().waitFor();
+      assert.equal((fake.tables.store_menus ?? []).length, 0);
+      await main.getByLabel('כתובת', { exact: true }).fill('https://instagram.com/sagabot');
+      await main.getByRole('button', { name: 'שמירת התפריט' }).click();
+      await main.getByText('התפריט נשמר. הוא מופיע באתר מיד.').waitFor();
+      const menu = fake.tables.store_menus.find((m) => m.kind === 'main')!;
+      assert.deepEqual(menu.items, [{ label: 'שקיות נייר', href: '/collections/שקיות-נייר' }, { label: 'אינסטגרם', href: 'https://instagram.com/sagabot' }]);
+      assert.equal(menu.store_id, store().id);
+      await noSideScroll(st, 'the menus on a phone');
+    });
+
+    await step('design: a draft, published as version 1; version 2; version 1 comes back; a preview link opens in a new window', async () => {
+      await st.goto(`${BASE}/store/design`, { waitUntil: 'domcontentloaded' });
+      await st.getByText(/עוד לא פורסם עיצוב/).waitFor({ timeout: 60_000 });
+      const hero = st.locator('li', { has: st.getByRole('button', { name: 'פתיח', exact: true }) });
+      await hero.getByLabel('כותרת', { exact: true }).fill('השקית שלכם, הלוגו שלכם');
+      await st.getByRole('switch', { name: 'להציג: תמונה וטקסט' }).click();
+      await st.getByRole('button', { name: 'להזיז למעלה: יצירת קשר' }).click();
+      await st.getByLabel('כפתורים').fill('#123456');
+      await st.getByRole('button', { name: 'שמירת טיוטה' }).click();
+      await st.getByText(/הטיוטה נשמרה/).waitFor();
+      const versions = () => fake.tables.store_theme_versions ?? [];
+      assert.deepEqual(versions().map((v) => [v.version, v.status]), [[1, 'draft']]);
+      const saved = versions()[0].settings;
+      assert.equal(saved.colors.primary, '#123456');
+      assert.equal(saved.sections.find((x: any) => x.id === 'hero').settings.title, 'השקית שלכם, הלוגו שלכם');
+      assert.equal(saved.sections.find((x: any) => x.id === 'about').hidden, true);
+      assert.deepEqual(saved.sections.map((x: any) => x.id).slice(-2), ['contact', 'faq'], 'contact moved above the questions');
+      await st.getByRole('button', { name: 'פרסום באתר' }).click();
+      await st.getByText('גרסה 1 פורסמה באתר.').waitFor();
+      assert.deepEqual(versions().map((v) => [v.version, v.status]), [[1, 'published']]);
+
+      await hero.getByLabel('כותרת', { exact: true }).fill('גרסה שנייה');
+      await st.getByRole('button', { name: 'פרסום באתר' }).click();
+      await st.getByText('גרסה 2 פורסמה באתר.').waitFor();
+      assert.deepEqual(versions().map((v) => [v.version, v.status]).sort(), [[1, 'archived'], [2, 'published']]);
+      await block(st, 'גרסאות').getByRole('button', { name: 'להחזיר לאתר' }).click();
+      await st.getByText('גרסה 1 חזרה לאתר.').waitFor();
+      assert.deepEqual(versions().map((v) => [v.version, v.status]).sort(), [[1, 'published'], [2, 'archived']]);
+
+      const [popup] = await Promise.all([st.waitForEvent('popup'), st.getByRole('button', { name: 'תצוגה מקדימה של הטיוטה' }).click()]);
+      await popup.waitForURL(/^https:\/\/storefront\.test\/\?preview=/);
+      assert.ok(popup.url().includes(store().id), 'the store worked in now');
+      await popup.close();
+      await noSideScroll(st, 'the design on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c9-store-design-phone.png'), fullPage: true });
+    });
+
+    await step('on the air: only with the checklist complete — the domain counts once the storefront served it', async () => {
+      await st.goto(`${BASE}/store/settings`, { waitUntil: 'domcontentloaded' });
+      const check = block(st, 'לפני שעולים לאוויר');
+      await check.getByText('דומיין פעיל — חסר').waitFor({ timeout: 60_000 });
+      for (const ok of ['מדיניות ביטולים והחזרות — קיים', 'מדיניות פרטיות — קיים', 'הצהרת נגישות — קיים', 'לפחות מוצר אחד באתר — קיים']) await check.getByText(ok).waitFor();
+      assert.equal(await st.getByRole('button', { name: 'העלאת החנות לאוויר' }).isDisabled(), true);
+      // the storefront served followmecollection.com (sf_domain_seen): DNS and the certificate work
+      Object.assign(fake.tables.store_domains.find((d) => d.is_primary)!, { status: 'active', last_seen_at: new Date().toISOString() });
+      await st.reload({ waitUntil: 'domcontentloaded' });
+      await block(st, 'דומיין').getByText('פעיל', { exact: true }).waitFor({ timeout: 60_000 });
+      await block(st, 'לפני שעולים לאוויר').getByText('דומיין פעיל — קיים').waitFor();
+      await st.getByRole('button', { name: 'העלאת החנות לאוויר' }).click();
+      await st.getByText('החנות באוויר.', { exact: true }).first().waitFor();
+      assert.equal(store().status, 'published');
+      assert.ok(store().published_at);
+      await st.goto(`${BASE}/store/products`, { waitUntil: 'domcontentloaded' });
+      await st.getByText(/^החנות באוויר: מוצר שמסומן "באתר" מוצג בה/).waitFor({ timeout: 60_000 });
+      await st.screenshot({ path: path.join(SHOTS, 'c10-store-live-phone.png') });
+    });
+  } finally { await st.context().close(); current = null; }
+
   await step('a cashier: sells a size / colour, never reaches the store or its editor', async () => {
     const { ctx, page: p } = await open({ access: 'register', userId: CASHIER, path: '/store/products' });
     try {
@@ -322,6 +550,8 @@ async function main() {
       await dialog(p).getByText('העסקה נשמרה').waitFor();
       assert.equal(fake.tables.sales.at(-1)!.items[0].variantId, variant('M / שחור')!.id);
       assert.equal(await p.getByRole('switch').count(), 0, 'no "באתר" in the cashier\'s register');
+      await p.goto(`${BASE}/store/settings`, { waitUntil: 'domcontentloaded' });
+      await p.waitForURL(/\/register$/, { timeout: 60_000 });
     } finally { await ctx.close(); }
   });
 

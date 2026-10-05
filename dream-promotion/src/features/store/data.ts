@@ -117,6 +117,12 @@ export type CollectionInput = { title: string; slug: string; description: string
   sort: CollectionRow['sort']; publish_online: boolean; seo_title: string; seo_description: string; position: number };
 export async function saveCollection(id: string | null, row: CollectionInput, items: string[]): Promise<Result<CollectionRow>> {
   const sb = supabase();
+  if (!id) {
+    // a new collection comes last on the site (read now: the screen's list may be a moment old)
+    const last = await sb.from('catalog_collections').select('position').order('position', { ascending: false }).limit(1).maybeSingle();
+    if (last.error) return fail(last.error, 'הקולקציה לא נשמרה — נסו שוב.');
+    row = { ...row, position: Number((last.data as { position?: number } | null)?.position ?? -1) + 1 };
+  }
   const q = id ? sb.from('catalog_collections').update(row).eq('id', id).select('*').single() : sb.from('catalog_collections').insert(row).select('*').single();
   const { data, error } = await q;
   if (error || !data) return fail(error, 'הקולקציה לא נשמרה — נסו שוב.');

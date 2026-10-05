@@ -9,7 +9,7 @@ import { LIMITS, SEO_SHOWN, type CatalogItem } from '@/features/catalog/catalog'
 import { loadCatalog } from '@/features/catalog/data';
 import { deleteCollection, orderCollections, saveCollection, type CollectionInput } from './data';
 import { allTags, COLLECTION_SORT, collectionProblem, matchesTags, STORE_LIMITS, suggestSlug, type CollectionRow } from './store';
-import { Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
+import { AreaRow, Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 
 /**
@@ -53,7 +53,7 @@ function Collections() {
 
   if (edit) {
     return <Editor draft={edit} items={items} taken={list.filter((c) => c.id !== edit.id).map((c) => c.slug)} onClose={() => setEdit(null)}
-      onSaved={async (text) => { setEdit(null); setMsg({ tone: 'ok', text }); await reload(); }} />;
+      onSaved={async (text) => { await reload(); setEdit(null); setMsg({ tone: 'ok', text }); }} />;
   }
 
   // the order of the collections on the site: positions 0…n-1 by the order on the screen
@@ -151,11 +151,7 @@ function Editor({ draft, items, taken, onClose, onSaved }: {
           onChange={(v) => set({ title: v, ...(d.slugTouched ? {} : { slug: suggestSlug(v, taken, 'קולקציה') }) })} />
         <TextRow label="כתובת באתר" value={d.slug} max={LIMITS.slug} dir="ltr" onChange={(v) => set({ slug: v.toLowerCase().replace(/\s+/g, '-'), slugTouched: true })}
           hint={`/collections/${d.slug || '…'}${d.id && draft.publishOnline ? ' · שינוי הכתובת משאיר הפניה מהכתובת הישנה' : ''}`} />
-        <label className="mb-4 block">
-          <span className="mb-2 block text-sm font-semibold text-ink-2">תיאור (מוצג בראש העמוד)</span>
-          <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px]" rows={3} maxLength={STORE_LIMITS.collectionDescription}
-            value={d.description} onChange={(e) => set({ description: e.target.value })} />
-        </label>
+        <AreaRow label="תיאור (מוצג בראש העמוד)" value={d.description} onChange={(v) => set({ description: v })} max={STORE_LIMITS.collectionDescription} />
         <PicturePicker label="תמונה" value={d.imageUrl} onChange={(u) => set({ imageUrl: u })} />
         <label className="flex min-h-11 items-center justify-between gap-3">
           <span className="text-sm font-semibold">באתר</span>
@@ -238,12 +234,8 @@ function Editor({ draft, items, taken, onClose, onSaved }: {
       <Block title="בגוגל" sub="ריק = השם והתיאור של הקולקציה.">
         <TextRow label="כותרת" value={d.seoTitle} onChange={(v) => set({ seoTitle: v })} max={STORE_LIMITS.seoTitle}
           hint={`${d.seoTitle.length} תווים · גוגל מציג בערך ${SEO_SHOWN.title}`} />
-        <label className="mb-2 block">
-          <span className="mb-2 block text-sm font-semibold text-ink-2">תיאור</span>
-          <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px]" rows={2} maxLength={STORE_LIMITS.seoDescription}
-            value={d.seoDescription} onChange={(e) => set({ seoDescription: e.target.value })} />
-          <span className="mt-1 block text-xs text-muted">{d.seoDescription.length} תווים · גוגל מציג בערך {SEO_SHOWN.description}</span>
-        </label>
+        <AreaRow label="תיאור" value={d.seoDescription} onChange={(v) => set({ seoDescription: v })} rows={2} max={STORE_LIMITS.seoDescription}
+          hint={`${d.seoDescription.length} תווים · גוגל מציג בערך ${SEO_SHOWN.description}`} />
       </Block>
 
       <div className={cx('sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-[color:var(--glass)] py-2 backdrop-blur sm:bottom-4')}>

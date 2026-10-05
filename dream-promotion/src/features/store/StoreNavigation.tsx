@@ -77,8 +77,9 @@ function Menu({ storeId, kind, title, empty, initial, targets, onSaved }: {
                   <Select value={other ? OTHER : r.href} onChange={(e) => {
                     const v = e.target.value;
                     const t = targets.find((x) => x.href === v);
-                    // a new destination brings its name, unless a name was already written
-                    change(rows.map((x, j) => (j === i ? { label: x.label.trim() ? x.label : t?.label ?? '', href: v === OTHER ? 'https://' : v } : x)));
+                    // a new destination brings its name — unless the owner wrote a name of their own
+                    const own = r.label.trim() !== '' && r.label !== targets.find((x) => x.href === r.href)?.label;
+                    change(rows.map((x, j) => (j === i ? { label: own ? x.label : t?.label ?? '', href: v === OTHER ? 'https://' : v } : x)));
                   }}>
                     {targets.map((t) => <option key={t.href} value={t.href}>{t.label}{t.note ? ` (${t.note})` : ''}</option>)}
                     <option value={OTHER}>כתובת אחרת…</option>

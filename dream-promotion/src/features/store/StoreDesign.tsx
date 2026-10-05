@@ -8,7 +8,7 @@ import { publishVersion, saveDraft } from './data';
 import { contrast, draftErrors, draftOf, SECTION_DEFS, settingsOf, TEMPLATES, type Draft, type FieldDef, type Section } from './theme-fields';
 import type { CollectionRow, ThemeVersion } from './store';
 import { PreviewButton } from './StoreSettings';
-import { Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
+import { AreaRow, Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 
 /**
@@ -161,14 +161,7 @@ function Editor({ storeId, template, versions, collections, reload }: {
 function FieldInput({ f, value, onChange, collections }: { f: FieldDef; value: unknown; onChange: (v: unknown) => void; collections: CollectionRow[] }) {
   const v = typeof value === 'string' ? value : value == null ? '' : String(value);
   if (f.kind === 'image') return <PicturePicker label={f.label} value={v} onChange={onChange} />;
-  if (f.kind === 'longtext') {
-    return (
-      <label className="mb-4 block">
-        <span className="mb-2 block text-sm font-semibold text-ink-2">{f.label}</span>
-        <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px]" rows={3} maxLength={f.max} value={v} onChange={(e) => onChange(e.target.value)} />
-      </label>
-    );
-  }
+  if (f.kind === 'longtext') return <AreaRow label={f.label} value={v} onChange={onChange} max={f.max} />;
   if (f.kind === 'number') {
     return (
       <label className="mb-4 block max-w-[10rem]">

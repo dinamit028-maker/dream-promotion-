@@ -11,7 +11,7 @@ import {
   CHECKLIST, cleanGa4, cleanGscCode, DOMAIN_STATUS, normalizeDomain, normalizeWhatsapp, toDomain, validEmail, validPhone,
   type DomainRow, type Missing, type StoreRow,
 } from './store';
-import { Block, Notice, PicturePicker, TextRow } from './ui';
+import { AreaRow, Block, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 
 /**
@@ -108,11 +108,8 @@ function Settings({ store, domains, reload, setStore, setDomains }: {
 
       <Block title="פרטי החנות" id="details">
         <TextRow label="שם החנות" value={f.name} onChange={(v) => set('name', v)} max={80} />
-        <label className="mb-4 block">
-          <span className="mb-2 block text-sm font-semibold text-ink-2">משפט על החנות (לגוגל ולתחתית האתר)</span>
-          <textarea className="w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px]" rows={2} maxLength={320}
-            value={f.description} onChange={(e) => set('description', e.target.value)} placeholder="למשל: שקיות ממותגות לעסקים, בהדפסה לפי המידה שלכם." />
-        </label>
+        <AreaRow label="משפט על החנות (לגוגל ולתחתית האתר)" value={f.description} onChange={(v) => set('description', v)} rows={2} max={320}
+          placeholder="למשל: שקיות ממותגות לעסקים, בהדפסה לפי המידה שלכם." />
         <PicturePicker label="לוגו" value={f.logoUrl} onChange={(u) => set('logoUrl', u)} />
       </Block>
 
