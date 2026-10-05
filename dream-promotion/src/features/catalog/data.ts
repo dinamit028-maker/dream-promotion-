@@ -141,3 +141,19 @@ export async function deleteItem(id: string, hasPictures: boolean): Promise<Resu
   const { error } = await supabase().from('catalog_items').delete().eq('id', id);
   return error ? fail(error) : { ok: true, data: true };
 }
+
+/** the business's own fields (a new product's editor) — and whether migration 3300 ran */
+export async function loadFieldDefs(): Promise<Result<{ fields: FieldDef[]; ready: boolean }>> {
+  const r = await optional(supabase().from('catalog_field_defs').select('*').order('position').order('created_at'), toFieldDef);
+  return r.error ? fail(r.error) : { ok: true, data: { fields: r.rows, ready: !r.missing } };
+}
+/** the addresses already used in the store by this business's products (a new address must not repeat one) */
+export async function takenSlugs(exceptId?: string): Promise<string[]> {
+  const { data } = await supabase().from('catalog_items').select('id, slug').not('slug', 'is', null);
+  return ((data ?? []) as { id: string; slug: string | null }[]).filter((r) => r.id !== exceptId && r.slug).map((r) => r.slug as string);
+}
+/** an item's alert level ("התראה מתחת ל-") — as the register's price list saves it */
+export async function setLowStock(id: string, low: number): Promise<Result<true>> {
+  const { error } = await supabase().from('catalog_items').update({ low_stock: low }).eq('id', id);
+  return error ? fail(error) : { ok: true, data: true };
+}

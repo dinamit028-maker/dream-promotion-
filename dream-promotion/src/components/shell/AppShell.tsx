@@ -16,9 +16,11 @@ import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { ModuleShell } from '@/components/shell/ModuleShell';
 import { FINANCE_MODULE } from '@/features/finance/module';
 import { isFinancePath } from '@/features/finance/routes';
+import { STORE_MODULE } from '@/features/store/module';
+import { isStorePath } from '@/features/store/routes';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
-  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet,
+  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet, Storefront,
 } from '@/components/ui/Icon';
 
 type NavItem = { href: string; label: string; Icon: ComponentType<any> };
@@ -36,6 +38,7 @@ export const NAV: NavItem[] = [
   { href: '/appointments', label: 'תורים', Icon: CalendarCheck },
   { href: '/register', label: 'קופה', Icon: CashRegister },
   { href: '/finance', label: 'כספים', Icon: Wallet },
+  { href: '/store/products', label: 'חנות', Icon: Storefront },
   { href: '/attendance', label: 'נוכחות', Icon: IdentificationBadge },
   { href: '/analytics', label: 'ביצועים', Icon: ChartLineUp },
 ];
@@ -197,8 +200,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const current = [...NAV, ...NAV_BOTTOM].find((n) => n.href === path);
   const register = path === '/register';
-  // a module that opens as an app of its own (2.52: finance) — its own menus instead of the app's
-  const moduleOn = isFinancePath(path) && !cashier;
+  // a module that opens as an app of its own (2.52: finance, 2.54: the store) — its own menus instead of the app's
+  const moduleConfig = isFinancePath(path) ? FINANCE_MODULE : isStorePath(path) ? STORE_MODULE : null;
+  const moduleOn = Boolean(moduleConfig) && !cashier;
   const lockedNotice = biz?.current && biz.current.state !== 'active' ? (
     <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">
       {biz.superAdmin
@@ -249,12 +253,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // the finance module as an app of its own: its header, menu, bottom bar and "+" (permissions unchanged — a cashier
-  // never gets here, and a locked business shows the same notice)
-  if (moduleOn) {
+  // a module as an app of its own: its header, menu, bottom bar and "+" (permissions unchanged — a cashier never gets
+  // here, and a locked business shows the same notice)
+  if (moduleOn && moduleConfig) {
     return (
       <>
-        <ModuleShell config={FINANCE_MODULE} path={path} exitHref="/dashboard" notice={lockedNotice}
+        <ModuleShell config={moduleConfig} path={path} exitHref="/dashboard" notice={lockedNotice}
           businessName={biz?.current?.name ?? undefined} userName={me ?? undefined}
           businesses={biz?.list ?? []} currentBusinessId={biz?.current?.id ?? null}
           canSwitch={Boolean(biz && (biz.superAdmin || biz.list.length > 1))} switching={switching} onSwitchBusiness={(id) => void switchBusiness(id)}>
