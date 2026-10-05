@@ -23,7 +23,7 @@ export default function PrivacyPage() {
         <li>We do not sell your data and do not use it for advertising.</li>
       </ul>
       <h2>Service providers</h2>
-      <p>We use trusted providers to run the service: Supabase (accounts, database and file storage), Vercel (hosting), Anthropic (text generation), fal.ai (image and video generation) and ElevenLabs (voice). Content is sent to them only as needed to perform the task you asked for.</p>
+      <p>We use trusted providers to run the service: Supabase (accounts, database and file storage), Vercel (hosting), Anthropic (text generation), fal.ai (image and video generation) and ElevenLabs (voice). Content is sent to them only as needed to perform the task you asked for. A supplier invoice you attach to an expense is sent to Anthropic only when you press "automatic reading" (it fills the form; nothing is saved until you confirm).</p>
       <h2>Social account tokens</h2>
       <p>Access tokens are stored encrypted on our servers, are never shown in your browser, and are used only for the actions described above. You can disconnect an account at any time on the Connections screen; this deletes the stored tokens. You can also remove Dream Promotion from your Facebook settings (Business Integrations) or your TikTok settings. Data received from Meta is not sold, shared with third parties or used for advertising.</p>
       <h2>Retention and deletion</h2>
@@ -50,7 +50,7 @@ export default function PrivacyPage() {
         <li>איננו מוכרים מידע ולא משתמשים בו לפרסום.</li>
       </ul>
       <h2>ספקי שירות</h2>
-      <p>השירות פועל בעזרת ספקים: Supabase (חשבונות, מסד נתונים ואחסון), Vercel (אירוח), Anthropic (יצירת טקסט), fal.ai (יצירת תמונות ווידאו) ו-ElevenLabs (קול). תוכן נשלח אליהם רק כשצריך לבצע פעולה שביקשתם.</p>
+      <p>השירות פועל בעזרת ספקים: Supabase (חשבונות, מסד נתונים ואחסון), Vercel (אירוח), Anthropic (יצירת טקסט), fal.ai (יצירת תמונות ווידאו) ו-ElevenLabs (קול). תוכן נשלח אליהם רק כשצריך לבצע פעולה שביקשתם. חשבונית של ספק שמצרפים להוצאה נשלחת ל-Anthropic רק בלחיצה על &quot;קריאה אוטומטית&quot; (היא ממלאת את הטופס; שום דבר לא נשמר בלי אישורכם).</p>
       <h2>הרשאות הרשתות</h2>
       <p>ההרשאות נשמרות מוצפנות בשרת, לא מוצגות בדפדפן, ומשמשות רק לפעולות שתוארו למעלה. אפשר לנתק חשבון בכל רגע במסך &quot;חיבורים&quot;, וזה מוחק את ההרשאות השמורות. אפשר להסיר את Dream Promotion גם מהגדרות הפייסבוק (אינטגרציות עסקיות) או מהגדרות TikTok. מידע שמתקבל מ-Meta לא נמכר, לא מועבר לצד שלישי ולא משמש לפרסום.</p>
       <h2>שמירה ומחיקה</h2>

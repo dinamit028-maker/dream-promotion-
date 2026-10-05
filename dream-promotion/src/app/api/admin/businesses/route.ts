@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/server/admin';
 import { requireAdmin } from '@/lib/server/admin-auth';
 import { isSuperAdmin } from '@/lib/server/business';
+import { signedUpUser } from '@/lib/server/admin-users';
 import { israelToIso } from '@/lib/il-time';
 import { bizView, extendMonth, todayIL, validSlug } from '@/features/admin/business-state';
+import { FIRST_OF, type Milestones } from '@/features/admin/milestones';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,7 +13,8 @@ export const dynamic = 'force-dynamic';
 /**
  * The super admin's dashboard of businesses (admin → "עסקים"). Super admin only — an owner can never
  * change status, payment date, lock or members (the database refuses it too, stage 4).
- *  GET   → every business: state, payment, members, assets (+ disconnected), this month's posts / leads / cost
+ *  GET   → every business: state, payment, members, assets (+ disconnected), this month's posts / leads / cost, and the
+ *          pilot milestones (dates only: opened, onboarded, first customer / appointment / sale / document / expense / quote)
  *  POST  { name, slug, ownerEmail?, paidUntil? } → a new business (+ its owner, who must already have signed up)
  *  PATCH { id, action: 'extend' | 'paid_until' | 'lock' | 'unlock' | 'enter', paidUntil?, reason? }
  *  PATCH { id, action: 'add_member', email, access: 'full' | 'register' } — a person who already signed up joins the
@@ -45,6 +48,19 @@ export async function GET(req: Request) {
   const ids = [...new Set((members.data ?? []).map((m) => m.user_id))];
   const { data: people } = await db.from('profiles').select('id, email, full_name').in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
   const person = new Map((people ?? []).map((p) => [p.id, p]));
+  // pilot milestones: the date of the first row of each kind, per business — dates only, nothing else leaves the table
+  const bizIds = (biz.data ?? []).map((b) => b.id);
+  const brands = (await db.from('brands').select('business_id, onboarded, updated_at').in('business_id', bizIds.length ? bizIds : ['00000000-0000-0000-0000-000000000000'])).data ?? [];
+  const firsts = await Promise.all(bizIds.flatMap((id) => Object.entries(FIRST_OF).map(async ([key, f]) => {
+    const { data } = await db.from(f.table).select(f.column).eq('business_id', id).order(f.column, { ascending: true }).limit(1).maybeSingle();
+    return { id, key, at: data ? String((data as unknown as Record<string, unknown>)[f.column] ?? '') || null : null };
+  })));
+  const milestonesOf = (b: { id: string; created_at: string }): Milestones => {
+    const brand = brands.find((x: any) => x.business_id === b.id) as any;
+    const m: Milestones = { created: b.created_at, onboarded: brand?.onboarded ? brand.updated_at ?? null : null };
+    for (const f of firsts) if (f.id === b.id) (m as Record<string, string | null>)[f.key] = f.at;
+    return m;
+  };
   const count = (rows: { business_id: string | null }[] | null, id: string) => (rows ?? []).filter((r) => r.business_id === id).length;
 
   return NextResponse.json({
@@ -62,6 +78,7 @@ export async function GET(req: Request) {
         assets: mine.length,
         missing: mine.filter((s) => s.status === 'missing').map((s) => `${s.provider} · ${s.display_name ?? ''}`),
         month: { posts: count(posts.data, b.id), leads: count(leads.data, b.id), costUsd: Math.round(cost * 100) / 100 },
+        milestones: milestonesOf(b),
       };
     }),
   });
@@ -82,9 +99,8 @@ export async function POST(req: Request) {
 
   let ownerId: string | null = null;
   if (ownerEmail) {
-    const { data: p } = await db.from('profiles').select('id').ilike('email', ownerEmail).maybeSingle();
-    if (!p) return bad(`המשתמש ${ownerEmail} עוד לא נרשם לאפליקציה. אפשר ליצור את העסק בלי בעלים ולהוסיף אחר כך.`);
-    ownerId = p.id;
+    ownerId = await signedUpUser(db, ownerEmail);
+    if (!ownerId) return bad(`המשתמש ${ownerEmail} עוד לא נרשם לאפליקציה (או שלא אישר את כתובת המייל). אפשר ליצור את העסק בלי בעלים ולהוסיף אחר כך.`);
   }
   const { data: b, error } = await db.from('businesses').insert({ name, slug, paid_until: paidUntil }).select('id').single();
   if (error) return bad(/duplicate|unique/i.test(error.message) ? 'המזהה כבר תפוס — בחרו אחר' : error.message);
@@ -129,8 +145,9 @@ export async function PATCH(req: Request) {
       const email = String(body.email ?? '').trim().toLowerCase();
       const access = body.access === 'register' ? 'register' : 'full';
       if (!email) return bad('נא לכתוב מייל');
-      const { data: p } = await db.from('profiles').select('id').ilike('email', email).maybeSingle();
-      if (!p) return bad(`${email} עוד לא נרשם/ה לאפליקציה. אחרי ההרשמה אפשר להוסיף.`);
+      const uid = await signedUpUser(db, email);
+      if (!uid) return bad(`${email} עוד לא נרשם/ה לאפליקציה (או שלא אישר/ה את כתובת המייל). אחרי ההרשמה אפשר להוסיף.`);
+      const p = { id: uid };
       const { error } = await db.from('business_members').upsert(
         { business_id: id, user_id: p.id, role: access === 'register' ? 'editor' : 'owner', access }, { onConflict: 'business_id,user_id' });
       if (error) return bad(/access/.test(error.message) ? 'צריך להריץ את מיגרציה 20261004003000 (הרשאות קופה).' : error.message);
@@ -140,8 +157,9 @@ export async function PATCH(req: Request) {
     }
     case 'remove_member': {
       const email = String(body.email ?? '').trim().toLowerCase();
-      const { data: p } = await db.from('profiles').select('id').ilike('email', email).maybeSingle();
-      if (!p) return bad('המשתמש לא נמצא');
+      const uid = await signedUpUser(db, email);
+      if (!uid) return bad('המשתמש לא נמצא');
+      const p = { id: uid };
       const { error } = await db.from('business_members').delete().eq('business_id', id).eq('user_id', p.id);
       if (error) return bad(error.message);
       await db.from('profiles').update({ current_business_id: null }).eq('id', p.id).eq('current_business_id', id);

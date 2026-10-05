@@ -5,6 +5,7 @@ import { Button, Card, Field, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { STATE_HE, validSlug, type BizState } from './business-state';
+import { MILESTONES, milestoneCount, type Milestones } from './milestones';
 
 /**
  * Admin → "עסקים": the super admin's dashboard — one card per business with its state, payment date
@@ -18,6 +19,7 @@ type Biz = {
   members: { role: string; access?: 'full' | 'register'; email: string; name: string }[];
   assets: number; missing: string[];
   month: { posts: number; leads: number; costUsd: number };
+  milestones?: Milestones;
 };
 type Data = { businesses: Biz[]; current: string | null; unassignedAssets: number };
 
@@ -136,6 +138,17 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
               <Mini label="לידים החודש" value={String(b.month.leads)} />
               <Mini label="עלות AI החודש" value={`$${b.month.costUsd.toFixed(2)}`} />
             </div>
+            {b.milestones && (
+              <details className="mt-2 rounded-xl bg-surface-2 p-2 text-sm">
+                <summary className="cursor-pointer font-semibold">פיילוט: {milestoneCount(b.milestones)}/{MILESTONES.length} שלבים</summary>
+                <ul className="mt-1 grid gap-0.5 sm:grid-cols-2">
+                  {MILESTONES.map((m) => {
+                    const at = b.milestones?.[m.key];
+                    return <li key={m.key} className={cx('flex justify-between gap-2', !at && 'text-muted')}><span>{at ? '✓' : '○'} {m.label}</span><span className="tabular-nums">{at ? fmtDate(at.slice(0, 10)) : '—'}</span></li>;
+                  })}
+                </ul>
+              </details>
+            )}
 
             <div className="mt-3 flex flex-wrap gap-2">
               {b.paidUntil && <Button size="sm" variant="primary" disabled={!!busy} onClick={() => act(b, 'extend', {}, `"${b.name}" הוארך בחודש.`)}>

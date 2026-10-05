@@ -14,6 +14,7 @@ import { documentRow, financeError, issueDocumentRow, newKey } from './api';
 import { quoteKey } from './keys';
 import type { PaymentEntry } from './payments';
 import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from './ui';
+import { documentDateRateNote } from './vat';
 
 /**
  * One composer for a new document, a draft and a quote: customer (from the contacts or typed), lines (free or from
@@ -183,6 +184,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
         {rate > 0 && <div className="flex justify-between"><span>מע״מ {rate}%</span><span>{ils(preview.totals.vatAmount)}</span></div>}
         <div className="mt-1 flex justify-between text-base font-black"><span>סה״כ</span><span>{ils(preview.totals.total)}</span></div>
       </div>
+      {mode.kind === 'document' && documentDateRateNote(rate, docDate) && <div className="mt-3"><Note tone="warn">{documentDateRateNote(rate, docDate)}</Note></div>}
       {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
       {!business.ready && mode.kind === 'document' && <div className="mt-3"><Note tone="warn">חסרים פרטי העסק (מספר עוסק) — אפשר לשמור טיוטה, להפיק אחרי שממלאים בהגדרות.</Note></div>}
 

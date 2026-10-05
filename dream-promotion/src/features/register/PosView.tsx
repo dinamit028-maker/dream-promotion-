@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Select, SmallSelect } from '@/components/ui/primitives';
-import { Modal } from '@/components/ui/feedback';
+import { CloseButton, Modal } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL } from '@/lib/il-time';
 import { matches, phoneDigits, waLink } from '@/features/crm/crm';
@@ -74,6 +74,13 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
   const [q, setQ] = useState('');
   const [quick, setQuick] = useState(false);
   const [sheet, setSheet] = useState(false);
+  // the cart sheet closes with Escape too (a keyboard on a tablet at the counter), not only by tapping outside
+  useEffect(() => {
+    if (!sheet) return;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheet(false); };
+    addEventListener('keydown', k);
+    return () => removeEventListener('keydown', k);
+  }, [sheet]);
   const [picker, setPicker] = useState(false);
   const [keypad, setKeypad] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -342,8 +349,12 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
       {sheet && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="הסל">
           <button type="button" className="absolute inset-0 bg-black/40" onClick={() => setSheet(false)} aria-label="סגירה" />
-          <div className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-3xl bg-surface p-4" style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
-            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-line" />{cart}
+          <div className="absolute inset-x-0 bottom-0 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-surface p-4" style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="h-1.5 w-12 rounded-full bg-line" aria-hidden />
+              <CloseButton onClick={() => setSheet(false)} />
+            </div>
+            {cart}
           </div>
         </div>
       )}

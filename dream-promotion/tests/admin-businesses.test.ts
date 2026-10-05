@@ -47,9 +47,15 @@ const tables: Record<string, any[]> = {
   leads: [{ business_id: 'sg', created_at: new Date().toISOString() }],
   ai_generations: [{ business_id: 'fm', actual_cost_usd: 1.25, estimated_cost_usd: null, status: 'succeeded', created_at: new Date().toISOString() }],
 };
+// the sign-in records (auth.users): the address each person signed up with, confirmed
+const signIns: Record<string, string> = { aviv: 'aviv@x.com', sagit: 'sagit@x.com', noa: 'noa@x.com', mallory: 'mallory@x.com' };
+const authFake = (emails: Record<string, string>) => ({
+  getUser: async (t: string) => ({ data: { user: emails[t] ? { id: t, email: emails[t] } : null } }),
+  admin: { getUserById: async (id: string) => ({ data: { user: signIns[id] ? { id, email: signIns[id], email_confirmed_at: '2026-10-01T00:00:00Z' } : null } }) },
+});
 before(() => {
   const emails: Record<string, string> = { aviv: 'aviv@x.com', sagit: 'sagit@x.com' };
-  (globalThis as any).__DP_TEST_ADMIN_DB__ = { ...fakeDb(tables), auth: { getUser: async (t: string) => ({ data: { user: emails[t] ? { id: t, email: emails[t] } : null } }) } };
+  (globalThis as any).__DP_TEST_ADMIN_DB__ = { ...fakeDb(tables), auth: authFake(emails) };
 });
 const req = (who: string, method = 'GET', body?: object) =>
   new Request('http://x/api/admin/businesses', { method, headers: { authorization: `Bearer ${who}`, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -68,6 +74,13 @@ test('admin API: cards for the super admin, refused for an owner', async () => {
   assert.equal(sg.month.leads, 1);
   assert.deepEqual(sg.missing, ['instagram · sagabot']);
   assert.equal(fm.members[0].email, 'aviv@x.com');
+  // pilot milestones: dates only — the first customer of SaGabot, nothing yet at FollowMe
+  assert.equal(sg.milestones.created, '2'); assert.ok(sg.milestones.firstLead, 'SaGabot has its first customer');
+  assert.equal(fm.milestones.firstLead, null); assert.equal(fm.milestones.firstDocument, null);
+  const { MILESTONES } = await import('../src/features/admin/milestones');
+  for (const b of [fm, sg]) for (const [k, v] of Object.entries(b.milestones)) {
+    assert.ok(MILESTONES.some((m) => m.key === k), `${k} is a milestone`); assert.ok(v === null || typeof v === 'string', 'a date or nothing');
+  }
 });
 
 test('admin API: extend opens at once; lock, unlock, manual date, enter, add', async () => {
@@ -115,7 +128,7 @@ test('admin API: a cashier ("קופה בלבד") joins a business, works in it, 
 
   (globalThis as any).__DP_TEST_ADMIN_DB__.rpc = async (_fn: string, a: { uid: string }) => ({ data: tables.profiles.find((p) => p.id === a.uid)?.current_business_id ?? null });
   const emails: Record<string, string> = { aviv: 'aviv@x.com', sagit: 'sagit@x.com', noa: 'noa@x.com' };
-  (globalThis as any).__DP_TEST_ADMIN_DB__.auth = { getUser: async (t: string) => ({ data: { user: emails[t] ? { id: t, email: emails[t] } : null } }) };
+  (globalThis as any).__DP_TEST_ADMIN_DB__.auth = authFake(emails);
   const j = await (await me.GET(new Request('http://x/api/business/me', { headers: { authorization: 'Bearer noa' } }))).json();
   assert.equal(j.access, 'register', 'the app opens the register only');
   assert.equal(await registerOnly('noa'), true);
@@ -127,4 +140,18 @@ test('admin API: a cashier ("קופה בלבד") joins a business, works in it, 
   assert.equal((await api.PATCH(req('aviv', 'PATCH', { id: 'fm', action: 'remove_member', email: 'noa@x.com' }))).status, 200);
   assert.ok(!tables.business_members.some((m) => m.user_id === 'noa'));
   assert.equal(tables.profiles.find((p) => p.id === 'noa').current_business_id, null);
+});
+
+test('admin API: a profile\'s email is not proof — the sign-in record decides who is added', async () => {
+  const api = await import('../src/app/api/admin/businesses/route');
+  // mallory wrote the owner-to-be's address into her own profile row (a user may edit her profile)
+  tables.profiles.push({ id: 'mallory', email: 'roni.owner@x.com', is_super_admin: false, current_business_id: null });
+  const r = await api.POST(req('aviv', 'POST', { name: 'מספרה', slug: 'roni-salon', ownerEmail: 'roni.owner@x.com' }));
+  assert.equal(r.status, 400); assert.match((await r.json()).message, /עוד לא נרשם/);
+  assert.ok(!tables.business_members.some((m) => m.user_id === 'mallory'), 'mallory did not become an owner');
+  const add = await api.PATCH(req('aviv', 'PATCH', { id: 'fm', action: 'add_member', email: 'roni.owner@x.com', access: 'full' }));
+  assert.equal(add.status, 400);
+  assert.ok(!tables.business_members.some((m) => m.user_id === 'mallory'), 'nor a member');
+  const { likeExact } = await import('../src/lib/server/admin-users');
+  assert.equal(likeExact('dana_cohen%@x.com'), 'dana\\_cohen\\%@x.com', '"_" and "%" match themselves only');
 });

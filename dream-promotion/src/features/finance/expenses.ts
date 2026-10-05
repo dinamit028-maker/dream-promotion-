@@ -1,5 +1,5 @@
 import { dealerDigits, validIsraeliId } from '@/features/register/billing';
-import { ag, sh, vatOfGross } from './vat';
+import { ag, pctOf, sh, vatOfGross } from './vat';
 
 /**
  * Expenses ("הוצאות"): supplier invoices and receipts, with the file (PDF / photo / camera) kept in a private bucket.
@@ -57,9 +57,12 @@ export function splitTotal(total: number, rate: number): { amountBeforeVat: numb
   const tA = ag(total), vA = vatOfGross(tA, rate);
   return { amountBeforeVat: sh(tA - vA), vatAmount: sh(vA), total: sh(tA) };
 }
-/** the VAT this expense lets the business deduct (only a VAT business, only on a document that carries VAT) */
+/**
+ * The VAT this expense lets the business deduct (only a VAT business, only on a document that carries VAT): in whole agorot,
+ * rounded as the database's summary does (round(vat × % / 100, 2)), so the screen, the CSV and the report agree.
+ */
 export const vatDeductible = (e: Pick<Expense, 'vatAmount' | 'vatDeductiblePct' | 'supplierDocType'>, businessChargesVat: boolean) =>
-  businessChargesVat && carriesVat(e.supplierDocType) ? Math.round(e.vatAmount * e.vatDeductiblePct) / 100 : 0;
+  businessChargesVat && carriesVat(e.supplierDocType) ? sh(pctOf(ag(e.vatAmount), e.vatDeductiblePct)) : 0;
 
 export interface ExpenseForm {
   supplierName: string; supplierDealer: string; supplierDocType: string; supplierDocNumber: string; allocationNumber: string; docDate: string; category: string;
