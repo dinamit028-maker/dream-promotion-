@@ -1217,7 +1217,13 @@
 
 **תוצאות ההרצה (2.54.0):**
 
-_ההרצה המלאה בעבודה — הטבלה תתעדכן בסופה._
+| פקודה | תוצאה | Exit |
+|---|---|---|
+| `npm run typecheck` | עבר | 0 |
+| `npm test` | 183 עברו, 0 נכשלו (26 חדשות: `catalog`, `catalog-flows`, `store-media`, `store-module`) | 0 |
+| `npm run test:sql` | 33 מיגרציות; commerce-catalog (חדש), finance, pilot-hardening, register-pro; עומס מקבילי §1–7 (חדשים: 160 מכירות של וריאנטים בלי deadlock, מרוץ על מק״ט ← אחד בלבד) — הכול ok | 0 |
+| `npm run test:e2e` | הקופה 10/10, כספים 23/23 (בלי שינוי בבדיקות הקיימות), החנות 11/11 (חדש) — Chromium | 0 |
+| `npm run build` | עבר (Next 14.2.35); נתיבים חדשים: `/store`, `/store/products`, `/store/products/[id]`, `/api/store/media` | 0 |
 
 **הבא:** שלב 2, החזית לצפייה (2.55.0) — רק אחרי אישור. לפני שלב 2 צריך את ההחלטות על דומיין ל-FollowMe, Vercel Pro ותבנית ראשונה (סעיף 15 במסמך הארכיטקטורה).
 
