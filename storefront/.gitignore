@@ -1,0 +1,7 @@
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+tests/e2e/shots/
+tests/e2e/lighthouse/
+.env*.local
