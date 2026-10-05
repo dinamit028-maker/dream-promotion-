@@ -535,7 +535,7 @@ end $$;
 revoke execute on function public.adjust_variant_stock(uuid, text, int, text) from public, anon;
 grant execute on function public.adjust_variant_stock(uuid, text, int, text) to authenticated;
 
--- after counting every variant: the units still on the item alone ("לא משויך") are dropped — the item's sum becomes the sum
+-- after counting every variant: the units still on the item alone ("לא משויך") are taken off — the item's sum becomes the sum
 -- of its variants, logged as a count
 create or replace function public.reconcile_variant_stock(p_item uuid, p_note text default '')
 returns int language plpgsql security definer set search_path = public as $$
