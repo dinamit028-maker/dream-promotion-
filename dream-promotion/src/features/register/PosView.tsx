@@ -9,6 +9,7 @@ import type { Lead } from '@/types';
 import { computeSale, customerSnapshot, ils, methodLabel, remaining, topSellers, type ItemKind, type Line, type Method, type Pay, type Sale } from './money';
 import { MAX_HELD, holdCart, loadHeld, removeHeld, resumeHeld, saveHeld, type Cart, type HeldSale } from './held';
 import { stockLevel, stockText } from './stock';
+import { cartKey, findByCode, lineName, posPrice, variantLabel, variantLevel, variantsOf, type CatalogVariant } from '@/features/catalog/catalog';
 import { EMPTY_BILLING, billingError, dealerDigits, type Billing } from './billing';
 
 /**
@@ -20,6 +21,8 @@ export type PosItem = {
   id: string; name: string; price: number; kind: ItemKind; active: boolean; favorite: boolean; favOrder: number; imageUrl: string;
   /** stock (2.50): only items with trackStock count; lowStock = the alert level */
   trackStock: boolean; stockQty: number; lowStock: number;
+  /** the one catalog (2.54): sizes / colours to choose from, and the codes a scanner types */
+  hasVariants?: boolean; sku?: string; barcode?: string;
 };
 export type TodayAppt = { id: string; name: string; phone: string; leadId: string | null; serviceName: string; start: string; price: number | null };
 export type Customer = { name: string; phone: string; leadId: string | null; appointmentId: string | null };
@@ -55,8 +58,10 @@ export function cashSuggestions(total: number) {
   return [...new Set([total, up(10), up(50), up(100), up(200), 200, 500].filter((v) => v >= total))].sort((a, b) => a - b).slice(0, 6);
 }
 
-export function PosView({ userId, items, sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog, wide }: {
+export function PosView({ userId, items, variants = [], sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog, wide }: {
   userId: string; items: PosItem[]; sales: Sale[]; leads: Lead[]; employees: { id: string; name: string }[]; todayAppts: TodayAppt[];
+  /** the variants of the price list (2.54): an item with variants asks which one */
+  variants?: CatalogVariant[];
   vat: { type: 'exempt' | 'licensed'; rate: number }; payLinkReady: boolean;
   onCheckout: (c: CheckoutInput) => Promise<CheckoutResult>; onShowDoc?: () => void;
   prefill?: { customer: Customer; line: Line | null } | null; onGoCatalog?: () => void;
@@ -82,6 +87,8 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
     return () => removeEventListener('keydown', k);
   }, [sheet]);
   const [picker, setPicker] = useState(false);
+  // an item with sizes / colours: which one (2.54)
+  const [pick, setPick] = useState<PosItem | null>(null);
   const [keypad, setKeypad] = useState(false);
   const [paying, setPaying] = useState(false);
   const [done, setDone] = useState<CheckoutResult & { customer: string; phone: string; change: number | null } | null>(null);
@@ -102,24 +109,49 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
   const count = lines.reduce((a, l) => a + l.qty, 0);
   const top = useMemo(() => topSellers(sales), [sales]);
   const active = items.filter((i) => i.active);
+  const codes = useMemo(() => active.map((i) => ({ id: i.id, sku: i.sku ?? '', barcode: i.barcode ?? '', active: true })), [active]);
   const shown = useMemo(() => {
     const s = q.trim();
-    if (s) return active.filter((i) => i.name.includes(s) || i.name.toLowerCase().includes(s.toLowerCase()));
+    // a name — or a code (a barcode / SKU of the item or of one of its variants)
+    const code = s ? findByCode(s, codes, variants) : null;
+    if (s) return active.filter((i) => i.name.includes(s) || i.name.toLowerCase().includes(s.toLowerCase()) || code?.item.id === i.id);
     if (cat === 'fav') return active.filter((i) => i.favorite).sort((a, b) => a.favOrder - b.favOrder);
     if (cat === 'top') return top.map((n) => active.find((i) => i.name === n)).filter(Boolean) as PosItem[];
     if (cat === 'all') return active;
     return active.filter((i) => i.kind === cat);
-  }, [active, cat, q, top]);
+  }, [active, cat, q, top, codes, variants]);
   const peopleHits = q.trim().length >= 2 ? leads.filter((l) => matches(l, q)).slice(0, 4) : [];
 
-  /** a line in the cart; a price-list item brings its id and kind (stock, commissions) */
-  const add = (name: string, price: number, qty = 1, meta?: { itemId?: string; kind?: ItemKind }) => setLines((ls) => {
-    const i = ls.findIndex((l) => l.name === name && l.price === price);
+  /**
+   * a line in the cart; a price-list item brings its id and kind (stock, commissions) — and its variant (2.54).
+   * Two taps on the same product and variant are one line (cartKey); a free amount is matched by its name and price.
+   */
+  const add = (name: string, price: number, qty = 1, meta?: { itemId?: string; kind?: ItemKind; variantId?: string }) => setLines((ls) => {
+    // a free amount named like an item without variants is that item (as before 2.54)
+    const known = meta?.itemId ? meta : (() => { const it = items.find((x) => x.name === name && x.price === price && !x.hasVariants); return it ? { itemId: it.id, kind: it.kind } : meta; })();
+    const line: Line = { name, price, qty, ...(known?.itemId ? { itemId: known.itemId } : {}), ...(known?.itemId && known.variantId ? { variantId: known.variantId } : {}),
+      ...(known?.kind ? { kind: known.kind } : {}) };
+    const key = cartKey(line);
+    const i = ls.findIndex((l) => cartKey(l) === key);
     if (i >= 0) return ls.map((l, k) => (k === i ? { ...l, qty: l.qty + qty } : l));
-    const known = meta?.itemId ? meta : (() => { const it = items.find((x) => x.name === name && x.price === price); return it ? { itemId: it.id, kind: it.kind } : meta; })();
-    return [...ls, { name, price, qty, ...(known?.itemId ? { itemId: known.itemId } : {}), ...(known?.kind ? { kind: known.kind } : {}) }];
+    return [...ls, line];
   });
-  const addItem = (i: PosItem) => add(i.name, i.price, 1, { itemId: i.id, kind: i.kind });
+  const addVariant = (i: PosItem, v: CatalogVariant) => add(lineName(i.name, v), posPrice(i, v), 1, { itemId: i.id, kind: i.kind, variantId: v.id });
+  /** a tile: an item with active variants asks which one; any other item goes in as it is */
+  const addItem = (i: PosItem) => {
+    if (i.hasVariants && variantsOf(variants, i.id).some((v) => v.active)) return setPick(i);
+    add(i.name, i.price, 1, { itemId: i.id, kind: i.kind });
+  };
+  /** a scanner types the code and Enter: the product (and its variant) goes into the cart at once */
+  const scan = () => {
+    const hit = findByCode(q, codes, variants);
+    if (!hit) return false;
+    const item = active.find((i) => i.id === hit.item.id);
+    if (!item) return false;
+    if (hit.variant) addVariant(item, hit.variant); else addItem(item);
+    setQ('');
+    return true;
+  };
   const setQty = (i: number, d: number) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, qty: l.qty + d } : l)).filter((l) => l.qty > 0));
   /** a business customer's invoice details come back by themselves next time */
   const billingOf = (l: Lead | null | undefined): Billing | null => (l?.billingDealer ? { name: l.billingName || l.name, dealer: l.billingDealer, street: l.billingStreet ?? '', city: l.billingCity ?? '' } : null);
@@ -194,7 +226,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
           <div className="mt-2 border-t border-line pt-2 text-xs text-ink-2">
             {snap.lastPurchase && <p>רכישה אחרונה: {snap.lastPurchase.items.map((l) => l.name).join(' + ')} · {formatIL(snap.lastPurchase.paidAt ?? snap.lastPurchase.createdAt, { dateStyle: 'short' })}</p>}
             {apptToday && <p>תור היום: {apptToday.serviceName} · {formatIL(apptToday.start, { hour: '2-digit', minute: '2-digit' })}</p>}
-            {snap.lastPurchase && <button type="button" className="mt-1 font-semibold text-primary" onClick={() => snap.lastPurchase!.items.forEach((l) => add(l.name, l.price, l.qty, { itemId: l.itemId, kind: l.kind }))}>↺ חזור על רכישה אחרונה</button>}
+            {snap.lastPurchase && <button type="button" className="mt-1 font-semibold text-primary" onClick={() => snap.lastPurchase!.items.forEach((l) => add(l.name, l.price, l.qty, { itemId: l.itemId, kind: l.kind, variantId: l.variantId }))}>↺ חזור על רכישה אחרונה</button>}
           </div>
         )}
       </div>
@@ -202,7 +234,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
       {/* lines */}
       <ul className="grid gap-1.5">
         {lines.map((l, i) => (
-          <li key={`${l.name}-${l.price}`} className="flex items-center gap-2 rounded-xl px-1 py-1 text-sm">
+          <li key={`${cartKey(l)}-${i}`} className="flex items-center gap-2 rounded-xl px-1 py-1 text-sm">
             <span className="min-w-0 flex-1"><span className="block truncate font-semibold">{l.name}</span><span className="text-xs text-muted">{ils(l.price)}</span></span>
             <button type="button" className="h-9 w-9 rounded-full border border-line text-lg" onClick={() => setQty(i, -1)} aria-label={`פחות ${l.name}`}>−</button>
             <span className="w-6 text-center font-bold tabular-nums">{l.qty}</span>
@@ -292,7 +324,8 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
               {onGoCatalog && <Button variant="primary" className="mt-3" onClick={onGoCatalog}>הוספת פריטים למחירון</Button>}
             </div>
           )}
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש שירות, מוצר או לקוח…" className="mb-3 h-12" aria-label="חיפוש" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && q.trim() && scan()) e.preventDefault(); }}
+            placeholder="חיפוש שירות, מוצר, ברקוד או לקוח…" className="mb-3 h-12" aria-label="חיפוש" />
           {peopleHits.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-2">
               {peopleHits.map((l) => <button key={l.id} type="button" onClick={() => chooseLead(l)} className="rounded-full bg-primary-soft px-3 py-1.5 text-sm">👤 {l.name}</button>)}
@@ -321,7 +354,8 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
             ? cx('grid-cols-2 sm:grid-cols-3 xl:grid-cols-4', wide && '2xl:grid-cols-5 min-[1800px]:grid-cols-6')
             : cx('grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5', wide && '2xl:grid-cols-6 min-[1800px]:grid-cols-7'))}>
             {shown.map((i) => {
-              const inCart = lines.find((l) => l.name === i.name && l.price === i.price)?.qty ?? 0;
+              // every line of this item (all its sizes / colours together); a free amount with its name counts too, as before
+              const inCart = lines.filter((l) => l.itemId === i.id || (!l.itemId && l.name === i.name && l.price === i.price)).reduce((a, l) => a + l.qty, 0);
               const level = stockLevel(i);
               return (
                 <button key={i.id} type="button" onClick={() => addItem(i)}
@@ -360,6 +394,29 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
       )}
 
       <CustomerPicker open={picker} leads={leads} onClose={() => setPicker(false)} onPick={chooseLead} onNew={(c) => { setCustomer({ ...c, leadId: null, appointmentId: null }); setPicker(false); }} />
+      <Modal open={Boolean(pick)} onClose={() => setPick(null)}>
+        {pick && <>
+          <h3 className="mb-1 font-display text-xl font-extrabold">{pick.name}</h3>
+          <p className="mb-3 text-sm text-muted">בחירת מידה / צבע</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-label={`וריאנטים של ${pick.name}`}>
+            {variantsOf(variants, pick.id).filter((v) => v.active).map((v) => {
+              const lvl = variantLevel(pick, v);
+              const n = lines.filter((l) => l.itemId === pick.id && l.variantId === v.id).reduce((a, l) => a + l.qty, 0);
+              return (
+                <button key={v.id} type="button" onClick={() => { addVariant(pick, v); setPick(null); }}
+                  className={cx('relative flex min-h-[72px] flex-col justify-between rounded-2xl border bg-surface p-3 text-start', n ? 'border-primary' : 'border-line')}>
+                  <strong className="leading-tight">{variantLabel(v) || pick.name}</strong>
+                  <span className="text-sm tabular-nums text-ink-2">{ils(posPrice(pick, v))}</span>
+                  {lvl && lvl !== 'ok' && <span className={cx('mt-1 self-start rounded-full px-2 py-0.5 text-[11px] font-bold', lvl === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : 'bg-amber-500/15 text-amber-800 dark:text-amber-200')}>
+                    {v.stockQty <= 0 ? 'אזל מהמלאי' : `נשארו ${v.stockQty}`}</span>}
+                  {n > 0 && <span className="absolute end-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{n}</span>}
+                </button>
+              );
+            })}
+          </div>
+          <Button variant="ghost" className="mt-4" onClick={() => setPick(null)}>סגירה</Button>
+        </>}
+      </Modal>
       <Keypad open={keypad} onClose={() => setKeypad(false)} onAdd={(price, name) => { add(name || 'סכום חופשי', price, 1, { kind: 'other' }); setKeypad(false); }} />
       <PayPanel open={paying} total={t.total} payLinkReady={payLinkReady && Boolean(phoneDigits(customer.phone))} onClose={() => setPaying(false)} onPay={finish} />
 

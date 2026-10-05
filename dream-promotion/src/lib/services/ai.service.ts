@@ -1,6 +1,7 @@
 import { authHeaders } from './http';
 import type { RewriteMode } from './prompts';
 import type { BrandAnalysis, BrandProfile, ContentBrief, GeneratedVariant, Storyboard } from '@/types';
+import type { CopyBrief, ProductCopy } from '@/features/catalog/catalog';
 
 /**
  * AIService — the only place the app talks to a language model.
@@ -58,6 +59,8 @@ export const AIService = {
   /** Caption lines: fixed transcription, key words (hl = word indexes), optional emoji. Same number of lines. */
   polishCaptions: (brand: BrandProfile, p: { lines: string[]; brief?: string; emoji?: boolean; fix?: boolean }) =>
     call<{ lines: { text: string; hl?: number[]; emoji?: string }[] }>('captions', { brand, ...p }),
+  /** Dream Commerce: a product page's description + its text for Google — a suggestion, approved before saving */
+  productCopy: (brand: BrandProfile, brief: CopyBrief) => call<ProductCopy>('product', { brand, ...brief }),
   assistant: (brand: BrandProfile, recentContent: string, question: string) =>
     call<{ text: string }>('assistant', { brand, recentContent, question }),
 };

@@ -39,8 +39,9 @@ export interface Business {
   dealerNumber: string; companyNumber?: string; name: string; street?: string; houseNo?: string; city?: string; zip?: string;
 }
 export interface SoftwareInfo { regNumber: string; name: string; version: string; vendorVat: string; vendorName: string }
-/** itemId ties a line to the price list (stock); restock marks a credit line whose goods came back (2.51) */
-export interface DocLine { name: string; qty: number; unitPriceExVat: number; discountExVat: number; totalExVat: number; vatRate: number; kind: 1 | 2 | 3; itemId?: string; restock?: boolean }
+/** itemId ties a line to the price list (stock); restock marks a credit line whose goods came back (2.51); variantId: the
+ *  size / colour sold (2.54 — the database moves that variant's stock; not part of the file to the Tax Authority) */
+export interface DocLine { name: string; qty: number; unitPriceExVat: number; discountExVat: number; totalExVat: number; vatRate: number; kind: 1 | 2 | 3; itemId?: string; variantId?: string; restock?: boolean }
 /** method = field 1306; m = the app's own method (Bit is "other" in the file); cheque = fields 1307–1311 (2.51) */
 export interface DocPayment { method: number; amount: number; date: string; m?: string; cheque?: { bank?: string; branch?: string; account?: string; number?: string; dueDate?: string } }
 export interface Doc {

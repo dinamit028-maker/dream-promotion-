@@ -45,6 +45,10 @@
 :root { --fin:#2DD4BF; --fin-soft:#0F2F2C; --fin-ink:#03211E; --fin-line:rgba(45,212,191,.38); }
 :root[data-theme='light'] { --fin:#0F766E; --fin-soft:#E1F4F1; --fin-ink:#FFFFFF; --fin-line:rgba(15,118,110,.35); }
 .module-finance { --module:var(--fin); --module-soft:var(--fin-soft); --module-ink:var(--fin-ink); --module-line:var(--fin-line); }
+/* the store (2.54) is orange — the same pairs clear 4.5:1 (text in --shop on --surface / --shop-soft, --shop-ink on --shop) */
+:root { --shop:#FB923C; --shop-soft:#33200F; --shop-ink:#2A1405; --shop-line:rgba(251,146,60,.38); }
+:root[data-theme='light'] { --shop:#C2410C; --shop-soft:#FFEDD5; --shop-ink:#FFFFFF; --shop-line:rgba(194,65,12,.35); }
+.module-store { --module:var(--shop); --module-soft:var(--shop-soft); --module-ink:var(--shop-ink); --module-line:var(--shop-line); }
 
 html { scroll-behavior: smooth; }
 

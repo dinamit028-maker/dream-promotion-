@@ -21,7 +21,7 @@ export const refundedOf = (saleId: string, refunds: Refund[]) => sh(refunds.filt
 /** how much can still be given back (₪) */
 export const refundLeft = (sale: Pick<Sale, 'id' | 'total'>, refunds: Refund[]) => Math.max(0, sh(ag(sale.total) - ag(refundedOf(sale.id, refunds))));
 
-const sameLine = (a: Line, b: Line) => a.name === b.name && ag(a.price) === ag(b.price) && (a.itemId ?? '') === (b.itemId ?? '');
+const sameLine = (a: Line, b: Line) => a.name === b.name && ag(a.price) === ag(b.price) && (a.itemId ?? '') === (b.itemId ?? '') && (a.variantId ?? '') === (b.variantId ?? '');
 /** per line of the sale: how many units already came back */
 export function returnedQty(sale: Pick<Sale, 'id' | 'items'>, refunds: Refund[]): number[] {
   const back = refunds.filter((r) => r.saleId === sale.id).flatMap((r) => r.items);

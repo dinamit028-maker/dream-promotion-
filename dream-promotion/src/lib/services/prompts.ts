@@ -227,3 +227,29 @@ ${p.template.slice(0, 700)}
 - לא לכתוב שום מספר, סכום, תאריך, מטבע או קישור — רק דרך המצייני מקום.
 - 2–4 משפטים, בלי סימני קריאה מוגזמים, מקסימום אימוג'י אחד.
 החזר/י JSON בלבד: {"message":""}`;
+
+/**
+ * Dream Commerce (2.54): the text of a product page — a suggestion the owner reads, edits and approves before saving.
+ * The AI sees the product's own words only (name, kind, options, tags, the business's fields) — never a price, stock or
+ * sales — and may not add facts: materials, sizes, ingredients, health claims, delivery, warranty, discounts.
+ */
+export const productCopyPrompt = (b: BrandProfile, p: {
+  name: string; kind?: string; tags?: string[]; options?: { name: string; choices: string[] }[]; fields?: { label: string; value: string }[];
+  manufacturer?: string; country?: string; current?: string;
+}) => `${brandContext(b)}
+
+כתוב/כתבי טקסט לעמוד מוצר בחנות האונליין של העסק, בעברית טבעית (לא מתורגמת), בטון של העסק.
+המוצר: ${String(p.name ?? '').slice(0, 80)}${p.kind ? `\nסוג: ${String(p.kind).slice(0, 30)}` : ''}
+${(p.options ?? []).slice(0, 3).map((o) => `${String(o.name).slice(0, 30)}: ${(o.choices ?? []).slice(0, 20).map((c) => String(c).slice(0, 40)).join(', ')}`).join('\n')}
+${(p.tags ?? []).length ? `תגיות: ${(p.tags ?? []).slice(0, 30).map((t) => String(t).slice(0, 40)).join(', ')}` : ''}
+${(p.fields ?? []).slice(0, 12).map((f) => `${String(f.label).slice(0, 40)}: ${String(f.value).slice(0, 300)}`).join('\n')}
+${p.manufacturer ? `יצרן: ${String(p.manufacturer).slice(0, 120)}` : ''}${p.country ? `\nארץ ייצור: ${String(p.country).slice(0, 60)}` : ''}
+${p.current ? `הטקסט הנוכחי — לשפר אותו, בלי להוסיף עובדות:\n${String(p.current).slice(0, 1500)}` : ''}
+
+חוקים מחייבים:
+- רק עובדות שמופיעות למעלה. לא להמציא חומרים, מידות, רכיבים, יתרונות בריאותיים או רפואיים, אחריות, משלוח, מבצעים או מלאי.
+- בלי מחיר, בלי סימן ₪ ובלי אחוזי הנחה.
+- description: 2–4 פסקאות קצרות (50–140 מילים), טקסט רגיל בלי HTML ובלי Markdown. מותרת רשימה קצרה עם "• ".
+- seoTitle: עד 60 תווים, עם שם המוצר.
+- seoDescription: עד 155 תווים, משפט אחד שמזמין להיכנס.
+החזר/י JSON בלבד: {"description":"","seoTitle":"","seoDescription":""}`;

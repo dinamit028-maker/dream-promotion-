@@ -7,6 +7,9 @@ import { ils } from '@/features/register/money';
 import type { Lead } from '@/types';
 import { EMPTY_CHEQUE, PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
 import type { ComposeCustomer, ComposeLine } from './compose';
+import type { CatalogItem } from '@/features/catalog/catalog';
+import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
+import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
 import { periodOf, previousPeriod, type PeriodKind } from './reports';
 
 /** small shared pieces of the money screens (mobile first: one column on a phone, more on a wide screen) */
@@ -108,23 +111,58 @@ export function CustomerFields({ value, onChange, leads, leadId, onLead, needNam
   );
 }
 
-export interface CatalogPick { id: string; name: string; price: number; kind: string }
-/** lines: description, quantity, price — or a product / service from the price list (products then move in stock) */
-export function LinesEditor({ lines, onChange, catalog }: { lines: ComposeLine[]; onChange: (l: ComposeLine[]) => void; catalog: CatalogPick[] }) {
+/** a product / service of the price list — or one size / colour of it (2.54: variantId; its stock is the one that moves) */
+export interface CatalogPick { id: string; name: string; price: number; kind: string; variantId?: string }
+/**
+ * lines: description, quantity, price — or a product / service from the price list (products then move in stock).
+ * With `products` (2.54): next to a line of the price list, "באתר" and its editor; a line typed by hand can be saved as a
+ * product of the price list (the one editor of the register and the store).
+ */
+export function LinesEditor({ lines, onChange, catalog, products, productsReady = true, onCatalogChanged }: {
+  lines: ComposeLine[]; onChange: (l: ComposeLine[]) => void; catalog: CatalogPick[];
+  products?: CatalogItem[]; productsReady?: boolean; onCatalogChanged?: () => void | Promise<void>;
+}) {
   const set = (i: number, patch: Partial<ComposeLine>) => onChange(lines.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const [edit, setEdit] = useState<{ id: string | null; line: number; focus?: EditorFocus } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   return (
     <div className="grid gap-2">
       {lines.map((l, i) => (
         <div key={i} className="grid grid-cols-[minmax(0,1fr)_4.5rem_6.5rem_2rem] items-center gap-1.5">
-          <Input value={l.name} onChange={(e) => set(i, { name: e.target.value, itemId: undefined })} placeholder="תיאור" aria-label={`תיאור שורה ${i + 1}`} list="dp-catalog" className="py-2"
-            onBlur={(e) => { const c = catalog.find((x) => x.name === e.target.value.trim()); if (c && !l.itemId) set(i, { name: c.name, itemId: c.id, unitPrice: l.unitPrice || c.price }); }} />
+          <Input value={l.name} onChange={(e) => set(i, { name: e.target.value, itemId: undefined, variantId: undefined })} placeholder="תיאור" aria-label={`תיאור שורה ${i + 1}`} list="dp-catalog" className="py-2"
+            onBlur={(e) => { const c = catalog.find((x) => x.name === e.target.value.trim()); if (c && !l.itemId) set(i, { name: c.name, itemId: c.id, variantId: c.variantId, unitPrice: l.unitPrice || c.price }); }} />
           <Input type="number" inputMode="decimal" min={0} step="any" value={l.qty || ''} onChange={(e) => set(i, { qty: Number(e.target.value) })} aria-label={`כמות שורה ${i + 1}`} className="px-2 py-2 text-center" />
           <Input type="number" inputMode="decimal" min={0} step="0.01" value={l.unitPrice || ''} onChange={(e) => set(i, { unitPrice: Number(e.target.value) })} placeholder="מחיר" aria-label={`מחיר שורה ${i + 1}`} className="px-2 py-2 text-center" />
           <button type="button" aria-label={`הסרת שורה ${i + 1}`} onClick={() => onChange(lines.length > 1 ? lines.filter((_, k) => k !== i) : [{ name: '', qty: 1, unitPrice: 0 }])} className="h-10 rounded-full text-muted hover:text-[var(--danger)]">✕</button>
+          {products && (() => {
+            const p = l.itemId ? products.find((x) => x.id === l.itemId) : null;
+            if (p) return (
+              <div className="col-span-4 -mt-1 ps-1">
+                <ProductControls product={p} ready={productsReady} onChanged={() => void onCatalogChanged?.()} onEdit={(focus) => setEdit({ id: p.id, line: i, focus })} onError={setMsg} />
+              </div>
+            );
+            return !l.itemId && l.name.trim() ? (
+              <div className="col-span-4 -mt-1 ps-1">
+                <button type="button" className="min-h-9 text-xs font-semibold text-primary" onClick={() => setEdit({ id: null, line: i })}>+ שמירה כמוצר במחירון</button>
+              </div>
+            ) : null;
+          })()}
         </div>
       ))}
-      <datalist id="dp-catalog">{catalog.map((c) => <option key={c.id} value={c.name} />)}</datalist>
+      <datalist id="dp-catalog">{catalog.map((c) => <option key={`${c.id}|${c.variantId ?? ''}`} value={c.name} />)}</datalist>
       <button type="button" className="justify-self-start text-sm font-semibold text-primary" onClick={() => onChange([...lines, { name: '', qty: 1, unitPrice: 0 }])}>+ שורה</button>
+      {msg && <p role="alert" className="text-sm text-warn">{msg}</p>}
+      {products && (
+        <ProductEditorDialog open={Boolean(edit)} itemId={edit?.id ?? null} focus={edit?.focus}
+          initial={edit && !edit.id ? { name: lines[edit.line]?.name.trim() ?? '', price: lines[edit.line]?.unitPrice ? String(lines[edit.line].unitPrice) : '', kind: 'service' } : undefined}
+          onClose={() => setEdit(null)}
+          onSaved={(item) => {
+            // a line typed by hand that became a product is now that product's line (its first save)
+            if (edit && !edit.id && !lines[edit.line]?.itemId) { set(edit.line, { itemId: item.id, variantId: undefined, name: item.name }); setEdit({ ...edit, id: item.id }); }
+            void onCatalogChanged?.();
+          }}
+          onDeleted={() => { setEdit(null); void onCatalogChanged?.(); }} />
+      )}
     </div>
   );
 }

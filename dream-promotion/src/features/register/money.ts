@@ -18,7 +18,8 @@ export const methodLabel = (m: Method) => (m === 'split' ? 'פיצול תשלו�
 
 export type ItemKind = 'service' | 'product' | 'package' | 'other';
 /** a cart / sale line; itemId + kind (from 2.50) tie it to the price list — stock and commissions use them */
-export interface Line { name: string; price: number; qty: number; itemId?: string; kind?: ItemKind }
+/** a line of a sale; itemId / variantId link it to the catalog (stock, commissions — and the size / colour sold, 2.54) */
+export interface Line { name: string; price: number; qty: number; itemId?: string; kind?: ItemKind; variantId?: string }
 export interface Sale {
   id: string; leadId: string | null; appointmentId: string | null; customerName: string; customerPhone: string;
   items: Line[]; subtotal: number; discount: number; total: number; vatRate: number; vatAmount: number;

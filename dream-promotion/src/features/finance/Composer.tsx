@@ -33,7 +33,7 @@ const EMPTY_LINE: ComposeLine = { name: '', qty: 1, unitPrice: 0 };
 export function Composer({ mode, initial, onClose, onDone }: {
   mode: ComposerMode; initial?: Partial<ComposerBody> & { leadId?: string | null }; onClose: () => void; onDone: (r: ComposerDone) => void;
 }) {
-  const { userId, settings, profile, catalog, vat, business } = useFinance();
+  const { userId, settings, profile, catalog, vat, business, products, productsReady, reloadCatalog } = useFinance();
   const { leads, addActivity, updateLead } = useApp();
   const quote = mode.kind === 'quote' ? mode.quote ?? null : null;
   const types = allowedDocTypes(settings.entity).filter((t) => t !== 330 && (t !== 400 || !vat));
@@ -146,7 +146,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
           </div>
         )}
       </div>
-      <LinesEditor lines={lines} onChange={setLines} catalog={catalog} />
+      <LinesEditor lines={lines} onChange={setLines} catalog={catalog} products={products} productsReady={productsReady} onCatalogChanged={reloadCatalog} />
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <Field label="הנחה">

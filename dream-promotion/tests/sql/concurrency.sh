@@ -6,6 +6,8 @@
 #   3. 8 connections credit the same invoice of ₪1,180 with ₪236 each → exactly 5 succeed, never beyond the invoice
 #   4. 8 connections × 10 quotes and × 10 expenses     → numbers 1..80 each
 #   5. the audit chain of the business is intact afterwards
+#   6. 8 connections × 20 sales of the same two variants, in crossing order (3300) → every unit counted, no deadlock
+#   7. 8 connections race to save the same SKU, on items and on variants (3300) → exactly one
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -81,3 +83,32 @@ r=$(q "begin; $AS select public.finance_audit_verify() ->> 'ok'; commit;" | tail
 n=$(q "select count(*) from public.finance_audit_log where business_id = '$B'")
 [ "$r" = "true" ] || fail "the audit chain is intact after the parallel load (got $r)"
 echo "ok: audit chain intact after the load ($n rows, one writer per business at a time)"
+
+# ---- 6. stock per variant under load: 160 sales of two variants, half of them listing the lines in the other order --------
+IT=00000000-0000-0000-0000-0000000cc1f1; VA=00000000-0000-0000-0000-0000000cc3a1; VB=00000000-0000-0000-0000-0000000cc3a2
+q "insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty) values ('$IT', '$U', '$B', 'shirt', 100, 'product', true, 1000);
+   insert into public.catalog_variants (id, item_id, option1, stock_qty) values ('$VA', '$IT', 'A', 500), ('$VB', '$IT', 'B', 500);" >/dev/null
+line() { echo "{\"name\":\"shirt $1\",\"price\":100,\"qty\":1,\"itemId\":\"$IT\",\"variantId\":\"$2\"}"; }
+SALE="insert into public.sales (user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at, employee_name) values ('$U', '%s', 200, 200, 18, 30.51, 'cash', 'paid', now(), 'load-variants');"
+for w in $(seq 8); do
+  if [ $((w % 2)) -eq 0 ]; then items="[$(line A "$VA"),$(line B "$VB")]"; else items="[$(line B "$VB"),$(line A "$VA")]"; fi
+  worker_script "$TMP/vsale-$w.sql" 20 "$(printf "$SALE" "$items")"
+done
+run_parallel vsale
+r=$(q "select (select count(*) from public.sales where business_id = '$B' and employee_name = 'load-variants') || ' ' ||
+              (select stock_qty from public.catalog_variants where id = '$VA') || ' ' || (select stock_qty from public.catalog_variants where id = '$VB') || ' ' ||
+              (select stock_qty from public.catalog_items where id = '$IT') || ' ' ||
+              (select count(*) from public.stock_movements where item_id = '$IT' and variant_id is not null and reason = 'sale')")
+[ "$r" = "160 340 340 680 320" ] || fail "160 parallel sales of two variants: every sale in, every unit out, item = sum (expected 160 340 340 680 320, got: $r)"
+echo "ok: 160 sales of two variants from 8 connections, lines in crossing order → no deadlock, 340 + 340 = 680, 320 logged moves"
+
+# ---- 7. the same SKU from 8 connections, on items and on variants: one wins -----------------------------------------------
+for w in $(seq 8); do
+  if [ "$w" -le 4 ]; then stmt="insert into public.catalog_items (user_id, name, price, sku) values ('$U', 'race $w', 1, 'RACE-1');"
+  else stmt="insert into public.catalog_variants (item_id, option1, sku) values ('$IT', 'R$w', 'race-1');"; fi
+  worker_script "$TMP/code-$w.sql" 1 "$stmt"
+done
+run_parallel code
+r=$(q "select (select count(*) from public.catalog_items where business_id = '$B' and lower(sku) = 'race-1') + (select count(*) from public.catalog_variants where business_id = '$B' and lower(sku) = 'race-1')")
+[ "$r" = "1" ] || fail "one SKU in a business, across items and variants, under a race (got $r)"
+echo "ok: 8 connections saving one SKU on items and variants → exactly one"

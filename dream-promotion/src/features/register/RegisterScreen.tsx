@@ -23,6 +23,9 @@ import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds'
 import { MOVE_HE, applyStock, lowStockList, planAdjust, stockLevel, stockText } from './stock';
 import { billingColumns } from './billing';
 import { issueDocumentRow } from '@/features/finance/api';
+import { MIGRATION_3300, applyVariantStock, catalogError, lineName, toCatalogItem, toVariant, variantLevel, variantStockText, variantsOf, type CatalogItem, type CatalogVariant } from '@/features/catalog/catalog';
+import { PublishSwitch, type EditorFocus } from '@/features/catalog/PublishSwitch';
+import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
 
 /** Toolbox stage 3: sell, record payments, refunds, reports, close of day, commissions, documents, price list & stock. */
 type Item = PosItem & { sort: number };
@@ -40,7 +43,9 @@ const toSale = (r: any): Sale => ({
 } as Sale & { cashReceived: number | null; changeGiven: number | null });
 const toItem = (r: any): Item => ({ id: r.id, name: r.name, price: Number(r.price), kind: r.kind, active: r.active, sort: r.sort ?? 0,
   favorite: Boolean(r.favorite), favOrder: r.fav_order ?? 0, imageUrl: r.image_url ?? '',
-  trackStock: Boolean(r.track_stock), stockQty: Number(r.stock_qty ?? 0), lowStock: Number(r.low_stock ?? 2) });
+  trackStock: Boolean(r.track_stock), stockQty: Number(r.stock_qty ?? 0), lowStock: Number(r.low_stock ?? 2),
+  // the one catalog (2.54): sizes / colours and the codes a scanner types (none before migration 3300)
+  hasVariants: Boolean(r.has_variants), sku: r.sku ?? '', barcode: r.barcode ?? '' });
 const MIGRATION_250 = 'צריך להריץ את מיגרציה 20261004003000 (קופה 2.50) ב-Supabase.';
 const errText = (e: any) => /relation .* does not exist|schema cache/i.test(String(e?.message)) ? (/billing_|customer_dealer|refund|stock|access/.test(String(e?.message)) ? MIGRATION_250 : 'צריך להריץ את מיגרציית הקופה ב-Supabase (20261003001200).')
   : /pay_link_check/.test(String(e?.message)) ? 'קישור התשלום חייב להתחיל ב-https://'
@@ -57,6 +62,10 @@ export function RegisterScreen() {
   type Tab = 'sell' | 'sales' | 'shift' | 'commissions' | 'catalog' | 'docs' | 'settings';
   const [tab, setTab] = useState<Tab>('sell');
   const [items, setItems] = useState<Item[]>([]);
+  // the same rows as the store's catalog (2.54): "באתר", the editor; and the variants (sizes / colours, their stock)
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [variants, setVariants] = useState<CatalogVariant[]>([]);
+  const [catalogReady, setCatalogReady] = useState(true);
   const [sales, setSales] = useState<Sale[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
@@ -95,6 +104,12 @@ export function RegisterScreen() {
         dealerNumber: st.data.dealer_number ?? '', companyNumber: st.data.company_number ?? '', legalName: st.data.legal_name ?? '',
         street: st.data.street ?? '', houseNo: st.data.house_no ?? '', city: st.data.city ?? '', zip: st.data.zip ?? '' });
       setItems((it.data ?? []).map(toItem));
+      setCatalog((it.data ?? []).map(toCatalogItem));
+      // the variants — before migration 3300 there are none, and the register works exactly as before
+      const va = await sb.from('catalog_variants').select('*').order('position').order('created_at');
+      if (va.error && catalogError(va.error) !== MIGRATION_3300) throw va.error;
+      setVariants(va.error ? [] : ((va.data ?? []) as any[]).map(toVariant));
+      setCatalogReady(!va.error);
       // for the POS: who sells (names only — pos_employees(); before 2.50 the table itself) and today's appointments
       const dayStart = israelToIso(israelParts(Date.now()).date, '00:00');
       const [emps, appts, svcs, rf] = await Promise.all([
@@ -116,6 +131,18 @@ export function RegisterScreen() {
     finally { setLoading(false); }
   }, [userId, cashier]);
   useEffect(() => { void load(); }, [load]);
+  /** the price list and its variants only (an edit in the editor, "באתר") — the screen stays as it is */
+  const reloadCatalog = useCallback(async () => {
+    const sb = supabase();
+    const [it, va] = await Promise.all([
+      sb.from('catalog_items').select('*').order('sort').order('created_at'),
+      sb.from('catalog_variants').select('*').order('position').order('created_at'),
+    ]);
+    if (it.error) { setError(errText(it.error)); return; }
+    setItems((it.data ?? []).map(toItem));
+    setCatalog((it.data ?? []).map(toCatalogItem));
+    if (!va.error) setVariants(((va.data ?? []) as any[]).map(toVariant));
+  }, []);
 
   // arriving from an appointment ("💳 חיוב"): customer + service prefilled
   useEffect(() => {
@@ -197,8 +224,19 @@ export function RegisterScreen() {
     // the database moved the stock (trigger); the screen follows at once
     const after = applyStock(items, sale.items);
     setItems(after);
+    const vAfter = applyVariantStock(variants, sale.items);
+    setVariants(vAfter);
     const touched = new Set(sale.items.map((l) => l.itemId).filter(Boolean));
-    const low = lowStockList(after.filter((i) => touched.has(i.id))).map((i) => `${i.name} (${stockText(i)})`);
+    // an item with variants: the size / colour that is running out (the item's sum says little)
+    const sold = new Set(sale.items.map((l) => l.variantId).filter(Boolean));
+    const low = [
+      ...lowStockList(after.filter((i) => touched.has(i.id) && !i.hasVariants)).map((i) => `${i.name} (${stockText(i)})`),
+      ...vAfter.filter((v) => sold.has(v.id)).flatMap((v) => {
+        const it = after.find((i) => i.id === v.itemId);
+        const lvl = it ? variantLevel(it, v) : null;
+        return it && lvl && lvl !== 'ok' ? [`${lineName(it.name, v)} (${v.stockQty <= 0 ? 'אזל מהמלאי' : `נשארו ${v.stockQty}`})`] : [];
+      }),
+    ];
     if (leadId && c.billing) {
       const b = billingColumns(c.billing);
       updateLead(leadId, { billingName: b.billing_name, billingDealer: b.customer_dealer, billingStreet: b.customer_street, billingCity: b.customer_city });
@@ -238,6 +276,7 @@ export function RegisterScreen() {
     if (e) { setError(errText(e)); return; }
     setSales((all) => all.map((x) => (x.id === s.id ? { ...x, status: 'cancelled' } : x)));
     setItems((all) => applyStock(all, s.items, -1)); // the database put the units back
+    setVariants((all) => applyVariantStock(all, s.items, -1));
     if (s.leadId) addActivity(s.leadId, 'note', `בוטלה ${paid ? 'מכירה' : 'בקשת תשלום'}: ${ils(s.total)}`);
     let note = '';
     if (paid && userId) {
@@ -277,7 +316,7 @@ export function RegisterScreen() {
     } else if (ins.error) return { ok: false, error: refundErrText(ins.error) };
     const r = toRefund(data);
     setRefunds((all) => [r, ...all.filter((x) => x.id !== r.id)]);
-    if (r.restock && !replay) setItems((all) => applyStock(all, r.items, -1));
+    if (r.restock && !replay) { setItems((all) => applyStock(all, r.items, -1)); setVariants((all) => applyVariantStock(all, r.items, -1)); }
     let message = `ההחזר נרשם: ${ils(r.amount)} ב${methodLabel(r.method)}`;
     if (business.ready && licensed) {
       const { data } = await supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at');
@@ -339,7 +378,7 @@ export function RegisterScreen() {
               <span className="min-w-0 truncate">⚠️ מלאי נמוך: {low.slice(0, 4).map((i) => `${i.name} (${stockText(i)})`).join(' · ')}{low.length > 4 ? ` ועוד ${low.length - 4}` : ''}</span><span className="shrink-0">למלאי ←</span>
             </button>
           )}
-          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={items} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
+          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={items} variants={variants} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
             vat={vat} payLinkReady={Boolean(settings.payLink)} onCheckout={checkout} onShowDoc={cashier ? undefined : () => setTab('docs')} prefill={prefill}
             onGoCatalog={cashier ? undefined : () => setTab('catalog')} wide={kiosk} />
         </>
@@ -355,7 +394,8 @@ export function RegisterScreen() {
 
       {!loading && tab === 'docs' && <DocumentsTab userId={userId} business={business} licensed={licensed} onError={setError} />}
 
-      {!loading && tab === 'catalog' && <CatalogTab userId={userId} items={items} reload={load} onError={(e) => setError(errText(e))}
+      {!loading && tab === 'catalog' && <CatalogTab userId={userId} items={items} catalog={catalog} variants={variants} ready={catalogReady} reload={() => void reloadCatalog()}
+        onError={(e) => setError(typeof e === 'string' ? e : errText(e))}
         onStock={(id, qty) => setItems((all) => all.map((i) => (i.id === id ? { ...i, stockQty: qty, trackStock: true } : i)))} />}
 
       {!loading && tab === 'settings' && (
@@ -480,8 +520,12 @@ function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpe
   );
 }
 
-function CatalogTab({ userId, items, reload, onError, onStock }: { userId: string; items: Item[]; reload: () => void; onError: (e: unknown) => void; onStock: (id: string, qty: number) => void }) {
-  const [d, setD] = useState({ name: '', price: '', kind: 'service' as Item['kind'] });
+function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, onStock }: {
+  userId: string; items: Item[]; catalog: CatalogItem[]; variants: CatalogVariant[]; ready: boolean;
+  reload: () => void; onError: (e: unknown) => void; onStock: (id: string, qty: number) => void;
+}) {
+  // the one product editor (2.54): a new item and every change of an existing one open it; "באתר" next to every item
+  const [edit, setEdit] = useState<{ id: string | null; focus?: EditorFocus } | null>(null);
   const [history, setHistory] = useState<{ item: Item; rows: { at: string; delta: number; after: number; reason: string; note: string }[] | null } | null>(null);
   const favs = items.filter((i) => i.favorite).sort((a, b) => a.favOrder - b.favOrder);
   const low = lowStockList(items.filter((i) => i.active));
@@ -514,8 +558,10 @@ function CatalogTab({ userId, items, reload, onError, onStock }: { userId: strin
   }
   async function openHistory(i: Item) {
     setHistory({ item: i, rows: null });
-    const { data } = await supabase().from('stock_movements').select('created_at, delta, qty_after, reason, note').eq('item_id', i.id).order('created_at', { ascending: false }).limit(40);
-    setHistory({ item: i, rows: ((data ?? []) as any[]).map((r) => ({ at: r.created_at, delta: r.delta, after: r.qty_after, reason: r.reason, note: r.note ?? '' })) });
+    const { data } = await supabase().from('stock_movements').select('*').eq('item_id', i.id).order('created_at', { ascending: false }).limit(40);
+    // a move of a variant names it ("מכירה · M / שחור")
+    const label = (r: any) => { const v = r.variant_id ? variants.find((x) => x.id === r.variant_id) : null; return v ? lineName('', v).replace(/^ · /, '') : ''; };
+    setHistory({ item: i, rows: ((data ?? []) as any[]).map((r) => ({ at: r.created_at, delta: r.delta, after: r.qty_after, reason: r.reason, note: [label(r), r.note ?? ''].filter(Boolean).join(' · ') })) });
   }
   return (
     <div className="grid gap-3">
@@ -536,8 +582,20 @@ function CatalogTab({ userId, items, reload, onError, onStock }: { userId: strin
               <button type="button" className="h-9 w-8 rounded-full border border-line" aria-label={`למטה: ${i.name}`} onClick={() => moveFav(i.id, 1)}>↓</button>
             </span>}
             <Button size="sm" variant="ghost" onClick={() => run(supabase().from('catalog_items').update({ active: !i.active }).eq('id', i.id))}>{i.active ? 'הסתרה' : 'הצגה'}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setEdit({ id: i.id })} aria-label={`עריכה: ${i.name}`}>עריכה</Button>
+            {(() => { const c = catalog.find((x) => x.id === i.id); return c ? (
+              <PublishSwitch item={c} ready={ready} onChanged={() => reload()} onComplete={(focus) => setEdit({ id: i.id, focus })} onError={(m) => onError(m)} />
+            ) : null; })()}
             <Button size="sm" variant="ghost" onClick={() => { if (window.confirm(`למחוק את "${i.name}"? מכירות קודמות לא ישתנו.`)) void run(supabase().from('catalog_items').delete().eq('id', i.id)); }}>מחיקה</Button>
-            {(i.kind === 'product' || i.trackStock) && (
+            {i.hasVariants && (
+              // an item with sizes / colours: its stock is counted per variant — in the editor
+              <div className="flex w-full flex-wrap items-center gap-2 border-t border-line pt-2 text-sm">
+                <span className="min-w-0 flex-1 text-xs text-ink-2">{i.trackStock ? `📦 ${variantStockText(i, variantsOf(variants, i.id)) || 'אין וריאנטים פעילים'}` : `${variantsOf(variants, i.id).length} וריאנטים · המלאי עוד לא נספר`}</span>
+                <Button size="sm" variant="ghost" onClick={() => setEdit({ id: i.id, focus: 'variants' })}>מלאי לפי וריאנט</Button>
+                {i.trackStock && <button type="button" className="text-xs font-semibold text-primary" onClick={() => void openHistory(i)}>היסטוריה</button>}
+              </div>
+            )}
+            {!i.hasVariants && (i.kind === 'product' || i.trackStock) && (
               <div className="flex w-full flex-wrap items-center gap-2 border-t border-line pt-2 text-sm">
                 {i.trackStock ? <>
                   <span className={cx('rounded-full px-2.5 py-1 text-xs font-bold tabular-nums', level === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : level === 'low' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
@@ -556,18 +614,14 @@ function CatalogTab({ userId, items, reload, onError, onStock }: { userId: strin
         );
       })}
       <Card className="p-3">
-        <p className="mb-2 text-sm font-semibold">פריט חדש</p>
-        <div className="grid gap-2 sm:grid-cols-[1fr_120px_130px_auto]">
-          <Input value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} placeholder="למשל: הסרת שיער — רגליים" />
-          <Input type="number" inputMode="decimal" value={d.price} onChange={(e) => setD({ ...d, price: e.target.value })} placeholder="מחיר ₪" />
-          <Select value={d.kind} onChange={(e) => setD({ ...d, kind: e.target.value as Item['kind'] })} aria-label="קטגוריה">{Object.entries(KIND_HE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select>
-          <Button variant="primary" disabled={!d.name.trim() || !(Number(d.price) >= 0) || d.price === ''} onClick={async () => {
-            await run(supabase().from('catalog_items').insert({ user_id: userId, name: d.name.trim(), price: Number(d.price), kind: d.kind, sort: items.length }));
-            setD({ name: '', price: '', kind: d.kind });
-          }}>הוספה</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="primary" onClick={() => setEdit({ id: null })}>+ פריט חדש</Button>
+          <span className="text-xs text-muted">שם, מחיר, תמונות, מידות וצבעים — באותו עורך של הכספים והחנות.</span>
         </div>
         <button type="button" className="mt-3 text-sm font-semibold text-primary" onClick={importServices}>ייבוא השירותים מזימון התורים (עם מחיר)</button>
       </Card>
+      <ProductEditorDialog open={Boolean(edit)} itemId={edit?.id ?? null} focus={edit?.focus} nextSort={items.length} initial={{ kind: 'service' }}
+        onClose={() => setEdit(null)} onSaved={() => reload()} onDeleted={() => { setEdit(null); reload(); }} />
 
       <Modal open={Boolean(history)} onClose={() => setHistory(null)}>
         {history && <>
