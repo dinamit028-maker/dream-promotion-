@@ -13,6 +13,9 @@ import { signOutEverywhere } from '@/lib/session';
 import { JobRunner } from '@/features/content/JobRunner';
 import { VersionTag } from '@/components/system/VersionTag';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
+import { ModuleShell } from '@/components/shell/ModuleShell';
+import { FINANCE_MODULE } from '@/features/finance/module';
+import { isFinancePath } from '@/features/finance/routes';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
   UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet,
@@ -70,6 +73,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   type BizItem = { id: string; name: string; state: 'active' | 'locked' | 'expired' };
   const [biz, setBiz] = useState<{ current: BizItem | null; list: BizItem[]; superAdmin: boolean } | null>(null);
   const [switching, setSwitching] = useState(false);
+  // who is signed in (the personal area of a module's menu)
+  const [me, setMe] = useState<string | null>(null);
   // the cloud is the source of truth: every app open loads fresh data once (leads imported by the timer,
   // fixes made on the server) — the device cache only bridges the first paint
   const loadedOnce = useRef(false);
@@ -84,6 +89,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (!alive) return;
       const u = data.session?.user;
       if (!u) { router.replace('/auth'); return; }
+      const meta = (u.user_metadata ?? {}) as { full_name?: string; name?: string };
+      setMe(meta.full_name || meta.name || u.email || null);
       let current: string | null = null;
       try {
         const r = await fetch('/api/business/me', { headers: await authHeaders() });
@@ -187,6 +194,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const current = [...NAV, ...NAV_BOTTOM].find((n) => n.href === path);
   const register = path === '/register';
+  // a module that opens as an app of its own (2.52: finance) — its own menus instead of the app's
+  const moduleOn = isFinancePath(path) && !cashier;
+  const lockedNotice = biz?.current && biz.current.state !== 'active' ? (
+    <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">
+      {biz.superAdmin
+        ? `העסק "${biz.current.name}" ${biz.current.state === 'expired' ? 'פג תוקף' : 'נעול'} — מוצג למנהל-על בלבד. ללקוח הוא סגור.`
+        : `העסק "${biz.current.name}" נעול כרגע${biz.current.state === 'expired' ? ' (תקופת השימוש הסתיימה)' : ''}. הנתונים שמורים ולא נמחקו — כדי לחדש את השירות פנו למנהל המערכת.`}
+    </p>
+  ) : null;
 
   if (checking) {
     return (
@@ -204,6 +220,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <ContentEditor />
         <JobRunner />
       </div>
+    );
+  }
+
+  // the finance module as an app of its own: its header, menu, bottom bar and "+" (permissions unchanged — a cashier
+  // never gets here, and a locked business shows the same notice)
+  if (moduleOn) {
+    return (
+      <>
+        <ModuleShell config={FINANCE_MODULE} path={path} exitHref="/dashboard" notice={lockedNotice}
+          businessName={biz?.current?.name ?? undefined} userName={me ?? undefined}
+          businesses={biz?.list ?? []} currentBusinessId={biz?.current?.id ?? null}
+          canSwitch={Boolean(biz && (biz.superAdmin || biz.list.length > 1))} switching={switching} onSwitchBusiness={(id) => void switchBusiness(id)}>
+          {children}
+        </ModuleShell>
+        <ContentEditor />
+        <JobRunner />
+      </>
     );
   }
 
@@ -257,13 +290,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* the register uses the whole width of a big screen (1920 and up) — every other screen stays readable at 1240 */}
         <main className={cx('mx-auto w-full px-4 pb-32 pt-6 sm:px-6', register ? 'max-w-none' : 'max-w-[1240px]')}>
-          {biz?.current && biz.current.state !== 'active' && (
-            <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">
-              {biz.superAdmin
-                ? `העסק "${biz.current.name}" ${biz.current.state === 'expired' ? 'פג תוקף' : 'נעול'} — מוצג למנהל-על בלבד. ללקוח הוא סגור.`
-                : `העסק "${biz.current.name}" נעול כרגע${biz.current.state === 'expired' ? ' (תקופת השימוש הסתיימה)' : ''}. הנתונים שמורים ולא נמחקו — כדי לחדש את השירות פנו למנהל המערכת.`}
-            </p>
-          )}
+          {lockedNotice}
           {children}
         </main>
       </div>

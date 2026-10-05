@@ -21,7 +21,7 @@ function sameBrowser(req: Request, want: unknown): boolean {
 export async function GET(req: Request) {
   const u = new URL(req.url);
   const back = (q: string) => {
-    const r = NextResponse.redirect(new URL(`/finance?tab=settings&tax=${q}`, u.origin));
+    const r = NextResponse.redirect(new URL(`/finance/settings?tax=${q}`, u.origin));
     r.headers.append('Set-Cookie', `${TAX_OAUTH_COOKIE}=; Path=/api/finance/tax/callback; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
     return r;
   };

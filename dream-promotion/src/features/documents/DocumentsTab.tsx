@@ -72,7 +72,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <Chip on={view === 'list'} onClick={() => setView('list')}>מסמכים</Chip>
         <Chip on={view === 'export'} onClick={() => setView('export')}>ממשק פתוח (מבנה אחיד)</Chip>
-        <a href="/finance?tab=documents" className="ms-auto text-sm font-semibold text-primary">מרכז המסמכים בכספים ←</a>
+        <a href="/finance/documents" className="ms-auto text-sm font-semibold text-primary">מרכז המסמכים בכספים ←</a>
       </div>
       {view === 'list' && (
         <div className="grid grid-cols-1 gap-2">

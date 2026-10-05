@@ -57,7 +57,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
   if (error || !data) return NextResponse.json({ code: 'decided', message: 'כבר התקבלה תשובה להצעה הזו.' }, { status: 409 });
   if (pushConfigured()) {
     for (const u of await businessManagers(r.business_id)) {
-      void pushToUser(u, { title: decision === 'accepted' ? `✓ הצעת מחיר ${r.quote_number} אושרה` : `הצעת מחיר ${r.quote_number} נדחתה`, body: `${name} · ₪${Number(r.total).toLocaleString('he-IL')}`, url: '/finance?tab=quotes', tag: `quote-${r.id}` });
+      void pushToUser(u, { title: decision === 'accepted' ? `✓ הצעת מחיר ${r.quote_number} אושרה` : `הצעת מחיר ${r.quote_number} נדחתה`, body: `${name} · ₪${Number(r.total).toLocaleString('he-IL')}`, url: '/finance/quotes', tag: `quote-${r.id}` });
     }
   }
   return NextResponse.json({ quote: publicView(data) });

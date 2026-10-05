@@ -40,6 +40,12 @@
   color-scheme: light;
 }
 
+/* module colors (2.52): a module of Dream opens as an app of its own (ModuleShell) with its own color.
+   Finance is teal; every pair below clears WCAG 4.5:1 (text in --fin on --surface / --fin-soft, --fin-ink on --fin). */
+:root { --fin:#2DD4BF; --fin-soft:#0F2F2C; --fin-ink:#03211E; --fin-line:rgba(45,212,191,.38); }
+:root[data-theme='light'] { --fin:#0F766E; --fin-soft:#E1F4F1; --fin-ink:#FFFFFF; --fin-line:rgba(15,118,110,.35); }
+.module-finance { --module:var(--fin); --module-soft:var(--fin-soft); --module-ink:var(--fin-ink); --module-line:var(--fin-line); }
+
 html { scroll-behavior: smooth; }
 
 /* keyboard users always see where they are; mouse clicks don't flash a ring */

@@ -18,6 +18,7 @@ export {
   UploadSimple, Lightning, ShieldCheck, WhatsappLogo, Target, UserCircle, MagicWand, TrendUp, SignOut,
   CashRegister, AddressBook, IdentificationBadge, ShoppingBag, Robot, CalendarCheck, TiktokLogo,
   InstagramLogo, FacebookLogo, Globe, ChartBar, Sun, Moon, CornersOut, CornersIn, Wallet, Receipt, Camera,
+  ArrowRight, CaretDown, List, ArrowsLeftRight, FileText, Coins, HandCoins, Hourglass, ClipboardText, Briefcase, ChartPieSlice, ShoppingCart,
 } from '@phosphor-icons/react/dist/ssr';
 export { ImageGlyph };
 

@@ -21,7 +21,7 @@ const PAGE = 50;
 interface Draft { id: string; docType: number; customerName: string; total: number; updatedAt: string; body: ComposerBody; leadId: string | null; quoteId: string | null }
 
 export function DocumentCenter() {
-  const { settings, params, fail, say } = useFinance();
+  const { settings, params, clearParams, fail, say } = useFinance();
   const leads = useApp((s) => s.leads);
   const [type, setType] = useState<number | null>(null);
   const [q, setQ] = useState('');
@@ -60,7 +60,7 @@ export function DocumentCenter() {
   useEffect(() => { const t = setTimeout(() => void load(false), q ? 300 : 0); return () => clearTimeout(t); }, [type, q]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void loadDrafts(); }, [loadDrafts]);
 
-  // ?new=1 / ?new=305&lead=… (from the overview and the CRM card)
+  // ?new=1 / ?new=305&lead=… (the module's "+", the overview, the CRM card)
   useEffect(() => {
     const n = params.get('new');
     if (!n) return;
@@ -68,6 +68,7 @@ export function DocumentCenter() {
     const allowed = allowedDocTypes(settings.entity);
     setComposer({ mode: { kind: 'document', docType: allowed.includes(Number(n)) ? Number(n) : allowed[0] },
       initial: lead ? { leadId: lead.id, customer: { name: lead.billingName || lead.name, phone: lead.phone, email: lead.email, dealer: lead.billingDealer, street: lead.billingStreet, city: lead.billingCity } } : undefined });
+    clearParams();
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const types = useMemo(() => allowedDocTypes(settings.entity), [settings.entity]);

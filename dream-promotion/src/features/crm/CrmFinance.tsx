@@ -44,8 +44,8 @@ export function CrmFinance({ leadId }: { leadId: string }) {
       {open && (
         <div className="grid gap-2 border-t border-line p-3 text-sm">
           <div className="flex flex-wrap gap-2">
-            <Link href={`/finance?tab=documents&new=1&lead=${leadId}`} className="rounded-full bg-primary px-3 py-1.5 font-semibold text-white">🧾 הפקת מסמך</Link>
-            <Link href={`/finance?tab=quotes&new=1&lead=${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">הצעת מחיר</Link>
+            <Link href={`/finance/documents?new=1&lead=${leadId}`} className="rounded-full bg-primary px-3 py-1.5 font-semibold text-white">🧾 הפקת מסמך</Link>
+            <Link href={`/finance/quotes?new=1&lead=${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">הצעת מחיר</Link>
           </div>
           {error ? <p className="text-muted">אין גישה לנתונים הכספיים כאן.</p> : !data ? <Spinner /> : <>
             <p>{data.owed > 0 ? <>חייב/ת: <strong>{ils(data.owed)}</strong>{data.overdue > 0 ? <span className="text-red-600"> (באיחור {ils(data.overdue)})</span> : null}</> : 'אין חוב פתוח.'}{data.paid > 0 ? ` · שולם במסמכים: ${ils(data.paid)}` : ''}</p>
@@ -53,7 +53,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
             {!data.docs.length ? <p className="text-muted">לא הופקו מסמכים ללקוח הזה.</p> : (
               <ul className="grid gap-0.5">{data.docs.map((d) => <li key={d.id} className="flex justify-between gap-2"><span>{DOC_LABEL[d.type]} {d.number} · {d.date.split('-').reverse().join('/')}</span><span className="tabular-nums">{ils(d.total)}</span></li>)}</ul>
             )}
-            <Link href="/finance?tab=documents" className="text-xs font-semibold text-primary">לכל המסמכים ←</Link>
+            <Link href="/finance/documents" className="text-xs font-semibold text-primary">לכל המסמכים ←</Link>
           </>}
         </div>
       )}

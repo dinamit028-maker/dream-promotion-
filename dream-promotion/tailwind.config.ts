@@ -24,6 +24,10 @@ const config: Config = {
         ok: 'var(--ok)',
         warn: 'var(--warn)',
         danger: 'var(--danger)',
+        // the color of the module on screen (ModuleShell sets it — finance: teal)
+        module: 'var(--module)',
+        'module-soft': 'var(--module-soft)',
+        'module-ink': 'var(--module-ink)',
       },
       fontFamily: {
         sans: ['var(--font-body)', 'system-ui', 'sans-serif'],
@@ -43,8 +47,13 @@ const config: Config = {
       keyframes: {
         rise: { from: { opacity: '0', transform: 'translateY(14px)' }, to: { opacity: '1', transform: 'none' } },
         pop: { from: { opacity: '0', transform: 'translateY(18px) scale(.97)' }, to: { opacity: '1', transform: 'none' } },
+        drawer: { from: { transform: 'translateX(100%)' }, to: { transform: 'none' } },
+        fade: { from: { opacity: '0' }, to: { opacity: '1' } },
       },
-      animation: { rise: 'rise .4s cubic-bezier(.22,.8,.3,1)', pop: 'pop .3s cubic-bezier(.22,.8,.3,1)' },
+      animation: {
+        rise: 'rise .4s cubic-bezier(.22,.8,.3,1)', pop: 'pop .3s cubic-bezier(.22,.8,.3,1)',
+        drawer: 'drawer .26s cubic-bezier(.22,.8,.3,1)', fade: 'fade .2s ease-out',
+      },
     },
   },
   plugins: [],
