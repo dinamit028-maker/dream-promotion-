@@ -204,14 +204,18 @@ export function RegisterScreen() {
       updateLead(leadId, { billingName: b.billing_name, billingDealer: b.customer_dealer, billingStreet: b.customer_street, billingCity: b.customer_city });
     }
     if (leadId && c.paidNow && !replay) crmPurchase(leadId, sale);
-    if (!c.paidNow && !replay) { if (leadId) addActivity(leadId, 'note', `נשלחה בקשת תשלום: ${ils(sale.total)}`); requestPayment(sale); }
+    // the payment request opens from a tap on the result screen: a window opened here, after the save, is blocked by phones
+    const payUrl = !c.paidNow ? payRequestUrl(sale) : null;
+    if (!c.paidNow && !replay && leadId) addActivity(leadId, 'note', `בקשת תשלום: ${ils(sale.total)}`);
     const doc = c.paidNow ? await issueDocumentFull(sale, leadId) : null;   // idempotent: "sale:<id>"
     if (!replay) void notifySale(sale.id); // the managers' phones — never blocks the sale
-    return { ok: true, sale, docLabel: doc?.label, docUrl: doc?.token ? `${window.location.origin}/d/${doc.token}` : undefined, lowStock: low };
+    return { ok: true, sale, docLabel: doc?.label, docUrl: doc?.token ? `${window.location.origin}/d/${doc.token}` : undefined, payUrl: payUrl ?? undefined, lowStock: low };
   }
 
+  const payRequestUrl = (s: Sale) => (settings.payLink && waLink(s.customerPhone, payRequestText({ name: s.customerName, total: s.total, items: s.items.map((l) => l.name).join(', '), business: brand.name, link: settings.payLink }))) || null;
+  /** a reminder from the sales list — opened on the tap itself */
   function requestPayment(s: Sale) {
-    const url = settings.payLink && waLink(s.customerPhone, payRequestText({ name: s.customerName, total: s.total, items: s.items.map((l) => l.name).join(', '), business: brand.name, link: settings.payLink }));
+    const url = payRequestUrl(s);
     if (url) window.open(url, '_blank', 'noopener');
   }
   async function markPaid(s: Sale, m: Method) {

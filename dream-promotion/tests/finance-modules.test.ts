@@ -168,7 +168,9 @@ test('the audit seal in the accountant\'s package: the last hash, kept outside t
   const seal = auditSeal({ business: 'FollowMe (515123456)', from: '2026-09-01', to: '2026-09-30', madeAt: '04/10/2026 10:00', rows: 42, ok: true,
     lastId: 77, lastHash: 'ab'.repeat(32), lastAt: '04/10/2026 09:59' });
   assert.match(seal, /רשומות ביומן \(כל התקופות\): 42/);
-  assert.match(seal, /תקין/);
+  assert.match(seal, /לא נמצא שינוי/);
+  assert.match(seal, /לא מונע שינוי ממי ששולט ישירות במסד הנתונים/, 'the chain detects a change, it does not claim to prevent one');
+  assert.ok(!/חתומה/.test(seal), 'not described as a signature');
   assert.ok(seal.includes(`Hash של הרשומה האחרונה: ${'ab'.repeat(32)}`));
   assert.ok(seal.endsWith('\r\n') && !seal.includes('\n\n'), 'Windows line ends, as the other files');
   const bad = auditSeal({ business: 'x', from: 'a', to: 'b', madeAt: 'c', rows: 3, ok: false, firstBad: 2, lastId: 3, lastHash: 'h', lastAt: 'd' });

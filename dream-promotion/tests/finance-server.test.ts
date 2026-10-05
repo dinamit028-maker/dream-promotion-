@@ -36,7 +36,7 @@ function reset() {
     tax_authority_connections: [],
     quotes: [{ id: 'q1', business_id: B1, quote_number: 7, status: 'sent', share_token: 'c'.repeat(64), customer_name: 'דנה', user_id: OWN, lead_id: 'lead-secret', total: 118, before_discount: 100,
       discount: 0, after_discount: 100, vat_rate: 18, vat_amount: 18, valid_until: '2099-01-01', body: { lines: [{ name: 'טיפול', qty: 1, unitPrice: 118 }], pricesIncludeVat: true, discount: { kind: 'sum', value: 0 } },
-      issuer: { name: 'FollowMe', dealerNumber: '123456782', entityType: 'company' }, created_at: '2026-10-01T10:00:00Z' }],
+      issuer: { name: 'FollowMe', dealerNumber: '123456782', entityType: 'company' }, created_at: '2026-10-01T10:00:00Z', updated_at: '2026-10-01T10:00:00.123456+00:00' }],
     push_subscriptions: [],
   });
 }
@@ -76,12 +76,14 @@ test('who may use the money routes: a member with full access; never a cashier; 
   const l = await call(OWN); assert.ok(!l.ok && l.body.code === 'business_locked', 'a locked business');
 });
 
-test('the gateway: unconfigured by default, mock never on Vercel production, live never sends unverified fields', async () => {
+test('the gateway: unconfigured by default, mock never in a production build, live never sends unverified fields', async () => {
   const g = await import('../src/lib/server/tax/gateway');
   assert.equal(g.gatewayMode({}), 'unconfigured');
   assert.equal(g.gatewayMode({ TAX_GATEWAY_MODE: 'mock' }), 'mock');
   assert.equal(g.gatewayMode({ TAX_GATEWAY_MODE: 'mock', VERCEL_ENV: 'preview' }), 'mock');
   assert.equal(g.gatewayMode({ TAX_GATEWAY_MODE: 'mock', VERCEL_ENV: 'production' }), 'unconfigured', 'no test numbers on production');
+  assert.equal(g.gatewayMode({ TAX_GATEWAY_MODE: 'mock', NODE_ENV: 'production' }), 'unconfigured', 'no production build answers test numbers');
+  assert.equal(g.gatewayMode({ TAX_GATEWAY_MODE: 'mock', NODE_ENV: 'production', VERCEL_ENV: 'preview' }), 'unconfigured', 'a preview writes to the live database');
   assert.equal(g.gatewayMode({ TAX_GATEWAY_MODE: 'live' }), 'unconfigured', 'live without its settings');
   const live = { TAX_GATEWAY_MODE: 'live', ITA_API_BASE_URL: 'https://ita.example', ITA_ALLOCATION_PATH: '/x', ITA_OAUTH_AUTHORIZE_URL: 'https://ita.example/a', ITA_OAUTH_TOKEN_URL: 'https://ita.example/t',
     ITA_CLIENT_ID: 'id', ITA_CLIENT_SECRET: 'secret', APP_URL: 'https://app.example' };
@@ -175,7 +177,7 @@ test('connecting to the Tax Authority: per business, a member only, tokens seale
   assert.ok(!JSON.stringify(status2).includes('ACCESS') && !JSON.stringify(status2).includes('sealed'), 'the status never carries a token');
 });
 
-test('the customer\'s quote link: no internal ids, one answer while it is valid', async () => {
+test('the customer\'s quote link: no internal ids, one answer while it is valid, only for the version read', async () => {
   const route = await import('../src/app/api/quote/[token]/route');
   const T = 'c'.repeat(64);
   const g = await route.GET(new Request('http://x'), { params: { token: T } });
@@ -185,12 +187,22 @@ test('the customer\'s quote link: no internal ids, one answer while it is valid'
   assert.ok(!JSON.stringify(j).includes('lead-secret'));
   const post = (b: object) => route.POST(new Request('http://x', { method: 'POST', body: JSON.stringify(b) }), { params: { token: T } });
   assert.equal((await post({ decision: 'accept', name: '' })).status, 400, 'a name is required');
-  const ok = await post({ decision: 'accept', name: 'דנה כהן', note: 'מתאים' });
+  // the answer belongs to the version the customer read: no version, or the business edited the quote since → refresh first
+  const stale = await post({ decision: 'accept', name: 'דנה כהן' });
+  assert.equal(stale.status, 409); assert.equal((await stale.json()).code, 'changed');
+  tables.quotes[0].updated_at = '2026-10-02T09:00:00.000001+00:00';
+  const edited = await post({ decision: 'accept', name: 'דנה כהן', version: j.quote.version });
+  assert.equal(edited.status, 409); assert.equal((await edited.json()).code, 'changed', 'edited after the customer opened it');
+  assert.equal(tables.quotes[0].status, 'sent', 'nothing was answered');
+  const fresh = (await (await route.GET(new Request('http://x'), { params: { token: T } })).json()).quote;
+  const ok = await post({ decision: 'accept', name: 'דנה כהן', note: 'מתאים', version: fresh.version });
   assert.equal(ok.status, 200);
   assert.deepEqual([tables.quotes[0].status, tables.quotes[0].decision_by, tables.quotes[0].decision_note], ['accepted', 'דנה כהן', 'מתאים']);
-  assert.equal((await post({ decision: 'reject', name: 'מישהו' })).status, 409, 'answered once');
+  const again = await post({ decision: 'reject', name: 'מישהו', version: fresh.version });
+  assert.equal(again.status, 409, 'answered once'); assert.equal((await again.json()).code, 'decided');
   tables.quotes[0].status = 'sent'; tables.quotes[0].valid_until = '2020-01-01';
-  assert.equal((await post({ decision: 'accept', name: 'דנה' })).status, 409, 'an expired quote is not accepted');
+  const late = await post({ decision: 'accept', name: 'דנה', version: tables.quotes[0].updated_at });
+  assert.equal(late.status, 409, 'an expired quote is not accepted'); assert.equal((await late.json()).code, 'expired');
   assert.equal((await route.GET(new Request('http://x'), { params: { token: 'x'.repeat(64) } })).status, 404);
   assert.equal((await route.GET(new Request('http://x'), { params: { token: '../../etc' } })).status, 404);
 });

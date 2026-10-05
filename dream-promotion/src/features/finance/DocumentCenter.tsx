@@ -12,6 +12,7 @@ import { financeError } from './api';
 import { allowedDocTypes } from './rules';
 import type { ComposerBody } from './quotes';
 import { Note, Pill, ddmmyyyy, ils } from './ui';
+import { softwareRegistered } from '@/features/documents/DocumentsTab';
 
 /**
  * "מסמכים" — the document center: every legal document of the business (from the register too), drafts, and a new
@@ -128,7 +129,7 @@ export function DocumentCenter() {
         </div>
       )}
 
-      {!process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER && (
+      {!softwareRegistered() && (
         <p className="rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">התוכנה עוד לא רשומה ברשות המסים כתוכנה להפקת מסמכים. עד הרישום ובדיקת יועץ מס — השתמשו במסמכים לבדיקה בלבד.</p>
       )}
 

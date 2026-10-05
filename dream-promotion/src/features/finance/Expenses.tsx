@@ -136,9 +136,11 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
   }
   async function openFile() {
     if (!expense?.filePath) return;
+    // the window opens on the tap itself (a window opened after the request is blocked by phones), then gets the file's address
+    const w = window.open('', '_blank');
     const { data, error: e } = await supabase().storage.from('finance-files').createSignedUrl(expense.filePath, 120);
-    if (e || !data) { setError('הקובץ לא נפתח.'); return; }
-    window.open(data.signedUrl, '_blank', 'noopener');
+    if (e || !data) { w?.close(); setError('הקובץ לא נפתח.'); return; }
+    if (w) { w.opener = null; w.location.href = data.signedUrl; } else window.open(data.signedUrl, '_blank', 'noopener');
   }
 
   const products = catalog.filter((c) => c.kind === 'product');

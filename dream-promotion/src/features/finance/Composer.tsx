@@ -24,7 +24,8 @@ import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from 
 export type ComposerMode =
   | { kind: 'document'; docType: number; draftId?: string | null; quoteId?: string | null }
   | { kind: 'quote'; quote?: Quote | null };
-export type ComposerDone = { kind: 'issued'; doc: DocRow } | { kind: 'draft'; id: string } | { kind: 'quote'; id: string; sent: boolean };
+/** sentWindow: "save and send" opens WhatsApp's window on the tap itself (phones block a window opened after the save) */
+export type ComposerDone = { kind: 'issued'; doc: DocRow } | { kind: 'draft'; id: string } | { kind: 'quote'; id: string; sent: boolean; sentWindow?: Window | null };
 
 const EMPTY_LINE: ComposeLine = { name: '', qty: 1, unitPrice: 0 };
 
@@ -102,6 +103,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
     const t = preview.totals;
     if (!lines.some((l) => l.name.trim() && l.qty > 0) || t.total <= 0) { setErrors(['צריך לפחות שורה אחת עם סכום']); return; }
     setBusy(true); setErrors([]);
+    const w = send ? window.open('', '_blank') : null;
     const row = {
       customer_name: customer.name.trim().slice(0, 120), customer_phone: (customer.phone ?? '').trim().slice(0, 30), customer_email: (customer.email ?? '').trim().slice(0, 120),
       customer_dealer: (customer.dealer ?? '').replace(/\D/g, '').slice(0, 9), customer_street: (customer.street ?? '').slice(0, 120), customer_city: (customer.city ?? '').slice(0, 60),
@@ -111,8 +113,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
     const r = quote ? await supabase().from('quotes').update({ ...row, ...(send && quote.status !== 'sent' ? { status: 'sent' } : {}) }).eq('id', quote.id).select('id').single()
       : await supabase().from('quotes').insert({ ...row, user_id: userId, status: send ? 'sent' : 'draft' }).select('id').single();
     setBusy(false);
-    if (r.error || !r.data) { setErrors([financeError(r.error)]); return; }
-    onDone({ kind: 'quote', id: r.data.id, sent: send });
+    if (r.error || !r.data) { w?.close(); setErrors([financeError(r.error)]); return; }
+    onDone({ kind: 'quote', id: r.data.id, sent: send, sentWindow: w });
   }
 
   const title = mode.kind === 'quote' ? (quote ? `הצעת מחיר מס׳ ${quote.number}` : 'הצעת מחיר חדשה') : draftId ? `טיוטה · ${DOC_LABEL[docType]}` : 'מסמך חדש';

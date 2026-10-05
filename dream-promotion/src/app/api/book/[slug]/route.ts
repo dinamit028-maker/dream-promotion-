@@ -5,6 +5,7 @@ import { isFree, openDays } from '@/features/booking/slots';
 import { formatIL } from '@/lib/il-time';
 import { phoneDigits } from '@/features/crm/crm';
 import { UNAVAILABLE } from '@/lib/server/business';
+import { MINUTE, PUBLIC_LIMITS, rateLimited } from '@/lib/server/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -13,7 +14,9 @@ export const runtime = 'nodejs';
  * POST: book. Every booking is re-validated here (service, time inside the rules, not taken), and
  * the database's no-overlap constraint is the last word if two people book the same second.
  */
-export async function GET(_req: Request, { params }: { params: { slug: string } }) {
+export async function GET(req: Request, { params }: { params: { slug: string } }) {
+  const limited = rateLimited(req, 'book-read', PUBLIC_LIMITS.bookRead, MINUTE);
+  if (limited) return limited;
   const b = await loadBusiness(params.slug);
   if (!b) return NextResponse.json({ code: 'not_found' }, { status: 404 });
   if (b === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
@@ -25,6 +28,8 @@ export async function GET(_req: Request, { params }: { params: { slug: string } 
 }
 
 export async function POST(req: Request, { params }: { params: { slug: string } }) {
+  const limited = rateLimited(req, 'book-post', PUBLIC_LIMITS.bookPost, MINUTE);
+  if (limited) return limited;
   const b = await loadBusiness(params.slug);
   if (!b) return NextResponse.json({ code: 'not_found', message: 'דף ההזמנות לא זמין' }, { status: 404 });
   if (b === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });

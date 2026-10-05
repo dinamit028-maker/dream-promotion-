@@ -1,5 +1,6 @@
 'use client';
 import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
@@ -128,10 +129,31 @@ function FinanceProvider({ children }: { children: ReactNode }) {
       {!ctx.business.ready && section !== 'settings' && (
         <div className="mb-3"><Note tone="warn">כדי להפיק מסמכים צריך למלא את פרטי העסק (מספר עוסק, שם). <button type="button" className="font-semibold underline" onClick={() => go('settings')}>להגדרות</button></Note></div>
       )}
-      {error && <p role="alert" className="mb-3 rounded-2xl bg-warn/10 p-3 text-sm text-warn">{error}</p>}
-      {flash && <p role="status" className="mb-3 rounded-2xl bg-emerald-500/15 p-3 text-sm font-semibold text-emerald-700 dark:text-emerald-300">✓ {flash}</p>}
+      <Toasts error={error} flash={flash} onCloseError={() => setError(null)} />
       {children}
     </FinanceCtx.Provider>
+  );
+}
+
+/**
+ * The module's messages ("✓ נשמר", or what failed) float above everything — also above an open dialog, where most actions
+ * happen (before 2.52.1 they were written under the dialog, out of sight). Portalled to <body>: no ancestor can clip them.
+ */
+function Toasts({ error, flash, onCloseError }: { error: string | null; flash: string | null; onCloseError: () => void }) {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useEffect(() => { setHost(document.body); }, []);
+  if (!host || (!error && !flash)) return null;
+  return createPortal(
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[150] flex flex-col items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] print:hidden">
+      {error && (
+        <div role="alert" className="pointer-events-auto flex w-full max-w-xl items-start gap-2 rounded-2xl border border-warn/40 bg-surface p-3 text-sm font-semibold text-warn shadow-lg">
+          <span className="min-w-0 flex-1">{error}</span>
+          <button type="button" onClick={onCloseError} aria-label="סגירת ההודעה" className="-m-1 min-h-11 shrink-0 rounded-full px-3 text-muted">✕</button>
+        </div>
+      )}
+      {flash && <p role="status" className="pointer-events-auto w-full max-w-xl rounded-2xl border border-emerald-500/40 bg-surface p-3 text-sm font-semibold text-emerald-700 shadow-lg dark:text-emerald-300">✓ {flash}</p>}
+    </div>,
+    host,
   );
 }
 

@@ -19,6 +19,8 @@ export const docInsertRow = (userId: string, d: Omit<Doc, 'docNumber' | 'linkNo'
   before_discount: d.beforeDiscount, discount: d.discount, after_discount: d.afterDiscount, vat_amount: d.vatAmount, total: d.total, vat_rate: extra.vatRate,
   base_doc_type: d.baseDocType ?? null, base_doc_number: d.baseDocNumber ?? null, sale_id: extra.saleId ?? null, lead_id: extra.leadId ?? null, issued_by: d.issuedBy ?? '',
 });
+/** a real registration number of the software (8 digits from the Tax Authority) — none yet: "00000000" goes into the file only */
+export const softwareRegistered = (n = process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER) => Boolean(n && /^\d{8}$/.test(n) && n !== '00000000');
 export const SOFTWARE: SoftwareInfo = {
   regNumber: process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER || '00000000', name: 'Dream Promotion',
   version: process.env.NEXT_PUBLIC_APP_VERSION || '', vendorVat: process.env.NEXT_PUBLIC_SOFTWARE_VENDOR_VAT || '000000000', vendorName: 'Dream Promotion',
@@ -93,6 +95,9 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
         <a href="/finance/accountant" className="inline-flex min-h-9 items-center rounded-full border border-line px-3 text-sm font-semibold hover:border-primary">ממשק פתוח (מבנה אחיד) ← חבילת רואה החשבון</a>
         <a href="/finance/documents" className="ms-auto text-sm font-semibold text-primary">מרכז המסמכים בכספים ←</a>
       </div>
+      {!softwareRegistered() && (
+        <p className="mb-3 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">התוכנה עוד לא רשומה ברשות המסים כתוכנה להפקת מסמכים. עד הרישום ובדיקת יועץ מס — השתמשו במסמכים לבדיקה בלבד.</p>
+      )}
       {view === 'list' && (
         <div className="grid grid-cols-1 gap-2">
           {docs.map((d) => (
@@ -193,7 +198,7 @@ ${d.baseDocNumber ? `<p>זיכוי עבור ${esc(DOC_LABEL[d.baseDocType ?? 0] 
 <tr class="tot"><td>${d.docType === 330 ? 'סה״כ זיכוי' : d.docType === 400 || d.docType === 320 ? 'סה״כ שולם' : 'סה״כ לתשלום'}</td><td>${n2(d.total)} ₪</td></tr></table>
 ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכום</th></tr>${pays}</table>` : ''}
 ${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
-<p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${SOFTWARE.regNumber !== '00000000' ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;
+<p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${softwareRegistered(SOFTWARE.regNumber) ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;
 }
 const docHtml = (d: Doc, b: Business, mark: string) => page(`${DOC_LABEL[d.docType]} ${d.docNumber}`, docBody(d, b, mark));
 
@@ -204,7 +209,7 @@ function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string
 <p>מספר עוסק מורשה: ${esc(b.dealerNumber)}<br>שם בית העסק: ${esc(b.name)}</p><p><strong>ביצוע ממשק פתוח הסתיים בהצלחה.</strong></p>
 <p>הנתונים נשמרו בנתיב הבא: <span dir="ltr">${esc(r.dir)}</span></p><p>טווח תאריכים: מתאריך ${from.split('-').reverse().join('')} ועד תאריך ${to.split('-').reverse().join('')}</p>
 <table><tr><th>קוד רשומה</th><th>תיאור רשומה</th><th>סך רשומות</th></tr>${Object.entries(r.counts).filter(([, n]) => n > 0).map(([k, n]) => `<tr><td>${k}</td><td>${names[k] ?? ''}</td><td>${n}</td></tr>`).join('')}</table>
-<p>הנתונים הופקו באמצעות תוכנת: ${esc(SOFTWARE.name)}, מספר תעודת הרישום: ${esc(SOFTWARE.regNumber)} בתאריך ${t.date.split('-').reverse().map((x, i) => (i === 2 ? x.slice(2) : x)).join('/')} בשעה: ${t.time}.</p>`);
+<p>הנתונים הופקו באמצעות תוכנת: ${esc(SOFTWARE.name)}, מספר תעודת הרישום: ${softwareRegistered(SOFTWARE.regNumber) ? esc(SOFTWARE.regNumber) : 'טרם נרשמה'} בתאריך ${t.date.split('-').reverse().map((x, i) => (i === 2 ? x.slice(2) : x)).join('/')} בשעה: ${t.time}.</p>`);
 }
 function reportHtml(rep: ReturnType<typeof docTypeReport>, b: Business, from: string, to: string) {
   return page('דוח מסמכים לפי סוג', `<h2>${esc(b.name)} · ע.מ ${esc(b.dealerNumber)}</h2><p>דוח מסמכים לפי סוג · ${ddmmyyyy(from)} – ${ddmmyyyy(to)}</p>

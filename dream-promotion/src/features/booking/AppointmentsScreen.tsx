@@ -24,7 +24,7 @@ const hm = (iso: string) => israelParts(new Date(iso)).time;
 
 /** Appointments: the agenda, services, opening hours and the public booking page (toolbox stage 2). */
 export function AppointmentsScreen() {
-  const { userId, brand, leads, addLead, addActivity, updateLead } = useApp();
+  const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
   const [tab, setTab] = useState<'agenda' | 'services' | 'hours' | 'page'>('agenda');
   const [settings, setSettings] = useState<BookingSettings>(DEFAULT_SETTINGS);
   const [services, setServices] = useState<BookingServiceRow[]>([]);
@@ -192,7 +192,9 @@ export function AppointmentsScreen() {
           if (!userId) return 'אין חיבור';
           let leadId = leads.find((l) => customer.phone && phoneDigits(l.phone) === phoneDigits(customer.phone))?.id
             ?? leads.find((l) => !customer.phone && l.name === customer.name)?.id;
-          if (!leadId) leadId = addLead({ name: customer.name, phone: customer.phone, source: 'תור', date: todayIL, status: 'נקבע תור', value: 0 });
+          // a new customer is saved first: the appointment points to it (before 2.52.1 the first appointment of a new
+          // customer could reach the server before the customer did, and fail)
+          if (!leadId) leadId = await addLeadNow({ name: customer.name, phone: customer.phone, source: 'תור', date: todayIL, status: 'נקבע תור', value: 0 });
           try {
             const created = await BookingAPI.create(userId, { ...a, leadId, name: customer.name, phone: customer.phone, email: '', note: customer.note, status: 'booked' });
             setAppts((all) => [...all, created].sort((x, y) => x.start.localeCompare(y.start)));

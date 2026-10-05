@@ -37,7 +37,7 @@ export function Modal({ open, onClose, children, wide }: { open: boolean; onClos
     <div onClick={(e) => e.target === e.currentTarget && onClose()}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(18,14,28,.46)] p-4 backdrop-blur-sm">
       <div role="dialog" aria-modal="true"
-        className={cx('max-h-[90vh] w-full overflow-y-auto rounded-xl bg-surface p-5 shadow-lg animate-pop sm:p-8', wide ? 'max-w-4xl' : 'max-w-2xl')}>
+        className={cx('max-h-[90dvh] w-full overflow-y-auto overscroll-contain rounded-xl bg-surface p-5 shadow-lg animate-pop sm:p-8', wide ? 'max-w-4xl' : 'max-w-2xl')}>
         {children}
       </div>
     </div>,

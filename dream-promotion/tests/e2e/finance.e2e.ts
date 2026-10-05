@@ -415,7 +415,7 @@ async function main() {
       await menuTo(page, 'רואה חשבון');
       await page.getByText('מסמך הופק', { exact: false }).first().waitFor();
       await page.getByRole('button', { name: 'בדיקת שלמות היומן' }).click();
-      await page.getByText(/היומן שלם/).waitFor();
+      await page.getByText(/לא נמצא שינוי ביומן/).waitFor();
       await noSideScroll(page, 'accountant');
     });
 

@@ -7,7 +7,7 @@ import { issuerIdLine } from '@/features/finance/rules';
 interface Q {
   number: number; status: string; customerName: string; customerDealer: string; lines: { name: string; qty: number; unitPriceExVat: number; totalExVat: number }[];
   beforeDiscount: number; discount: number; afterDiscount: number; vatRate: number; vatAmount: number; total: number; validUntil: string | null; notes: string;
-  createdAt: string; decidedAt: string | null; decisionBy: string;
+  createdAt: string; decidedAt: string | null; decisionBy: string; version: string;
   issuer: { name: string; tradingName?: string; dealerNumber?: string; entityType?: string; phone?: string; email?: string; street?: string; houseNo?: string; city?: string } | null;
 }
 const money = (n: number) => `₪${n.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -29,7 +29,7 @@ export default function SharedQuotePage({ params }: { params: { token: string } 
   }, [params.token]);
   async function decide(decision: 'accept' | 'reject') {
     setBusy(true); setMsg(null);
-    const r = await fetch(`/api/quote/${params.token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, name, note }) });
+    const r = await fetch(`/api/quote/${params.token}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, name, note, version: q?.version ?? '' }) });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
     if (!r.ok) { setMsg(j.message ?? 'משהו השתבש. נסו שוב.'); return; }

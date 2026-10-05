@@ -2,12 +2,14 @@
 import { supabase, isCloudConfigured } from './supabase/client';
 import type { AdDraft, BrandProfile, ContentItem, Lead, LeadActivity, MediaAsset } from '@/types';
 import type { Pronunciation } from './pronunciation';
+import { reportSaveError, reported } from './save-status';
 
 /**
  * Every read and write against the user's own rows. Row-level security in Postgres
  * is what actually enforces ownership; this file just speaks the app's shapes.
  * Writes are fire-and-forget from the UI's point of view — the local store stays
- * responsive and the row lands a moment later.
+ * responsive and the row lands a moment later. A write the server refuses (or that never
+ * reaches it) is reported to the user (lib/save-status) — never swallowed (2.52.1).
  */
 
 const rowToContent = (r: any): ContentItem => ({
@@ -99,11 +101,11 @@ export const Repo = {
   },
 
   async saveBrand(userId: string, brand: BrandProfile, onboarded: boolean, analysis: unknown) {
-    await supabase().from('brands').upsert({
+    await reported('פרטי העסק', supabase().from('brands').upsert({
       user_id: userId, name: brand.name, industry: brand.industry, description: brand.description,
       website: brand.website, city: brand.city, audience: brand.audience, goals: brand.goals,
       tone: brand.tone, cta: brand.cta, colors: brand.colors, onboarded, analysis,
-    }, { onConflict: 'business_id' }); // one brand per business (business_id is filled by the database)
+    }, { onConflict: 'business_id' })); // one brand per business (business_id is filled by the database)
   },
 
   /** Returns an error code when a reel project could not be stored (missing migration). */
@@ -112,30 +114,31 @@ export const Repo = {
     if (error && item.reel && /reel/.test(error.message)) {
       // database not migrated yet: keep the post itself, report that the reel project was not stored
       const { reel: _skip, ...rest } = item;
-      await supabase().from('content').upsert(contentToRow(userId, rest as ContentItem));
+      await reported('התוכן', supabase().from('content').upsert(contentToRow(userId, rest as ContentItem)));
       return 'reel_column_missing';
     }
+    if (error) reportSaveError('התוכן', error);
     return error ? error.message : null;
   },
   async deleteContent(id: string) {
-    await supabase().from('content').delete().eq('id', id);
+    await reported('מחיקת התוכן', supabase().from('content').delete().eq('id', id));
   },
 
   async saveMedia(userId: string, m: MediaAsset, storagePath?: string) {
     // persistent assets were already written by the uploader / archive route —
     // upserting here would wipe their storage_path. Blob URLs die on refresh, so never store them.
     if (m.persistent || m.url.startsWith('blob:')) return;
-    await supabase().from('media').upsert({
+    await reported('קובץ המדיה', supabase().from('media').upsert({
       id: m.id, user_id: userId, url: m.url, name: m.name, kind: m.kind,
       storage_path: storagePath ?? null, source: storagePath ? 'generated' : 'upload',
-    });
+    }));
   },
   /** Removes the row and the stored file itself, so deleted media stops taking space. */
   async deleteMedia(id: string) {
     const sb = supabase();
     const { data } = await sb.from('media').select('storage_path').eq('id', id).maybeSingle();
     if (data?.storage_path) { try { await sb.storage.from('assets').remove([data.storage_path]); } catch { /* row still goes */ } }
-    await sb.from('media').delete().eq('id', id);
+    await reported('מחיקת קובץ המדיה', sb.from('media').delete().eq('id', id));
   },
 
   async saveLead(userId: string, l: Lead) {
@@ -147,34 +150,36 @@ export const Repo = {
       last_contact_at: l.lastContact ?? null, next_followup_at: l.nextFollowup ?? null };
     // the invoice details are sent only when known — an older row is never blanked by a save that lacks them
     const billing = l.billingDealer !== undefined ? { billing_name: l.billingName ?? '', billing_dealer: l.billingDealer ?? '', billing_street: l.billingStreet ?? '', billing_city: l.billingCity ?? '' } : {};
-    let { error } = await supabase().from('leads').upsert({ ...crm, ...billing });
+    let { error } = await supabase().from('leads').upsert({ ...crm, ...billing }).then((r) => r, (e) => ({ error: { message: String(e?.message ?? e) } as any }));
     // before migration 20261004003000 there are no billing columns; before 20261002000900 no CRM columns — keep the contact itself
     if (error && /billing_/i.test(error.message)) ({ error } = await supabase().from('leads').upsert(crm));
-    if (error && /column|schema cache/i.test(error.message)) await supabase().from('leads').upsert(base);
+    if (error && /column|schema cache/i.test(error.message)) ({ error } = await supabase().from('leads').upsert(base));
+    if (error) reportSaveError('איש הקשר', error);
+    return error ? error.message : null;
   },
   async deleteLead(id: string) {
-    await supabase().from('leads').delete().eq('id', id);
+    await reported('מחיקת איש הקשר', supabase().from('leads').delete().eq('id', id));
   },
   async saveActivity(userId: string, a: LeadActivity) {
-    await supabase().from('lead_activities').insert({ id: a.id, user_id: userId, lead_id: a.leadId, kind: a.kind, body: a.body, created_at: a.at });
+    await reported('הפעילות בכרטיס הלקוח', supabase().from('lead_activities').insert({ id: a.id, user_id: userId, lead_id: a.leadId, kind: a.kind, body: a.body, created_at: a.at }));
   },
   async deleteActivity(id: string) {
-    await supabase().from('lead_activities').delete().eq('id', id);
+    await reported('מחיקת הפעילות', supabase().from('lead_activities').delete().eq('id', id));
   },
 
   async saveAd(userId: string, a: AdDraft) {
-    await supabase().from('ad_drafts').upsert({
+    await reported('טיוטת הקמפיין', supabase().from('ad_drafts').upsert({
       id: a.id, user_id: userId, goal: a.goal, audience: a.audience,
       budget_per_day: a.budgetPerDay, days: a.days, headline: a.headline,
       primary_text: a.primary, description: a.description, cta: a.cta, status: a.status,
-    });
+    }));
   },
 
   async savePronunciations(userId: string, list: Pronunciation[]) {
     const sb = supabase();
-    await sb.from('pronunciations').delete().eq('user_id', userId);
+    await reported('מילון ההגייה', sb.from('pronunciations').delete().eq('user_id', userId));
     const rows = list.filter((p) => p.term.trim()).map((p) => ({ user_id: userId, term: p.term.trim(), say: p.say.trim() }));
-    if (rows.length) await sb.from('pronunciations').insert(rows);
+    if (rows.length) await reported('מילון ההגייה', sb.from('pronunciations').insert(rows));
   },
 
   async logUsage(userId: string, kind: 'clip' | 'image' | 'voice' | 'text', costUsd: number, meta?: unknown) {

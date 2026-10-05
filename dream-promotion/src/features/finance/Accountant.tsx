@@ -157,7 +157,7 @@ export function Accountant() {
           <p className="font-bold">יומן ביקורת כספי</p>
           <Button size="sm" variant="ghost" onClick={() => void check()}>בדיקת שלמות היומן</Button>
         </div>
-        {verify && <div className="mb-2"><Note tone={verify.ok ? 'ok' : 'warn'}>{verify.ok ? `היומן שלם: ${verify.rows} רשומות, כל אחת חתומה על הקודמת.` : `נמצאה רשומה שהשתנתה (מס׳ ${verify.firstBad}) — צריך לבדוק.`}</Note></div>}
+        {verify && <div className="mb-2"><Note tone={verify.ok ? 'ok' : 'warn'}>{verify.ok ? `לא נמצא שינוי ביומן: ${verify.rows} רשומות, וכל רשומה משורשרת (hash) לקודמת.` : `נמצאה רשומה שהשתנתה (מס׳ ${verify.firstBad}) — צריך לבדוק.`}</Note></div>}
         {log === null ? <Spinner /> : !log.length ? <p className="text-sm text-muted">אין רשומות עדיין.</p> : (
           <ul className="grid gap-1 text-sm">{log.map((r) => (
             <li key={r.id} className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 border-b border-line py-1.5 last:border-0">
@@ -167,7 +167,8 @@ export function Accountant() {
           ))}</ul>
         )}
         {log && log.length % 50 === 0 && log.length > 0 && <Button size="sm" variant="ghost" className="mt-2" onClick={() => void loadLog(true)}>עוד</Button>}
-        <p className="mt-2 text-xs text-muted">היומן נכתב על ידי מסד הנתונים בלבד, אי אפשר לשנות או למחוק בו שורה, וכל שורה חתומה (hash) על הקודמת.</p>
+        <p className="mt-2 text-xs text-muted">היומן נכתב על ידי מסד הנתונים בלבד, ומהאפליקציה אי אפשר לשנות או למחוק בו שורה. כל שורה משורשרת (hash) לקודמת, ולכן בדיקת השלמות מגלה שורה שהשתנתה.
+          זו הגנה שמגלה שינוי — היא לא מונעת שינוי ממי ששולט ישירות במסד הנתונים. לכן חבילת רואה החשבון כוללת חותמת של היומן, ששומרים מחוץ למערכת.</p>
       </Card>
     </div>
   );

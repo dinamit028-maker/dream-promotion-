@@ -130,7 +130,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
           </div>
         </div>
       )}
-      <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (קבלה / חשבונית עסקה, נרשם עם סיבה).</p>
+      <p className="mt-2 text-xs text-muted">המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (קבלה / חשבונית עסקה, נרשם עם סיבה).</p>
 
       {dialog === 'receipt' && recv && <ReceiptDialog doc={doc} balance={recv.balance} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
       {dialog === 'credit' && <CreditDialog doc={doc} credited={credited} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה חשבונית מס זיכוי מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}

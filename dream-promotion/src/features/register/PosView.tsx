@@ -33,7 +33,8 @@ export interface CheckoutInput {
   /** the sale's id, chosen once per payment: a retry after a lost answer finds the sale instead of saving a second one */
   saleId?: string;
 }
-export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; error?: string; lowStock?: string[] }
+/** payUrl: the WhatsApp payment request, opened by a tap on the result screen (a window opened after the save is blocked by phones) */
+export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; payUrl?: string; error?: string; lowStock?: string[] }
 
 const CATS = [
   { id: 'fav', label: '❤️ מועדפים' }, { id: 'top', label: '🔥 הכי נמכרים' }, { id: 'service', label: '✨ טיפולים' },
@@ -384,7 +385,7 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
         {done && (
           <div className="text-center">
             <p className="text-5xl text-emerald-500">✓</p>
-            <h3 className="mt-2 font-display text-2xl font-extrabold">{done.sale?.status === 'pending' ? 'נשלחה בקשת תשלום' : 'העסקה נשמרה'}</h3>
+            <h3 className="mt-2 font-display text-2xl font-extrabold">{done.sale?.status === 'pending' ? 'העסקה נשמרה — ממתינה לתשלום' : 'העסקה נשמרה'}</h3>
             <p className="mt-2">{done.customer}</p>
             <p className="text-3xl font-black tabular-nums">{ils(done.sale?.total ?? 0)}</p>
             <p className="text-sm text-ink-2">{done.sale?.method === 'split' ? done.sale.payments?.map((p) => `${methodLabel(p.method)} ${ils(p.amount)}`).join(' · ') : methodLabel(done.sale?.method ?? 'other')}</p>
@@ -392,6 +393,9 @@ export function PosView({ userId, items, sales, leads, employees, todayAppts, va
               <p className="mt-3 rounded-2xl bg-amber-500/15 p-3 text-2xl font-black text-amber-700 dark:text-amber-300">עודף: {ils(done.change)}</p>
             )}
             {done.docLabel && <p className="mt-2 text-sm font-semibold">{done.docLabel}</p>}
+            {done.payUrl && (
+              <Button variant="primary" className="mt-3 w-full" onClick={() => { window.open(done.payUrl, '_blank', 'noopener'); }}>💬 שליחת בקשת התשלום בוואטסאפ</Button>
+            )}
             {done.lowStock && done.lowStock.length > 0 && (
               <p className="mt-2 rounded-2xl bg-amber-500/15 p-2 text-sm font-semibold text-amber-800 dark:text-amber-200">⚠️ מלאי נמוך: {done.lowStock.join(' · ')}</p>
             )}

@@ -164,7 +164,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (useApp.persist?.hasHydrated?.() ?? true) setHydrated(true);
     return useApp.persist?.onFinishHydration?.(() => setHydrated(true));
   }, []);
-  useEffect(() => { if (hydrated && !checking && !onboarded && !cashier) router.replace('/onboarding'); }, [hydrated, checking, onboarded, cashier, router]);
+  // signed in, but no business yet (a new account before the system admin opens one, or a member who was removed): nothing
+  // can be saved without a business, so the app says so instead of opening screens whose saves would fail
+  const noBusiness = Boolean(biz && !biz.current && !biz.superAdmin);
+  useEffect(() => { if (hydrated && !checking && !onboarded && !cashier && !noBusiness) router.replace('/onboarding'); }, [hydrated, checking, onboarded, cashier, noBusiness, router]);
 
   const sideItem = ({ href, label, Icon }: NavItem) => {
     const on = path === href;
@@ -208,6 +211,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center gap-3 text-muted">
         <span className="spinner" aria-hidden />טוען את החשבון…
+      </div>
+    );
+  }
+
+  if (noBusiness && biz) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <div role="alert" className="w-full max-w-md rounded-xl border border-line bg-surface p-6 text-center shadow-sm">
+          <h1 className="font-display text-xl font-bold">החשבון עוד לא משויך לעסק</h1>
+          <p className="mt-2 text-muted">
+            {me ? `נכנסת בהצלחה כ-${me}, ` : 'נכנסת בהצלחה, '}אבל עדיין אין עסק שהחשבון הזה חבר בו — ולכן אי אפשר עדיין לשמור לקוחות, תורים, מכירות או מסמכים.
+            {biz.list.length ? ' בחרו את העסק שעובדים בו:' : ' כדי להתחיל, פנו למנהל המערכת: הוא פותח את העסק ומצרף אליו את החשבון.'}
+          </p>
+          {biz.list.length > 0 && (
+            <div className="mt-4 grid gap-2">
+              {biz.list.map((b) => <Button key={b.id} variant="primary" disabled={switching} onClick={() => void switchBusiness(b.id)}>{b.name}</Button>)}
+            </div>
+          )}
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <Button onClick={() => window.location.reload()}>בדיקה שוב</Button>
+            <Button variant="ghost" onClick={() => void signOut()}>יציאה מהחשבון</Button>
+          </div>
+        </div>
       </div>
     );
   }
