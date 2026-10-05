@@ -162,7 +162,7 @@ export function fieldError(f: FieldDef, v: unknown): string | null {
   if (f.kind === 'link') {
     const s = String(v ?? '').trim();
     if (!s || s === 'whatsapp' || s === '#contact') return null;
-    if (/^\/(?!\/)[^\s<>"'\\]*$/.test(s) || /^https:\/\/[^\s<>"'\\]+$/.test(s)) return null;
+    if (s.length <= 300 && (/^\/(?!\/)[^\s<>"'\\]*$/.test(s) || /^https:\/\/[^\s<>"'\\]+$/.test(s))) return null;
     return `"${f.label}": כתובת באתר שמתחילה ב-/, קישור https, או whatsapp.`;
   }
   if (f.kind === 'image') { const s = String(v ?? '').trim(); return !s || /^https:\/\/[^\s<>"'\\]+$/.test(s) ? null : `"${f.label}": תמונה צריכה להיות קישור https.`; }
@@ -181,6 +181,6 @@ export function draftErrors(d: Draft): string[] {
   }
   const ann = fieldError({ key: 'href', label: 'קישור ההודעה העליונה', kind: 'link' }, d.announcement.href);
   if (ann) out.push(ann);
-  if (contrast(d.colors.text, d.colors.background) < 4.5) out.push('הטקסט והרקע קרובים מדי בצבע — קשה לקרוא. האתר יחזיר את הצבעים של התבנית.');
+  if (contrast(d.colors.text, d.colors.background) < 4.5) out.push('הטקסט והרקע קרובים מדי בצבע — קשה לקרוא. בחרו זוג צבעים עם יותר ניגוד.');
   return out;
 }

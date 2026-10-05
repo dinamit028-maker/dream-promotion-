@@ -249,7 +249,9 @@ function Domains({ domains, onChange, reload }: { domains: DomainRow[]; onChange
                       {records(d).some((r) => !r.fromVercel) && <p className="mt-1 text-xs text-muted" dir="rtl">אלה ערכי ברירת המחדל של Vercel. הערכים המדויקים לפרויקט שלכם מופיעים ב-Vercel, בהגדרות הדומיין.</p>}
                     </div>
                   )}
-                  {typeof (d.vercel as any).message === 'string' && (d.vercel as any).message && <p className="mt-1 text-xs text-red-700">Vercel: {(d.vercel as any).message}</p>}
+                  {typeof (d.vercel as any).message === 'string' && (d.vercel as any).message && (
+                    <p className={cx('mt-1 text-xs', d.status === 'error' ? 'text-red-700' : 'text-muted')}>Vercel: <bdi>{(d.vercel as any).message}</bdi></p>
+                  )}
                   {d.isPrimary && (
                     <button type="button" className="mt-2 text-xs font-semibold text-red-700 underline underline-offset-2" onClick={async () => {
                       if (!window.confirm(`להסיר את ${d.domain}? האתר יפסיק לעבוד בכתובת הזו.`)) return;

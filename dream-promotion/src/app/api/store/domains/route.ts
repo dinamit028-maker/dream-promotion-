@@ -81,8 +81,11 @@ export async function POST(req: Request) {
           const config = (await domainConfig(env, r.domain)).body;
           const bare = !r.domain.startsWith('www.') && normalizeDomain(r.domain).ok && (normalizeDomain(r.domain) as { bare: boolean }).bare;
           const records = r.is_primary ? recordsFor(r.domain, bare, v.body, config) : [wwwRecord(config)];
+          // not verified yet (the DNS is not set, or not updated yet) is waiting, not a problem; a problem is a domain that
+          // Vercel does not have in the project (404) or will not give it (403)
+          const broken = v.status === 403 || v.status === 404;
           await db.from('store_domains').update({
-            status: v.ok || v.status === 409 ? 'verifying' : r.status === 'pending' ? 'pending' : 'error', last_checked_at: new Date().toISOString(),
+            status: broken ? 'error' : 'verifying', last_checked_at: new Date().toISOString(),
             vercel: { ...(r.vercel ?? {}), verified: v.body?.verified ?? null, misconfigured: config?.misconfigured ?? null, records,
               code: v.ok ? null : v.code ?? null, message: v.ok ? null : v.message ?? null },
           }).eq('id', r.id);

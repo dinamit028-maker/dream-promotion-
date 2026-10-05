@@ -80,7 +80,7 @@ function Editor({ storeId, template, versions, collections, reload }: {
             </label>
           ))}
         </div>
-        {contrast(d.colors.text, d.colors.background) < 4.5 && <Notice tone="warn">הטקסט והרקע קרובים מדי — קשה לקרוא. האתר יציג את הצבעים של התבנית עד שתבחרו זוג קריא יותר.</Notice>}
+        {contrast(d.colors.text, d.colors.background) < 4.5 && <Notice tone="warn">הטקסט והרקע קרובים מדי — קשה לקרוא. כך אי אפשר לשמור: בחרו זוג צבעים עם יותר ניגוד.</Notice>}
         <label className="mt-3 block max-w-xs">
           <span className="mb-2 block text-sm font-semibold text-ink-2">פינות</span>
           <Select value={d.radius} onChange={(e) => change({ ...d, radius: e.target.value as Draft['radius'] })}>
