@@ -41,7 +41,8 @@ export interface Expense {
   id: string; number: number; status: 'draft' | 'confirmed' | 'void'; supplierName: string; supplierDealer: string; supplierDocType: string; supplierDocNumber: string;
   allocationNumber: string; docDate: string; category: string; description: string; amountBeforeVat: number; vatAmount: number; total: number; vatDeductiblePct: number;
   paidOn: string | null; paymentMethod: string | null; filePath: string; fileMime: string; aiModel: string; aiExtracted: unknown; confirmedAt: string | null;
-  stockLines: { itemId: string; qty: number }[]; voidReason: string; voidedAt: string | null; createdAt: string;
+  /** products bought (2.54: a size / colour too — its stock moves) */
+  stockLines: { itemId: string; qty: number; variantId?: string }[]; voidReason: string; voidedAt: string | null; createdAt: string;
 }
 export const toExpense = (r: any): Expense => ({
   id: r.id, number: Number(r.expense_number), status: r.status, supplierName: r.supplier_name ?? '', supplierDealer: r.supplier_dealer ?? '',

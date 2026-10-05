@@ -15,6 +15,8 @@ import { FINANCE_MIGRATION, accessState, financeError, type AccessState } from '
 import { Note, type CatalogPick } from './ui';
 import { financeHref, financeLabel, sectionOfPath, type FinanceSection } from './routes';
 import { financeActions } from './module';
+import { catalogPicks, type CatalogItem } from '@/features/catalog/catalog';
+import { loadCatalog } from '@/features/catalog/data';
 
 /**
  * "כספים" — Dream Finance. One accounting engine for the register, the document center, the CRM, quotes and expenses.
@@ -39,6 +41,8 @@ export interface Settings {
 interface Ctx {
   userId: string; settings: Settings; profile: Profile; business: Business & { entityType: string; ready: boolean }; vat: boolean;
   access: AccessState; catalog: CatalogPick[]; reload: () => Promise<void>; say: (m: string) => void; fail: (m: string | null) => void;
+  /** the products themselves (2.54): "באתר" and the editor next to a line; ready = migration 3300 ran */
+  products: CatalogItem[]; productsReady: boolean; reloadCatalog: () => Promise<void>;
   /** to another screen of the module (a real address: the back button returns) */
   go: (tab: FinanceTab, params?: Record<string, string>) => void;
   /** the query of the address (?new=305&lead=…); clearParams() once a screen used it, so a refresh does not repeat it */
@@ -69,7 +73,7 @@ function FinanceProvider({ children }: { children: ReactNode }) {
   const section = sectionOfPath(pathname) ?? 'overview';
   const { userId, brand } = useApp();
   const cashier = useApp((s) => s.access === 'register');
-  const [state, setState] = useState<{ access: AccessState; settings: Settings; profile: Profile; catalog: CatalogPick[] } | null>(null);
+  const [state, setState] = useState<{ access: AccessState; settings: Settings; profile: Profile; catalog: CatalogPick[]; products: CatalogItem[]; productsReady: boolean } | null>(null);
   const [blocked, setBlocked] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -87,15 +91,21 @@ function FinanceProvider({ children }: { children: ReactNode }) {
     const a = await accessState();
     if (!a.ok) { setBlocked(a.error); return; }
     const sb = supabase();
-    const [st, fp, it] = await Promise.all([
+    const [st, fp, cat] = await Promise.all([
       sb.from('register_settings').select('*').maybeSingle(),
       a.state.open ? sb.from('business_finance_profile').select('*').maybeSingle() : Promise.resolve({ data: null, error: null }),
-      sb.from('catalog_items').select('id, name, price, kind').eq('active', true).order('sort'),
+      loadCatalog(),
     ]);
     setBlocked(null);
+    // the price list (2.54: an item with sizes / colours is picked per variant); a catalog that did not load leaves the lines free
+    const c = cat.ok ? cat.data : { items: [], variants: [], ready: true };
     setState({ access: a.state, settings: toSettings(st.data), profile: toProfile(fp.data),
-      catalog: ((it.data ?? []) as any[]).map((c) => ({ id: c.id, name: c.name, price: Number(c.price), kind: c.kind })) });
+      catalog: catalogPicks(c.items, c.variants), products: c.items, productsReady: c.ready });
   }, [userId]);
+  const reloadCatalog = useCallback(async () => {
+    const cat = await loadCatalog();
+    if (cat.ok) setState((s) => (s ? { ...s, catalog: catalogPicks(cat.data.items, cat.data.variants), products: cat.data.items, productsReady: cat.data.ready } : s));
+  }, []);
   useEffect(() => { void load(); }, [load]);
   // the module's "+": only the documents this business may issue
   useModuleActions(state ? financeActions(state.settings.entity) : null);
@@ -105,10 +115,11 @@ function FinanceProvider({ children }: { children: ReactNode }) {
     const s = state.settings;
     return {
       userId, settings: s, profile: state.profile, access: state.access, catalog: state.catalog, vat: chargesVat(s.entity), reload: load, say, fail: setError, go, params, clearParams,
+      products: state.products, productsReady: state.productsReady, reloadCatalog,
       business: { dealerNumber: s.dealerNumber, companyNumber: s.companyNumber, name: s.legalName || brand.name, street: s.street, houseNo: s.houseNo, city: s.city, zip: s.zip,
         entityType: s.entity, ready: /^[0-9]{9}$/.test(s.dealerNumber) && Boolean(s.legalName || brand.name) },
     };
-  }, [state, userId, brand.name, load, say, go, params, clearParams]);
+  }, [state, userId, brand.name, load, say, go, params, clearParams, reloadCatalog]);
 
   const heading = financeLabel(section);
   if (!isCloudConfigured || !userId) return (<><PageHead title={heading} /><EmptyState icon={<Wallet />} title="הכספים דורשים חשבון מחובר" body="התחברו לחשבון כדי לנהל מסמכים, הכנסות והוצאות." /></>);

@@ -351,3 +351,17 @@ export function copyBrief(d: Pick<ItemDraft, 'name' | 'kind' | 'tags' | 'descrip
   };
 }
 export type CopyBrief = ReturnType<typeof copyBrief>;
+
+/**
+ * What a document line / an expense can pick from the catalog: an item without variants as it is; an item with active
+ * variants as one pick per variant ("חולצה · M / שחור", its own price) — so the stock that moves is that variant's.
+ */
+export interface CatalogPickRow { id: string; name: string; price: number; kind: string; variantId?: string }
+export function catalogPicks(items: CatalogItem[], variants: CatalogVariant[]): CatalogPickRow[] {
+  return items.filter((i) => i.active).flatMap((i) => {
+    const vs = variantsOf(variants, i.id).filter((v) => v.active);
+    return i.hasVariants && vs.length
+      ? vs.map((v) => ({ id: i.id, variantId: v.id, name: lineName(i.name, v), price: posPrice(i, v), kind: i.kind }))
+      : [{ id: i.id, name: i.name, price: i.price, kind: i.kind }];
+  });
+}

@@ -69,3 +69,16 @@ export function PublishSwitch({ item, ready = true, onChanged, onComplete, onErr
 
 /** the honest line under every list with the switch: what "באתר" means while the site is not up */
 export const SITE_NOT_LIVE = 'החנות באתר עוד לא עלתה. מוצר שמסומן "באתר" יופיע בה כשתעלה. זה אותו מוצר של הקופה והכספים — שינוי במחיר, בתמונה או במלאי מופיע מיד בכל המקומות.';
+
+/** next to a product wherever it appears (a document line, an expense): "באתר" and its editor */
+export function ProductControls({ product, ready, onChanged, onEdit, onError }: {
+  product: CatalogItem; ready: boolean; onChanged: (item: CatalogItem) => void; onEdit: (focus?: EditorFocus) => void; onError: (message: string) => void;
+}) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2 text-xs text-muted">
+      <span className="truncate">🛍️ {product.name}</span>
+      <PublishSwitch item={product} ready={ready} onChanged={onChanged} onComplete={onEdit} onError={onError} />
+      <button type="button" className="min-h-9 font-semibold text-primary" onClick={() => onEdit()} aria-label={`עריכת המוצר: ${product.name}`}>עריכת המוצר</button>
+    </span>
+  );
+}

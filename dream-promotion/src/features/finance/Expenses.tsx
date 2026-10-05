@@ -11,6 +11,8 @@ import { EXPENSE_CATEGORIES, SUPPLIER_DOC_TYPES, carriesVat, categoryLabel, expe
 import { expensesCsv } from './reports';
 import { PAY_METHODS } from './payments';
 import { Note, PeriodPicker, Pill, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
+import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
+import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
 
 /**
  * "הוצאות": supplier documents with their file (PDF / photo / the phone's camera) in a private bucket, by period.
@@ -72,12 +74,14 @@ export function Expenses() {
 }
 
 function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null; onClose: () => void; onSaved: () => void }) {
-  const { userId, settings, vat, catalog, say, access } = useFinance();
+  const { userId, settings, vat, catalog, say, access, products: allProducts, productsReady, reloadCatalog } = useFinance();
+  // the one product editor (2.54): a product bought for the first time is created here, "באתר" next to a chosen one
+  const [editProduct, setEditProduct] = useState<{ id: string | null; line: number | null; focus?: EditorFocus } | null>(null);
   const today = todayIL();
   const [f, setF] = useState<ExpenseForm>(() => (expense ? { ...expense, paymentMethod: expense.paymentMethod } as ExpenseForm : EMPTY(today)));
   const [file, setFile] = useState<File | null>(null);
   const [scan, setScan] = useState<{ busy: boolean; warnings: string[]; model: string; raw: unknown | null; error: string | null }>({ busy: false, warnings: [], model: '', raw: null, error: null });
-  const [stock, setStock] = useState<{ itemId: string; qty: number }[]>(expense?.stockLines ?? []);
+  const [stock, setStock] = useState<{ itemId: string; qty: number; variantId?: string }[]>(expense?.stockLines ?? []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [voiding, setVoiding] = useState('');
@@ -118,7 +122,8 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
       const up = await supabase().storage.from('finance-files').upload(path, file, { contentType: file.type, upsert: false });
       if (up.error) { setBusy(false); setError(`הקובץ לא עלה: ${financeError(up.error)}`); return; }
     }
-    const cols = { ...expenseColumns(f), file_path: path, file_mime: mime, stock_lines: stock.filter((s) => s.itemId && s.qty > 0) };
+    const cols = { ...expenseColumns(f), file_path: path, file_mime: mime,
+      stock_lines: stock.filter((s) => s.itemId && s.qty > 0).map((s) => ({ itemId: s.itemId, qty: s.qty, ...(s.variantId ? { variantId: s.variantId } : {}) })) };
     const r = expense
       ? await supabase().from('expenses').update({ ...cols, ...(expense.status === 'draft' && !asDraft ? { status: 'confirmed' } : {}) }).eq('id', expense.id).select('*').single()
       : await supabase().from('expenses').insert({ ...cols, user_id: userId, status: asDraft ? 'draft' : 'confirmed', ...(scan.raw ? { ai_extracted: scan.raw, ai_model: scan.model.slice(0, 80) } : {}) }).select('*').single();
@@ -146,6 +151,19 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
   }
 
   const products = catalog.filter((c) => c.kind === 'product');
+  const productEditor = (
+    <ProductEditorDialog open={Boolean(editProduct)} itemId={editProduct?.id ?? null} focus={editProduct?.focus} initial={{ kind: 'product' }}
+      onClose={() => setEditProduct(null)}
+      onSaved={(item) => {
+        // a product created here goes into the stock lines at once (a new line, or the empty one)
+        if (editProduct && !editProduct.id) {
+          setStock((all) => { const k = all.findIndex((x) => !x.itemId); return k >= 0 ? all.map((x, j) => (j === k ? { ...x, itemId: item.id, variantId: undefined } : x)) : [...all, { itemId: item.id, qty: 1 }]; });
+          setEditProduct({ ...editProduct, id: item.id });
+        }
+        void reloadCatalog();
+      }}
+      onDeleted={() => { setEditProduct(null); void reloadCatalog(); }} />
+  );
   return (
     <Modal open onClose={onClose} wide>
       <div className="mb-3 flex items-start justify-between gap-2">
@@ -206,13 +224,25 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
           <p className="font-bold">סחורה שנכנסה למלאי (לא חובה)</p>
           {stock.map((s, i) => (
             <div key={i} className="grid grid-cols-[minmax(0,1fr)_5rem_2rem] gap-1.5">
-              <select value={s.itemId} onChange={(e) => setStock(stock.map((x, k) => (k === i ? { ...x, itemId: e.target.value } : x)))} className="h-10 rounded-md border-[1.5px] border-line bg-surface px-2" aria-label={`מוצר ${i + 1}`} disabled={expense?.status === 'confirmed'}>
-                <option value="">בחירת מוצר</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+              {/* a product — or one size / colour of it (2.54): "<item>|<variant>" */}
+              <select value={s.itemId ? `${s.itemId}|${s.variantId ?? ''}` : ''} className="h-10 rounded-md border-[1.5px] border-line bg-surface px-2" aria-label={`מוצר ${i + 1}`} disabled={expense?.status === 'confirmed'}
+                onChange={(e) => { const [itemId = '', variantId = ''] = e.target.value.split('|'); setStock(stock.map((x, k) => (k === i ? { ...x, itemId, variantId: variantId || undefined } : x))); }}>
+                <option value="">בחירת מוצר</option>{products.map((p) => <option key={`${p.id}|${p.variantId ?? ''}`} value={`${p.id}|${p.variantId ?? ''}`}>{p.name}</option>)}</select>
               <Input type="number" min={1} value={s.qty || ''} onChange={(e) => setStock(stock.map((x, k) => (k === i ? { ...x, qty: Math.max(0, Math.floor(Number(e.target.value))) } : x)))} className="px-2 py-2 text-center" aria-label={`כמות ${i + 1}`} disabled={expense?.status === 'confirmed'} />
               {expense?.status !== 'confirmed' && <button type="button" onClick={() => setStock(stock.filter((_, k) => k !== i))} aria-label="הסרה">✕</button>}
+              {(() => { const p = s.itemId ? allProducts.find((x) => x.id === s.itemId) : null; return p ? (
+                <div className="col-span-3 -mt-0.5">
+                  <ProductControls product={p} ready={productsReady} onChanged={() => void reloadCatalog()} onEdit={(focus) => setEditProduct({ id: p.id, line: i, focus })} onError={setError} />
+                </div>
+              ) : null; })()}
             </div>
           ))}
-          {expense?.status !== 'confirmed' && <button type="button" className="justify-self-start font-semibold text-primary" onClick={() => setStock([...stock, { itemId: '', qty: 1 }])}>+ מוצר</button>}
+          {expense?.status !== 'confirmed' && (
+            <span className="flex flex-wrap gap-3">
+              <button type="button" className="justify-self-start font-semibold text-primary" onClick={() => setStock([...stock, { itemId: '', qty: 1 }])}>+ מוצר</button>
+              <button type="button" className="justify-self-start font-semibold text-primary" onClick={() => setEditProduct({ id: null, line: null })}>+ מוצר חדש במחירון</button>
+            </span>
+          )}
           <p className="text-xs text-muted">באישור ההוצאה הכמויות נכנסות למלאי (קבלת סחורה) — פעם אחת, ביומן המלאי של הקופה.</p>
         </div>
       )}
@@ -228,6 +258,7 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
           <Button size="sm" variant="ghost" disabled={voiding.trim().length < 2} onClick={() => window.confirm('לבטל את ההוצאה? היא תישאר ברשימה כמבוטלת, הכסף והמלאי שלה יחזרו.') && void voidIt()}>ביטול ההוצאה</Button>
         </div>
       )}
+      {productEditor}
     </Modal>
   );
 }

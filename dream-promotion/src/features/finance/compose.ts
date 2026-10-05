@@ -15,7 +15,7 @@ import { chequeError, toDocPayment, type PaymentEntry } from './payments';
  * docFromSale (documents.ts), which follows the same rules.
  */
 export type NewDoc = Omit<Doc, 'docNumber' | 'linkNo' | 'issuedAt'> & { dueDate?: string | null; notes?: string; customerEmail?: string };
-export interface ComposeLine { name: string; qty: number; unitPrice: number; itemId?: string }
+export interface ComposeLine { name: string; qty: number; unitPrice: number; itemId?: string; variantId?: string }
 export interface ComposeCustomer { name: string; phone?: string; email?: string; dealer?: string; street?: string; city?: string }
 export interface Discount { kind: 'sum' | 'percent'; value: number }
 export interface ComposeInput {
@@ -58,7 +58,7 @@ export function computeLines(lines: ComposeLine[], o: { pricesIncludeVat: boolea
   }
   const docLines: DocLine[] = clean.map((l, i) => ({
     name: l.name.trim().slice(0, 120), qty: l.qty, unitPriceExVat: sh(Math.round(netLines[i] / l.qty)), discountExVat: 0,
-    totalExVat: sh(netLines[i]), vatRate: rate, kind: 1, ...(l.itemId ? { itemId: l.itemId } : {}),
+    totalExVat: sh(netLines[i]), vatRate: rate, kind: 1, ...(l.itemId ? { itemId: l.itemId, ...(l.variantId ? { variantId: l.variantId } : {}) } : {}),
   }));
   return {
     lines: docLines,
@@ -207,7 +207,7 @@ export function composeCredit(base: Doc, mode: CreditMode, creditedSoFar: number
   netLines[big] += afterA - netLines.reduce((a, x) => a + x, 0);
   const lines: DocLine[] = parts.map((p, k) => ({
     name: p.l.name, qty: p.q, unitPriceExVat: sh(Math.round(netLines[k] / p.q)), discountExVat: 0, totalExVat: sh(netLines[k]), vatRate: rate, kind: 1,
-    ...(p.l.itemId ? { itemId: p.l.itemId, ...(mode.restock ? { restock: true } : {}) } : {}),
+    ...(p.l.itemId ? { itemId: p.l.itemId, ...(p.l.variantId ? { variantId: p.l.variantId } : {}), ...(mode.restock ? { restock: true } : {}) } : {}),
   }));
   return done(lines, afterA, vatA);
 }

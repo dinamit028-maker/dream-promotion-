@@ -28,8 +28,9 @@ function clean(x: any): HeldSale | null {
   const KINDS = ['service', 'product', 'package', 'other'];
   const lines = x.lines.filter((l: any) => l && typeof l.name === 'string').map((l: any): Line => ({
     name: l.name, price: num(l.price), qty: Math.max(0, Math.floor(num(l.qty))),
-    // the price-list link (stock, commissions) survives the hold
-    ...(str(l.itemId) ? { itemId: str(l.itemId) } : {}), ...(KINDS.includes(l.kind) ? { kind: l.kind } : {}),
+    // the price-list link (stock, commissions) and the size / colour (2.54) survive the hold
+    ...(str(l.itemId) ? { itemId: str(l.itemId) } : {}), ...(str(l.itemId) && str(l.variantId) ? { variantId: str(l.variantId) } : {}),
+    ...(KINDS.includes(l.kind) ? { kind: l.kind } : {}),
   })).filter((l: Line) => l.qty > 0);
   if (!lines.length || !str(x.id)) return null;
   const c = x.customer ?? {};
