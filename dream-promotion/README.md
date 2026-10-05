@@ -86,6 +86,7 @@ npm run build
 
 כל אובייקט במסד נוצר מקבצים ב-`supabase/migrations/`, לפי הסדר (כולם בטוחים להרצה חוזרת ולא מוחקים נתונים):
 Supabase → SQL Editor → להריץ כל קובץ, מהישן לחדש. פירוט ב-`supabase/migrations/README.md`.
+במסד החי של הפרויקט כל המיגרציות כבר הורצו. ראו "מצב מיגרציות" ב-`STATUS.md`.
 
 אחר כך, פעם אחת: `supabase/cron-stories.sql` עם הערך של `CRON_SECRET` (לא נשמר בריפו).
 

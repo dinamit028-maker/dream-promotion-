@@ -1,5 +1,7 @@
 # Database migrations
 
+**Status (2026-10-05): every migration in this folder has run on the live database** — 1600 to 3100 appear in Supabase's migration list; 100 to 1500 were run by hand in the SQL Editor earlier (their tables exist). See "מצב מיגרציות" in STATUS.md.
+
 Every database object the app uses is created by these files, in order. All of them are
 idempotent (safe on the existing production project, nothing is deleted).
 
@@ -38,7 +40,7 @@ once per project and never committed with the real value.
 | `20261004002300_business_rls.sql` | Multi-business stage 4: `is_super_admin()`, `business_is_active()`, `can_access_business()`, `accessible_business_ids()`; a restrictive gate + member policy on the 23 business tables; quotas guarded |
 | `20261004002400_scheduled_cancel_reason.sql` | Multi-business stage 5: `scheduled_posts.cancel_reason` ("העסק נעול") |
 | `20261004002500_current_business.sql` | Multi-business stage 7: `current_business_id()`; the gates show only the business being worked in; no overlapping appointments per business |
-| `20261004002600_business_keys.sql` | Multi-business stage 7: one-per-business primary keys, document numbering per business (run by hand in the SQL Editor) |
+| `20261004002600_business_keys.sql` | Multi-business stage 7: one-per-business primary keys, document numbering per business (applied live) |
 | `20261004002700_meta_leads.sql` | Meta Lead Ads → CRM: `social_accounts.leads_enabled`, `leads.external_source/external_id` (unique per business), `meta_lead_sync` (RLS via `can_access_business`) |
 | `20261004002800_social_inbox.sql` | Comments and messages → CRM: `social_messages` (every comment / message, in and out, per business), `meta_inbox_sync`, `social_accounts.inbox_enabled` (applied live) |
 | `20261004002900_social_messages_post_image.sql` | `social_messages.post_image` — a stored copy of the post's picture (applied live as `20261004182752`) |
