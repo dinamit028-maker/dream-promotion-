@@ -14,7 +14,9 @@ Next.js 14 (App Router) · TypeScript · Tailwind · Zustand · Supabase · Verc
 
 - `npm test` — בדיקות הלוגיקה והשרת (tsx, בלי רשת).
 - `npm run test:sql` — כל המיגרציות על Postgres 16 מקומי, וניסיונות עקיפה כמשתמשים מחוברים: RLS, קופאי/ת, מנהל-על, עסק מול עסק, ועומס מקבילי.
-- `npm run test:e2e` — Chromium אמיתי מול Supabase מדומה, הקופה ו"כספים": טלפון (375 / 390 / 430), טאבלט (768) ומחשב (1440).
+- `npm run test:e2e` — Chromium אמיתי מול Supabase מדומה: הקופה, "כספים" ו"חנות" — טלפון (375 / 390 / 430), טאבלט (768) ומחשב (1440).
+- **החזית** (`../storefront/`) — אפליקציה נפרדת עם בדיקות משלה: `npm test`, `npm run test:e2e` (Chromium מול Postgres אמיתי). פירוט: `storefront/README.md`.
+- `tests/store-theme.test.ts` מריץ גם את הקוד של החזית, ולכן צריך `npm ci` גם ב-`storefront/`.
 - לפני כל PR: `npm run typecheck`, `npm test`, `npm run build`.
 - מצב מלא ומה נבדק: `STATUS.md`. דרישות רשות המסים: `COMPLIANCE_CHECKLIST.md` ו-`docs/ISRAEL_COMPLIANCE_MATRIX.md`.
 - **התוכנה לא רשומה ברשות המסים ולא אושרה על ידה.** המסמכים מיועדים לבדיקה עד הרישום ובדיקת יועץ מס.
@@ -59,6 +61,8 @@ Next.js 14 (App Router) · TypeScript · Tailwind · Zustand · Supabase · Verc
 | Cron | `CRON_SECRET` + `supabase/cron-stories.sql` + `supabase/cron-publish.sql` | סטוריז נמשכים רק כשמסך המדיה פתוח; פרסום מתוזמן לא רץ |
 | רשות המסים (לא חובה) | `APP_URL`, `ITA_OAUTH_AUTHORIZE_URL`, `ITA_OAUTH_TOKEN_URL`, `ITA_CLIENT_ID`, `ITA_CLIENT_SECRET`, `ITA_OAUTH_SCOPE`, `ITA_ENVIRONMENT`; לשליחה: `TAX_GATEWAY_MODE=live`, `ITA_API_BASE_URL`, `ITA_ALLOCATION_PATH`, `ITA_SPEC_VERIFIED=1` (רק אחרי שמממשים את `mapRequest` / `mapResponse` לפי המפרט הרשמי) | אין בקשת מספר הקצאה אוטומטית — מזינים ידנית מספר שהתקבל מהרשות |
 | קריאת הוצאות עם AI | `ANTHROPIC_API_KEY` (+ `AI_SCAN_MODEL`, לא חובה) | ממלאים הוצאה ידנית |
+| החנות — תצוגה מקדימה (2.55) | `STOREFRONT_URL` (הכתובת של פרויקט החזית ב-Vercel), `STOREFRONT_PREVIEW_SECRET` (אותו ערך כמו בחזית) | "תצוגה מקדימה" מסבירה מה חסר |
+| החנות — דומיין ב-Vercel (לא חובה, 2.55) | `VERCEL_API_TOKEN`, `VERCEL_STOREFRONT_PROJECT`, `VERCEL_TEAM_ID` (רק לצוות). **לא אומת מול Vercel** | המסך מציג את הצעדים להוספת הדומיין ב-Vercel ביד |
 
 ## 🚧 עוד לא / מוגבל
 
@@ -87,7 +91,7 @@ npm run build
 
 כל אובייקט במסד נוצר מקבצים ב-`supabase/migrations/`, לפי הסדר (כולם בטוחים להרצה חוזרת ולא מוחקים נתונים):
 Supabase → SQL Editor → להריץ כל קובץ, מהישן לחדש. פירוט ב-`supabase/migrations/README.md`.
-במסד החי של הפרויקט כל המיגרציות כבר הורצו. ראו "מצב מיגרציות" ב-`STATUS.md`.
+במסד החי של הפרויקט הורצו כל המיגרציות עד 3300. **3400 (החנות, 2.55) ממתינה לאישור.** ראו "מצב מיגרציות" ב-`STATUS.md`.
 
 אחר כך, פעם אחת: `supabase/cron-stories.sql` עם הערך של `CRON_SECRET` (לא נשמר בריפו).
 
@@ -147,6 +151,10 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
   - מודול "חנות": `/store/products`, `/store/products/[id]` (`src/features/store/`).
   - תמונות: `/api/store/media` (קישורי העלאה חתומים ל-bucket `store-media`).
   - מיגרציה `20261005003300_commerce_catalog.sql` — נבדקה מקומית **והוחלה על המסד החי ב-5.10.2026**, אחרי אישור (`20261005205543`). פירוט: `STATUS.md` סעיף 4כ ו"מצב מיגרציות".
+- **2.55.0 — Dream Commerce, שלב 2: החזית לצפייה.**
+  - **החזית:** אפליקציה נפרדת, `storefront/` (Next 16). החנות נקבעת לפי הדומיין, והאתר קורא למסד רק דרך פונקציות `sf_*`. התבנית הראשונה: "שקיות ממותגות". אין קנייה. הקמה ב-Vercel, משתני סביבה ודומיין: `storefront/README.md`.
+  - **בדשבורד, מודול "חנות":** הגדרות ודומיין, עיצוב (טיוטה, פרסום, גרסאות, תצוגה מקדימה), קולקציות, עמודים ומדיניות, ותפריטים (`src/features/store/`). השרת: `/api/store/domains`, `/api/store/preview-token`.
+  - **מיגרציה `20261005003400_commerce_store.sql`:** נבדקה מקומית. **לא הורצה על המסד החי — ממתינה לאישור.** פירוט: `STATUS.md` סעיף 4כא.
 
 ## הריל הסופי — איך זה עובד
 
@@ -161,7 +169,7 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
 ```
 src/
   app/(app)/          המסכים מאחורי ה-shell: dashboard create reels content calendar media strategy ads leads
-                      appointments register finance/* attendance analytics integrations settings admin
+                      appointments register finance/* store/* attendance analytics integrations settings admin
                       error.tsx (שגיאה בעברית במקום מסך לבן)
   app/                d/[token] (מסמך ללקוח) · q/[token] (הצעת מחיר) · book/[slug] (תורים) · c/ · clock/ (נוכחות)
                       error.tsx · global-error.tsx · not-found.tsx
@@ -176,4 +184,5 @@ src/
   lib/services/       לקוחות ה-API בדפדפן + prompts
   middleware.ts       קישורים ישנים של הכספים (/finance?tab=…) → הכתובת של המסך
 supabase/migrations/  מקור האמת של מסד הנתונים
+../storefront/        החזית של החנויות: אפליקציה נפרדת (Next 16), לא מייבאת מכאן כלום — storefront/README.md
 ```

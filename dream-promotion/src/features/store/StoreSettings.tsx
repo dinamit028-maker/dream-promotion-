@@ -187,7 +187,8 @@ export function PreviewButton({ label = 'תצוגה מקדימה' }: { label?: s
         const w = window.open('', '_blank');
         const r = await previewLink();
         if (!r.ok) { w?.close(); setError(r.error); return; }
-        if (w) w.location.href = r.data.url; else window.location.href = r.data.url;
+        // the store's page gets no handle back to the dashboard
+        if (w) { w.opener = null; w.location.href = r.data.url; } else window.location.href = r.data.url;
       }}>{label}</Button>
       {error && <p role="alert" className="max-w-xs text-xs text-red-700">{error}</p>}
     </div>

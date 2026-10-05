@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase/client';
+import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
@@ -75,6 +75,7 @@ export const SITE_LIVE = 'החנות באוויר: מוצר שמסומן "באת
 export function useSiteLive(): boolean {
   const [live, setLive] = useState(false);
   useEffect(() => {
+    if (!isCloudConfigured) return;
     let on = true;
     void Promise.resolve(supabase().from('stores').select('status').maybeSingle())
       .then(({ data }) => { if (on) setLive((data as { status?: string } | null)?.status === 'published'); }, () => undefined);
