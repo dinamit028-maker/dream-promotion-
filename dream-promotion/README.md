@@ -140,7 +140,7 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
   - `src/features/finance/module.ts` — התפריט, הסרגל וה-"+" של הכספים.
   - `src/features/finance/routes.ts` — הכתובות. קישורים ישנים (`/finance?tab=…`) מועברים ב-`src/middleware.ts`.
 - **סקירת אבטחה:** `docs/finance-security-review.md`.
-- **2.52.1 — מוכנות לפיילוט:** תיקוני אבטחה וכפילויות בקוד; מיגרציה `20261005003200_pilot_hardening.sql` נבדקה מקומית וממתינה לאישור (פירוט: `STATUS.md` סעיף 4יח).
+- **2.52.1 — מוכנות לפיילוט:** תיקוני אבטחה וכפילויות בקוד; מיגרציה `20261005003200_pilot_hardening.sql` נבדקה מקומית והוחלה על המסד החי ב-5.10.2026, אחרי אישור (פירוט: `STATUS.md` סעיף 4יח).
 
 ## הריל הסופי — איך זה עובד
 
