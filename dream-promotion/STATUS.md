@@ -1390,7 +1390,20 @@
 
 - **תוקן בעקבות Lighthouse:** בקשה ל-`favicon.ico` שלא קיים (שגיאה בקונסול, Best practices 96). עכשיו אייקון הלשונית הוא הלוגו של החנות, ובלי לוגו אין בקשה בכלל.
 
-**תוצאות ההרצה (2.55.0):** ההרצה המלאה של כל הבדיקות בתהליך — הטבלה תתעדכן בסופה.
+**תוצאות ההרצה (2.55.0):**
+
+| אפליקציה | פקודה | תוצאה | Exit |
+|---|---|---|---|
+| דשבורד | `npm run typecheck` | עבר | 0 |
+| דשבורד | `npm test` | 203 עברו, 0 נכשלו (20 חדשות: `store-settings` 9, `store-theme` 7, `store-routes` 4; `store-module` עודכן) | 0 |
+| דשבורד | `npm run test:sql` | 34 מיגרציות; commerce-store (חדש), commerce-catalog, finance, pilot-hardening, register-pro; עומס מקבילי — הכול ok. ובנפרד: 3400 הוחלה פעם שנייה בלי שגיאה, על מסד ריק ועל מסד עם נתונים (72 מדיניות, בלי כפילות) | 0 |
+| דשבורד | `npm run test:e2e` | הקופה 10/10, כספים 23/23, החנות 19/19 (8 חדשות של שלב 2) — Chromium | 0 |
+| דשבורד | `npm run build` | עבר (Next 14.2.35). נתיבים חדשים: `/store/collections`, `/store/design`, `/store/pages`, `/store/navigation`, `/store/settings`, `/api/store/domains`, `/api/store/preview-token` | 0 |
+| חזית | `npm run typecheck` | עבר | 0 |
+| חזית | `npm test` | 14 עברו, 0 נכשלו | 0 |
+| חזית | `npm run test:e2e` | 16/16 — Chromium מול Postgres 16 עם כל המיגרציות | 0 |
+| חזית | `npm run build` | עבר (Next 16.3.8) | 0 |
+| חזית | Lighthouse (טלפון, מקומי) | ביצועים 94–96, נגישות 100, Best practices 100, SEO 100 | — |
 
 **הבא:**
 - אישור להריץ את 3400, הקמת פרויקט החזית ב-Vercel, ובדיקה בטלפון (`TESTING.md` סעיף 21).
