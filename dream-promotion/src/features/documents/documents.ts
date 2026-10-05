@@ -1,5 +1,6 @@
 import { paymentsOf, type Line, type Method, type Sale } from '@/features/register/money';
 import type { Doc, DocLine } from './openformat';
+import { netOfGross } from '@/features/finance/vat';
 
 /**
  * From a paid sale to a legal document. Prices in the register are VAT-inclusive; documents show the
@@ -15,21 +16,42 @@ export const PAY_LABEL: Record<number, string> = { 1: 'מזומן', 2: 'המחא
 const ag = (n: number) => Math.round(n * 100);
 const sh = (a: number) => a / 100;
 
+/**
+ * Who issued a document, as it was on the day (documents.issuer, taken by the database at issue time — 2.51).
+ * Documents issued before 2.51 have none: they are shown with the business's details of today, as before.
+ */
+export interface Issuer {
+  name: string; tradingName?: string; entityType?: string; dealerNumber: string; companyNumber?: string; street?: string; houseNo?: string; city?: string; zip?: string;
+  phone?: string; email?: string; bankName?: string; bankBranch?: string; bankAccount?: string; note?: string; vatRate?: number;
+}
 /** a document row of the database → the document (server and screen alike) */
-export interface DocRow extends Doc { id: string; printCount: number; saleId: string | null; shareToken?: string }
+export interface DocRow extends Doc {
+  id: string; printCount: number; saleId: string | null; shareToken?: string;
+  /** 2.51 */
+  leadId?: string | null; dueDate?: string | null; notes?: string; customerEmail?: string; issuer?: Issuer | null; source?: string | null;
+  paidDocumentId?: string | null; quoteId?: string | null; refundId?: string | null;
+}
+/** the issuer to print: the document's own snapshot, else (before 2.51) the business as it is today */
+export function issuerFor(d: { issuer?: Issuer | null }, fallback: { name: string; dealerNumber: string; companyNumber?: string; street?: string; houseNo?: string; city?: string; zip?: string; entityType?: string }): Issuer {
+  if (d.issuer && d.issuer.dealerNumber) return d.issuer;
+  return { name: fallback.name, dealerNumber: fallback.dealerNumber, companyNumber: fallback.companyNumber, street: fallback.street, houseNo: fallback.houseNo,
+    city: fallback.city, zip: fallback.zip, entityType: fallback.entityType };
+}
 export const toDoc = (r: any): DocRow => ({
   id: r.id, docType: r.doc_type, docNumber: Number(r.doc_number), linkNo: Number(r.link_no), issuedAt: r.issued_at, docDate: r.doc_date,
   customerName: r.customer_name, customerPhone: r.customer_phone, customerDealer: r.customer_dealer, customerStreet: r.customer_street, customerCity: r.customer_city,
   beforeDiscount: Number(r.before_discount), discount: Number(r.discount), afterDiscount: Number(r.after_discount), vatAmount: Number(r.vat_amount), total: Number(r.total),
   baseDocType: r.base_doc_type, baseDocNumber: r.base_doc_number == null ? null : Number(r.base_doc_number), issuedBy: r.issued_by,
   lines: r.lines ?? [], payments: r.payments ?? [], printCount: r.print_count ?? 0, saleId: r.sale_id, shareToken: r.share_token,
+  leadId: r.lead_id ?? null, dueDate: r.due_date ?? null, notes: r.notes ?? '', customerEmail: r.customer_email ?? '', issuer: r.issuer ?? null, source: r.source ?? null,
+  paidDocumentId: r.paid_document_id ?? null, quoteId: r.quote_id ?? null, refundId: r.refund_id ?? null,
 });
 
 export function docFromSale(sale: Pick<Sale, 'items' | 'discount' | 'total' | 'vatAmount' | 'vatRate' | 'method' | 'customerName' | 'customerPhone' | 'payments'>
   & Partial<Pick<Sale, 'billingName' | 'customerDealer' | 'customerStreet' | 'customerCity'>> & { paidAt?: string | null },
   o: { licensed: boolean; docDate: string; issuedBy?: string }): Omit<Doc, 'docNumber' | 'linkNo' | 'issuedAt'> {
   const rate = o.licensed ? sale.vatRate : 0;
-  const exVat = (grossA: number) => (rate ? Math.round((grossA * 100) / (100 + rate)) : grossA);
+  const exVat = (grossA: number) => netOfGross(grossA, rate);   // the VAT engine (finance/vat.ts)
   const lines: DocLine[] = sale.items.filter((l: Line) => l.qty > 0).map((l) => {
     const unitA = exVat(ag(l.price));
     const totA = exVat(ag(l.price) * l.qty);
@@ -38,7 +60,9 @@ export function docFromSale(sale: Pick<Sale, 'items' | 'discount' | 'total' | 'v
   const totalA = ag(sale.total), vatA = rate ? ag(sale.vatAmount) : 0;
   const afterA = totalA - vatA;
   let beforeA = lines.reduce((a, l) => a + ag(l.totalExVat), 0);
-  if (!sale.discount && lines.length && beforeA !== afterA) { // rounding: the last line absorbs the agora
+  // rounding: the last line absorbs the agora — also when a tiny discount left the lines below the amount after it
+  // (before 2.51 that case gave "before discount" < "after discount"; the database now refuses such a document)
+  if (lines.length && beforeA !== afterA && (!sale.discount || beforeA < afterA)) {
     const last = lines[lines.length - 1]; last.totalExVat = sh(ag(last.totalExVat) + (afterA - beforeA)); beforeA = afterA;
   }
   return {
@@ -46,7 +70,7 @@ export function docFromSale(sale: Pick<Sale, 'items' | 'discount' | 'total' | 'v
     // an invoice to a business carries its dealer / company number and address (fields 1206–1209 of the unified file)
     customerDealer: sale.customerDealer ?? '', customerStreet: sale.customerStreet ?? '', customerCity: sale.customerCity ?? '',
     beforeDiscount: sh(beforeA), discount: sh(Math.max(0, beforeA - afterA)), afterDiscount: sh(afterA), vatAmount: sh(vatA), total: sh(totalA),
-    issuedBy: o.issuedBy ?? '', lines, payments: paymentsOf(sale).map((p) => ({ method: PAY_CODE[p.method], amount: p.amount, date: o.docDate })), // a split sale = one D120 line per payment
+    issuedBy: o.issuedBy ?? '', lines, payments: paymentsOf(sale).map((p) => ({ method: PAY_CODE[p.method], amount: p.amount, date: o.docDate, m: p.method })), // a split sale = one D120 line per payment; m keeps Bit / link for the ledger
   };
 }
 
@@ -67,7 +91,7 @@ export function creditForRefund(orig: Doc, refund: { amount: number; vatAmount: 
   if (ag(refund.amount) === ag(orig.total)) return creditFor(orig, docDate);
   const rate = orig.lines[0]?.vatRate ?? 0;
   const afterA = ag(refund.amount) - ag(refund.vatAmount);
-  const exVat = (grossA: number) => (rate ? Math.round((grossA * 100) / (100 + rate)) : grossA);
+  const exVat = (grossA: number) => netOfGross(grossA, rate);
   const factor = ag(sale.subtotal) ? ag(sale.total) / ag(sale.subtotal) : 1;
   const lines: DocLine[] = refund.items.length
     ? refund.items.map((l) => {

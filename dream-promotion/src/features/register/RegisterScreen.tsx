@@ -21,6 +21,7 @@ import { METHODS, computeSale, ils, methodLabel, payRequestText, saleDay, salesC
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
 import { MOVE_HE, applyStock, lowStockList, planAdjust, stockLevel, stockText } from './stock';
 import { billingColumns } from './billing';
+import { issueDocumentRow } from '@/features/finance/api';
 
 /** Toolbox stage 3: sell, record payments, refunds, reports, close of day, commissions, documents, price list & stock. */
 type Item = PosItem & { sort: number };
@@ -146,12 +147,10 @@ export function RegisterScreen() {
   async function issueDocumentFull(s: Sale, leadId: string | null): Promise<{ label: string; token: string } | null> {
     if (!business.ready || !userId) return null;
     const d = docFromSale(s, { licensed, docDate: israelParts(Date.now()).date });
-    const row = docInsertRow(userId, d, { saleId: s.id, leadId, vatRate: d.lines[0]?.vatRate ?? 0 });
-    let { data, error: e } = await supabase().from('documents').insert(row).select('doc_type, doc_number, share_token').single();
-    // before migration 20261003001600 there is no share link — the document is still issued (the failed request inserted nothing)
-    if (e && /share_token/.test(e.message)) ({ data, error: e } = await supabase().from('documents').insert(row).select('doc_type, doc_number').single() as any);
-    if (e || !data) { setError('המכירה נשמרה, אבל המסמך לא הופק. אפשר לנסות שוב מ"מסמכים".'); return null; }
-    return { label: `הופקה ${DOC_LABEL[data.doc_type]} מס׳ ${data.doc_number}`, token: (data as any).share_token ?? '' };
+    // one document per sale, whatever happens (a double tap, a retry after a lost answer): the key "sale:<id>" (2.51)
+    const out = await issueDocumentRow({ ...docInsertRow(userId, d, { saleId: s.id, leadId, vatRate: d.lines[0]?.vatRate ?? 0 }), idempotency_key: `sale:${s.id}`, source: 'pos' });
+    if (!out.ok) { setError(`המכירה נשמרה, אבל המסמך לא הופק (${out.error}) אפשר להפיק אותו ב"כספים ← הכנסות".`); return null; }
+    return { label: `הופקה ${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}`, token: out.doc.shareToken ?? '' };
   }
   /** every paid sale gets its legal document (numbered by the database, never editable) */
   async function issueDocument(s: Sale, leadId: string | null): Promise<string> {
@@ -225,14 +224,20 @@ export function RegisterScreen() {
     setItems((all) => applyStock(all, s.items, -1)); // the database put the units back
     if (s.leadId) addActivity(s.leadId, 'note', `בוטלה ${paid ? 'מכירה' : 'בקשת תשלום'}: ${ils(s.total)}`);
     let note = '';
-    if (paid && licensed && userId) {
+    if (paid && userId) {
       const { data } = await supabase().from('documents').select('*').eq('sale_id', s.id).order('issued_at');
       const docs = (data ?? []).map(toDoc);
       const orig = docs.find((d) => d.docType === 320 || d.docType === 305);
-      if (orig && !docs.some((d) => d.docType === 330)) {
+      if (licensed && orig && !docs.some((d) => d.docType === 330)) {
         const c = creditFor(orig, israelParts(Date.now()).date);
-        const ins = await supabase().from('documents').insert(docInsertRow(userId, c, { saleId: s.id, leadId: s.leadId, vatRate: c.lines[0]?.vatRate ?? 0 })).select('doc_number').single();
-        note = ins.error ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.data.doc_number}`;
+        const ins = await issueDocumentRow({ ...docInsertRow(userId, c, { saleId: s.id, leadId: s.leadId, vatRate: c.lines[0]?.vatRate ?? 0 }), idempotency_key: `cancel:${s.id}` });
+        note = !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.doc.docNumber}`;
+      }
+      // an exempt dealer's receipt of a sale entered by mistake is cancelled (the receipt stays, marked "בוטל" — 2.51)
+      const receipt = docs.find((d) => d.docType === 400);
+      if (!licensed && receipt) {
+        const { error: ce } = await supabase().from('document_cancellations').insert({ document_id: receipt.id, user_id: userId, reason: 'המכירה בוטלה בקופה (נרשמה בטעות)' });
+        note = ce ? (/schema cache|does not exist|PGRST20/.test(ce.message) ? '' : ' · הקבלה לא בוטלה — אפשר לבטל אותה ב"כספים ← מסמכים"') : ` · קבלה מס׳ ${receipt.docNumber} סומנה כמבוטלת`;
       }
     }
     say(`הרישום בוטל${note}`); setOpenSale(null);
@@ -260,9 +265,8 @@ export function RegisterScreen() {
         message += ' · החשבונית כבר זוכתה — לא הופקה חשבונית זיכוי נוספת';
       } else if (orig) {
         const c = creditForRefund(orig, r, sale, israelParts(Date.now()).date);
-        const row = { ...docInsertRow(userId, c, { saleId: sale.id, leadId: sale.leadId, vatRate: c.lines[0]?.vatRate ?? 0 }), refund_id: r.id };
-        const ins = await supabase().from('documents').insert(row).select('doc_number').single();
-        message += ins.error ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.data.doc_number}`;
+        const ins = await issueDocumentRow({ ...docInsertRow(userId, c, { saleId: sale.id, leadId: sale.leadId, vatRate: c.lines[0]?.vatRate ?? 0 }), refund_id: r.id, idempotency_key: `refund:${r.id}` });
+        message += !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.doc.docNumber}`;
       }
     }
     if (sale.leadId) {
@@ -357,6 +361,7 @@ export function RegisterScreen() {
               dealer_number: settings.dealerNumber, company_number: settings.companyNumber, legal_name: settings.legalName, street: settings.street, house_no: settings.houseNo, city: settings.city, zip: settings.zip }, { onConflict: 'business_id' });
             if (e) setError(errText(e)); else { setError(null); say('ההגדרות נשמרו'); }
           }}>שמירה</Button>
+          <p className="mt-3 text-sm"><a href="/finance?tab=settings" className="font-semibold text-primary">הגדרות כספים מלאות (סוג עסק, בנק, רו״ח, רשות המסים) ←</a></p>
           <SignatureStatus />
           <PushSettings userId={userId} />
           <p className="mt-4 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">

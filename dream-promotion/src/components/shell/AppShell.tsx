@@ -15,7 +15,7 @@ import { VersionTag } from '@/components/system/VersionTag';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
-  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister,
+  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet,
 } from '@/components/ui/Icon';
 
 type NavItem = { href: string; label: string; Icon: ComponentType<any> };
@@ -32,6 +32,7 @@ export const NAV: NavItem[] = [
   { href: '/leads', label: 'לקוחות', Icon: UsersThree },
   { href: '/appointments', label: 'תורים', Icon: CalendarCheck },
   { href: '/register', label: 'קופה', Icon: CashRegister },
+  { href: '/finance', label: 'כספים', Icon: Wallet },
   { href: '/attendance', label: 'נוכחות', Icon: IdentificationBadge },
   { href: '/analytics', label: 'ביצועים', Icon: ChartLineUp },
 ];
@@ -72,6 +73,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // the cloud is the source of truth: every app open loads fresh data once (leads imported by the timer,
   // fixes made on the server) — the device cache only bridges the first paint
   const loadedOnce = useRef(false);
+  // the first load of the account, while it is on its way (a re-run of the effect waits for it — see below)
+  const hydrating = useRef<Promise<void> | null>(null);
 
   // with accounts configured, nothing renders until we know who this is
   useEffect(() => {
@@ -94,7 +97,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       // a different user or a different business → load that business's data (never mix two businesses)
       if (!loadedOnce.current || u.id !== userId || (current && current !== businessId)) {
         loadedOnce.current = true;
-        await hydrate(u.id, current);
+        hydrating.current = hydrate(u.id, current);
+        await hydrating.current;
+      } else if (hydrating.current) {
+        // hydrate() itself sets userId / businessId, which re-runs this effect while the first load is still on its way:
+        // wait for it, or the screens would decide (e.g. "not onboarded" → the wizard) on an account not loaded yet
+        await hydrating.current;
       }
       setChecking(false);
     });

@@ -50,9 +50,63 @@ function filtersOf(url: URL): ((r: Row) => boolean)[] {
 
 export class FakeSupabase {
   counters = new Map<number, number>();
+  numbers = new Map<string, number>();     // quotes / expenses (finance_counters)
   linkNo = 0;
+  auditId = 0;
   calls: { method: string; path: string; body?: any }[] = [];
+  /** the money screens' view of the caller (finance_access_state): a member by default */
+  finance = { superAdmin: false, member: true, grantUntil: null as string | null, lockedUntil: null as string | null };
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string }) {}
+  private today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
+  private log(action: string, entityId: string, details: Row) {
+    this.t('finance_audit_log').push({ id: ++this.auditId, business_id: this.opts.businessId, actor_id: this.opts.userId, actor_kind: this.finance.member ? 'member' : 'super_admin',
+      action, entity: '', entity_id: entityId, details, at: now(), prev_hash: '', hash: `h${this.auditId}` });
+  }
+  private vatBusiness() { const s = this.t('register_settings')[0]; return !(s?.entity_type === 'exempt_dealer' || s?.entity_type === 'nonprofit' || s?.business_type === 'exempt'); }
+  /** the database view `receivables`: invoices (305 / 300) less credit invoices and payments */
+  receivables(): Row[] {
+    const docs = this.t('documents'), pays = this.t('payments'), canc = new Set(this.t('document_cancellations').map((c) => c.document_id));
+    return docs.filter((d) => d.doc_type === 305 || d.doc_type === 300).map((d) => {
+      const credited = docs.filter((c) => c.doc_type === 330 && c.base_doc_type === d.doc_type && c.base_doc_number === d.doc_number).reduce((a, c) => a + Number(c.total), 0);
+      const paid = pays.filter((p) => p.applies_to === d.id).reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * Number(p.amount), 0);
+      return { id: d.id, business_id: d.business_id, doc_type: d.doc_type, doc_number: d.doc_number, doc_date: d.doc_date, due_date: d.due_date ?? null, customer_name: d.customer_name,
+        customer_phone: d.customer_phone ?? '', customer_email: d.customer_email ?? '', lead_id: d.lead_id ?? null, total: Number(d.total), share_token: d.share_token,
+        credited: Math.round(credited * 100) / 100, paid: Math.round(paid * 100) / 100, balance: Math.round((Number(d.total) - credited - paid) * 100) / 100, cancelled: canc.has(d.id) };
+    });
+  }
+  /** finance_summary(): the same rules as the database function, on the fake's rows */
+  summary(from: string, to: string) {
+    const vat = this.vatBusiness();
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const canc = new Set(this.t('document_cancellations').map((c) => c.document_id));
+    const docs = this.t('documents').filter((d) => d.doc_date >= from && d.doc_date <= to);
+    const rev = (list: Row[]) => list.reduce((a, d) => a + (vat ? (d.doc_type === 305 || d.doc_type === 320 ? Number(d.after_discount) : d.doc_type === 330 ? -Number(d.after_discount) : 0)
+      : d.doc_type === 400 && !canc.has(d.id) ? Number(d.total) : 0), 0);
+    const outVat = docs.reduce((a, d) => a + (vat ? (d.doc_type === 305 || d.doc_type === 320 ? Number(d.vat_amount) : d.doc_type === 330 ? -Number(d.vat_amount) : 0) : 0), 0);
+    const exp = this.t('expenses').filter((e) => e.status === 'confirmed' && e.doc_date >= from && e.doc_date <= to);
+    const ded = (e: Row) => (vat ? Math.round(Number(e.vat_amount) * Number(e.vat_deductible_pct ?? 100)) / 100 : 0);
+    const eNet = exp.reduce((a, e) => a + Number(e.amount_before_vat), 0), eVat = exp.reduce((a, e) => a + Number(e.vat_amount), 0), eDed = exp.reduce((a, e) => a + ded(e), 0);
+    const pays = this.t('payments').filter((p) => p.paid_on >= from && p.paid_on <= to);
+    const cin = pays.filter((p) => p.direction === 'in').reduce((a, p) => a + Number(p.amount), 0), cout = pays.filter((p) => p.direction === 'out').reduce((a, p) => a + Number(p.amount), 0);
+    const methods = [...new Set(pays.map((p) => p.method))].map((m) => ({ method: m, in: pays.filter((p) => p.method === m && p.direction === 'in').reduce((a, p) => a + Number(p.amount), 0),
+      out: pays.filter((p) => p.method === m && p.direction === 'out').reduce((a, p) => a + Number(p.amount), 0) }));
+    const recv = this.receivables().filter((x) => !x.cancelled && x.balance > 0), today = this.today();
+    const types: Row = {};
+    for (const d of docs) { const k = String(d.doc_type); types[k] ??= { count: 0, total: 0, cancelled: 0 }; types[k].count++; types[k].total = r2(types[k].total + Number(d.total)); if (canc.has(d.id)) types[k].cancelled++; }
+    const cats = [...new Set(exp.map((e) => e.category))].map((c) => { const l = exp.filter((e) => e.category === c); return { category: c, net: r2(l.reduce((a, e) => a + Number(e.amount_before_vat), 0)), vat: r2(l.reduce((a, e) => a + Number(e.vat_amount), 0)), total: r2(l.reduce((a, e) => a + Number(e.total), 0)), count: l.length }; });
+    const month = to.slice(0, 7);
+    return {
+      from, to, entity: vat ? 'licensed_dealer' : 'exempt_dealer', vat,
+      revenue: { net: r2(rev(docs)), vat: r2(outVat), gross: r2(rev(docs) + outVat) }, documents: types,
+      expenses: { net: r2(eNet), vat: r2(eVat), vatDeductible: r2(eDed), total: r2(eNet + eVat), count: exp.length, byCategory: cats },
+      vatPayable: vat ? r2(outVat - eDed) : 0, profit: r2(rev(docs) - (eNet + eVat - eDed)),
+      cash: { in: r2(cin), out: r2(cout), net: r2(cin - cout), byMethod: methods },
+      receivables: { open: r2(recv.reduce((a, x) => a + x.balance, 0)), count: recv.length, overdue: r2(recv.filter((x) => x.due_date && x.due_date < today).reduce((a, x) => a + x.balance, 0)),
+        overdueCount: recv.filter((x) => x.due_date && x.due_date < today).length },
+      pending: { count: this.t('sales').filter((x) => x.status === 'pending').length, total: 0 }, posWithoutDocument: { count: 0, total: 0 }, allocationMissing: 0,
+      months: [{ month, revenue: r2(rev(docs)), expenses: r2(eNet + eVat - eDed) }], lockedUntil: this.finance.lockedUntil,
+    };
+  }
 
   private t(name: string) { return (this.tables[name] ||= []); }
   private stock(itemId: string, delta: number, reason: string, ref: { sale?: string; refund?: string; note?: string } = {}) {
@@ -74,9 +128,30 @@ export class FakeSupabase {
     r.created_at ??= now();
     if (!['businesses', 'business_members', 'profiles'].includes(table)) r.business_id ??= this.opts.businessId;
     if (table === 'documents') {
+      if (r.idempotency_key && this.t('documents').some((d) => d.idempotency_key === r.idempotency_key)) return 'duplicate key value violates unique constraint "documents_idempotency_uq"';
+      if (r.doc_type === 330) {
+        const base = this.t('documents').find((d) => d.doc_type === r.base_doc_type && d.doc_number === r.base_doc_number);
+        if (!base) return 'the credited invoice was not found in this business';
+        const done = this.t('documents').filter((d) => d.doc_type === 330 && d.base_doc_type === r.base_doc_type && d.base_doc_number === r.base_doc_number).reduce((a, d) => a + Number(d.total), 0);
+        if (Math.round((done + Number(r.total)) * 100) > Math.round(Number(base.total) * 100)) return `credit_exceeds_original: ${Number(base.total) - done} left`;
+      }
+      const st = this.t('register_settings')[0] ?? {};
       const n = (this.counters.get(r.doc_type) ?? 0) + 1; this.counters.set(r.doc_type, n);
-      Object.assign(r, { doc_number: n, issued_at: now(), print_count: 0, link_no: ++this.linkNo, share_token: randomBytes(32).toString('hex') });
+      Object.assign(r, { doc_number: n, issued_at: now(), print_count: 0, link_no: ++this.linkNo, share_token: randomBytes(32).toString('hex'),
+        issuer: { name: st.legal_name ?? '', dealerNumber: st.dealer_number ?? '', entityType: st.entity_type ?? (st.business_type === 'exempt' ? 'exempt_dealer' : 'licensed_dealer'), vatRate: st.vat_rate },
+        source: r.source ?? (r.refund_id ? 'refund' : r.sale_id ? 'pos' : r.paid_document_id ? 'receipt' : r.quote_id ? 'quote' : r.doc_type === 330 ? 'credit' : 'direct'),
+        due_date: r.doc_type === 305 || r.doc_type === 300 ? r.due_date ?? null : null, notes: r.notes ?? '' });
     }
+    if (table === 'quotes') {
+      const n = (this.numbers.get('quote') ?? 0) + 1; this.numbers.set('quote', n);
+      Object.assign(r, { quote_number: n, share_token: randomBytes(32).toString('hex'), sent_at: r.status === 'sent' ? now() : null, decided_at: null, decision_by: '', converted_document_id: null, updated_at: now() });
+    }
+    if (table === 'expenses') {
+      const n = (this.numbers.get('expense') ?? 0) + 1; this.numbers.set('expense', n);
+      Object.assign(r, { expense_number: n, status: r.status ?? 'confirmed', confirmed_at: (r.status ?? 'confirmed') === 'confirmed' ? now() : null, stock_lines: r.stock_lines ?? [], updated_at: now() });
+    }
+    if (table === 'document_drafts') Object.assign(r, { status: 'open', document_id: null, updated_at: now() });
+    if (table === 'document_cancellations' && this.t('document_cancellations').some((c) => c.document_id === r.document_id)) return 'duplicate key value violates unique constraint "document_cancellations_pkey"';
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
     if (table === 'sale_refunds') {
       const s = this.t('sales').find((x) => x.id === r.sale_id);
@@ -90,10 +165,37 @@ export class FakeSupabase {
     return null;
   }
   private afterInsert(table: string, r: Row) {
+    if (table === 'documents') {
+      if (r.doc_type === 320 || r.doc_type === 400) for (const p of r.payments ?? []) {
+        this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'in', amount: Number(p.amount), method: p.m ?? ({ 1: 'cash', 2: 'cheque', 3: 'card', 4: 'transfer' } as Row)[p.method] ?? 'other',
+          paid_on: p.date ?? r.doc_date, source: 'document', document_id: r.id, applies_to: r.paid_document_id ?? null, sale_id: r.sale_id ?? null, lead_id: r.lead_id ?? null, reference: p.cheque ?? {}, note: '', created_at: now() });
+      }
+      if (r.draft_id) { const d = this.t('document_drafts').find((x) => x.id === r.draft_id); if (d) Object.assign(d, { status: 'finalized', document_id: r.id }); }
+      if (r.quote_id) { const q = this.t('quotes').find((x) => x.id === r.quote_id); if (q) Object.assign(q, { status: 'converted', converted_document_id: r.id }); }
+      this.log('document.issued', r.id, { type: r.doc_type, number: r.doc_number, total: r.total });
+    }
+    if (table === 'document_cancellations') {
+      for (const p of this.t('payments').filter((x) => x.document_id === r.document_id && x.direction === 'in')) this.t('payments').push({ ...p, id: randomUUID(), direction: 'out', source: 'cancel', paid_on: this.today() });
+      this.log('document.cancelled', r.document_id, { reason: r.reason });
+    }
+    if (table === 'expenses' && r.status === 'confirmed' && r.paid_on) {
+      this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'out', amount: Number(r.total), method: r.payment_method, paid_on: r.paid_on, source: 'expense', expense_id: r.id, note: r.supplier_name, created_at: now() });
+    }
+    if (table === 'expenses') this.log('expense.created', r.id, { number: r.expense_number, total: r.total });
+    if (table === 'quotes') this.log('quote.created', r.id, { number: r.quote_number, total: r.total });
     if (table === 'sales' && ['paid', 'pending'].includes(r.status)) for (const l of this.lines(r.items)) this.stock(l.id, -l.qty, 'sale', { sale: r.id });
     if (table === 'sale_refunds' && r.restock) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'refund', { sale: r.sale_id, refund: r.id });
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
+    if (table === 'quotes' && patch.status && patch.status !== old.status) {
+      const next: Record<string, string[]> = { draft: ['sent', 'cancelled', 'converted'], sent: ['draft', 'accepted', 'rejected', 'expired', 'cancelled', 'converted'], accepted: ['converted', 'cancelled'], expired: ['sent', 'cancelled'] };
+      if (!(next[old.status] ?? []).includes(patch.status)) return `quote_status: ${old.status} → ${patch.status} is not allowed`;
+      if (patch.status === 'sent') patch.sent_at = now();
+      if (patch.status === 'accepted' || patch.status === 'rejected') patch.decided_at = now();
+    }
+    if (table === 'document_drafts' && old.status !== 'open') return 'the draft was already issued';
+    if (table === 'expenses' && old.status === 'void') return 'a void expense does not change';
+    if (table === 'expenses' && patch.status === 'void') patch.voided_at = now();
     if (table === 'sales' && patch.status === 'cancelled' && old.status !== 'cancelled' && this.t('sale_refunds').some((x) => x.sale_id === old.id)) return 'a refunded sale can not be cancelled';
     if (table === 'catalog_items' && 'stock_qty' in patch && patch.stock_qty !== old.stock_qty) return 'stock changes only through adjust_stock';
     return null;
@@ -112,6 +214,42 @@ export class FakeSupabase {
       const d = args.p_mode === 'add' ? Number(args.p_qty) : Number(args.p_qty) - Number(it.stock_qty);
       this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { note: args.p_note ?? '' });
       return { status: 200, body: it.stock_qty };
+    }
+    if (fn === 'finance_access_state') {
+      const f = this.finance;
+      return { status: 200, body: { business: this.opts.businessId, superAdmin: f.superAdmin, access: 'full', member: f.member, open: f.member || Boolean(f.grantUntil), grantUntil: f.grantUntil, lockedUntil: f.lockedUntil } };
+    }
+    if (fn === 'open_finance_access') {
+      if (!this.finance.superAdmin) return { status: 400, body: { code: '42501', message: 'not allowed' } };
+      if (String(args.p_reason ?? '').trim().length < 5) return { status: 400, body: { code: '22023', message: 'a reason is required (5 characters or more)' } };
+      this.finance.grantUntil = new Date(Date.now() + Number(args.p_minutes ?? 60) * 60_000).toISOString();
+      this.t('finance_access_grants').push({ id: randomUUID(), business_id: this.opts.businessId, user_id: this.opts.userId, reason: args.p_reason, granted_at: now(), expires_at: this.finance.grantUntil, revoked_at: null });
+      this.log('support.access_opened', this.opts.userId, { reason: args.p_reason, until: this.finance.grantUntil });
+      return { status: 200, body: this.finance.grantUntil };
+    }
+    if (fn === 'close_finance_access') { this.finance.grantUntil = null; return { status: 200, body: 1 }; }
+    if (fn === 'finance_summary') return { status: 200, body: this.summary(args.p_from, args.p_to) };
+    if (fn === 'finance_audit_verify') return { status: 200, body: { ok: true, rows: this.t('finance_audit_log').length } };
+    if (fn === 'log_finance_event') { this.log(args.p_action, args.p_entity_id ?? '', args.p_details ?? {}); return { status: 200, body: null }; }
+    if (fn === 'lock_finance_period') { this.finance.lockedUntil = args.p_end; return { status: 200, body: args.p_end }; }
+    if (fn === 'record_credit_refund') {
+      const d = this.t('documents').find((x) => x.id === args.p_document);
+      if (!d || d.doc_type !== 330) return { status: 400, body: { code: '23514', message: 'a refund is recorded on a credit invoice of this business' } };
+      const base = this.t('documents').find((x) => x.doc_type === d.base_doc_type && x.doc_number === d.base_doc_number);
+      const id = randomUUID();
+      this.t('payments').push({ id, business_id: d.business_id, direction: 'out', amount: Number(args.p_amount), method: args.p_method, paid_on: args.p_paid_on ?? this.today(), source: 'credit', document_id: d.id, applies_to: base?.id ?? null, note: args.p_note ?? '', created_at: now() });
+      return { status: 200, body: id };
+    }
+    if (fn === 'record_manual_allocation') {
+      if (!/^\d{6,20}$/.test(String(args.p_number ?? ''))) return { status: 400, body: { code: '22023', message: 'an allocation number is digits only' } };
+      this.t('tax_allocations').push({ id: randomUUID(), business_id: this.opts.businessId, document_id: args.p_document, status: 'manual', is_test: false, allocation_number: args.p_number, gateway: 'manual', created_at: now() });
+      return { status: 200, body: 'ok' };
+    }
+    if (fn === 'receive_expense_stock') {
+      const e = this.t('expenses').find((x) => x.id === args.p_expense);
+      let n = 0;
+      for (const l of this.lines(e?.stock_lines)) { this.stock(l.id, l.qty, 'receive', { note: `הוצאה ${e!.expense_number}` }); n++; }
+      return { status: 200, body: n };
     }
     return { status: 404, body: { code: 'PGRST202', message: `function ${fn} not found` } };
   }
@@ -138,6 +276,7 @@ export class FakeSupabase {
     const m = url.pathname.match(/^\/rest\/v1\/(\w+)$/);
     if (!m) return json(404, { message: 'not found' });
     const table = m[1];
+    if (table === 'receivables') this.tables.receivables = this.receivables();
     const rows = this.t(table);
     const wantsObject = (headers.accept ?? '').includes('vnd.pgrst.object');
     const prefer = headers.prefer ?? '';
@@ -155,7 +294,8 @@ export class FakeSupabase {
         list = [...list].sort((a, b) => { for (const k of keys) { const x = a[k.c] ?? '', y = b[k.c] ?? ''; if (x < y) return k.desc ? 1 : -1; if (x > y) return k.desc ? -1 : 1; } return 0; });
       }
       const limit = Number(url.searchParams.get('limit') ?? Infinity);
-      return ret(list.slice(0, limit));
+      const offset = Number(url.searchParams.get('offset') ?? 0);
+      return ret(list.slice(offset, offset + limit));
     }
     if (method === 'POST') {
       const list: Row[] = Array.isArray(body) ? body : [body];

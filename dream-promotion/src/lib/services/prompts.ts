@@ -211,3 +211,19 @@ ${p.goal ? `מטרת ההודעה: ${p.goal}` : 'מטרת ההודעה: לקדם
 
 חוקים: 2–4 משפטים. פנייה בשם הפרטי. בלי הבטחות שלא נאמרו, בלי מחירים שלא הופיעו למעלה, בלי סימני קריאה מוגזמים. מקסימום אימוג'י אחד.
 החזר/י JSON בלבד: {"message":""}`;
+
+/**
+ * Finance: a payment reminder, reworded. The AI never sees the customer, the amount, the document or any date — only a
+ * template with {{placeholders}} — and must keep every placeholder and write no number, date, currency or link of its own.
+ * The app fills the real values afterwards and rejects any answer that breaks the rule (aiDraftIsSafe).
+ */
+export const collectionPrompt = (p: { tone: string; template: string; business: string }) => `נסח/י מחדש תזכורת תשלום קצרה בוואטסאפ, בעברית טבעית ומנומסת, בשם העסק "${p.business.slice(0, 80)}".
+הטון: ${p.tone === 'final' ? 'תזכורת אחרונה — ברורה ומכבדת, בלי איומים' : p.tone === 'firm' ? 'ברור וענייני' : 'חם ועדין'}.
+הנוסח הנוכחי:
+${p.template.slice(0, 700)}
+
+חוקים מחייבים:
+- להשאיר בדיוק את המצייני מקום האלה, כמו שהם, בלי לשנות אותם: {{name}} {{doc}} {{amount}} {{due}} {{business}} {{link}} — חובה לפחות {{amount}} ו-{{doc}}.
+- לא לכתוב שום מספר, סכום, תאריך, מטבע או קישור — רק דרך המצייני מקום.
+- 2–4 משפטים, בלי סימני קריאה מוגזמים, מקסימום אימוג'י אחד.
+החזר/י JSON בלבד: {"message":""}`;

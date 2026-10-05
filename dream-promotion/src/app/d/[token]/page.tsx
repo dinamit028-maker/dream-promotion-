@@ -11,7 +11,7 @@ export default function SharedDocPage({ params }: { params: { token: string } })
     fetch(`/api/doc/${params.token}`).then(async (r) => {
       if (!r.ok) { const j = await r.json().catch(() => ({})); setMissing(j.code === 'unavailable' ? j.message : 'המסמך לא נמצא.'); return; }
       const j = await r.json();
-      setHtml(docBody(toDoc(j.doc), j.business, 'מסמך ממוחשב'));
+      setHtml(docBody({ ...toDoc(j.doc), cancelled: Boolean(j.cancelled) }, j.business, 'מסמך ממוחשב', { allocation: j.allocation ?? null }));
     }).catch(() => setMissing('המסמך לא נמצא.'));
   }, [params.token]);
   return (

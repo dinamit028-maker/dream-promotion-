@@ -14,6 +14,11 @@ for f in supabase/migrations/*.sql; do
   as_pg env PGOPTIONS="$PGOPTIONS" "${PSQL[@]}" -d "$DB" -f "$f" >/dev/null || { echo "FAILED: $f"; exit 1; }
 done
 echo "migrations: $(ls supabase/migrations/*.sql | wc -l) applied"
+# every check file runs (one failure does not hide the next); the run fails if any of them failed
+failed=0
 for f in tests/sql/*.check.sql; do
-  as_pg env PGOPTIONS="$PGOPTIONS" "${PSQL[@]}" -o /dev/null -d "$DB" -f "$f" && echo "ok: $f"
+  if as_pg env PGOPTIONS="$PGOPTIONS" "${PSQL[@]}" -o /dev/null -d "$DB" -f "$f"; then echo "ok: $f"; else echo "FAILED: $f"; failed=1; fi
 done
+# numbering, idempotency and credit limits with several connections at once
+bash tests/sql/concurrency.sh "$DB" || failed=1
+exit $failed

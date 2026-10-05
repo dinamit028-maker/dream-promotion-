@@ -68,3 +68,23 @@ test('whole export: record numbers, totals, folder name, doc-type report', () =>
   assert.equal(rep.find((x) => x.code === 320)!.count, 2); assert.equal(rep.find((x) => x.code === 320)!.total, 859.6);
   assert.equal(rep.find((x) => x.code === 305)!.count, 0, 'types not handled are reported as 0');
 });
+
+test('2.51: a cheque\'s details in D120 (fields 1307–1311) and a cancelled receipt in C100 (field 1228)', () => {
+  const cheque = { ...doc, payments: [{ method: 2, amount: 429.8, date: '2026-10-05', m: 'cheque', cheque: { bank: '12', branch: '345', account: '678901', number: '1001', dueDate: '2026-11-05' } }] };
+  const r = D120(4, biz, cheque, cheque.payments[0], 1);
+  assert.equal(r.length, 222);
+  assert.equal(col(r, 50, 50), '2', 'cheque → 2');
+  assert.equal(col(r, 51, 60), '0000000012', '1307 bank');
+  assert.equal(col(r, 61, 70), '0000000345', '1308 branch');
+  assert.equal(col(r, 71, 85), '000000000678901', '1309 account');
+  assert.equal(col(r, 86, 95), '0000001001', '1310 cheque number');
+  assert.equal(col(r, 96, 103), '20261105', '1311 due date of the cheque');
+  assert.equal(col(r, 104, 118), '+00000000042980');
+  // cash: the cheque fields stay zero even if a stray cheque object is there
+  const cash = D120(4, biz, doc, { method: 1, amount: 10, date: '2026-10-05', cheque: { number: '9' } }, 1);
+  assert.equal(col(cash, 51, 103), '0'.repeat(53));
+  const c = C100(2, biz, { ...doc, docType: 400, cancelled: true });
+  assert.equal(c.length, 444);
+  assert.equal(col(c, 400, 400), '1', 'a cancelled receipt is marked');
+  assert.equal(col(C100(2, biz, doc), 400, 400), ' ', 'a document that was not cancelled is not');
+});

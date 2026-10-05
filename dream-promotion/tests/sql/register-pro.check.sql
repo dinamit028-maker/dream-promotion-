@@ -28,6 +28,9 @@ insert into public.business_members (business_id, user_id, role, access) values
   ('00000000-0000-0000-0000-00000000b001', '00000000-0000-0000-0000-0000000000a1', 'owner', 'full'),
   ('00000000-0000-0000-0000-00000000b001', '00000000-0000-0000-0000-0000000000c1', 'editor', 'register'),
   ('00000000-0000-0000-0000-00000000b002', '00000000-0000-0000-0000-0000000000a2', 'owner', 'full');
+-- documents are issued only with the business's legal details (2.51 checks it in the database too)
+insert into public.register_settings (user_id, business_id, business_type, vat_rate, dealer_number, legal_name) values
+  ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000b001', 'licensed', 18, '123456782', 'SaGabot');
 insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty, low_stock) values
   ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000b001', 'קרם', 100, 'product', true, 5, 2),
   ('00000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000b001', 'לייזר', 300, 'service', false, 0, 2);
@@ -104,8 +107,10 @@ values ('00000000-0000-0000-0000-000000005c01', '00000000-0000-0000-0000-0000000
   '[{"name":"קרם","price":100,"qty":1,"itemId":"00000000-0000-0000-0000-0000000000f1","kind":"product"}]', 100, 100, 18, 15.25, 'cash', 'paid', now(), '00000000-0000-0000-0000-0000000000e1');
 select pg_temp.check((select count(*) from public.sales) = 1, 'the cashier sees the sale they just made');
 select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000000f1') = 12, 'the cashier''s sale moves stock too');
-insert into public.documents (user_id, doc_type, doc_number, doc_date, before_discount, after_discount, vat_amount, total, vat_rate, sale_id)
-values ('00000000-0000-0000-0000-0000000000c1', 320, 0, current_date, 84.75, 84.75, 15.25, 100, 18, '00000000-0000-0000-0000-000000005c01');
+insert into public.documents (user_id, doc_type, doc_number, doc_date, before_discount, after_discount, vat_amount, total, vat_rate, sale_id, lines, payments)
+values ('00000000-0000-0000-0000-0000000000c1', 320, 0, public.il_today(), 84.75, 84.75, 15.25, 100, 18, '00000000-0000-0000-0000-000000005c01',
+  '[{"name":"קרם","qty":1,"unitPriceExVat":84.75,"discountExVat":0,"totalExVat":84.75,"vatRate":18,"kind":1}]',
+  jsonb_build_array(jsonb_build_object('method', 1, 'amount', 100, 'date', public.il_today())));
 select pg_temp.check((select count(*) from public.documents) = 1, 'the cashier sees the document of their sale');
 select pg_temp.refused($$insert into public.documents (user_id, doc_type, doc_number, doc_date, before_discount, after_discount, vat_amount, total, vat_rate)
   values ('00000000-0000-0000-0000-0000000000c1', 330, 0, current_date, 1, 1, 0, 1, 18)$$, 'a cashier never issues a credit invoice');

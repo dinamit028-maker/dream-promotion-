@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
+import { useApp } from '@/lib/store';
 import { Button, Card, Chip, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { israelParts } from '@/lib/il-time';
@@ -45,6 +46,21 @@ export function CommissionsTab({ sales, refunds, catalog, onLoadOlder }: {
     setEmps((all) => (all ?? []).map((x) => (x.id === e.id ? { ...x, [field]: v } : x)));
     setSaved(`נשמר: ${e.name} · ${field === 'servicePct' ? 'טיפולים' : 'מוצרים'} ${v}%`); setTimeout(() => setSaved(null), 2500);
   }
+  /** the month's commissions as one expense in "כספים" (no VAT; recorded once per month — 2.51) */
+  async function recordExpense() {
+    if (!rep || rep.totals.commission <= 0) return;
+    const desc = `עמלות עובדים ${month}`;
+    const { data: same, error: e1 } = await supabase().from('expenses').select('id').eq('description', desc).neq('status', 'void').limit(1);
+    if (e1) { setError(/schema cache|does not exist|PGRST20/.test(e1.message) ? 'צריך להריץ את מיגרציה 20261004003100 (כספים) ב-Supabase.' : 'לא הצלחנו לבדוק.'); return; }
+    if (same?.length && !window.confirm(`העמלות של ${monthName(month)} כבר נרשמו כהוצאה. לרשום שוב?`)) return;
+    const today = israelParts(Date.now()).date;
+    const end = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    const total = Math.round(rep.totals.commission * 100) / 100;
+    const { error: e2 } = await supabase().from('expenses').insert({ user_id: useApp.getState().userId, supplier_name: 'עמלות עובדים', supplier_doc_type: 'other', category: 'commissions',
+      description: desc, doc_date: end < today ? end : today, amount_before_vat: total, vat_amount: 0, total, vat_deductible_pct: 0, status: 'confirmed' });
+    if (e2) { setError(/period_locked/.test(e2.message) ? 'הספרים סגורים לחודש הזה.' : 'ההוצאה לא נרשמה.'); return; }
+    setSaved(`העמלות נרשמו כהוצאה בכספים: ${ils(total)}`); setTimeout(() => setSaved(null), 3500);
+  }
   function exportCsv() {
     if (!rep) return;
     const blob = new Blob([commissionsCsv(rep.rows, month)], { type: 'text/csv;charset=utf-8' });
@@ -85,6 +101,7 @@ export function CommissionsTab({ sales, refunds, catalog, onLoadOlder }: {
             className="h-9 rounded-full border border-line bg-surface px-3 text-sm font-semibold outline-none focus:border-primary" />
           <span className="flex-1" />
           <Button size="sm" variant="ghost" onClick={exportCsv}>ייצוא לאקסל</Button>
+          {rep.totals.commission > 0 && <Button size="sm" variant="ghost" onClick={() => void recordExpense()}>רישום כהוצאה בכספים</Button>}
         </div>
         <p className="mb-2 font-bold">עמלות · {monthName(month)}</p>
         {month < oldest && onLoadOlder && <p className="mb-2 text-xs text-muted">החודש הזה ישן מהעסקאות שנטענו. <button type="button" className="font-semibold text-primary" onClick={() => void onLoadOlder()}>טעינת עסקאות קודמות</button></p>}

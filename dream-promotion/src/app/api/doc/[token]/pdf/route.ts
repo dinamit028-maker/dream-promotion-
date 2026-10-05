@@ -1,6 +1,5 @@
-import { adminDb } from '@/lib/server/admin';
-import { UNAVAILABLE, businessOpen } from '@/lib/server/business';
-import { toDoc } from '@/features/documents/documents';
+import { UNAVAILABLE } from '@/lib/server/business';
+import { sharedDocument } from '@/lib/server/doc-share';
 import { buildDocPdf } from '@/lib/server/doc-pdf';
 import { certificateInfo, signedPdfBytes } from '@/lib/server/sign-pdf';
 
@@ -12,20 +11,13 @@ export const dynamic = 'force-dynamic';
  * Same access as the document link itself — the random 64-hex token, an open business.
  */
 export async function GET(_req: Request, { params }: { params: { token: string } }) {
-  if (!/^[a-f0-9]{64}$/.test(params.token)) return Response.json({ code: 'not_found' }, { status: 404 });
-  const db = adminDb();
-  const { data: d } = await db.from('documents').select('*').eq('share_token', params.token).maybeSingle();
-  if (!d) return Response.json({ code: 'not_found' }, { status: 404 });
-  if (!(await businessOpen((d as any).business_id))) return Response.json(UNAVAILABLE, { status: 403 });
-  const [{ data: s }, { data: b }] = await Promise.all([
-    db.from('register_settings').select('dealer_number, legal_name, street, house_no, city, zip').eq('business_id', (d as any).business_id).maybeSingle(),
-    db.from('brands').select('name').eq('business_id', (d as any).business_id).maybeSingle(),
-  ]);
-  const business = { dealerNumber: s?.dealer_number ?? '', name: s?.legal_name || (b as any)?.name || '', street: s?.street ?? '', houseNo: s?.house_no ?? '', city: s?.city ?? '', zip: s?.zip ?? '' };
-  const doc = toDoc(d);
+  const s = await sharedDocument(params.token);
+  if (!s.ok) return Response.json(s.status === 403 ? UNAVAILABLE : { code: 'not_found' }, { status: s.status });
+  const doc = s.doc;
   const willSign = certificateInfo().configured;
-  const pdf = await buildDocPdf(doc, business, { mark: 'מסמך ממוחשב', software: `Dream Promotion ${process.env.NEXT_PUBLIC_APP_VERSION ?? ''}`.trim(), signed: willSign });
-  const { bytes, signed } = await signedPdfBytes(pdf, { name: 'Dream Promotion', reason: `Document ${doc.docType}-${doc.docNumber} (${business.dealerNumber})` });
+  const mark = doc.cancelled ? 'מסמך ממוחשב · בוטל' : 'מסמך ממוחשב';
+  const pdf = await buildDocPdf(doc, s.business, { mark, software: `Dream Promotion ${process.env.NEXT_PUBLIC_APP_VERSION ?? ''}`.trim(), signed: willSign, allocation: s.allocation });
+  const { bytes, signed } = await signedPdfBytes(pdf, { name: 'Dream Promotion', reason: `Document ${doc.docType}-${doc.docNumber} (${doc.issuer?.dealerNumber || s.business.dealerNumber})` });
   return new Response(Buffer.from(bytes), {
     headers: {
       'Content-Type': 'application/pdf',

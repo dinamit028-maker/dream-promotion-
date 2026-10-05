@@ -39,13 +39,17 @@ export interface Business {
   dealerNumber: string; companyNumber?: string; name: string; street?: string; houseNo?: string; city?: string; zip?: string;
 }
 export interface SoftwareInfo { regNumber: string; name: string; version: string; vendorVat: string; vendorName: string }
-export interface DocLine { name: string; qty: number; unitPriceExVat: number; discountExVat: number; totalExVat: number; vatRate: number; kind: 1 | 2 | 3 }
-export interface DocPayment { method: number; amount: number; date: string }
+/** itemId ties a line to the price list (stock); restock marks a credit line whose goods came back (2.51) */
+export interface DocLine { name: string; qty: number; unitPriceExVat: number; discountExVat: number; totalExVat: number; vatRate: number; kind: 1 | 2 | 3; itemId?: string; restock?: boolean }
+/** method = field 1306; m = the app's own method (Bit is "other" in the file); cheque = fields 1307–1311 (2.51) */
+export interface DocPayment { method: number; amount: number; date: string; m?: string; cheque?: { bank?: string; branch?: string; account?: string; number?: string; dueDate?: string } }
 export interface Doc {
   docType: number; docNumber: number; linkNo: number; issuedAt: string /* ISO */; docDate: string /* YYYY-MM-DD */;
   customerName: string; customerPhone?: string; customerDealer?: string; customerStreet?: string; customerCity?: string; customerKey?: string;
   beforeDiscount: number; discount: number; afterDiscount: number; vatAmount: number; total: number;
   baseDocType?: number | null; baseDocNumber?: number | null; issuedBy?: string; lines: DocLine[]; payments: DocPayment[];
+  /** a receipt / transaction invoice cancelled after issue (document_cancellations, 2.51) — field 1228 */
+  cancelled?: boolean;
 }
 const ilTime = (iso: string) => {
   const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -73,7 +77,7 @@ export function C100(rec: number, b: Business, d: Doc) {
     + AMT(sign(d.vatAmount)) + AMT(sign(d.total)) + AMT(0, 9)         // 1222, 1223, 1224 withholding
     + X(d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15) // 1225 customer key
     + X('', 10)                                                       // 1226 matching field
-    + X('', 1)                                                        // 1228 cancelled (documents are never cancelled — credit invoice instead)
+    + X(d.cancelled ? '1' : '', 1)                                    // 1228 cancelled: a 300 / 400 cancelled after issue (a tax invoice gets a credit invoice instead)
     + N(yyyymmdd(d.docDate), 8)                                       // 1230 document date
     + X('', 7)                                                        // 1231 branch
     + X(d.issuedBy, 9) + N(d.linkNo, 7) + X('', 13);                  // 1233, 1234, 1235 → 444
@@ -89,9 +93,10 @@ export function D110(rec: number, b: Business, d: Doc, line: DocLine, lineNo: nu
 }
 
 export function D120(rec: number, b: Business, d: Doc, p: DocPayment, lineNo: number) {
+  const c = p.method === 2 ? p.cheque : undefined;                      // a cheque's bank, branch, account, number, due date (2.51)
   return 'D120' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20) + N(lineNo, 4)
-    + N(p.method, 1) + N(0, 10) + N(0, 10) + N(0, 15) + N(0, 10)          // 1306–1310 (cheque details: not handled)
-    + N(p.method === 3 ? yyyymmdd(p.date) : 0, 8)                         // 1311
+    + N(p.method, 1) + N(c?.bank || 0, 10) + N(c?.branch || 0, 10) + N(c?.account || 0, 15) + N(c?.number || 0, 10) // 1306–1310
+    + N(c?.dueDate ? yyyymmdd(c.dueDate) : p.method === 3 ? yyyymmdd(p.date) : 0, 8) // 1311 cheque due date / card payment date
     + AMT(p.amount) + N(0, 1) + X('', 20) + N(p.method === 3 ? 1 : 0, 1)  // 1312–1315
     + X('', 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X('', 60);  // 1320, 1322, 1323, 1324 → 222
 }

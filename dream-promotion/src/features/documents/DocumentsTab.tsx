@@ -7,7 +7,8 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
-import { DOC_LABEL, PAY_LABEL, creditFor, creditedTotals, toDoc, type DocRow } from './documents';
+import { DOC_LABEL, PAY_LABEL, creditFor, creditedTotals, issuerFor, toDoc, type DocRow } from './documents';
+import { issuerIdLine } from '@/features/finance/rules';
 
 /** Legal documents: list, view & print (original / true copy), credit invoice, and the "ממשק פתוח" export. */
 export { toDoc, type DocRow } from './documents';
@@ -68,9 +69,10 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
   if (docs === null) return <div className="py-8 text-center"><Spinner /></div>;
   return (
     <>
-      <div className="mb-4 flex gap-1.5">
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <Chip on={view === 'list'} onClick={() => setView('list')}>מסמכים</Chip>
         <Chip on={view === 'export'} onClick={() => setView('export')}>ממשק פתוח (מבנה אחיד)</Chip>
+        <a href="/finance?tab=documents" className="ms-auto text-sm font-semibold text-primary">מרכז המסמכים בכספים ←</a>
       </div>
       {view === 'list' && (
         <div className="grid grid-cols-1 gap-2">
@@ -153,18 +155,26 @@ const page = (title: string, body: string) => `<!doctype html><html dir="rtl" la
 th{background:#f2f2f2}.h{display:flex;justify-content:space-between;gap:16px}.mark{font-size:13px;font-weight:bold;border:1px solid #111;padding:2px 8px;display:inline-block}.tot td{font-weight:bold}.muted{color:#666;font-size:12px}</style></head>
 <body>${body}<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
 
-export function docBody(d: Doc, b: Business, mark: string) {
+export function docBody(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueDate' | 'notes' | 'customerEmail'>>, b: Business & { entityType?: string }, mark: string,
+  extra: { allocation?: string | null } = {}) {
+  const i = issuerFor(d, b);
   const rows = d.lines.map((l) => `<tr><td>${esc(l.name)}</td><td>${l.qty}</td><td>${l.unitPriceExVat.toFixed(2)}</td><td>${l.totalExVat.toFixed(2)}</td></tr>`).join('');
-  const pays = d.payments.map((p) => `<tr><td>${esc(PAY_LABEL[p.method] ?? 'אחר')}</td><td>${ddmmyyyy(p.date)}</td><td>${p.amount.toFixed(2)}</td></tr>`).join('');
-  return `<div class="h"><div><strong style="font-size:18px">${esc(b.name)}</strong><br>עוסק מורשה / ח.פ ${esc(b.dealerNumber)}<br>${esc([b.street, b.houseNo, b.city].filter(Boolean).join(' '))}</div>
-<div style="text-align:left"><span class="mark">${esc(mark)}</span><br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${d.docNumber}</strong><br>תאריך: ${ddmmyyyy(d.docDate)}</div></div>
+  const cheque = (p: Doc['payments'][number]) => (p.cheque?.number ? ` · צ׳ק ${esc(p.cheque.number)}${p.cheque.bank ? ` · בנק ${esc(p.cheque.bank)}` : ''}${p.cheque.branch ? ` · סניף ${esc(p.cheque.branch)}` : ''}${p.cheque.dueDate ? ` · פירעון ${ddmmyyyy(p.cheque.dueDate)}` : ''}` : '');
+  const pays = d.payments.map((p) => `<tr><td>${esc(PAY_LABEL[p.method] ?? 'אחר')}${cheque(p)}</td><td>${ddmmyyyy(p.date)}</td><td>${p.amount.toFixed(2)}</td></tr>`).join('');
+  const contact = [i.phone, i.email].filter(Boolean).join(' · ');
+  const rate = d.lines[0]?.vatRate ?? 0;
+  const vatRow = d.vatAmount || rate ? `<tr><td>מע״מ ${rate}%</td><td>${d.vatAmount.toFixed(2)}</td></tr>` : '';
+  const bank = (d.docType === 305 || d.docType === 300) && i.bankAccount ? `<p>לתשלום בהעברה: ${esc([i.bankName, i.bankBranch ? `סניף ${i.bankBranch}` : '', `חשבון ${i.bankAccount}`].filter(Boolean).join(' · '))}</p>` : '';
+  return `<div class="h"><div><strong style="font-size:18px">${esc(i.name)}</strong>${i.tradingName ? `<br>${esc(i.tradingName)}` : ''}<br>${esc(issuerIdLine(i))}<br>${esc([i.street, i.houseNo, i.city].filter(Boolean).join(' '))}${contact ? `<br>${esc(contact)}` : ''}</div>
+<div style="text-align:left"><span class="mark">${esc(mark)}</span>${d.cancelled ? ' <span class="mark" style="color:#b00;border-color:#b00">בוטל</span>' : ''}<br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${d.docNumber}</strong><br>תאריך: ${ddmmyyyy(d.docDate)}${d.dueDate ? `<br>לתשלום עד: ${ddmmyyyy(d.dueDate)}` : ''}${extra.allocation ? `<br>${esc(extra.allocation)}` : ''}</div></div>
 <p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ / ח.פ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}${d.customerStreet || d.customerCity ? `<br>${esc([d.customerStreet, d.customerCity].filter(Boolean).join(', '))}` : ''}</p>
 ${d.baseDocNumber ? `<p>זיכוי עבור ${esc(DOC_LABEL[d.baseDocType ?? 0] ?? '')} מס׳ ${d.baseDocNumber}</p>` : ''}
 <table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>
 <table><tr><td>סה״כ לפני הנחה</td><td>${d.beforeDiscount.toFixed(2)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${d.discount.toFixed(2)}</td></tr>` : ''}
-<tr><td>סה״כ לפני מע״מ</td><td>${d.afterDiscount.toFixed(2)}</td></tr><tr><td>מע״מ ${d.lines[0]?.vatRate ?? 0}%</td><td>${d.vatAmount.toFixed(2)}</td></tr>
-<tr class="tot"><td>סה״כ לתשלום</td><td>${d.total.toFixed(2)} ₪</td></tr></table>
+<tr><td>${vatRow ? 'סה״כ לפני מע״מ' : 'סה״כ'}</td><td>${d.afterDiscount.toFixed(2)}</td></tr>${vatRow}
+<tr class="tot"><td>${d.docType === 330 ? 'סה״כ זיכוי' : d.docType === 400 || d.docType === 320 ? 'סה״כ שולם' : 'סה״כ לתשלום'}</td><td>${d.total.toFixed(2)} ₪</td></tr></table>
 ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכום</th></tr>${pays}</table>` : ''}
+${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
 <p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${SOFTWARE.regNumber !== '00000000' ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;
 }
 const docHtml = (d: Doc, b: Business, mark: string) => page(`${DOC_LABEL[d.docType]} ${d.docNumber}`, docBody(d, b, mark));

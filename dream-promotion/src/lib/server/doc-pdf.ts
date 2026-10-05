@@ -3,8 +3,9 @@ import path from 'node:path';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import bidiFactory from 'bidi-js';
-import { DOC_LABEL, PAY_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, PAY_LABEL, issuerFor, type DocRow } from '@/features/documents/documents';
 import type { Business, Doc } from '@/features/documents/openformat';
+import { issuerIdLine } from '@/features/finance/rules';
 
 /**
  * A legal document as a PDF (A4, Hebrew, right to left) — the file that is signed digitally (sign-pdf.ts).
@@ -52,7 +53,9 @@ const ilDateTime = (iso: string) => {
   return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
 };
 
-export async function buildDocPdf(d: Doc, b: Business, o: { mark: string; software: string; signed: boolean }): Promise<PDFDocument> {
+export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueDate' | 'notes'>>, b: Business & { entityType?: string },
+  o: { mark: string; software: string; signed: boolean; allocation?: string | null }): Promise<PDFDocument> {
+  const iss = issuerFor(d, b);
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   const fb = fontBytes();
@@ -60,7 +63,7 @@ export async function buildDocPdf(d: Doc, b: Business, o: { mark: string; softwa
   const bold = await pdf.embedFont(fb.bold, { subset: true });
   forceLtr(font); forceLtr(bold);
   pdf.setTitle(`${DOC_LABEL[d.docType] ?? 'מסמך'} ${d.docNumber}`);
-  pdf.setAuthor(b.name); pdf.setCreator(o.software); pdf.setProducer(o.software); pdf.setLanguage('he-IL');
+  pdf.setAuthor(iss.name); pdf.setCreator(o.software); pdf.setProducer(o.software); pdf.setLanguage('he-IL');
 
   const W = 595.28, H = 841.89, M = 40;
   const ink = rgb(0.07, 0.07, 0.07), muted = rgb(0.4, 0.4, 0.4), line = rgb(0.75, 0.75, 0.75), shade = rgb(0.95, 0.95, 0.95);
@@ -86,17 +89,20 @@ export async function buildDocPdf(d: Doc, b: Business, o: { mark: string; softwa
   const newPageIfNeeded = (need: number) => { if (y - need < M + 40) { page = pdf.addPage([W, H]); y = H - M; } };
 
   // ---- header: business (right) · document (left) ----
-  text(b.name, { right: W - M }, 16, bold);
+  text(iss.name, { right: W - M }, 16, bold);
   text(o.mark, { left: M }, 10, bold);
   page.drawRectangle({ x: M - 4, y: y - 4, width: width(o.mark, 10, bold) + 8, height: 16, borderColor: ink, borderWidth: 0.8 });
   y -= 18;
-  text(`עוסק מורשה / ח.פ ${b.dealerNumber}`, { right: W - M });
-  text(`${DOC_LABEL[d.docType] ?? 'מסמך'} מס׳ ${d.docNumber}`, { left: M }, 15, bold);
-  y -= 15;
-  const addr = [b.street, b.houseNo, b.city].filter(Boolean).join(' ');
-  if (addr) text(addr, { right: W - M }, 10, font, muted);
-  text(`תאריך: ${ddmmyyyy(d.docDate)}`, { left: M });
-  y -= 26;
+  const right: string[] = [iss.tradingName ?? '', issuerIdLine(iss), [iss.street, iss.houseNo, iss.city].filter(Boolean).join(' '), [iss.phone, iss.email].filter(Boolean).join(' · ')].filter(Boolean);
+  const left: [string, number, PDFFont][] = [[`${DOC_LABEL[d.docType] ?? 'מסמך'} מס׳ ${d.docNumber}`, 15, bold], [`תאריך: ${ddmmyyyy(d.docDate)}`, 10, font]];
+  if (d.dueDate) left.push([`לתשלום עד: ${ddmmyyyy(d.dueDate)}`, 10, font]);
+  if (o.allocation) left.push([o.allocation, 9, bold]);
+  for (let k = 0; k < Math.max(right.length, left.length); k++) {
+    if (right[k]) text(right[k], { right: W - M }, 10, font, k === 0 && iss.tradingName ? ink : muted);
+    if (left[k]) text(left[k][0], { left: M }, left[k][1], left[k][2]);
+    y -= k === 0 ? 15 : 13;
+  }
+  y -= 12;
 
   // ---- customer ----
   const to = [`לכבוד: ${d.customerName || 'לקוח מזדמן'}`, d.customerDealer ? `ע.מ / ח.פ ${d.customerDealer}` : '', d.customerPhone ?? ''].filter(Boolean).join(' · ');
@@ -130,9 +136,13 @@ export async function buildDocPdf(d: Doc, b: Business, o: { mark: string; softwa
   y -= 10;
 
   // ---- totals ----
+  const rate = d.lines[0]?.vatRate ?? 0;
+  const withVat = Boolean(d.vatAmount || rate);
   const totals: [string, string, boolean?][] = [['סה״כ לפני הנחה', money(d.beforeDiscount)]];
   if (d.discount) totals.push(['הנחה', `-${money(d.discount)}`]);
-  totals.push(['סה״כ לפני מע״מ', money(d.afterDiscount)], [`מע״מ ${d.lines[0]?.vatRate ?? 0}%`, money(d.vatAmount)], ['סה״כ לתשלום', `${money(d.total)} ₪`, true]);
+  totals.push([withVat ? 'סה״כ לפני מע״מ' : 'סה״כ', money(d.afterDiscount)]);
+  if (withVat) totals.push([`מע״מ ${rate}%`, money(d.vatAmount)]);
+  totals.push([d.docType === 330 ? 'סה״כ זיכוי' : d.docType === 400 || d.docType === 320 ? 'סה״כ שולם' : 'סה״כ לתשלום', `${money(d.total)} ₪`, true]);
   for (const [k, v, strong] of totals) {
     newPageIfNeeded(18);
     text(k, { right: W - M - 5 }, strong ? 12 : 10, strong ? bold : font);
@@ -148,10 +158,28 @@ export async function buildDocPdf(d: Doc, b: Business, o: { mark: string; softwa
     text('אמצעי תשלום', { right: W - M }, 11, bold); y -= 18;
     for (const p of d.payments) {
       newPageIfNeeded(16);
-      text(`${PAY_LABEL[p.method] ?? 'אחר'} · ${ddmmyyyy(p.date)}`, { right: W - M - 5 });
+      const cheque = p.cheque?.number ? ` · צ׳ק ${p.cheque.number}${p.cheque.bank ? ` · בנק ${p.cheque.bank}` : ''}${p.cheque.branch ? ` · סניף ${p.cheque.branch}` : ''}${p.cheque.dueDate ? ` · פירעון ${ddmmyyyy(p.cheque.dueDate)}` : ''}` : '';
+      text(fit(`${PAY_LABEL[p.method] ?? 'אחר'} · ${ddmmyyyy(p.date)}${cheque}`, 10, font, W - 2 * M - 110), { right: W - M - 5 });
       text(money(p.amount), { left: M + 5 });
       y -= 16;
     }
+  }
+
+  // ---- notes, payment instructions, the business's note ----
+  const bank = (d.docType === 305 || d.docType === 300) && iss.bankAccount
+    ? `לתשלום בהעברה: ${[iss.bankName, iss.bankBranch ? `סניף ${iss.bankBranch}` : '', `חשבון ${iss.bankAccount}`].filter(Boolean).join(' · ')}` : '';
+  for (const [t, f, c] of [[d.notes ?? '', font, ink], [bank, font, ink], [iss.note ?? '', font, muted]] as [string, PDFFont, typeof ink][]) {
+    if (!t) continue;
+    y -= 6;
+    // long text wraps by words (right to left), at most 6 lines each
+    const words = t.replace(/\s+/g, ' ').trim().split(' ');
+    let lineText = '', lines = 0;
+    for (const w of words) {
+      const next = lineText ? `${lineText} ${w}` : w;
+      if (width(next, 10, f) > W - 2 * M && lineText) { newPageIfNeeded(14); text(lineText, { right: W - M }, 10, f, c); y -= 14; lineText = w; if (++lines >= 6) break; }
+      else lineText = next;
+    }
+    if (lineText && lines < 6) { newPageIfNeeded(14); text(lineText, { right: W - M }, 10, f, c); y -= 14; }
   }
 
   // ---- footer on every page ----
