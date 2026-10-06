@@ -8,6 +8,9 @@
 #   5. the audit chain of the business is intact afterwards
 #   6. 8 connections × 20 sales of the same two variants, in crossing order (3300) → every unit counted, no deadlock
 #   7. 8 connections race to save the same SKU, on items and on variants (3300) → exactly one
+#   8. 8 shoppers check out the last 3 units at once (3500) → exactly 3 orders, never more held than there is
+#   9. 8 copies of one payment notice at once (3500) → one test_paid, one use of the coupon, one line on the timeline
+#  10. the register and the checkout race for the same 4 units (3500) → what was sold + what is held never exceeds the stock
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -112,3 +115,68 @@ run_parallel code
 r=$(q "select (select count(*) from public.catalog_items where business_id = '$B' and lower(sku) = 'race-1') + (select count(*) from public.catalog_variants where business_id = '$B' and lower(sku) = 'race-1')")
 [ "$r" = "1" ] || fail "one SKU in a business, across items and variants, under a race (got $r)"
 echo "ok: 8 connections saving one SKU on items and variants → exactly one"
+
+# ---- 8. the last units: 8 shoppers check out at the same moment ------------------------------------------------------------
+ST=00000000-0000-0000-0000-0000000cc501; LAST=00000000-0000-0000-0000-0000000cc1f2
+SR="set local role service_role;"
+h() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+CUST='{"name":"קונה","phone":"0501234567","email":"x@example.com","method":"pickup","terms":"true"}'
+q "insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty, slug, publish_online)
+     values ('$LAST', '$U', '$B', 'last', 50, 'product', true, 3, 'last', true);
+   insert into public.stores (id, business_id, name, phone) values ('$ST', '$B', 'Load', '03-1234567');
+   insert into public.payment_accounts (business_id, provider, mode, sealed) values ('$B', 'mock', 'test', 'v1.x');
+   update public.stores set checkout_enabled = true, pickup_enabled = true where id = '$ST';
+   insert into public.store_coupons (store_id, code, kind, value) values ('$ST', 'RACE', 'amount', 5);" >/dev/null
+for w in $(seq 8); do
+  q "$SR select public.sf_cart_set('$ST', '$(h "cart-$w")', '$LAST', null, 1, 'add', true);" >/dev/null
+  printf 'begin;\n%s\nselect public.sf_checkout_start(%s, %s, %s, %s, %s, true);\ncommit;\n' "$SR" "'$ST'" "'$(h "cart-$w")'" "'$(h "order-$w")'" "'$CUST'" "'ip-$w'" > "$TMP/last-$w.sql"
+  chmod 644 "$TMP/last-$w.sql"
+done
+run_parallel last
+r=$(q "select (select count(*) from public.orders where store_id = '$ST') || ' ' ||
+              (select coalesce(sum(qty), 0) from public.stock_reservations where item_id = '$LAST' and status = 'held') || ' ' ||
+              (select stock_qty from public.catalog_items where id = '$LAST')")
+[ "$r" = "3 3 3" ] || fail "8 shoppers, 3 units: exactly 3 orders hold 3 units, the stock unmoved (expected 3 3 3, got: $r)"
+echo "ok: 8 shoppers check out the last 3 units at once → exactly 3 orders, 3 held, none beyond the stock"
+
+# ---- 9. one payment notice, 8 times at once ----------------------------------------------------------------------------
+PAYI=00000000-0000-0000-0000-0000000cc1f4
+q "insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty, slug, publish_online)
+     values ('$PAYI', '$U', '$B', 'pay', 80, 'product', true, 10, 'pay', true);" >/dev/null
+q "$SR select public.sf_cart_set('$ST', '$(h cart-pay)', '$PAYI', null, 1, 'add', true); select public.sf_cart_coupon('$ST', '$(h cart-pay)', 'RACE', true);
+   select public.sf_checkout_start('$ST', '$(h cart-pay)', '$(h order-pay)', '$CUST', 'ip-pay', true);" >/dev/null
+OID=$(q "select id from public.orders where token_hash = '$(h order-pay)'")
+TOT=$(q "select total from public.orders where id = '$OID'")
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.sf_payment_event(%s, %s, %s, %s, %s, true, %s);\nselect public.sf_order_paid(%s, %s, %s, %s, %s, %s);\ncommit;\n' \
+    "$SR" "'$ST'" "'$OID'" "'mock'" "'mock:callback:race'" "'callback'" "'{}'" "'$ST'" "'$OID'" "'mock'" "'txn-race'" "$TOT" "'ILS'" > "$TMP/pay-$w.sql"
+  chmod 644 "$TMP/pay-$w.sql"
+done
+run_parallel pay
+r=$(q "select (select payment_status from public.orders where id = '$OID') || ' ' ||
+              (select count(*) from public.order_events where order_id = '$OID' and kind = 'test_paid') || ' ' ||
+              (select used_count from public.store_coupons where store_id = '$ST' and code = 'RACE') || ' ' ||
+              (select count(*) from public.payment_events where event_key = 'mock:callback:race') || ' ' ||
+              (select count(*) from public.sales where id = '$OID')")
+[ "$r" = "test_paid 1 1 1 0" ] || fail "8 copies of a notice: one test_paid, one coupon use, one event, no sale (expected test_paid 1 1 1 0, got: $r)"
+echo "ok: 8 copies of one payment notice at once → one test_paid, the coupon used once, one logged notice, no sale"
+
+# ---- 10. the register and the checkout race for the same 4 units ----------------------------------------------------------
+RACE=00000000-0000-0000-0000-0000000cc1f3
+q "insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty, slug, publish_online)
+     values ('$RACE', '$U', '$B', 'race', 50, 'product', true, 4, 'race', true);" >/dev/null
+for w in $(seq 8); do
+  if [ $((w % 2)) -eq 0 ]; then
+    q "$SR select public.sf_cart_set('$ST', '$(h "rc-$w")', '$RACE', null, 1, 'add', true);" >/dev/null
+    printf 'begin;\n%s\nselect public.sf_checkout_start(%s, %s, %s, %s, %s, true);\ncommit;\n' "$SR" "'$ST'" "'$(h "rc-$w")'" "'$(h "ro-$w")'" "'$CUST'" "'rip-$w'" > "$TMP/mix-$w.sql"
+  else
+    printf 'begin;\n%s\ninsert into public.sales (user_id, items, subtotal, total, method, status, paid_at, employee_name) values (%s, %s, 50, 50, %s, %s, now(), %s);\ncommit;\n' \
+      "$AS" "'$U'" "'[{\"name\":\"race\",\"price\":50,\"qty\":1,\"itemId\":\"$RACE\"}]'" "'cash'" "'paid'" "'race'" > "$TMP/mix-$w.sql"
+  fi
+  chmod 644 "$TMP/mix-$w.sql"
+done
+run_parallel mix
+r=$(q "select (select stock_qty from public.catalog_items where id = '$RACE') - (select coalesce(sum(qty), 0) from public.stock_reservations where item_id = '$RACE' and status = 'held') >= 0
+          and (select count(*) from public.sales where employee_name = 'race') + (select coalesce(sum(qty), 0) from public.stock_reservations where item_id = '$RACE' and status = 'held') = 4")
+[ "$r" = "t" ] || fail "the register and the checkout on 4 units: sold + held = 4, never more held than in stock (got: $r)"
+echo "ok: the register (4 connections) and the checkout (4 connections) race for 4 units → sold + held = 4, nothing oversold"
