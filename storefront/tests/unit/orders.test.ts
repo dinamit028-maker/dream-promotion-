@@ -41,3 +41,15 @@ test('"paid" reaches the dashboard with the shared secret; without its settings 
     delete process.env.DASHBOARD_URL; delete process.env.COMMERCE_SECRET;
   }
 });
+
+test('a failed cron run says why, and never with a key in it (2.57.4)', async () => {
+  const { failureReason } = await import('../../src/lib/failure');
+  const cause = new TypeError('Cannot convert argument to a ByteString because the character at index 18 has a value of 8226');
+  assert.equal(failureReason(new TypeError('fetch failed', { cause })),
+    'TypeError: fetch failed ← TypeError: Cannot convert argument to a ByteString because the character at index 18 has a value of 8226');
+  assert.equal(failureReason(new Error('sf_orders_unconfirmed: 401')), 'Error: sf_orders_unconfirmed: 401');
+  const leaky = failureReason(new Error('bad key sb_secret_AbCdEf0123456789xyz and eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZSJ9.sig and ' + 'x'.repeat(40)));
+  assert.ok(!leaky.includes('AbCdEf') && !leaky.includes('eyJhbGci') && !leaky.includes('x'.repeat(40)), leaky);
+  assert.equal(failureReason(undefined), 'unknown');
+  assert.equal(failureReason('plain'), 'plain');
+});
