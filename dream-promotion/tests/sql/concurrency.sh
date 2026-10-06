@@ -11,6 +11,8 @@
 #   8. 8 shoppers check out the last 3 units at once (3500) → exactly 3 orders, never more held than there is
 #   9. 8 copies of one payment notice at once (3500) → one test_paid, one use of the coupon, one line on the timeline
 #  10. the register and the checkout race for the same 4 units (3500) → what was sold + what is held never exceeds the stock
+#  11. 8 paid orders of one new customer (her phone in 8 spellings) recorded at once (3600) → one lead, 8 sales
+#  12. 8 connections record the same paid order at once (3600) → one sale, one stock movement
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -180,3 +182,44 @@ r=$(q "select (select stock_qty from public.catalog_items where id = '$RACE') - 
           and (select count(*) from public.sales where employee_name = 'race') + (select coalesce(sum(qty), 0) from public.stock_reservations where item_id = '$RACE' and status = 'held') = 4")
 [ "$r" = "t" ] || fail "the register and the checkout on 4 units: sold + held = 4, never more held than in stock (got: $r)"
 echo "ok: the register (4 connections) and the checkout (4 connections) race for 4 units → sold + held = 4, nothing oversold"
+
+# ---- 11. one new customer, 8 orders recorded at once (3600) -------------------------------------------------------------
+LIVEI=00000000-0000-0000-0000-0000000cc1f5
+q "update public.platform_flags set enabled = true where key = 'commerce_live';
+   update public.payment_accounts set mode = 'live' where business_id = '$B';
+   insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty, slug, publish_online)
+     values ('$LIVEI', '$U', '$B', 'live', 30, 'product', true, 20, 'live', true);" >/dev/null
+PHONES=("0521112233" "+972-52-111-2233" "+972 52-111-2233" "052 111 2233" "(052) 1112233" "+972521112233" "052-1112233" "972 52 1112233")
+for w in $(seq 8); do
+  C="{\"name\":\"קונה חדשה\",\"phone\":\"${PHONES[$((w-1))]}\",\"email\":\"n$w@example.com\",\"method\":\"pickup\",\"terms\":\"true\"}"
+  q "$SR select public.sf_cart_set('$ST', '$(h "lc-$w")', '$LIVEI', null, 1, 'add', true);
+     select public.sf_checkout_start('$ST', '$(h "lc-$w")', '$(h "lo-$w")', '$C', 'lip-$w', true);" >/dev/null
+  O=$(q "select id from public.orders where token_hash = '$(h "lo-$w")'")
+  q "$SR select public.sf_order_paid('$ST', '$O', 'mock', 'ltx-$w', 30, 'ILS');" >/dev/null
+  printf 'begin;\n%s\nselect public.commerce_record_sale(%s, 18, 4.58);\ncommit;\n' "$SR" "'$O'" > "$TMP/cust-$w.sql"
+  chmod 644 "$TMP/cust-$w.sql"
+done
+run_parallel cust
+r=$(q "select (select count(*) from public.leads where business_id = '$B' and public.phone_key(phone) = '972521112233') || ' ' ||
+              (select count(distinct lead_id) from public.orders where token_hash like '%' and store_id = '$ST' and not is_test) || ' ' ||
+              (select count(*) from public.sales where business_id = '$B' and channel = 'online') || ' ' ||
+              (select stock_qty from public.catalog_items where id = '$LIVEI')")
+[ "$r" = "1 1 8 12" ] || fail "one new customer, 8 orders at once: one lead, 8 sales, 8 units out (expected 1 1 8 12, got: $r)"
+echo "ok: 8 orders of one new customer (8 spellings of her phone) recorded at once → one lead, 8 sales, 8 units out"
+
+# ---- 12. the same order recorded 8 times at once (3600) ---------------------------------------------------------------------
+q "$SR select public.sf_cart_set('$ST', '$(h lc-same)', '$LIVEI', null, 2, 'add', true);
+   select public.sf_checkout_start('$ST', '$(h lc-same)', '$(h lo-same)', '$CUST', 'lip-same', true);" >/dev/null
+O=$(q "select id from public.orders where token_hash = '$(h lo-same)'")
+q "$SR select public.sf_order_paid('$ST', '$O', 'mock', 'ltx-same', 60, 'ILS');" >/dev/null
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.commerce_record_sale(%s, 18, 9.15);\ncommit;\n' "$SR" "'$O'" > "$TMP/same-$w.sql"
+  chmod 644 "$TMP/same-$w.sql"
+done
+run_parallel same
+r=$(q "select (select count(*) from public.sales where id = '$O') || ' ' || (select count(*) from public.stock_movements where sale_id = '$O') || ' ' ||
+              (select stock_qty from public.catalog_items where id = '$LIVEI') || ' ' ||
+              (select count(*) from public.order_events where order_id = '$O' and kind = 'sale_recorded')")
+q "update public.platform_flags set enabled = false where key = 'commerce_live';" >/dev/null
+[ "$r" = "1 1 10 1" ] || fail "the same order 8 times at once: one sale, one movement (expected 1 1 10 1, got: $r)"
+echo "ok: 8 connections record the same paid order at once → one sale, one stock movement, one line on the timeline"
