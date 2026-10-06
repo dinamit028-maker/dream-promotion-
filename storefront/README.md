@@ -59,7 +59,7 @@
 
 ## הקמה ב-Vercel — פעם אחת, על ידי בעל המערכת
 
-**בוצע ב-2.57.3:** הפרויקט `dream-storefront` (`https://dream-storefront.vercel.app`) קיים, וכל המשתנים מוגדרים, כולל `SUPABASE_SECRET_KEY` (Production).
+**בוצע ב-2.57.3:** הפרויקט `dream-storefront` (`https://dream-storefront.vercel.app`) קיים, וכל המשתנים מוגדרים, כולל `SUPABASE_SECRET_KEY` (Production ו-Preview — בלי Preview, התצוגה המקדימה של PR מחזירה 500).
 
 **`SUPABASE_SECRET_KEY`** — מפתח נפרד לחזית ב-Supabase, בשם `storefront`, כדי שאפשר להחליף אותו בלי לגעת בדשבורד. **להעתיק בכפתור ההעתקה של Supabase, אחרי לחיצה על העין.** טקסט שמסומן ביד מגיע עם הנקודות של המפתח המוסתר (`••••`). עם מפתח כזה הבקשה לא יוצאת בכלל, וכל עמוד מחזיר 500 — בלי שום שורה ביומן של Supabase. (השגיאה שנראית אז: `Cannot convert argument to a ByteString`.) שינוי במשתנה דורש בנייה חדשה (קומיט שנוגע ב-`storefront/`), כי Redeploy מתבטל בגלל `ignoreCommand`. פירוט ב-STATUS.md, סעיף 4כו.
 
