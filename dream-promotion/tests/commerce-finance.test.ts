@@ -142,3 +142,18 @@ test('the order\'s stage-4 fields and timeline', () => {
   assert.match(eventText({ kind: 'fulfillment', data: { to: 'shipped', tracking: 'RR1' }, at: '' }), /נשלח · מספר מעקב RR1/);
   assert.match(eventText({ kind: 'paid', data: { late: true }, at: '' }), /כדאי לבדוק מלאי/);
 });
+
+test('the register counts its own sales only; a row from before 3600 is the register\'s', async () => {
+  const { isPosSale } = await import('@/features/register/money');
+  assert.equal(isPosSale({ channel: 'pos' }), true);
+  assert.equal(isPosSale({}), true);
+  assert.equal(isPosSale({ channel: 'online' }), false);
+});
+
+test('a change of a contact sends only what changed (never the whole card over a change made elsewhere)', async () => {
+  const { leadPatchRow } = await import('@/features/crm/crm');
+  assert.deepEqual(leadPatchRow({ status: 'נסגר' }), { status: 'נסגר' });
+  assert.deepEqual(leadPatchRow({ lastContact: '2026-10-06T10:00:00Z', notes: undefined }), { last_contact_at: '2026-10-06T10:00:00Z' });
+  assert.deepEqual(leadPatchRow({ nextFollowup: null, notes: null as any }), { next_followup_at: null, notes: '' });
+  assert.deepEqual(leadPatchRow({ id: 'x' } as any), {}, 'the id is not a change');
+});

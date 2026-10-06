@@ -131,6 +131,7 @@ const OWN = 'user-own', CASH = 'user-cash', VIEW = 'user-view', OTHER = 'user-ot
 const B1 = '00000000-0000-4000-8000-00000000b001', B2 = '00000000-0000-4000-8000-00000000b002';
 const tables: Record<string, any[]> = {};
 const current: Record<string, string> = { [OWN]: B1, [CASH]: B1, [VIEW]: B1, [OTHER]: B2 };
+let liveOpen = false;   // the platform's switch (commerce_live, migration 3600)
 const SEAL = 'route-payment-seal-key-0123456789abcdef';
 function reset() {
   for (const k of Object.keys(tables)) delete tables[k];
@@ -151,10 +152,10 @@ before(() => {
   (globalThis as any).__DP_TEST_ADMIN_DB__ = {
     from: (t: string) => fakeDb(tables).from(t),
     auth: { getUser: async (t: string) => ({ data: { user: [OWN, CASH, VIEW, OTHER].includes(t) ? { id: t } : null } }) },
-    rpc: async (fn: string, a: { uid: string }) => ({ data: fn === 'business_for_user' ? current[a.uid] ?? null : null, error: null }),
+    rpc: async (fn: string, a: { uid: string }) => ({ data: fn === 'business_for_user' ? current[a.uid] ?? null : fn === 'commerce_live' ? liveOpen : null, error: null }),
   };
 });
-beforeEach(reset);
+beforeEach(() => { reset(); liveOpen = false; });
 const call = async (user: string | null, body?: unknown) => {
   const { GET, POST } = await import('../src/app/api/store/payments/route');
   const req = new Request('http://x/api/store/payments', { method: body ? 'POST' : 'GET', headers: user ? { authorization: `Bearer ${user}` } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -166,14 +167,27 @@ const connect = { action: 'connect', apiKey: 'abcd-1234-efgh', secretKey: 'zzzz-
 test('payments: the owner connects a test terminal — sealed, of their own business, never sent back', async () => {
   const r = await call(OWN, connect);
   assert.equal(r.status, 200);
-  assert.deepEqual({ ...r.body, connectedAt: undefined }, { connected: true, provider: 'payplus', mode: 'test', hint: 'efgh', connectedAt: undefined, ready: true });
+  assert.deepEqual({ ...r.body, connectedAt: undefined }, { connected: true, provider: 'payplus', mode: 'test', hint: 'efgh', connectedAt: undefined, ready: true, liveOpen: false });
   assert.ok(!JSON.stringify(r.body).includes('zzzz-9999-yyyy') && !JSON.stringify(r.body).includes('abcd-1234-efgh'), 'no key in the answer');
   const row = tables.payment_accounts.find((x) => x.business_id === B1);
-  assert.equal(row.mode, 'test', 'stage 3: test only');
+  assert.equal(row.mode, 'test', 'a test terminal unless live was asked for');
   assert.match(row.sealed, /^v1\./);
   assert.ok(!row.sealed.includes('zzzz-9999-yyyy'));
   assert.equal(tables.payment_accounts.find((x) => x.business_id === B2).sealed, 'v1.other', 'another business\'s terminal untouched');
   assert.equal((await call(OWN)).body.connected, true);
+});
+
+test('payments: a live terminal only while the platform\'s switch is on (2.57)', async () => {
+  const closed = await call(OWN, { ...connect, mode: 'live' });
+  assert.equal(closed.status, 403);
+  assert.match(closed.body.message, /סגורה/);
+  assert.equal(tables.payment_accounts.filter((x) => x.business_id === B1).length, 0, 'nothing saved');
+  liveOpen = true;
+  const open = await call(OWN, { ...connect, mode: 'live' });
+  assert.equal(open.status, 200);
+  assert.equal(open.body.mode, 'live');
+  assert.equal(open.body.liveOpen, true);
+  assert.equal(tables.payment_accounts.find((x) => x.business_id === B1).mode, 'live');
 });
 
 test('payments: not a cashier, not a viewer; nothing without a session or a seal key; bad keys refused', async () => {

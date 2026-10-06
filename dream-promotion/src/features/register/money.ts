@@ -46,6 +46,11 @@ export const remaining = (total: number, pays: { amount: number }[]) => (ag(tota
 
 const ag = (n: number) => Math.round((Number(n) || 0) * 100);
 const sh = (a: number) => a / 100;
+/**
+ * The register, its reports and its close of day count the register's own sales: a sale of the site (sales.channel =
+ * 'online', 2.57) lives in "הזמנות" and in the money screens. A row from before migration 3600 has no channel: the register's.
+ */
+export const isPosSale = (r: { channel?: string | null } | null | undefined) => (r?.channel ?? 'pos') === 'pos';
 export const ils = (n: number) => `₪${(Math.round(n * 100) / 100).toLocaleString('he-IL', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
 /** totals of a sale; discount as a sum (₪) or a percent, never more than the subtotal */

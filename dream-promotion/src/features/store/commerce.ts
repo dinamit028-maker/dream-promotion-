@@ -164,3 +164,20 @@ export const emailDomainStatus = (s: string): 'pending' | 'verified' | 'failed' 
 export const EMAIL_DOMAIN_HE: Record<'pending' | 'verified' | 'failed', string> = {
   pending: 'ממתין לרשומות DNS', verified: 'מאומת — המיילים יוצאים מהדומיין של החנות', failed: 'האימות נכשל — בודקים את הרשומות ומנסים שוב',
 };
+
+/** "תעודת ליקוט": what to pick and where it goes — no prices (it travels with the parcel). Every value through esc(). */
+export function packingSlip(storeName: string, o: { number: number; customerName: string; customerPhone: string; deliveryMethod: 'pickup' | 'delivery';
+  address: Record<string, string>; notes: string; createdAt: string }, lines: { name: string; variantLabel: string; sku: string; qty: number }[]): string {
+  const addr = o.deliveryMethod === 'delivery'
+    ? [o.address.street, o.address.house, o.address.apartment && `דירה ${o.address.apartment}`, o.address.city].filter(Boolean).join(' ')
+    : 'איסוף עצמי';
+  const day = new Date(o.createdAt).toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' });
+  const rows = lines.map((l) => `<tr><td>${esc(l.qty)}</td><td>${esc(l.name)}${l.variantLabel ? ` — ${esc(l.variantLabel)}` : ''}</td><td dir="ltr">${esc(l.sku)}</td><td>☐</td></tr>`).join('');
+  return `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>תעודת ליקוט #${esc(o.number)}</title>`
+    + `<style>body{font-family:Arial,sans-serif;padding:24px}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{border:1px solid #999;padding:6px;text-align:start}</style></head><body>`
+    + `<h1>${esc(storeName)} · הזמנה #${esc(o.number)}</h1><p>${esc(day)}</p>`
+    + `<p><strong>${esc(o.customerName)}</strong> · <span dir="ltr">${esc(o.customerPhone)}</span><br>${esc(addr)}</p>`
+    + (o.notes ? `<p>הערה: ${esc(o.notes)}</p>` : '')
+    + `<table><thead><tr><th>כמות</th><th>מוצר</th><th>מק״ט</th><th>נלקט</th></tr></thead><tbody>${rows}</tbody></table>`
+    + `</body></html>`;
+}

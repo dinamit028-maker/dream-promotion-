@@ -56,3 +56,24 @@ export function matches(l: Lead, q: string): boolean {
 
 /** "Tag1, tag2 ,tag1" → ['Tag1','tag2'] */
 export const parseTags = (s: string) => [...new Set(s.split(/[,،\n]/).map((t) => t.trim()).filter(Boolean))].slice(0, 12);
+
+/**
+ * A change of a contact = only the fields that changed (2.57). Saving the whole card again would put back old values over
+ * what changed elsewhere meanwhile — an order on the site fills an email and raises the value on the server, another
+ * device edits the notes. Only keys present in the patch are sent; null clears a date.
+ */
+const LEAD_COLUMNS: Partial<Record<keyof Lead, string>> = {
+  name: 'name', phone: 'phone', source: 'source', status: 'status', notes: 'notes', date: 'date', campaignId: 'campaign_id',
+  email: 'email', tags: 'tags', value: 'value', lastContact: 'last_contact_at', nextFollowup: 'next_followup_at',
+  billingName: 'billing_name', billingDealer: 'billing_dealer', billingStreet: 'billing_street', billingCity: 'billing_city',
+};
+const TEXT_DEFAULT = new Set(['notes', 'email', 'billing_name', 'billing_dealer', 'billing_street', 'billing_city']);
+export function leadPatchRow(patch: Partial<Lead>): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch) as [keyof Lead, unknown][]) {
+    const col = LEAD_COLUMNS[k];
+    if (!col || v === undefined) continue;
+    row[col] = v === null && TEXT_DEFAULT.has(col) ? '' : v;
+  }
+  return row;
+}

@@ -5,14 +5,15 @@ import { Button, PageHead, Pill } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
 import { checkCheckout, checkTerminal, SELLING_MISSING, sellingMissing, type CheckoutSettings, type TerminalInfo } from './checkout';
-import { connectTerminal, disconnectTerminal, terminalInfo, updateStore } from './data';
+import { connectEmailDomain, connectTerminal, disconnectTerminal, loadEmailDomain, terminalInfo, updateStore, verifyEmailDomain, type EmailDomain } from './data';
+import { EMAIL_DOMAIN_HE } from './commerce';
 import { storeHref } from './routes';
 import type { StoreRow } from './store';
 import { AreaRow, Block, NeedsStore, Notice, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 
 /**
- * "מכירה באתר" (2.56, stage 3 — test only): the payment terminal (PayPlus, its test environment), the ways to get the goods
+ * "מכירה באתר" (2.56; 2.57: a live terminal behind the platform's switch, the emails' domain): the payment terminal (PayPlus), the ways to get the goods
  * (pickup, delivery at a fixed price, free above an amount), how long stock is held while paying, and the switch itself.
  * The keys go to the server and are sealed there; this screen never sees them again — only "מחובר" and 4 characters.
  */
@@ -58,13 +59,15 @@ function Selling({ store, setStore }: { store: StoreRow; setStore: (s: StoreRow)
 
   return (
     <>
-      <PageHead title="מכירה באתר" sub="עגלה ותשלום באתר. בשלב הזה הכול בסביבת בדיקה: אף אחד לא מחויב באמת, ולא נוצרת מכירה או מסמך." />
+      <PageHead title="מכירה באתר" sub="עגלה ותשלום באתר. הזמנה אמיתית נרשמת כמכירה: המלאי יורד, מופק מסמך והלקוח נכנס ללקוחות." />
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
-      <Notice tone="warn">
-        שלב בדיקה: התשלום עובר בסביבת הבדיקה של PayPlus בלבד. הזמנה ששולמה מסומנת "שולם (בדיקה)" — בלי מכירה, בלי הורדת מלאי ובלי מסמך. מכירה אמיתית מתחילה בשלב 4.
-      </Notice>
+      {terminal?.liveOpen ? (terminal.mode !== 'live' && <Notice tone="warn">המסוף מחובר לסביבת הבדיקה: כל הזמנה היא „שולם (בדיקה)“ — בלי מכירה, בלי מלאי ובלי מסמך.</Notice>) : (
+        <Notice tone="warn">
+          מכירה אמיתית עוד סגורה במערכת: היא נפתחת רק אחרי אישור נפרד (גיבוי, רו״ח ורשות המסים, עורך דין). עד אז התשלום עובר בסביבת הבדיקה של PayPlus, וכל הזמנה מסומנת "שולם (בדיקה)" — בלי מכירה, בלי הורדת מלאי ובלי מסמך.
+        </Notice>
+      )}
 
-      <Block title="המכירה באתר" id="switch" action={<Pill tone={c.checkoutEnabled ? 'ok' : 'default'}>{c.checkoutEnabled ? 'פעילה (בדיקה)' : 'כבויה'}</Pill>}>
+      <Block title="המכירה באתר" id="switch" action={<Pill tone={c.checkoutEnabled ? 'ok' : 'default'}>{c.checkoutEnabled ? (terminal?.mode === 'live' && terminal.liveOpen ? 'פעילה' : 'פעילה (בדיקה)') : 'כבויה'}</Pill>}>
         {missing.length > 0 && !c.checkoutEnabled && (
           <div className="mb-3 text-sm">
             <p className="mb-1 font-semibold">לפני שמפעילים חסר:</p>
@@ -84,6 +87,7 @@ function Selling({ store, setStore }: { store: StoreRow; setStore: (s: StoreRow)
       </Block>
 
       <Terminal terminal={terminal} error={terminalError} onChange={(t) => { setTerminal(t); setTerminalError(''); }} />
+      <EmailDomainBlock />
 
       <Block title="איך מקבלים את ההזמנה" id="shipping" sub="לפחות אחת משתי הדרכים. המחיר מחושב בשרת, לא בדפדפן של הקונה.">
         <label className="mb-2 flex min-h-11 items-center justify-between gap-3">
@@ -124,13 +128,15 @@ const formOf = (c: CheckoutSettings) => ({
 
 function Terminal({ terminal, error, onChange }: { terminal: TerminalInfo | null; error: string; onChange: (t: TerminalInfo) => void }) {
   const [f, setF] = useState({ apiKey: '', secretKey: '', pageUid: '' });
+  const [live, setLive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
   const connect = async () => {
     const t = checkTerminal(f);
     if (!t.ok) { setMsg({ tone: 'error', text: t.error }); return; }
     setBusy(true); setMsg(null);
-    const r = await connectTerminal(t.keys.api_key, t.keys.secret_key, t.pageUid);
+    if (live && !window.confirm('מסוף אמיתי: כל הזמנה באתר תחייב את הקונה באמת, תירשם כמכירה ויופק לה מסמך. להמשיך?')) { setBusy(false); return; }
+    const r = await connectTerminal(t.keys.api_key, t.keys.secret_key, t.pageUid, live ? 'live' : 'test');
     setBusy(false);
     if (!r.ok) { setMsg({ tone: 'error', text: r.error }); return; }
     setF({ apiKey: '', secretKey: '', pageUid: '' });
@@ -138,7 +144,7 @@ function Terminal({ terminal, error, onChange }: { terminal: TerminalInfo | null
     setMsg({ tone: 'ok', text: 'המסוף נשמר. הוא ייבדק בפועל בהזמנת הבדיקה הראשונה.' });
   };
   return (
-    <Block title="מסוף סליקה — PayPlus (סביבת בדיקה)" id="terminal" sub="הקונה מזין את הכרטיס בעמוד של PayPlus, לא אצלנו. PayPlus לא מפיק חשבונית — המסמכים יוצאים מהמערכת (שלב 4).">
+    <Block title={`מסוף סליקה — PayPlus${terminal?.liveOpen ? '' : ' (סביבת בדיקה)'}`} id="terminal" sub="הקונה מזין את הכרטיס בעמוד של PayPlus, לא אצלנו. PayPlus לא מפיק חשבונית — המסמכים יוצאים מהמערכת.">
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
       {!terminal && !error ? <p className="flex items-center gap-2 text-muted"><Spinner /> בודק…</p> : terminal?.connected ? (
@@ -157,13 +163,74 @@ function Terminal({ terminal, error, onChange }: { terminal: TerminalInfo | null
       ) : (
         <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void connect(); }} autoComplete="off">
           {terminal && !terminal.ready && <Notice tone="warn">השרת עוד לא מוכן לשמור מפתחות סליקה: צריך להגדיר PAYMENT_SEAL_KEY ב-Vercel (בשני הפרויקטים, אותו ערך).</Notice>}
-          <p className="mb-2 text-sm text-muted">ב-PayPlus (חשבון הבדיקה): הגדרות ← API. מעתיקים לכאן את שלושת הערכים.</p>
+          {terminal?.liveOpen && (
+            <div role="radiogroup" aria-label="סוג המסוף" className="mb-3 flex flex-wrap gap-2">
+              {([[false, 'סביבת בדיקה'], [true, 'מסוף אמיתי']] as const).map(([v, t]) => (
+                <button key={t} type="button" role="radio" aria-checked={live === v} onClick={() => setLive(v)}
+                  className={live === v ? 'min-h-11 rounded-full border border-ink bg-ink px-4 text-sm font-semibold text-white' : 'min-h-11 rounded-full border border-line px-4 text-sm font-semibold'}>{t}</button>
+              ))}
+            </div>
+          )}
+          <p className="mb-2 text-sm text-muted">ב-PayPlus ({live ? 'החשבון האמיתי' : 'חשבון הבדיקה'}): הגדרות ← API. מעתיקים לכאן את שלושת הערכים.</p>
           <TextRow label="API key" value={f.apiKey} onChange={(v) => setF((x) => ({ ...x, apiKey: v }))} dir="ltr" />
           <TextRow label="Secret key" value={f.secretKey} onChange={(v) => setF((x) => ({ ...x, secretKey: v }))} dir="ltr" type="password" />
           <TextRow label="Payment page UID" value={f.pageUid} onChange={(v) => setF((x) => ({ ...x, pageUid: v }))} dir="ltr" />
           <Button type="submit" variant="primary" disabled={busy || !f.apiKey || !f.secretKey || !f.pageUid}>{busy ? <><Spinner /> שומר…</> : 'חיבור המסוף'}</Button>
         </form>
       )}
+    </Block>
+  );
+}
+
+/**
+ * The customers' emails (confirmation, shipped, refund) leave from the store's own domain once Resend verified it; until
+ * then from the platform's sending address, if one is set — or they wait. "מאומת" only from Resend's own answer.
+ */
+function EmailDomainBlock() {
+  const [d, setD] = useState<EmailDomain | null | undefined>(undefined);
+  const [err, setErr] = useState('');
+  const [domain, setDomain] = useState('');
+  const [fromName, setFromName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<Msg>(null);
+  const reload = () => loadEmailDomain().then((r) => { if (r.ok) { setD(r.data); setDomain(r.data?.domain ?? ''); setFromName(r.data?.fromName ?? ''); } else setErr(r.error); });
+  useEffect(() => { void reload(); }, []);
+  const connect = async () => {
+    setBusy(true); setMsg(null);
+    const r = await connectEmailDomain(domain, fromName);
+    setBusy(false);
+    if (!r.ok) setMsg({ tone: 'error', text: r.error }); else { setMsg({ tone: 'ok', text: 'נשמר. מוסיפים את הרשומות שלמטה ב-DNS של הדומיין, ואז „בדיקה“.' }); void reload(); }
+  };
+  const verify = async () => {
+    setBusy(true); setMsg(null);
+    const r = await verifyEmailDomain();
+    setBusy(false);
+    if (!r.ok) setMsg({ tone: 'error', text: r.error }); else { setMsg({ tone: r.data.status === 'verified' ? 'ok' : 'warn', text: EMAIL_DOMAIN_HE[r.data.status as keyof typeof EMAIL_DOMAIN_HE] ?? r.data.status }); void reload(); }
+  };
+  return (
+    <Block title="מיילים ללקוחות" id="email" sub="אישור הזמנה, „נשלח“ והחזר נשלחים במייל מהדומיין של החנות. בלי פרסומות בהם.">
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      {err && <Notice tone="error">{err}</Notice>}
+      {d === undefined && !err ? <p className="flex items-center gap-2 text-muted"><Spinner /> בודק…</p> : <>
+        {d && <p className="mb-3 text-sm"><Pill tone={d.status === 'verified' ? 'ok' : 'warn'}>{EMAIL_DOMAIN_HE[d.status]}</Pill> <bdi dir="ltr">orders@{d.domain}</bdi></p>}
+        <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void connect(); }}>
+          <TextRow label="הדומיין שממנו יוצאים המיילים" value={domain} onChange={setDomain} dir="ltr" />
+          <TextRow label="שם השולח (לא חובה — אחרת שם החנות)" value={fromName} onChange={setFromName} />
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" variant="primary" disabled={busy || !domain.trim()}>{busy ? <><Spinner /> שומר…</> : d ? 'שמירה' : 'חיבור הדומיין'}</Button>
+            {d && d.status !== 'verified' && <Button type="button" variant="ghost" disabled={busy} onClick={() => void verify()}>בדיקה</Button>}
+          </div>
+        </form>
+        {d && d.status !== 'verified' && d.records.length > 0 && (
+          <div className="mt-3 overflow-x-auto text-xs">
+            <p className="mb-1 font-semibold">רשומות DNS להוספה:</p>
+            <table className="w-full border-collapse" dir="ltr">
+              <thead><tr><th className="border border-line p-1 text-start">Type</th><th className="border border-line p-1 text-start">Name</th><th className="border border-line p-1 text-start">Value</th></tr></thead>
+              <tbody>{d.records.map((x, i) => <tr key={i}><td className="border border-line p-1">{x.type}{x.priority != null ? ` ${x.priority}` : ''}</td><td className="border border-line p-1 break-all">{x.name}</td><td className="border border-line p-1 break-all">{x.value}</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </>}
     </Block>
   );
 }
