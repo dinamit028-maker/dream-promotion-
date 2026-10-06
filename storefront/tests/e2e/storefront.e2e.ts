@@ -2,18 +2,21 @@
  * The storefront in a real browser (Chromium via Playwright) against a REAL Postgres — every migration of the dashboard
  * and the seed of tests/e2e/seed.sql — through the same sf_* functions the live site calls (SF_DATA=pg, never on Vercel).
  * Chromium maps *.test to this machine, so each store is reached by its own domain: followme.test (+ www), shoes.test,
- * draft.test, and platform.test (the storefront's own address, where only a preview lives).
+ * draft.test, and platform.test (the storefront's own address, where only a preview lives). FollowMe sells in test mode
+ * through the pretend provider (PAYMENT_MOCK=1, never on Vercel): cart, checkout, the payment page, the notices, the cron.
  *
  * Run: npm run test:e2e   (needs the local Postgres 16 and the preinstalled Chromium; builds and starts the storefront)
  * Screenshots go to tests/e2e/shots/ (not committed).
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { createHmac } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import assert from 'node:assert/strict';
 import { makePreviewToken } from '../../src/lib/preview';
+import { sealKeys } from '../../src/lib/seal';
 
 const ROOT = path.resolve(__dirname, '../..');
 const MIGRATIONS = path.resolve(ROOT, '../dream-promotion/supabase/migrations');
@@ -21,6 +24,9 @@ const SHIM = path.resolve(ROOT, '../dream-promotion/tests/sql/supabase-shim.sql'
 const PORT = Number(process.env.SF_E2E_PORT ?? 3231);
 const DB = process.env.SF_E2E_DB ?? 'sf_e2e';
 const SECRET = 'e2e-preview-secret-0123456789abcdef';
+const SEAL = 'e2e-payment-seal-key-0123456789abcdef';
+const CRON = 'e2e-cron-secret-0123456789';
+const MOCK_KEYS = { api_key: 'mock-api', secret_key: 'mock-secret' };
 const SHOTS = path.join(__dirname, 'shots');
 const DRAFT_STORE = 'cccccccc-0000-4000-8000-0000000000c1';
 const FOLLOWME_STORE = 'aaaaaaaa-0000-4000-8000-0000000000a1';
@@ -42,6 +48,12 @@ function prepareDatabase() {
   psql(readFileSync(SHIM, 'utf8'));
   for (const f of readdirSync(MIGRATIONS).filter((x) => x.endsWith('.sql')).sort()) psql(readFileSync(path.join(MIGRATIONS, f), 'utf8'));
   psql(readFileSync(path.join(__dirname, 'seed.sql'), 'utf8'));
+  // FollowMe sells (test): a terminal of the pretend provider — its keys sealed as the dashboard seals them — pickup and delivery
+  psql(`insert into public.payment_accounts (business_id, provider, mode, sealed, page_uid, hint)
+          values ('aaaaaaaa-0000-4000-8000-00000000000a', 'mock', 'test', '${sealKeys(MOCK_KEYS, SEAL)}', 'mock-page', 'mapi');
+        update public.stores set checkout_enabled = true, pickup_enabled = true, pickup_note = 'הרצל 10, תל אביב', delivery_enabled = true,
+          delivery_price = 30, free_delivery_over = 100 where id = '${FOLLOWME_STORE}';
+        insert into public.store_coupons (store_id, code, kind, value) values ('${FOLLOWME_STORE}', 'WELCOME10', 'percent', 10);`);
   // the storefront's login: may become service_role (the sf_* door), nothing more
   psql(`do $$ begin if not exists (select 1 from pg_roles where rolname = 'sf_e2e') then create role sf_e2e login password 'sf_e2e'; end if; end $$;
         grant service_role to sf_e2e;`, 'postgres');
@@ -71,6 +83,17 @@ function raw(host: string, p: string, headers: Record<string, string> = {}): Pro
   });
 }
 
+/** a POST with any Host (the provider's notice, a form of another site, the cron) */
+function rawPost(host: string, p: string, body: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: PORT, path: p, method: 'POST',
+      headers: { host: `${host}:${PORT}`, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), ...headers } }, (res) => {
+      let b = ''; res.setEncoding('utf8'); res.on('data', (c) => { b += c; }); res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: b }));
+    });
+    req.on('error', reject); req.end(body);
+  });
+}
+
 /** a w × h PNG of one colour (the product pictures of the seed live on cdn.test: the browser gets this instead) */
 function png(w: number, h: number, rgb: [number, number, number]): Buffer {
   const table = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
@@ -97,6 +120,7 @@ async function main() {
   const server = run('npx', ['next', 'start', '-p', String(PORT)], {
     SF_DATA: 'pg', SF_DATABASE_URL: `postgres://sf_e2e:sf_e2e@127.0.0.1:5432/${DB}`,
     STOREFRONT_PREVIEW_SECRET: SECRET, STOREFRONT_PLATFORM_HOSTS: 'platform.test',
+    PAYMENT_MOCK: '1', PAYMENT_SEAL_KEY: SEAL, STOREFRONT_CRON_SECRET: CRON,
   });
   await waitFor(server, /Ready|started server|Local:/i, 'next start');
 
@@ -228,7 +252,8 @@ async function main() {
       await page.getByRole('button', { name: 'S', exact: true }).click();
       await page.getByRole('button', { name: 'לבן', exact: true }).click();
       assert.match(await page.locator('.buy .stock').innerText(), /אזל המלאי/);
-      const wa = await page.getByRole('link', { name: 'לפרטים והזמנה בוואטסאפ' }).getAttribute('href');
+      assert.equal(await page.getByRole('button', { name: 'אזל המלאי' }).isDisabled(), true, 'an out of stock variant cannot be added');
+      const wa = await page.getByRole('link', { name: 'שאלה בוואטסאפ' }).getAttribute('href');
       assert.match(wa ?? '', /^https:\/\/wa\.me\/972501234567\?text=/);
       assert.match(decodeURIComponent(wa ?? ''), /שקית בד \(S \/ לבן\)/);
       const body = await text(page);
@@ -359,10 +384,164 @@ async function main() {
       assert.match(rows, /^followme\.test:active:true$/m);
     });
 
+    // ---- stage 3: buying (test) ----------------------------------------------------------------------------------------------
+    const TOTE = 'aaaaaaaa-0000-4000-8000-000000000101', S_BLACK = 'aaaaaaaa-0000-4000-8000-000000000111', M_BLACK = 'aaaaaaaa-0000-4000-8000-000000000113';
+    const setCart = (page: any, variant: string, qty: number) => page.evaluate(([item, v, q]: [string, string, number]) =>
+      fetch('/api/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set', item, variant: v, qty: q }) }).then((r) => r.json()),
+      [TOTE, variant, qty]);
+    async function payPage(page: any, how: 'pickup' | 'delivery' = 'pickup') {
+      await page.goto(url('followme.test', '/checkout'));
+      await page.getByRole('heading', { level: 1, name: 'פרטים ותשלום' }).waitFor();
+      await page.getByLabel('שם מלא').fill('דנה כהן');
+      await page.getByLabel('טלפון').fill('050-1234567');
+      await page.getByLabel('אימייל').fill('dana@example.com');
+      await page.getByRole('radio', { name: how === 'pickup' ? /איסוף עצמי/ : /משלוח/ }).check();
+      if (how === 'delivery') {
+        await page.getByLabel('עיר').fill('תל אביב'); await page.getByLabel('רחוב').fill('הרצל'); await page.getByLabel('מספר בית').fill('5');
+      }
+      await page.getByRole('checkbox', { name: /קראתי ואני מאשר/ }).check();
+      await page.getByRole('button', { name: /לתשלום מאובטח/ }).click();
+      await page.waitForURL(/\/pay-mock\/mp_/);
+      return new URL(page.url()).pathname.split('/').pop() as string;
+    }
+    const lastOrder = () => psql(`select id || '|' || provider_page || '|' || payment_status from public.orders where store_id = '${FOLLOWME_STORE}' order by created_at desc limit 1`).split('|');
+
+    await step('buying (test): to the cart, a coupon, the details, the provider\'s page, back — "ההזמנה התקבלה", and no sale', async () => {
+      const { ctx, page } = await phone();
+      await page.goto(url('followme.test', '/products/tote-bag'));
+      await page.getByRole('button', { name: 'S', exact: true }).click();
+      await page.getByRole('button', { name: 'שחור', exact: true }).click();
+      await page.getByRole('button', { name: 'הוספה לסל' }).click();
+      await page.getByRole('status').filter({ hasText: 'נוסף לסל' }).waitFor();
+      await page.getByRole('link', { name: 'סל הקניות, 1 פריטים' }).waitFor();
+      // a price sent by the browser is ignored: the cart's sums are the database's
+      const forged = await page.evaluate(([item, v]: [string, string]) => fetch('/api/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'add', item, variant: v, qty: 1, price: 1, total: 1 }) }).then((r) => r.json()), [TOTE, S_BLACK]);
+      assert.equal(forged.cart.subtotal, 40, '2 × 20, whatever the browser said');
+      await page.goto(url('followme.test', '/cart'));
+      await page.getByRole('heading', { level: 1, name: 'סל הקניות' }).waitFor();
+      assert.equal(await page.locator('.cart-line').count(), 1);
+      assert.equal(await page.locator('.stepper output').innerText(), '2');
+      await page.getByLabel('קוד קופון').fill('nope');
+      await page.getByRole('button', { name: 'החלה' }).click();
+      await page.getByText('הקופון הזה לא קיים.').first().waitFor();
+      await page.getByLabel('קוד קופון').fill('welcome10');
+      await page.getByRole('button', { name: 'החלה' }).click();
+      await page.getByText('הקופון WELCOME10 הוחל').waitFor();
+      assert.match(await page.locator('.sums').innerText(), /הנחה\s*−\D*4\D/);
+      await page.screenshot({ path: path.join(SHOTS, 'cart-390.png'), fullPage: true });
+      await page.getByRole('link', { name: 'להמשך לתשלום' }).click();
+      await page.getByRole('heading', { level: 1, name: 'פרטים ותשלום' }).waitFor();
+      // nothing filled in: every field says what to fix, and nothing is held
+      await page.getByRole('button', { name: /לתשלום מאובטח/ }).click();
+      await page.getByRole('alert').filter({ hasText: 'יש פרטים שצריך לתקן.' }).waitFor();
+      assert.ok((await page.locator('[aria-invalid="true"]').count()) >= 4, 'name, phone, email, terms');
+      assert.equal(psql(`select count(*) from public.orders where store_id = '${FOLLOWME_STORE}'`), '0');
+      await page.screenshot({ path: path.join(SHOTS, 'checkout-errors-390.png'), fullPage: true });
+      await page.getByLabel('שם מלא').fill('דנה כהן');
+      await page.getByLabel('טלפון').fill('050-1234567');
+      await page.getByLabel('אימייל').fill('dana@example.com');
+      await page.getByRole('radio', { name: /משלוח/ }).check();
+      await page.getByLabel('עיר').fill('תל אביב'); await page.getByLabel('רחוב').fill('הרצל'); await page.getByLabel('מספר בית').fill('5');
+      await page.getByRole('checkbox', { name: /קראתי ואני מאשר/ }).check();
+      assert.match(await page.locator('.sum-total').innerText(), /66/, '40 − 4 + 30 for delivery (free only above 100)');
+      await page.getByRole('button', { name: /לתשלום מאובטח/ }).click();
+      await page.waitForURL(/\/pay-mock\/mp_/);
+      await page.getByRole('heading', { level: 1, name: 'תשלום לבדיקה' }).waitFor();
+      assert.match(await text(page), /66/);
+      assert.equal(psql(`select sum(qty) || ':' || min(status) from public.stock_reservations where variant_id = '${S_BLACK}'`), '2:held', 'the two are held while paying');
+      await page.getByRole('button', { name: 'אישור התשלום' }).click();
+      await page.waitForURL(/\/checkout\/return\?o=/);
+      await page.getByRole('heading', { level: 1, name: 'ההזמנה התקבלה' }).waitFor();
+      assert.match(await text(page), /זו הזמנת בדיקה: לא חויב כסף/);
+      await page.screenshot({ path: path.join(SHOTS, 'order-390.png'), fullPage: true });
+      assert.equal(psql(`select payment_status || ':' || total || ':' || discount || ':' || shipping || ':' || is_test from public.orders where store_id = '${FOLLOWME_STORE}'`),
+        'test_paid:66.00:4.00:30.00:true');
+      assert.equal(psql(`select count(*) from public.sales`), '0', 'a test order makes no sale');
+      assert.equal(psql(`select count(*) from public.stock_movements`), '0', 'and moves no stock');
+      assert.equal(psql(`select stock_qty from public.catalog_variants where id = '${S_BLACK}'`), '5');
+      assert.equal(psql(`select count(*) from public.stock_reservations where status = 'held'`), '0', 'the hold is released');
+      await page.goto(url('followme.test', '/cart'));
+      await page.getByText('הסל ריק.').waitFor();
+      await page.getByRole('link', { name: 'סל הקניות' }).waitFor();
+      await ctx.close();
+    });
+
+    await step('the last units: held for the one who pays; the other is told — and gets them when that payment fails', async () => {
+      const a = await phone(), b = await phone();
+      for (const p of [a.page, b.page]) await p.goto(url('followme.test', `/products/tote-bag?variant=${M_BLACK}`));
+      assert.equal((await setCart(a.page, M_BLACK, 2)).ok, true, 'A: both M / שחור');
+      await b.page.getByRole('button', { name: 'הוספה לסל' }).click();
+      await b.page.getByRole('status').filter({ hasText: 'נוסף לסל' }).waitFor();
+      await payPage(a.page);                                      // A is on the payment page: the two are held for A
+      await b.page.reload();
+      assert.equal(await b.page.getByRole('button', { name: 'אזל המלאי' }).isDisabled(), true, 'the site shows them sold out');
+      await b.page.goto(url('followme.test', '/cart'));
+      await b.page.getByText('אזל מהמלאי — הסירו אותו מהסל.').waitFor();
+      assert.equal(await b.page.getByRole('button', { name: 'יש בסל מוצרים שצריך לעדכן' }).isDisabled(), true);
+      const blocked = await b.page.evaluate(() => fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'בני', phone: '0521111111', email: 'b@example.com', method: 'pickup', terms: true }) }).then((r) => r.json()));
+      assert.equal(blocked.error, 'stock', 'B cannot pay for them either');
+      await a.page.getByRole('button', { name: 'סירוב' }).click();
+      await a.page.getByRole('heading', { level: 1, name: 'התשלום לא הושלם' }).waitFor();
+      await b.page.reload();
+      await b.page.getByRole('link', { name: 'להמשך לתשלום' }).waitFor();
+      assert.equal(await b.page.getByText('אזל מהמלאי').count(), 0, 'released: B can have them');
+      assert.equal(psql(`select payment_status from public.orders where store_id = '${FOLLOWME_STORE}' order by created_at desc limit 1`), 'failed');
+      await a.ctx.close(); await b.ctx.close();
+    });
+
+    await step('payment notices: a forged one is refused, a repeat changes nothing, only the provider\'s answer marks paid', async () => {
+      const { ctx, page } = await phone();
+      await page.goto(url('followme.test', '/products/tote-bag'));
+      assert.equal((await setCart(page, S_BLACK, 1)).ok, true);
+      const mockPage = await payPage(page);
+      const [id, pageId, status] = lastOrder();
+      assert.equal(pageId, mockPage); assert.equal(status, 'pending');
+      const notice = (extra: Record<string, unknown> = {}) => JSON.stringify({ transaction: { payment_page_request_uid: pageId, more_info: id, status_code: '000', ...extra } });
+      const sign = (b: string) => createHmac('sha256', MOCK_KEYS.secret_key).update(b).digest('base64');
+      const forged = notice();
+      assert.equal((await rawPost('followme.test', '/api/pay/mock/webhook', forged, { hash: 'AAAA', 'user-agent': 'PayPlus' })).status, 401);
+      assert.equal(lastOrder()[2], 'pending', 'a forged notice changes nothing');
+      const early = notice({ n: 1 });
+      assert.equal((await rawPost('followme.test', '/api/pay/mock/webhook', early, { hash: sign(early), 'user-agent': 'PayPlus' })).status, 200);
+      assert.equal(lastOrder()[2], 'pending', 'a signed notice, but the provider says it is not paid: nothing changes');
+      // the shopper pays on the provider's page (its own notice cannot reach this machine's test names: sent here by hand)
+      assert.equal((await rawPost('followme.test', `/api/pay-mock/${pageId}?a=approve`, '')).status, 303);
+      const paid = notice({ n: 2 });
+      for (let i = 0; i < 3; i++) {
+        assert.equal((await rawPost('followme.test', '/api/pay/mock/webhook', paid, { hash: sign(paid), 'user-agent': 'PayPlus' })).status, 200);
+      }
+      assert.equal(lastOrder()[2], 'test_paid');
+      assert.equal(psql(`select count(*) from public.order_events where order_id = '${id}' and kind = 'test_paid'`), '1', 'three copies, one payment');
+      assert.equal(psql(`select count(*) from public.payment_events where order_id = '${id}' and kind = 'callback'`), '3', 'forged, early, paid — each logged once');
+      assert.equal((await rawPost('shoes.test', '/api/pay/mock/webhook', paid, { hash: sign(paid), 'user-agent': 'PayPlus' })).status, 404, 'another store\'s address');
+      const cross = await rawPost('followme.test', '/api/cart', JSON.stringify({ action: 'add', item: TOTE, variant: S_BLACK, qty: 1 }), { origin: 'https://evil.test' });
+      assert.equal(cross.status, 403, 'a form of another site cannot fill a cart');
+      await ctx.close();
+    });
+
+    await step('the cron asks the provider about an order nobody confirmed (the shopper closed the tab)', async () => {
+      const { ctx, page } = await phone();
+      await page.goto(url('followme.test', '/products/tote-bag'));
+      assert.equal((await setCart(page, S_BLACK, 1)).ok, true);
+      const pageId = await payPage(page);
+      await ctx.close();                                          // paid on the provider's page, never came back
+      assert.equal((await rawPost('followme.test', `/api/pay-mock/${pageId}?a=approve`, '')).status, 303);
+      const [id] = lastOrder();
+      psql(`update public.orders set created_at = now() - interval '11 minutes' where id = '${id}'`);
+      assert.equal((await rawPost('platform.test', '/api/cron/payments', '{}', { 'x-cron-secret': 'wrong-secret-0123456789' })).status, 401);
+      const r = await rawPost('platform.test', '/api/cron/payments', '{}', { 'x-cron-secret': CRON });
+      assert.equal(r.status, 200);
+      assert.ok(JSON.parse(r.body).asked >= 1);
+      assert.equal(psql(`select payment_status from public.orders where id = '${id}'`), 'test_paid');
+      assert.equal(psql(`select count(*) from public.payment_events where order_id = '${id}' and kind = 'poll'`), '1');
+    });
+
     await step('phones 375 / 390 / 430 and a desktop: nothing sideways', async () => {
       for (const width of [375, 390, 430, 1280]) {
         const { ctx, page } = await phone(width);
-        for (const p of ['/', '/products/tote-bag', '/collections/all', '/policies/returns']) {
+        for (const p of ['/', '/products/tote-bag', '/collections/all', '/policies/returns', '/cart']) {
           await page.goto(url('followme.test', p));
           const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
           assert.ok(sw <= iw, `${p} at ${width}: ${sw} > ${iw}`);

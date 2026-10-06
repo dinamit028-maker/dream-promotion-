@@ -2,14 +2,15 @@
 import { useMemo, useState } from 'react';
 import { money, productMessage, stockLabel, variantLabel, whatsappHref } from '@/lib/format';
 import type { Product, Variant } from '@/lib/types';
+import { AddToCart } from './AddToCart';
 
 /**
  * Size / colour of a product: a choice per option; the price, the "before discount" price and the availability of THAT
- * variant; a value that has no active variant with the other choices is marked. Stage 2 sells nothing: the action is a
- * question on WhatsApp that names the variant (when the store has WhatsApp and the template shows it).
+ * variant; a value that has no active variant with the other choices is marked. When the store sells on the site (stage 3)
+ * the action is "הוספה לסל" of THAT variant; WhatsApp (when the store has it and the template shows it) stays as a question.
  */
 export function VariantPicker({ product, currency, whatsapp, pageUrl, initialVariant }: {
-  product: Pick<Product, 'name' | 'options' | 'variants' | 'price' | 'price_max' | 'compare_at' | 'in_stock' | 'stock'>;
+  product: Pick<Product, 'id' | 'name' | 'options' | 'variants' | 'price' | 'price_max' | 'compare_at' | 'in_stock' | 'stock' | 'can_buy'>;
   currency: string; whatsapp: string; pageUrl: string; initialVariant?: string;
 }) {
   const { options, variants } = product;
@@ -70,7 +71,13 @@ export function VariantPicker({ product, currency, whatsapp, pageUrl, initialVar
         {options.length > 0 && !chosen ? 'השילוב הזה לא קיים' : stockLabel(inStock, stock)}
         {chosen && <span className="sr-only"> — {variantLabel(chosen)}</span>}
       </p>
-      {wa
+      {product.can_buy ? (
+        <>
+          <AddToCart item={product.id} variant={chosen?.id ?? null} disabled={!inStock || (options.length > 0 && !chosen)}
+            label={inStock ? undefined : 'אזל המלאי'} />
+          {wa && <a className="btn btn-ghost btn-wide" href={wa} target="_blank" rel="noopener noreferrer">שאלה בוואטסאפ</a>}
+        </>
+      ) : wa
         ? <a className="btn btn-primary btn-wide" href={wa} target="_blank" rel="noopener noreferrer">לפרטים והזמנה בוואטסאפ</a>
         : <a className="btn btn-primary btn-wide" href="#contact-details">ליצירת קשר</a>}
     </div>

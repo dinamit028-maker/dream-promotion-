@@ -111,6 +111,11 @@ export class FakeSupabase {
   }
 
   private t(name: string) { return (this.tables[name] ||= []); }
+  /** units held now for orders on the site (3500): 'paid', or 'held' until they expire */
+  private heldQty(item: string, variant: string | null) {
+    return this.t('stock_reservations').filter((r) => r.item_id === item && (!variant || r.variant_id === variant)
+      && (r.status === 'paid' || (r.status === 'held' && new Date(r.expires_at).getTime() > Date.now()))).reduce((a, r) => a + Number(r.qty), 0);
+  }
   /** files uploaded with a signed link (store-media), by path */
   files = new Map<string, { size: number; type: string }>();
   /** as stock_move_v (3300): the item's sum moves, and the variant named by the line when it is one of this item's */
@@ -173,6 +178,17 @@ export class FakeSupabase {
     if (table === 'document_drafts') Object.assign(r, { status: 'open', document_id: null, updated_at: now() });
     if (table === 'document_cancellations' && this.t('document_cancellations').some((c) => c.document_id === r.document_id)) return 'duplicate key value violates unique constraint "document_cancellations_pkey"';
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
+    if (table === 'store_coupons') { r.code = String(r.code ?? '').toUpperCase(); r.active ??= true; r.used_count = 0; r.min_subtotal ??= 0; }
+    // 3500: a sale of the register does not take units held for an order on the site (c_sales_reserved)
+    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) {
+      for (const l of this.lines(r.items)) {
+        const it = this.t('catalog_items').find((i) => i.id === l.id);
+        if (!it?.track_stock) continue;
+        const v = l.variant ? this.t('catalog_variants').find((x) => x.id === l.variant && x.item_id === it.id) : null;
+        const held = this.heldQty(it.id, v?.id ?? null);
+        if (held && l.qty > Number(v ? v.stock_qty : it.stock_qty) - held) return `שמור להזמנה באתר: ${it.name}`;
+      }
+    }
     // the one catalog (3300): the database's defaults and checks the screens rely on
     if (table === 'catalog_items') {
       Object.assign(r, { active: r.active ?? true, favorite: r.favorite ?? false, fav_order: r.fav_order ?? 0, sort: r.sort ?? 0, image_url: r.image_url ?? '',
@@ -305,6 +321,16 @@ export class FakeSupabase {
   rpc(fn: string, args: any): { status: number; body: any } {
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
+    if (fn === 'reserved_stock') {
+      const m = new Map<string, { item_id: string; variant_id: string | null; qty: number }>();
+      for (const r of this.t('stock_reservations').filter((x) => x.business_id === this.opts.businessId)) {
+        if (!(r.status === 'paid' || (r.status === 'held' && new Date(r.expires_at).getTime() > Date.now()))) continue;
+        const k = `${r.item_id}|${r.variant_id ?? ''}`;
+        const e = m.get(k) ?? { item_id: r.item_id, variant_id: r.variant_id ?? null, qty: 0 };
+        e.qty += Number(r.qty); m.set(k, e);
+      }
+      return { status: 200, body: [...m.values()] };
+    }
     // the store (3400): the checklist, and "פרסום" of a theme version (the published one is archived)
     if (fn === 'store_checklist') {
       const st = this.t('stores').find((x) => x.id === args.p_store && x.business_id === this.opts.businessId);

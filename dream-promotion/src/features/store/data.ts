@@ -1,6 +1,10 @@
 import { supabase } from '@/lib/supabase/client';
 import { authHeaders } from '@/lib/services/http';
 import {
+  checkoutError, couponError, toCoupon, toOrder, toOrderEvent, toOrderLine,
+  type CheckoutPatch, type Coupon, type CouponRow, type OrderEvent, type OrderLine, type OrderRow, type TerminalInfo,
+} from './checkout';
+import {
   missingFromError, toCollection, toDomain, toPage, toStore, toVersion,
   type CollectionRow, type DomainRow, type MenuLink, type Missing, type PageRow, type PolicyKind, type StoreRow, type ThemeVersion,
 } from './store';
@@ -11,12 +15,15 @@ import {
  * through the server (/api/store/…). Before migration 3400 runs, the tables are missing: the screens say so.
  */
 export const MIGRATION_3400 = 'החנות עוד לא מוכנה במסד הנתונים: צריך להריץ את מיגרציה 20261005003400_commerce_store.sql.';
+export const MIGRATION_3500 = 'המכירה באתר עוד לא מוכנה במסד הנתונים: צריך להריץ את מיגרציה 20261006003500_commerce_checkout.sql.';
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 const missingTable = (e: any) => /PGRST20[2-5]|does not exist|schema cache/i.test(`${e?.code ?? ''} ${e?.message ?? ''}`);
 export function storeError(e: any, general = 'משהו השתבש. נסו שוב.'): string {
   if (!e) return general;
-  if (missingTable(e)) return MIGRATION_3400;
+  if (missingTable(e)) return /store_coupons|orders|order_|payment_|checkout|reserve|pickup|delivery/.test(String(e.message ?? '')) ? MIGRATION_3500 : MIGRATION_3400;
   const m = String(e.message ?? '');
+  const sale = checkoutError(m) ?? couponError(m);
+  if (sale) return sale;
   if (/store_not_ready/.test(m)) return 'החנות עוד לא מוכנה לעלות לאוויר — השלימו את מה שחסר ברשימה.';
   if (/stores_business_uq/.test(m)) return 'לעסק הזה כבר יש חנות.';
   if (/store_domains_domain_uq/.test(m)) return 'הדומיין כבר מחובר לחנות (אולי של עסק אחר). אם הוא שלכם — פנו אלינו.';
@@ -68,7 +75,7 @@ export async function openStore(name: string): Promise<Result<StoreRow>> {
 }
 
 export type StorePatch = Partial<{ name: string; description: string; logo_url: string; phone: string; whatsapp: string; email: string; address: string;
-  ga4_id: string; gsc_code: string; show_stock_count: boolean; status: 'draft' | 'published' | 'paused' }>;
+  ga4_id: string; gsc_code: string; show_stock_count: boolean; status: 'draft' | 'published' | 'paused' } & CheckoutPatch & { checkout_enabled: boolean }>;
 export async function updateStore(id: string, patch: StorePatch): Promise<Result<StoreRow> & { missing?: Missing[] }> {
   const { data, error } = await supabase().from('stores').update(patch).eq('id', id).select('*').single();
   if (error) return { ...fail(error, 'לא נשמר — נסו שוב.'), missing: missingFromError(String(error.message ?? '')) };
@@ -164,3 +171,53 @@ export const checkDomains = () => api<DomainAnswer>('/api/store/domains', { acti
 export const removeDomain = (id: string) => api<DomainAnswer>('/api/store/domains', { action: 'remove', domainId: id });
 export const previewLink = () => api<{ url: string; expires: number }>('/api/store/preview-token', {});
 export const storeMediaApi = <T>(body: unknown) => api<T>('/api/store/media', body);
+
+// ---- selling on the site (2.56): the terminal, coupons, orders -----------------------------------------------------------
+async function apiGet<T>(path: string): Promise<Result<T>> {
+  try {
+    const res = await fetch(path, { headers: { ...(await authHeaders()) }, cache: 'no-store' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: j?.message || 'משהו השתבש. נסו שוב.' };
+    return { ok: true, data: j as T };
+  } catch { return { ok: false, error: 'אין חיבור לשרת. בדקו את האינטרנט ונסו שוב.' }; }
+}
+export const terminalInfo = () => apiGet<TerminalInfo>('/api/store/payments');
+export const connectTerminal = (apiKey: string, secretKey: string, pageUid: string) => api<TerminalInfo>('/api/store/payments', { action: 'connect', apiKey, secretKey, pageUid });
+export const disconnectTerminal = () => api<TerminalInfo>('/api/store/payments', { action: 'disconnect' });
+
+export async function loadCoupons(): Promise<Result<Coupon[]>> {
+  const { data, error } = await supabase().from('store_coupons').select('*').order('created_at', { ascending: false });
+  return error ? fail(error, 'הקופונים לא נטענו.') : { ok: true, data: ((data ?? []) as any[]).map(toCoupon) };
+}
+export async function saveCoupon(storeId: string, id: string | null, row: CouponRow): Promise<Result<Coupon>> {
+  const sb = supabase();
+  const q = id ? sb.from('store_coupons').update(row).eq('id', id).select('*').single() : sb.from('store_coupons').insert({ ...row, store_id: storeId }).select('*').single();
+  const { data, error } = await q;
+  return error || !data ? fail(error, 'הקופון לא נשמר — נסו שוב.') : { ok: true, data: toCoupon(data) };
+}
+export async function setCouponActive(id: string, active: boolean): Promise<Result<Coupon>> {
+  const { data, error } = await supabase().from('store_coupons').update({ active }).eq('id', id).select('*').single();
+  return error || !data ? fail(error, 'לא נשמר — נסו שוב.') : { ok: true, data: toCoupon(data) };
+}
+export async function deleteCoupon(id: string): Promise<Result<true>> {
+  const { error } = await supabase().from('store_coupons').delete().eq('id', id);
+  return error ? fail(error, 'הקופון לא נמחק — נסו שוב.') : { ok: true, data: true };
+}
+
+/** the latest orders of the business worked in now (row-level security: not a cashier; a super admin only with open access) */
+export async function loadOrders(limit = 200): Promise<Result<OrderRow[]>> {
+  const { data, error } = await supabase().from('orders').select('*').order('created_at', { ascending: false }).limit(limit);
+  return error ? fail(error, 'ההזמנות לא נטענו.') : { ok: true, data: ((data ?? []) as any[]).map(toOrder) };
+}
+export async function loadOrder(id: string): Promise<Result<{ order: OrderRow; lines: OrderLine[]; events: OrderEvent[] } | null>> {
+  const sb = supabase();
+  const [o, l, e] = await Promise.all([
+    sb.from('orders').select('*').eq('id', id).maybeSingle(),
+    sb.from('order_lines').select('*').eq('order_id', id).order('position'),
+    sb.from('order_events').select('*').eq('order_id', id).order('id'),
+  ]);
+  const bad = [o, l, e].find((x) => x.error);
+  if (bad) return fail(bad.error, 'ההזמנה לא נטענה.');
+  if (!o.data) return { ok: true, data: null };
+  return { ok: true, data: { order: toOrder(o.data), lines: ((l.data ?? []) as any[]).map(toOrderLine), events: ((e.data ?? []) as any[]).map(toOrderEvent) } };
+}

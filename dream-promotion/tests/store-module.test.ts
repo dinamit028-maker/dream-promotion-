@@ -4,14 +4,16 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STORE_SECTIONS, isStorePath, productHref, storeHref } from '../src/features/store/routes';
+import { STORE_SECTIONS, isStorePath, orderHref, productHref, storeHref } from '../src/features/store/routes';
 import { STORE_MODULE } from '../src/features/store/module';
 import { FINANCE_MODULE } from '../src/features/finance/module';
 import { isFinancePath } from '../src/features/finance/routes';
 import { groupOfPath } from '../src/components/shell/module-nav';
 
-test('the store\'s addresses: the products, one product, a new one; the site\'s screens (2.55)', () => {
-  assert.deepEqual(STORE_SECTIONS.map((s) => s.path), ['/store/products', '/store/collections', '/store/design', '/store/pages', '/store/navigation', '/store/settings']);
+test('the store\'s addresses: the products, one product, a new one; the site\'s screens (2.55); selling (2.56)', () => {
+  assert.deepEqual(STORE_SECTIONS.map((s) => s.path), ['/store/products', '/store/collections', '/store/design', '/store/pages', '/store/navigation', '/store/settings',
+    '/store/orders', '/store/selling', '/store/coupons']);
+  assert.equal(orderHref('o-1'), '/store/orders/o-1');
   assert.equal(storeHref('products'), '/store/products');
   assert.equal(storeHref('pages', { policy: 'returns' }), '/store/pages?policy=returns');
   assert.equal(storeHref('collections', { new: '1' }), '/store/collections?new=1');
@@ -33,6 +35,8 @@ test('the store\'s menu: every screen once; "+" opens a new product, collection 
   assert.equal(groupOfPath(STORE_MODULE.groups, '/store/products'), 'catalog');
   assert.equal(groupOfPath(STORE_MODULE.groups, '/store/design'), 'site');
   assert.equal(groupOfPath(STORE_MODULE.groups, '/store/settings'), 'settings');
+  assert.equal(groupOfPath(STORE_MODULE.groups, '/store/orders'), 'sales');
+  assert.equal(groupOfPath(STORE_MODULE.groups, '/store/coupons'), 'sales');
   for (const t of STORE_MODULE.tabs) assert.ok(STORE_SECTIONS.some((s) => s.path === t.href), `tab ${t.href}`);
   assert.ok(STORE_MODULE.tabs.length <= 5, 'the phone\'s bottom bar');
 });

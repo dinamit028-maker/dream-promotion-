@@ -3,6 +3,7 @@ import { safeHref } from '@/lib/theme';
 import { whatsappHref } from '@/lib/format';
 import type { Site } from '@/lib/site';
 import type { Link, PolicyKind, Store } from '@/lib/types';
+import { CartBadge } from './CartBadge';
 import { CookieConsent, CookieSettings } from './CookieConsent';
 
 export const POLICY_TITLE: Record<PolicyKind, string> = {
@@ -60,6 +61,7 @@ export function Header({ site }: { site: Site & { store: Store } }) {
           <a href="/search" className="icon-link" aria-label="חיפוש">
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" /><path d="m20 20-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
           </a>
+          {store.can_buy && <CartBadge />}
         </div>
       </header>
     </>

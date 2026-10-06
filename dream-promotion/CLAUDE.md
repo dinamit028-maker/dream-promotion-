@@ -46,6 +46,14 @@
   - החזית (מ-2.55.0, Next 16): `src/proxy.ts` במקום middleware, ו-params / headers אסינכרוניים (התיעוד ב-`storefront/node_modules/next/dist/docs`). בלי `style=` (ה-CSP חוסם); צבעי התבנית ב-`<style nonce>`. המילה Dream לא מופיעה ללקוח. `storefront/tests/unit/no-tables.test.ts` בודק את שני הכללים.
   - תבנית: שדה חדש נכתב בשני מקומות — `storefront/src/lib/theme.ts` (SCHEMA) ו-`src/features/store/theme-fields.ts`. ברירות המחדל של התבנית מועתקות. `tests/store-theme.test.ts` נכשל אם הם לא שווים.
   - דומיין "פעיל" רק דרך `sf_domain_seen`, כשהחזית באמת הגישה אותו — לא מהדשבורד ולא לפי Vercel. Search Console: "קוד האימות מוצג באתר", אף פעם לא "מחובר".
+  - עגלה ותשלום (מ-2.56.0, שלב 3 — בדיקה בלבד):
+    - הסכום נקבע רק במסד (`sf_checkout_start`). מהדפדפן מגיעים רק מזהים וכמויות.
+    - "שולם" רק אחרי שאלה ישירה לספק (`confirmOrder` → `sf_order_paid`), לא לפי הודעה או כתובת חזרה. כל הודעה נרשמת פעם אחת (`payment_events`).
+    - בשלב 3 כל הזמנה היא בדיקה (`is_test`). `sf_order_paid` מסרב לאמיתית עד שלב 4.
+    - מפתחות המסוף: הדשבורד רק מצפין (`payment-seal.ts`), החזית רק פותחת (`seal.ts`), עם `PAYMENT_SEAL_KEY`. לעולם לא מחזירים מפתח לדפדפן — רק "מחובר" ו-4 תווים.
+    - הספק המדומה רק עם `PAYMENT_MOCK=1` ומחוץ ל-Vercel (`mockAllowed`).
+    - הקופה לא מוכרת יחידה שמורה להזמנה באתר: במסד `c_sales_reserved`, במסך `heldConflict` (register/stock.ts) — אותו כלל.
+    - ניקוי שורות (עגלות ישנות, מוני קצב) רק ב-`supabase/cron-commerce.sql`, כדי שבמיגרציה לא יהיה `delete`.
   - מדיניות באתר: נוסח התחלה עם [סוגריים] למה שרק העסק יודע, NEEDS_LEGAL_VERIFICATION. לא מתפרסמת כל עוד נשאר [ … ]. לא כותבים "האתר נגיש" או "עומד בתקן".
 - אבטחה בדפים ובקישורים (מ-2.52.1):
   - HTML שנבנה ממחרוזת (docBody, dangerouslySetInnerHTML) — כל ערך מהמסד עובר דרך `esc()`, גם מספרים ותאריכים.

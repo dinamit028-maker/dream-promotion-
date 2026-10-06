@@ -1,9 +1,11 @@
 {
   "name": "dream-storefront",
-  "version": "2.55.0",
+  "version": "2.56.0",
   "private": true,
   "description": "The public storefront of Dream Commerce: one app for every business, chosen by the domain. Reads the database only through sf_* functions.",
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev -p 3230",
     "build": "next build",
