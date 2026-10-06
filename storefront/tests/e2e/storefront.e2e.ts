@@ -741,6 +741,38 @@ async function main() {
       }
     });
 
+    await step('no domain at all: the storefront\'s own address + /s/<slug> opens the store (password before publishing, 308 once its domain works)', async () => {
+      // the draft (its own domain not working): "בקרוב" with the password, then the store — noindex, robots closed
+      psql(`update public.store_domains set status = 'pending' where store_id = '${DRAFT_STORE}'`);
+      psql(`update public.stores set storefront_password = 'platform-pass' where id = '${DRAFT_STORE}'`);
+      psql(`delete from public.rate_limits where key like 'unlock:%'`);   // the step above used up this visitor's tries
+      try {
+        const { ctx, page } = await phone();
+        await page.goto(url('platform.test', '/s/draft'));
+        assert.equal(new URL(page.url()).pathname, '/', 'the address chose the store, every link stays plain');
+        await page.getByRole('heading', { level: 1, name: 'בקרוב' }).waitFor();
+        await page.getByLabel('יש לכם סיסמה? כניסה לאתר').fill('platform-pass');
+        await page.getByRole('button', { name: 'כניסה' }).click();
+        await page.getByRole('status').filter({ hasText: 'נכנסתם עם סיסמה' }).waitFor();
+        await page.goto(url('platform.test', '/collections/all'));
+        assert.deepEqual(await page.locator('.grid .card-name').allInnerTexts(), ['מוצר טיוטה']);
+        assert.equal(await page.locator('meta[name="robots"]').getAttribute('content'), 'noindex, nofollow');
+        assert.match(await page.evaluate(() => fetch('/robots.txt').then((r) => r.text())), /Disallow: \/\n/);
+        await page.screenshot({ path: path.join(SHOTS, 'platform-address-390.png'), fullPage: true });
+        // another /s/… switches the store; FollowMe's own domain works → it goes there (308)
+        const moved = await raw('platform.test', '/', { cookie: 'sf_store=followme' });
+        assert.equal(moved.status, 308);
+        assert.equal(moved.headers.location, 'https://followme.test/');
+        await ctx.close();
+      } finally {
+        psql(`update public.store_domains set status = 'active' where store_id = '${DRAFT_STORE}'`);
+      }
+      // only the storefront's own address; an unknown address or a store's domain: 404
+      assert.equal((await raw('platform.test', '/s/nobody-here')).status, 404);
+      assert.equal((await raw('followme.test', '/s/draft')).status, 404);
+      assert.equal((await raw('platform.test', '/s/ab')).status, 404);
+    });
+
     await step('phones 375 / 390 / 430 and a desktop: nothing sideways', async () => {
       for (const width of [375, 390, 430, 1280]) {
         const { ctx, page } = await phone(width);

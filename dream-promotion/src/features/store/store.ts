@@ -307,14 +307,24 @@ export const cleanRoot = (raw: string | undefined) => {
   const r = (raw ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.$/, '');
   return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(r) ? r : '';
 };
-/** where the store lives now: its own domain once that works, else its subdomain (when the root is set), else nowhere yet */
-export function storeAddress(store: Pick<StoreRow, 'slug'>, domains: Pick<DomainRow, 'domain' | 'isPrimary' | 'status'>[], root: string):
-  { url: string; kind: 'domain' | 'subdomain' } | null {
+/**
+ * where the store lives now: its own domain once that works; else its subdomain (when the root is set); else, with no
+ * domain at all, the storefront's own address + /s/<slug> (2.57.2, STOREFRONT_URL); else nowhere yet
+ */
+export function storeAddress(store: Pick<StoreRow, 'slug'>, domains: Pick<DomainRow, 'domain' | 'isPrimary' | 'status'>[], root: string,
+  storefrontUrl = ''): { url: string; kind: 'domain' | 'subdomain' | 'platform' } | null {
   const own = domains.find((d) => d.isPrimary && d.status === 'active');
   if (own) return { url: `https://${own.domain}`, kind: 'domain' };
   if (root && store.slug) return { url: `https://${store.slug}.${root}`, kind: 'subdomain' };
+  const base = cleanPlatformUrl(storefrontUrl);
+  if (base && store.slug) return { url: `${base}/s/${store.slug}`, kind: 'platform' };
   return null;
 }
+/** STOREFRONT_URL → https://… without a trailing slash, or '' */
+export const cleanPlatformUrl = (raw: string | undefined) => {
+  const u = (raw ?? '').trim().replace(/\/+$/, '');
+  return /^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(u) ? u : '';
+};
 
 /** what a visitor sees now: draft (closed), password, live — the same rule as the database's store_access() */
 export type Visibility = 'draft' | 'paused' | 'password' | 'live';
