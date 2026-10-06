@@ -435,14 +435,14 @@ begin
   return jsonb_build_object('result', 'ok', 'status', case when o.is_test then 'test_paid' else 'paid' end);
 end $$;
 
--- the customer asks to cancel or return (from the order's page): recorded on the order and told to the owner. It moves no
--- money by itself — the owner decides and refunds from the dashboard.
-create or replace function public.sf_order_request(p_store uuid, p_order_token text, p_kind text, p_note text)
+-- the customer asks to cancel or return (the order's page, or /cancel with the order's number and email): recorded on the
+-- order and told to the owner. It moves no money by itself — the owner decides and refunds from the dashboard.
+create or replace function public.order_request_apply(p_order uuid, p_kind text, p_note text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare o public.orders;
 begin
   if p_kind not in ('cancel', 'return') or length(coalesce(p_note, '')) > 500 then return jsonb_build_object('ok', false, 'error', 'bad_request'); end if;
-  select * into o from public.orders where token_hash = p_order_token and store_id = p_store for update;
+  select * into o from public.orders where id = p_order for update;
   if o.id is null then return jsonb_build_object('ok', false, 'error', 'not_found'); end if;
   if o.payment_status not in ('paid', 'partially_refunded', 'test_paid') then return jsonb_build_object('ok', false, 'error', 'not_paid'); end if;
   if o.request_kind <> '' then return jsonb_build_object('ok', false, 'error', 'already', 'kind', o.request_kind); end if;
@@ -450,8 +450,29 @@ begin
    where id = o.id;
   perform public.order_event(o.id, 'request', jsonb_build_object('kind', p_kind));
   perform public.store_alert(o.id, 'request', case p_kind when 'cancel' then 'הלקוח ביקש לבטל את ההזמנה' else 'הלקוח ביקש להחזיר את ההזמנה' end);
-  return jsonb_build_object('ok', true, 'kind', p_kind);
+  return jsonb_build_object('ok', true, 'kind', p_kind, 'number', o.number);
 end $$;
+revoke execute on function public.order_request_apply(uuid, text, text) from public, anon, authenticated;
+
+-- by the order's link (the checkout's token) or by its id (the storefront checked the email's signed link first)
+create or replace function public.sf_order_request(p_store uuid, p_order_token text, p_kind text, p_note text)
+returns jsonb language sql security definer set search_path = public as $$
+  select coalesce((select public.order_request_apply(o.id, p_kind, p_note) from public.orders o
+                    where o.token_hash = p_order_token and o.store_id = p_store), jsonb_build_object('ok', false, 'error', 'not_found'))
+$$;
+create or replace function public.sf_order_request_by_id(p_store uuid, p_order uuid, p_kind text, p_note text)
+returns jsonb language sql security definer set search_path = public as $$
+  select coalesce((select public.order_request_apply(o.id, p_kind, p_note) from public.orders o
+                    where o.id = p_order and o.store_id = p_store), jsonb_build_object('ok', false, 'error', 'not_found'))
+$$;
+-- /cancel: the order's number and the email it was made with (both must match; "not found" says nothing more)
+create or replace function public.sf_order_request_by_number(p_store uuid, p_number int, p_email text, p_kind text, p_note text)
+returns jsonb language sql security definer set search_path = public as $$
+  select coalesce((select public.order_request_apply(o.id, p_kind, p_note) from public.orders o
+                    where o.store_id = p_store and o.number = p_number and o.customer_email = lower(btrim(coalesce(p_email, '')))
+                      and length(btrim(coalesce(p_email, ''))) >= 3),
+                  jsonb_build_object('ok', false, 'error', 'not_found'))
+$$;
 
 -- an order as its page shows it (the customer's link, or the server by id). doc_token: the issued document's share token —
 -- the storefront's server fetches the document with it, so the customer sees it on the business's own domain.
@@ -676,7 +697,8 @@ do $$
 declare f text;
 begin
   -- the storefront's server and the dashboard's server (service role) only
-  foreach f in array array['public.sf_order_request(uuid, text, text, text)', 'public.commerce_owner(uuid)',
+  foreach f in array array['public.sf_order_request(uuid, text, text, text)', 'public.sf_order_request_by_id(uuid, uuid, text, text)',
+    'public.sf_order_request_by_number(uuid, int, text, text, text)', 'public.commerce_owner(uuid)',
     'public.commerce_upsert_customer(uuid, uuid, text, text, text)', 'public.commerce_record_sale(uuid, numeric, numeric)',
     'public.order_document_done(uuid, uuid, text)', 'public.order_document_retry(uuid)', 'public.commerce_pending(int)',
     'public.email_outbox_claim(int)', 'public.email_outbox_done(uuid, text, text, boolean)', 'public.store_alerts_claim(int)'] loop

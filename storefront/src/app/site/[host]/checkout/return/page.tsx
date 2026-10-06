@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { CartCount } from '@/components/CartCount';
+import { OrderSummary } from '@/components/OrderSummary';
 import { confirmOrder } from '@/lib/checkout';
 import { data } from '@/lib/data';
-import { money } from '@/lib/format';
 import { getSite, hostOf } from '@/lib/site';
 import { hashToken, isToken, shopperKey } from '@/lib/tokens';
 import type { OrderView } from '@/lib/types';
@@ -32,19 +32,8 @@ export default async function ReturnPage({ params, searchParams }: Props) {
   return (
     <div className="wrap narrow order-page">
       <Status order={order} />
-      <section aria-labelledby="ol-t" className="order-lines">
-        <h2 id="ol-t" className="summary-title">הזמנה {order.number}</h2>
-        <ul role="list">
-          {order.lines.map((l, i) => (
-            <li key={i}><span>{l.qty} × {l.name}{l.variant ? ` — ${l.variant}` : ''}</span><bdi>{money(l.total, order.currency)}</bdi></li>
-          ))}
-        </ul>
-        <dl className="sums">
-          {order.discount > 0 && <div><dt>הנחה{order.coupon ? ` (${order.coupon})` : ''}</dt><dd><bdi>−{money(order.discount, order.currency)}</bdi></dd></div>}
-          <div><dt>{order.method === 'delivery' ? 'משלוח' : 'איסוף עצמי'}</dt><dd>{order.shipping > 0 ? <bdi>{money(order.shipping, order.currency)}</bdi> : 'חינם'}</dd></div>
-          <div className="sum-total"><dt>סה״כ</dt><dd><bdi>{money(order.total, order.currency)}</bdi></dd></div>
-        </dl>
-      </section>
+      <OrderSummary order={order} />
+      {(order.status === 'paid' || order.status === 'test_paid') && <p><a href={`/orders/${o}`}>לעמוד ההזמנה</a> — שם יופיעו המסמך, מצב המשלוח, ואפשר לבקש ביטול.</p>}
       <p><a href="/">חזרה לחנות</a></p>
     </div>
   );

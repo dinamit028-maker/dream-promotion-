@@ -334,6 +334,12 @@ set local role service_role;
 select pg_temp.check((public.sf_order_request('00000000-0000-0000-0000-000000365001', pg_temp.h('c4-order-C'), 'return', 'לא מתאים'))->>'ok' = 'true', 'the customer asks to return');
 select pg_temp.check((public.sf_order_request('00000000-0000-0000-0000-000000365001', pg_temp.h('c4-order-C'), 'cancel', ''))->>'error' = 'already', 'once');
 select pg_temp.check((public.sf_order_request('00000000-0000-0000-0000-000000365001', pg_temp.h('nobody'), 'cancel', ''))->>'error' = 'not_found', 'only with the link');
+select pg_temp.check((public.sf_order_request_by_number('00000000-0000-0000-0000-000000365001', (select number from public.orders where id = (select id from o2)),
+  'someone@else.co', 'cancel', ''))->>'error' = 'not_found', '/cancel: the number alone is not enough');
+select pg_temp.check((public.sf_order_request_by_number('00000000-0000-0000-0000-000000365001', (select number from public.orders where id = (select id from o2)),
+  ' DANA@x.co ', 'cancel', 'טעות'))->>'ok' = 'true', '/cancel: the number and the email of the order');
+select pg_temp.check((public.sf_order_request_by_id('00000000-0000-0000-0000-000000365001', (select id from o1), 'return', ''))->>'error' = 'not_paid',
+  'a refunded order takes no request');
 select pg_temp.check((select request_kind = 'return' and request_note = 'לא מתאים' and payment_status = 'paid' from public.orders where id = (select id from o3)),
   'recorded on the order; no money moved');
 select pg_temp.check((select count(*) = 1 from public.store_alerts where order_id = (select id from o3) and kind = 'request'), 'the owner is told');

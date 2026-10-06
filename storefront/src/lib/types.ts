@@ -118,4 +118,9 @@ export interface OrderView {
   subtotal: number; discount: number; shipping: number; total: number; coupon: string; method: 'pickup' | 'delivery'; name: string;
   provider: 'payplus' | 'mock'; page: string; created_at: string; expires_at: string; paid_at: string | null;
   lines: { name: string; variant: string; qty: number; price: number; total: number; image: string }[];
+  /** stage 4 (migration 3600) — absent before it runs */
+  fulfillment?: 'unfulfilled' | 'processing' | 'ready' | 'shipped' | 'delivered' | 'returned'; tracking?: string; tracking_url?: string;
+  document?: 'not_required' | 'pending' | 'issued' | 'blocked'; doc_token?: string | null; request?: '' | 'cancel' | 'return';
+  refunded?: number; state?: string;
 }
+export type OrderRequestResult = { ok: true; kind: 'cancel' | 'return'; number?: number } | { ok: false; error: 'bad_request' | 'not_found' | 'not_paid' | 'already'; kind?: string };
