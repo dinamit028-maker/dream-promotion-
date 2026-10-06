@@ -286,6 +286,22 @@ async function main() {
       await page.getByText('ראשית', { exact: true }).waitFor();
     });
 
+    await step('📣 קדם מוצר (2.60): the studio opens with the product\'s picture in the library and a brief of its own words — never its price', async () => {
+      const editor = page.url();
+      page.once('dialog', (d: any) => void d.accept());
+      await page.getByRole('button', { name: 'קדם מוצר' }).click();
+      await page.waitForURL(/\/create\?/);
+      const u = new URL(page.url());
+      assert.equal(u.searchParams.get('kind'), 'post');
+      assert.match(u.searchParams.get('brief') ?? '', /חולצת כותנה/);
+      assert.doesNotMatch(u.searchParams.get('brief') ?? '', /120/, 'never the price');
+      const row = (fake.tables.media ?? []).find((m) => m.id === u.searchParams.get('media'));
+      assert.ok(row, 'the picture is in the library');
+      assert.match(row.url, new RegExp(`/${BIZ}/${shirt()!.id}/.+/(800|1600)\\.webp$`));
+      await page.goto(editor);
+      await page.getByText('ראשית', { exact: true }).waitFor({ timeout: 60_000 });
+    });
+
     await step('"באתר": a complete product is published at once; one without a picture and a description is offered to complete them first', async () => {
       await page.getByRole('link', { name: '→ כל המוצרים' }).click();
       await page.waitForURL(/\/store\/products$/);

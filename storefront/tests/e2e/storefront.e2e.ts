@@ -354,6 +354,15 @@ async function main() {
       const draftRobots = await raw('draft.test', '/robots.txt');
       assert.match(draftRobots.body, /Disallow: \/\n/, 'a store that is not on the air closes the door');
       assert.equal((await raw('draft.test', '/sitemap.xml')).status, 404);
+      // 2.60: the Merchant Center feed — the products on the air, as the product page shows them; never a hidden one
+      const feed = await raw('followme.test', '/feeds/google.xml');
+      assert.equal(feed.status, 200);
+      assert.match(feed.body, /^<\?xml[^>]*>\n<rss version="2.0" xmlns:g="http:\/\/base.google.com\/ns\/1.0">/);
+      assert.match(feed.body, /<g:link>https:\/\/followme\.test\/products\/tote-bag(\?variant=[^<]+)?<\/g:link>/);
+      assert.match(feed.body, /<g:price>\d+\.\d{2} ILS<\/g:price>/);
+      assert.match(feed.body, /<g:availability>(in_stock|out_of_stock)<\/g:availability>/);
+      assert.ok(!feed.body.includes('secret-bag'), 'never a hidden product');
+      assert.equal((await raw('draft.test', '/feeds/google.xml')).status, 404, 'a store that is not on the air has no feed');
       const home = await raw('followme.test', '/');
       assert.match(home.body, /<meta name="google-site-verification" content="gsc-verification-code-1"/);
       assert.match(home.body, /<link rel="canonical" href="https:\/\/followme\.test"/);

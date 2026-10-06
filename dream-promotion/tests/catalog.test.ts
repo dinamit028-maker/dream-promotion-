@@ -200,3 +200,13 @@ test('✨ the AI\'s text: plain text within the limits — and the AI never sees
   assert.deepEqual(brief.fields, [{ label: 'כביסה', value: '30°' }], 'only the business\'s defined fields');
   assert.ok(!/149|129/.test(JSON.stringify(brief)), 'no price in what the AI sees');
 });
+
+test('📣 קדם מוצר: the studio\'s address — a post, a brief of the product\'s own words, its picture', async () => {
+  const { promoteBrief, promoteUrl } = await import('../src/features/catalog/catalog');
+  const brief = promoteBrief({ name: 'שקית על בד', description: 'שקית   חזקה\nלשימוש חוזר' });
+  assert.equal(brief, 'פוסט שמקדם את המוצר "שקית על בד": שקית חזקה לשימוש חוזר');
+  assert.equal(promoteBrief({ name: 'שקית', description: '' }), 'פוסט שמקדם את המוצר "שקית"');
+  assert.equal(promoteBrief({ name: 'x', description: 'א'.repeat(500) }).length, 'פוסט שמקדם את המוצר "x": '.length + 300);
+  assert.equal(promoteUrl('a b&c', 'm-1'), '/create?kind=post&brief=a%20b%26c&media=m-1');
+  assert.equal(promoteUrl('x', null), '/create?kind=post&brief=x');
+});
