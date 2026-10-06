@@ -1,4 +1,6 @@
 import type { BrandProfile, ContentBrief } from '@/types';
+import { factsText, legalFacts, type PageFacts, type ShortAsk } from '@/features/store/page-ai';
+import { POLICY_LABEL } from '@/features/store/store';
 
 /** Every prompt lives here — one place to tune the product's voice. */
 export const brandContext = (b: BrandProfile) => `פרטי העסק:
@@ -253,3 +255,35 @@ ${p.current ? `הטקסט הנוכחי — לשפר אותו, בלי להוסי�
 - seoTitle: עד 60 תווים, עם שם המוצר.
 - seoDescription: עד 155 תווים, משפט אחד שמזמין להיכנס.
 החזר/י JSON בלבד: {"description":"","seoTitle":"","seoDescription":""}`;
+
+/**
+ * Dream Commerce (2.59): a page or a policy of the store's site — the store's own details and, for a policy, the law of the
+ * store's country (page-ai.ts) in; a draft out, cleaned by cleanPageCopy and read by the owner before anything is saved.
+ */
+export const storePagePrompt = (b: BrandProfile, f: PageFacts) => {
+  const policy = f.kind === 'policy' && f.policy;
+  return `${brandContext(b)}
+
+פרטי החנות (רק אלה עובדות; אין להמציא אחרות):
+${factsText(f)}
+
+כתוב/כתבי ${policy ? `את "${f.title || POLICY_LABEL[f.policy!]}" של אתר החנות` : `את העמוד "${String(f.title).slice(0, 120) || 'עמוד'}" באתר החנות`}, בעברית טבעית ופשוטה, בגוף ראשון רבים ("אנחנו"), בטון של העסק.
+${policy ? `הכללים שהמדיניות נכתבת לפיהם:\n${legalFacts(f.store.country, f.policy!).map((x) => `- ${x}`).join('\n')}\n` : ''}${f.current.trim() ? `הטקסט הנוכחי — לשמור על מה שהעסק כתב בו, ולהשלים את מה שבסוגריים:\n${f.current.slice(0, 6000)}\n` : ''}
+חוקים מחייבים:
+- רק עובדות מהפרטים למעלה${policy ? ' ומהכללים' : ''}. מה שרק העסק יודע (זמני אספקה, שם רכז/ת נגישות, תאריך) — בסוגריים מרובעים עם הצעה, למשל: [3–5 ימי עסקים — לעדכן].
+- אסור לכתוב "האתר נגיש", "עומד בתקן", "מאושר" או כל טענה שלא נבדקה.${policy ? '\n- בסוף: שורה נפרדת "[לבדוק עם עורך דין לפני הפרסום — ואחרי הבדיקה למחוק את השורה הזו.]".' : ''}
+- עיצוב: שורה ריקה בין פסקאות, "## " בתחילת שורה לכותרת, "- " לרשימה. בלי HTML, בלי **.
+- body: ${policy ? '250–700' : '80–300'} מילים. title: קצר. seoTitle: עד 60 תווים. seoDescription: עד 155 תווים, משפט אחד.
+החזר/י JSON בלבד: {"title":"","body":"","seoTitle":"","seoDescription":""}`;
+};
+
+/** Dream Commerce (2.59): a category's description, or the store's one sentence — from names only, no facts made up */
+export const storeTextPrompt = (b: BrandProfile, store: PageFacts['store'], a: ShortAsk) => `${brandContext(b)}
+שם החנות: ${store.name}${store.description ? `\nעל החנות: ${store.description}` : ''}
+
+${a.field === 'collection'
+    ? `כתוב/כתבי תיאור לקטגוריה "${String(a.title).slice(0, 80)}" באתר החנות${a.tags.length ? ` (תגיות: ${a.tags.slice(0, 20).map((t) => String(t).slice(0, 40)).join(', ')})` : ''}: 1–3 משפטים שמזמינים לראות את המוצרים.`
+    : 'כתוב/כתבי משפט אחד על החנות (עד 160 תווים) — מופיע בגוגל ובתחתית האתר.'}
+${a.current.trim() ? `הטקסט הנוכחי — לשפר בלי להוסיף עובדות:\n${a.current.slice(0, 600)}\n` : ''}
+חוקים: עברית טבעית, בטון של העסק. רק מה שידוע למעלה — בלי מחירים, מבצעים, משלוח, חומרים או הבטחות. בלי HTML.
+החזר/י JSON בלבד: {"text":""${a.field === 'collection' ? ',"seoTitle":"","seoDescription":""' : ''}}`;

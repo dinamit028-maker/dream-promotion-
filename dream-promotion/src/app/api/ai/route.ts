@@ -3,8 +3,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   adCopyPrompt, assistantPrompt, brandAnalysisPrompt,
   contentPrompt, rewritePrompt, scenePrompt, storyboardPrompt, weeklyPlanPrompt,
-  socialPrompt, captionPolishPrompt, ideasPrompt, followupPrompt, collectionPrompt, productCopyPrompt,
+  socialPrompt, captionPolishPrompt, ideasPrompt, followupPrompt, collectionPrompt, productCopyPrompt, storePagePrompt, storeTextPrompt,
 } from '@/lib/services/prompts';
+import { cleanPageCopy, cleanShortCopy, type PageFacts, type ShortField } from '@/features/store/page-ai';
+import { pageFacts } from '@/lib/server/page-facts';
 import { cleanProductCopy } from '@/features/catalog/catalog';
 import { aiDraftIsSafe, reminderTemplate, type Tone } from '@/features/finance/receivables';
 import { accessDenied } from '@/lib/server/access';
@@ -24,7 +26,9 @@ export async function GET() {
   return NextResponse.json({ available: Boolean(KEY), model: KEY ? MODEL : null });
 }
 
-function buildPrompt(task: string, p: any): { prompt: string; json: boolean } {
+const shortField = (v: unknown): ShortField => (v === 'store' ? 'store' : 'collection');
+
+function buildPrompt(task: string, p: any, facts: PageFacts | null): { prompt: string; json: boolean } {
   switch (task) {
     case 'content':    return { prompt: contentPrompt(p.brand, p.brief), json: true };
     case 'weekly':     return { prompt: weeklyPlanPrompt(p.brand), json: true };
@@ -46,6 +50,11 @@ function buildPrompt(task: string, p: any): { prompt: string; json: boolean } {
     case 'captions':   return { prompt: captionPolishPrompt(p.brand, p), json: true };
     // Dream Commerce: a product page's text — the product's own words in, a suggestion out (cleaned below)
     case 'product':    return { prompt: productCopyPrompt(p.brand, p), json: true };
+    // a page or a policy of the site: the store's details come from the server (pageFacts), never from the request
+    case 'storePage':  if (!facts) throw new Error('no_store'); return { prompt: storePagePrompt(p.brand, facts), json: true };
+    case 'storeText':  if (!facts) throw new Error('no_store');
+      return { prompt: storeTextPrompt(p.brand, facts.store, { field: shortField(p.field), title: String(p.title ?? '').slice(0, 80),
+        tags: Array.isArray(p.tags) ? p.tags.slice(0, 20).map(String) : [], current: String(p.current ?? '').slice(0, 600) }), json: true };
     default: throw new Error('unknown_task');
   }
 }
@@ -65,8 +74,11 @@ export async function POST(req: Request) {
     // a cap on what one request may send (brand profile + brief + script fit easily in 60k characters)
     if (raw.length > 60_000) return NextResponse.json({ code: 'too_large', message: 'request too large' }, { status: 413 });
     const { task, payload } = JSON.parse(raw);
-    const { prompt, json } = buildPrompt(task, payload);
     const userId0 = await requestUser(req);
+    const store = task === 'storePage' || task === 'storeText';
+    const facts = store && userId0 ? await pageFacts(userId0, task === 'storePage' ? payload ?? {} : { kind: 'page' }) : null;
+    if (store && !facts) return NextResponse.json({ code: 'no_store', message: 'no store for this business' }, { status: 404 });
+    const { prompt, json } = buildPrompt(task, payload, facts);
     const r = await reserveUsage(userId0, 'text', 1, { task });
     if (r.denied) return r.denied;
     slot = r.reservation;
@@ -75,7 +87,7 @@ export async function POST(req: Request) {
     const started = Date.now();
     const res = await client.messages.create({
       model: MODEL,
-      max_tokens: task === 'weekly' || task === 'storyboard' ? 8000 : 3000,
+      max_tokens: task === 'weekly' || task === 'storyboard' || task === 'storePage' ? 8000 : 3000,
       messages: [{ role: 'user', content: prompt }],
     });
     // ledger: tokens are reported by Anthropic, so this is the actual cost, not an estimate
@@ -111,6 +123,15 @@ export async function POST(req: Request) {
       if (task === 'product') {
         const copy = cleanProductCopy(parsed);
         return copy ? NextResponse.json(copy) : NextResponse.json({ code: 'empty_draft', message: 'no text came back' }, { status: 422 });
+      }
+      // a page: plain text, no claim nobody checked ("האתר נגיש"), and a policy keeps its lawyer line — or nothing
+      if (task === 'storeText') {
+        const copy = cleanShortCopy(parsed, shortField(payload?.field));
+        return copy ? NextResponse.json(copy) : NextResponse.json({ code: 'unsafe_draft', message: 'the draft was empty or made a claim' }, { status: 422 });
+      }
+      if (task === 'storePage') {
+        const copy = cleanPageCopy(parsed, facts!.kind);
+        return copy ? NextResponse.json(copy) : NextResponse.json({ code: 'unsafe_draft', message: 'the draft was empty or made a claim' }, { status: 422 });
       }
       return NextResponse.json(parsed);
     } catch {

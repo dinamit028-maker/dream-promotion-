@@ -35,6 +35,9 @@ const OWNER = 'a0000000-0000-4000-8000-0000000000a1';
 const CASHIER = 'c0000000-0000-4000-8000-0000000000c1';
 const CREAM = 'f0000000-0000-4000-8000-0000000000f1';
 const PHONE = { width: 390, height: 844 };
+// a policy as the server returns it (cleanPageCopy): the law, and the lawyer line it always keeps
+const AI_POLICY = { title: 'ביטולים והחזרות', body: '## ביטול עסקה\n\nאפשר לבטל עד 14 ימים מקבלת המוצר. דמי ביטול: עד 5% או 100 ₪, הנמוך מביניהם.\n\n[לבדוק עם עורך דין לפני הפרסום — ואחרי הבדיקה למחוק את השורה הזו.]',
+  seoTitle: 'ביטולים והחזרות', seoDescription: 'איך מבטלים הזמנה ומקבלים את הכסף בחזרה.' };
 const AI_TEXT = { description: 'חולצת כותנה רכה לכל יום.\n\nמגיעה במידות S ו-M, בשחור ובלבן.', seoTitle: 'חולצת כותנה', seoDescription: 'חולצת כותנה רכה לכל יום — במידות S ו-M.' };
 
 function seed(): Tables {
@@ -114,6 +117,8 @@ async function main() {
       if (r.request().method() === 'GET') return r.fulfill({ json: { available: true, model: 'test' } });
       const body = JSON.parse(r.request().postData() ?? '{}');
       aiRequests.push(body);
+      if (body.task === 'storePage') return r.fulfill({ json: AI_POLICY });
+      if (body.task === 'storeText') return r.fulfill({ json: { text: 'הקטגוריה שלנו.', seoTitle: '', seoDescription: '' } });
       return body.task === 'product' ? r.fulfill({ json: AI_TEXT }) : r.fulfill({ status: 400, json: { code: 'unknown_task' } });
     });
     // the server's picture route (src/app/api/store/media — tested on its own in tests/store-media.test.ts): signed links,
@@ -473,6 +478,15 @@ async function main() {
       await st.getByRole('heading', { name: 'ביטולים והחזרות' }).waitFor();
       await st.getByText(/NEEDS_LEGAL_VERIFICATION/).first().waitFor();
       assert.match(await st.getByLabel('טקסט', { exact: true }).inputValue(), /\[לבדוק עם עורך דין/);
+      // 2.59: the AI writes the policy by itself (it still has "[…]") — a proposal beside the text, taken only on "שימוש בטקסט"
+      await st.getByText(/הצעה מה-AI/).waitFor();
+      const asked = aiRequests.find((b) => b.task === 'storePage');
+      assert.equal(asked?.payload?.policy, 'returns');
+      assert.ok(!('phone' in (asked?.payload ?? {})) && !('store' in (asked?.payload ?? {})), 'the store\'s details are read on the server, not sent from here');
+      assert.doesNotMatch(await st.getByLabel('טקסט', { exact: true }).inputValue(), /14 ימים/, 'nothing goes into the text before the owner takes it');
+      await st.getByRole('button', { name: 'שימוש בטקסט' }).click();
+      assert.match(await st.getByLabel('טקסט', { exact: true }).inputValue(), /14 ימים[\s\S]*\[לבדוק עם עורך דין לפני הפרסום/);
+      assert.equal((fake.tables.store_pages ?? []).length, 0, 'and nothing is saved by it');
       await st.getByRole('switch', { name: 'העמוד באתר' }).click();
       await st.getByRole('button', { name: 'שמירה', exact: true }).click();
       await st.getByText(/סוגריים מרובעים/).first().waitFor();

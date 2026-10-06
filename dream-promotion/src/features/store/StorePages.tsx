@@ -1,11 +1,15 @@
 'use client';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Button, PageHead, Pill } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
 import { LIMITS, SEO_SHOWN } from '@/features/catalog/catalog';
+import { AIService } from '@/lib/services/ai.service';
+import { useApp } from '@/lib/store';
 import { deletePage, savePage } from './data';
+import { aiErrorText } from './AiShort';
+import { type PageCopy, wantsAutoFill } from './page-ai';
 import {
   hasPlaceholders, pageProblem, POLICY_ACK, policyAckProblem, POLICY_LABEL, policyDraft, policySlug, REQUIRED_POLICIES, STORE_LIMITS, suggestSlug,
   type PageRow, type PolicyKind, type StoreRow,
@@ -119,6 +123,7 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ack, setAck] = useState(false);
+  const ai = usePageAi(d, draft);
   const set = (patch: Partial<Draft>) => { setD((x) => ({ ...x, ...patch })); setError(''); };
   const policy = d.kind === 'policy';
   const required = policy && d.policy !== null && REQUIRED_POLICIES.includes(d.policy);
@@ -144,6 +149,12 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
       <PageHead title={d.id || policy ? d.title || 'עמוד' : 'עמוד חדש'} sub={address} action={<Button variant="ghost" onClick={onClose}>חזרה לרשימה</Button>} />
       {error && <Notice tone="error">{error}</Notice>}
       {policy && <Notice tone="warn">נקודת התחלה בלבד — לא בדיקה משפטית. מה שבסוגריים [ … ] רק אתם יודעים: משלימים או מוחקים. לפני מכירה אמיתית — לעבור עם עורך דין (NEEDS_LEGAL_VERIFICATION).</Notice>}
+
+      <AiProposal ai={ai} policy={policy} onUse={(p) => {
+        set({ title: d.title.trim() ? d.title : p.title, body: p.body, seoTitle: d.seoTitle.trim() || p.seoTitle, seoDescription: d.seoDescription.trim() || p.seoDescription,
+          ...(d.slugTouched || d.title.trim() ? {} : { slug: suggestSlug(p.title, taken, 'עמוד') }) });
+        ai.clear();
+      }} />
 
       <Block title="תוכן">
         <TextRow label="כותרת" value={d.title} max={STORE_LIMITS.pageTitle}
@@ -185,5 +196,64 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
         <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? <><Spinner /> שומר…</> : 'שמירה'}</Button>
       </div>
     </>
+  );
+}
+
+// ---- ✨ AI (2.59) --------------------------------------------------------------------------------------------------------------
+type PageAi = { ok: boolean | null; busy: boolean; proposal: PageCopy | null; error: string; write: () => Promise<void>; clear: () => void };
+
+/**
+ * The AI writes by itself when the editor opens on an empty page or one still holding "[…]" (once per page in a visit) — a
+ * proposal beside the text, never over it: "שימוש בטקסט" puts it in the editor, and only "שמירה" saves.
+ */
+function usePageAi(d: Draft, opened: Draft): PageAi {
+  const brand = useApp((s) => s.brand);
+  const [ok, setOk] = useState<boolean | null>(null);
+  const [state, setState] = useState<{ busy: boolean; proposal: PageCopy | null; error: string }>({ busy: false, proposal: null, error: '' });
+  const latest = useRef(d); latest.current = d;
+  const write = async () => {
+    const x = latest.current;
+    if (x.kind === 'page' && !x.title.trim()) { setState({ busy: false, proposal: null, error: 'קודם כותרת לעמוד — ה-AI כותב לפיה.' }); return; }
+    setState({ busy: true, proposal: null, error: '' });
+    try {
+      const p = await AIService.storePage(brand, { kind: x.kind, policy: x.policy, title: x.title.trim(), current: x.body });
+      setState({ busy: false, proposal: p?.body ? p : null, error: p?.body ? '' : 'לא התקבל טקסט — נסו שוב.' });
+    } catch (e) { setState({ busy: false, proposal: null, error: aiErrorText(e) }); }
+  };
+  useEffect(() => { AIService.available().then(setOk); }, []);
+  useEffect(() => {
+    if (!ok || !wantsAutoFill(opened.body) || (opened.kind === 'page' && !opened.title.trim())) return;
+    const key = `page-ai:${opened.id ?? opened.policy ?? opened.title}`;
+    try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch { /* no storage: still write once now */ }
+    void write();
+  }, [ok]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { ok, ...state, write, clear: () => setState({ busy: false, proposal: null, error: '' }) };
+}
+
+function AiProposal({ ai, policy, onUse }: { ai: PageAi; policy: boolean; onUse: (p: PageCopy) => void }) {
+  if (ai.ok === false) return <p className="mb-3 text-xs text-muted">ה-AI לא מוגדר בשרת — כותבים ידנית.</p>;
+  return (
+    <div className="mb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="soft" disabled={ai.busy || ai.ok === null} onClick={() => void ai.write()}>
+          {ai.busy ? <><Spinner /> ה-AI כותב…</> : policy ? '✨ מילוי בעזרת AI לפי החוק' : '✨ מילוי בעזרת AI'}</Button>
+        {!ai.busy && !ai.proposal && <span className="text-xs text-muted">{policy ? 'לפי חוקי המדינה של החנות ופרטי העסק.' : 'לפי פרטי העסק והכותרת.'}</span>}
+      </div>
+      {ai.error && <p role="alert" className="mt-2 text-sm text-[var(--danger)]">{ai.error}</p>}
+      {ai.proposal && (
+        <div className="mt-3 rounded-2xl border border-primary/40 bg-primary-soft p-3 text-sm">
+          <p className="mb-1 font-bold">✨ הצעה מה-AI — לקרוא לפני שמשתמשים. היא תישמר רק אחרי &quot;שמירה&quot;.</p>
+          {policy && <p className="mb-2 text-xs text-ink-2">נכתב לפי החוק כפי שהוא ידוע לנו — לא בדיקה משפטית. מה שבסוגריים [ … ] משלימים, ולפני הפרסום עוברים עם עורך דין.</p>}
+          <div className="max-h-80 overflow-y-auto whitespace-pre-line rounded-md bg-surface p-2">{ai.proposal.body}</div>
+          {ai.proposal.seoTitle && <p className="mt-2 text-xs text-ink-2"><strong>כותרת לגוגל:</strong> {ai.proposal.seoTitle}</p>}
+          {ai.proposal.seoDescription && <p className="text-xs text-ink-2"><strong>תיאור לגוגל:</strong> {ai.proposal.seoDescription}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="primary" onClick={() => onUse(ai.proposal!)}>שימוש בטקסט</Button>
+            <Button size="sm" variant="ghost" onClick={() => void ai.write()}>הצעה אחרת</Button>
+            <Button size="sm" variant="ghost" onClick={ai.clear}>ביטול</Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
