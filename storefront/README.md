@@ -59,7 +59,7 @@
 
 ## הקמה ב-Vercel — פעם אחת, על ידי בעל המערכת
 
-**בוצע ב-2.57.3:** הפרויקט `dream-storefront` (`https://dream-storefront.vercel.app`) קיים, וכל המשתנים מוגדרים חוץ מ-`SUPABASE_SECRET_KEY`. פירוט ב-STATUS.md, סעיף 4כו.
+**בוצע ב-2.57.3:** הפרויקט `dream-storefront` (`https://dream-storefront.vercel.app`) קיים, וכל המשתנים מוגדרים, כולל `SUPABASE_SECRET_KEY` (Production). פירוט ב-STATUS.md, סעיף 4כו.
 
 1. **פרויקט:** Vercel ← Add New ← Project, מאותו repo.
    - **Root Directory:** `storefront`.

@@ -31,7 +31,7 @@
   - **משתני הסביבה ב-Vercel.**
   - **המתג `commerce_live`:** נשאר נעול עד האישור הנפרד.
 
-**כל 20 המיגרציות עד 3500 הורצו על המסד החי** (סעיף 3 של 3400 רץ ב-SQL Editor). **`supabase/cron-commerce.sql`: 3 מתוך 4 משימות הוגדרו (2.57.3, סעיף 4כו). משימת הניקוי ממתינה ל-SQL Editor.** נבדק ישירות במסד החי (`list_migrations`, קריאה בלבד, 6.10.2026): 20 מיגרציות, האחרונה `20261006065045 commerce_checkout`.
+**כל 20 המיגרציות עד 3500 הורצו על המסד החי** (סעיף 3 של 3400 רץ ב-SQL Editor). **`supabase/cron-commerce.sql`: כל 4 המשימות פעילות (2.57.3, סעיף 4כו).** נבדק ישירות במסד החי (`list_migrations`, קריאה בלבד, 6.10.2026): 20 מיגרציות, האחרונה `20261006065045 commerce_checkout`.
 
 **3500 `commerce_checkout` (2.56.0) — הוחלה על המסד החי ב-6.10.2026, אחרי אישור מפורש שלך** (שם הגרסה שם: `20261006065045`).
 - **הוחלה כולה, בקריאה אחת דרך ה-MCP.** אין בה `drop` ואין `delete`, ולכן לא היה צריך SQL Editor.
@@ -1784,10 +1784,11 @@
 **ה-cron (`cron-commerce.sql`) — 3 מתוך 4 המשימות הוגדרו דרך ה-MCP (6.10.2026, אחרי אישור שלך):**
 - `dp-commerce-release` (כל דקה), `dp-commerce-payments` (כל 5 דקות, לחזית, עם `STOREFRONT_CRON_SECRET`), `dp-commerce-finalize` (כל 2 דקות, לדשבורד).
 - **הסוד של `dp-commerce-finalize`:** הועתק במסד עצמו מהמשימה הקיימת `dp-publish-due`. הוא לא עבר דרך השיחה.
-- **`dp-commerce-cleanup` לא הוגדרה:** יש בה `delete`, וה-MCP עוצר. בעל המערכת מריץ ב-SQL Editor רק את החלק הזה מ-`cron-commerce.sql` (`select cron.schedule('dp-commerce-cleanup', …)`).
+- **`dp-commerce-cleanup`:** יש בה `delete`, וה-MCP עוצר. בעל המערכת הריץ אותה ב-SQL Editor (6.10.2026). כל 4 המשימות פעילות (נבדק ב-`cron.job`).
+- **`dp-commerce-finalize` נבדקה:** הדשבורד ענה 200 (`net._http_response`), כלומר הכתובת והסוד נכונים.
 
 **מה חסר:**
-- **`SUPABASE_SECRET_KEY` בחזית.** בדשבורד המפתח שמור כ-Sensitive, ואין דרך לקרוא אותו (גם לא דרך ה-MCP של Supabase). בעל המערכת מוסיף אותו ביד:
+- ~~**`SUPABASE_SECRET_KEY` בחזית.**~~ — בעל המערכת הוסיף אותו (Production) ב-6.10.2026. קומיט שנוגע ב-`storefront/` בונה את החזית איתו. בדשבורד המפתח שמור כ-Sensitive, ואין דרך לקרוא אותו (גם לא דרך ה-MCP של Supabase). בעל המערכת מוסיף אותו ביד:
   - Supabase ← Settings ← API Keys ← Secret key, או `service_role`.
   - Vercel ← dream-storefront ← Settings ← Environment Variables.
 - **Redeploy לא בונה מחדש:** `ignoreCommand` ב-`vercel.json` משווה לקומיט של הפריסה האחרונה. אם אותו קומיט, הבנייה מבוטלת ("Ignored Build Step"). כך קרה ל-Redeploy של הדשבורד.
