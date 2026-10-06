@@ -39,3 +39,13 @@ export function subdomainOf(host: string, root: string = rootDomain()): string |
 }
 /** the root and www.<root>: the platform's own, like its Vercel address */
 export const isRootHost = (host: string, root: string = rootDomain()) => Boolean(root) && (host === root || host === `www.${root}`);
+
+/**
+ * A store with no domain at all (2.57.2): the storefront's own address + /s/<slug> opens it (like a preview, but for anyone
+ * with the link — and the password, before publishing). The choice is a cookie of that address; /s/<another> switches.
+ */
+export const PLATFORM_STORE_COOKIE = 'sf_store';
+export const cleanSlug = (raw: string) => {
+  const s = raw.trim().toLowerCase();
+  return s.length >= 3 && s.length <= 40 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(s) ? s : null;
+};

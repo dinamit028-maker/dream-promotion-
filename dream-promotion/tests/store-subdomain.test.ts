@@ -46,7 +46,11 @@ test('where the store lives: its own working domain, else its subdomain, else no
   assert.deepEqual(storeAddress(store, [{ domain: 'flowers.com', isPrimary: true, status: 'verifying' }], 'mystores.co.il'),
     { url: 'https://flowers.mystores.co.il', kind: 'subdomain' }, 'a domain not yet working is not the address');
   assert.deepEqual(storeAddress(store, [{ domain: 'flowers.com', isPrimary: true, status: 'active' }], 'mystores.co.il'), { url: 'https://flowers.com', kind: 'domain' });
-  assert.equal(storeAddress(store, [], ''), null, 'no root set');
+  assert.equal(storeAddress(store, [], ''), null, 'no root and no storefront address');
+  // 2.57.2: no domain at all — the storefront's own address + /s/<slug>
+  assert.deepEqual(storeAddress(store, [], '', 'https://dream-storefront.vercel.app/'), { url: 'https://dream-storefront.vercel.app/s/flowers', kind: 'platform' });
+  assert.deepEqual(storeAddress(store, [], 'mystores.co.il', 'https://dream-storefront.vercel.app'), { url: 'https://flowers.mystores.co.il', kind: 'subdomain' }, 'a root wins');
+  assert.equal(storeAddress(store, [], '', 'not a url'), null);
 });
 
 test('what a visitor sees: the database\'s store_access(), in words', () => {

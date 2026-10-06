@@ -20,7 +20,7 @@ import { useStoreData } from './useStoreData';
  * checklist that lets it go on the air. Nothing here claims a connection the server did not confirm: a domain is "active"
  * only after the storefront served it; Search Console reads "קוד האימות מוצג באתר", not "connected".
  */
-export function StoreSettings({ root = '' }: { root?: string }) {
+export function StoreSettings({ root = '', storefrontUrl = '' }: { root?: string; storefrontUrl?: string }) {
   const { data, error, loading, reload, setData } = useStoreData();
   const brandName = useApp((s) => s.brand?.name ?? '');
   const [name, setName] = useState('');
@@ -49,12 +49,12 @@ export function StoreSettings({ root = '' }: { root?: string }) {
       </>
     );
   }
-  return <Settings root={root} store={store} domains={data!.domains} reload={reload} setStore={(s) => setData((d) => (d ? { ...d, store: s } : d))}
+  return <Settings root={root} storefrontUrl={storefrontUrl} store={store} domains={data!.domains} reload={reload} setStore={(s) => setData((d) => (d ? { ...d, store: s } : d))}
     setDomains={(domains) => setData((d) => (d ? { ...d, domains } : d))} />;
 }
 
-function Settings({ root, store, domains, reload, setStore, setDomains }: {
-  root: string; store: StoreRow; domains: DomainRow[]; reload: () => Promise<unknown>; setStore: (s: StoreRow) => void; setDomains: (d: DomainRow[]) => void;
+function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDomains }: {
+  root: string; storefrontUrl: string; store: StoreRow; domains: DomainRow[]; reload: () => Promise<unknown>; setStore: (s: StoreRow) => void; setDomains: (d: DomainRow[]) => void;
 }) {
   const [f, setF] = useState({
     name: store.name, description: store.description, logoUrl: store.logoUrl, phone: store.phone, whatsapp: store.whatsapp,
@@ -105,7 +105,7 @@ function Settings({ root, store, domains, reload, setStore, setDomains }: {
         action={<PreviewButton />} />
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
 
-      <Address root={root} store={store} domains={domains} onSaved={(s) => { setStore(s); void refreshCheck(); }} />
+      <Address root={root} storefrontUrl={storefrontUrl} store={store} domains={domains} onSaved={(s) => { setStore(s); void refreshCheck(); }} />
 
       <Publish store={store} check={check} busy={saving} onStatus={setStatus} />
 
@@ -289,13 +289,13 @@ function Domains({ domains, onChange, reload }: { domains: DomainRow[]; onChange
  * "כתובת האתר" (2.57.1): where the store lives (its own domain once that works, else <slug>.<root>), what a visitor sees
  * (טיוטה / מוגן בסיסמה / באוויר), "פתח את האתר", "העתק קישור + סיסמה", the address itself and the password.
  */
-function Address({ root, store, domains, onSaved }: { root: string; store: StoreRow; domains: DomainRow[]; onSaved: (s: StoreRow) => void }) {
+function Address({ root, storefrontUrl, store, domains, onSaved }: { root: string; storefrontUrl: string; store: StoreRow; domains: DomainRow[]; onSaved: (s: StoreRow) => void }) {
   const [slug, setSlug] = useState(store.slug);
   const [password, setPassword] = useState(store.storefrontPassword);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error' | 'warn'; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const where = storeAddress(store, domains, root);
+  const where = storeAddress(store, domains, root, storefrontUrl);
   const vis = storeVisibility(store);
   const v = VISIBILITY[vis];
   const sub = root ? `${store.slug}.${root}` : '';
@@ -341,8 +341,9 @@ function Address({ root, store, domains, onSaved }: { root: string; store: Store
       {where ? (
         <p className="mb-3 text-lg font-bold"><bdi dir="ltr">{where.url.replace(/^https:\/\//, '')}</bdi></p>
       ) : (
-        <Notice tone="warn">הכתובת האוטומטית של החנות תעבוד אחרי שמגדירים את הדומיין של המערכת (STORE_ROOT_DOMAIN). עד אז — תצוגה מקדימה, או דומיין משלכם.</Notice>
+        <Notice tone="warn">עוד אין כתובת לאתר: צריך להגדיר את הכתובת של אתר החנות (STOREFRONT_URL) בהגדרות השרת. עד אז — תצוגה מקדימה.</Notice>
       )}
+      {where?.kind === 'platform' && <p className="mb-3 text-sm text-muted">כתובת זמנית, בלי דומיין: עובדת מיד, וגוגל לא מאנדקס אותה. כשמחברים דומיין משלכם (למטה), האתר עובר אליו.</p>}
       {where?.kind === 'domain' && sub && <p className="mb-3 text-sm text-muted">גם <bdi dir="ltr">{sub}</bdi> עובדת, ומעבירה לדומיין שלכם.</p>}
       {where && (
         <div className="mb-4 flex flex-wrap gap-2">
@@ -351,10 +352,10 @@ function Address({ root, store, domains, onSaved }: { root: string; store: Store
           <Button variant="ghost" onClick={() => void copy()}>{copied ? 'הועתק ✓' : vis === 'password' ? 'העתק קישור + סיסמה' : 'העתק קישור'}</Button>
         </div>
       )}
-      {root && (
+      {(root || where?.kind === 'platform') && (
         <div className="mb-4">
           <TextRow label="הכתובת של החנות" value={slug} onChange={(x) => setSlug(x.toLowerCase())} dir="ltr" max={40}
-            hint={`${slug || '…'}.${root} — אותיות באנגלית, ספרות ומקף. ייחודית בכל המערכת.`} />
+            hint={`${root ? `${slug || '…'}.${root}` : `…/s/${slug || '…'}`} — אותיות באנגלית, ספרות ומקף. ייחודית בכל המערכת.`} />
           {slug.trim().toLowerCase() !== store.slug && <Button variant="primary" disabled={busy} onClick={() => void saveSlug()}>שמירת הכתובת</Button>}
         </div>
       )}

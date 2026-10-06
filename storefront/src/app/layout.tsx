@@ -40,7 +40,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const { h, site } = await current();
   const nonce = h.get('x-nonce') ?? undefined;
   // www ↔ the bare name, and the subdomain ↔ the store's own domain once it works: one address per store (308, permanent)
-  if (site && !site.isPrimary && site.primaryDomain && site.via !== 'token' && !site.platform) {
+  if (site && !site.isPrimary && site.primaryDomain && site.via !== 'token' && (!site.platform || site.platformSlug)) {
     permanentRedirect(`https://${site.primaryDomain}${h.get('x-sf-path') || '/'}`);
   }
   // the storefront served this domain: it works (DNS + certificate) — the dashboard shows it "active"
