@@ -1,7 +1,8 @@
-import type { CollectionCard, HostInfo, Page, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
+import type { Cart, CartResult, CheckoutStart, CollectionCard, HostInfo, OrderView, Page, PaymentAccount, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
 
 /**
- * The storefront's only door to the database: the sf_* functions (migration 20261005003400), from the server only.
+ * The storefront's only door to the database: the sf_* functions (migrations 20261005003400 and 20261006003500), from the
+ * server only.
  * - On Vercel: Supabase's REST API with a server key (SUPABASE_URL + SUPABASE_SECRET_KEY) — a role that may run sf_* and
  *   nothing of the dashboard's code. No table is ever read from here: tests/unit/no-tables.test.ts checks the source.
  * - In the local tests (SF_DATA=pg, never on Vercel): the same functions through a Postgres connection as service_role,
@@ -9,7 +10,9 @@ import type { CollectionCard, HostInfo, Page, Product, ProductList, ProductQuery
  */
 type Args = Record<string, unknown>;
 type Rpc = (fn: SfFunction, args: Args) => Promise<unknown>;
-type SfFunction = 'sf_resolve_host' | 'sf_domain_seen' | 'sf_store' | 'sf_products' | 'sf_product' | 'sf_collections' | 'sf_page' | 'sf_redirect' | 'sf_sitemap';
+type SfFunction = 'sf_resolve_host' | 'sf_domain_seen' | 'sf_store' | 'sf_products' | 'sf_product' | 'sf_collections' | 'sf_page' | 'sf_redirect' | 'sf_sitemap'
+  | 'sf_cart' | 'sf_cart_set' | 'sf_cart_coupon' | 'sf_checkout_start' | 'sf_order_page' | 'sf_payment_account' | 'sf_payment_event'
+  | 'sf_order_paid' | 'sf_order_failed' | 'sf_order' | 'sf_order_by_id' | 'sf_orders_unconfirmed' | 'sf_rate_hit';
 
 export class DataError extends Error {}
 
@@ -28,7 +31,13 @@ function restRpc(url: string, key: string): Rpc {
 }
 
 /** argument types the functions declare, for the pg path (named notation, explicit casts) */
-const CASTS: Record<string, string> = { p_store: 'uuid', p_opts: 'jsonb', p_preview: 'boolean', p_host: 'text', p_slug: 'text', p_kind: 'text', p_path: 'text' };
+const CASTS: Record<string, string> = {
+  p_store: 'uuid', p_opts: 'jsonb', p_preview: 'boolean', p_host: 'text', p_slug: 'text', p_kind: 'text', p_path: 'text',
+  p_cart: 'text', p_item: 'uuid', p_variant: 'uuid', p_qty: 'int', p_mode: 'text', p_code: 'text', p_order_token: 'text',
+  p_customer: 'jsonb', p_ip_hash: 'text', p_order: 'uuid', p_page: 'text', p_provider: 'text', p_key: 'text',
+  p_signature_ok: 'boolean', p_payload: 'jsonb', p_txn: 'text', p_amount: 'numeric', p_currency: 'text', p_reason: 'text',
+  p_limit: 'int', p_window: 'int', p_max: 'int',
+};
 
 function pgRpc(connectionString: string): Rpc {
   let pool: Promise<{ query: (sql: string, values: unknown[]) => Promise<{ rows: { r: unknown }[] }> }> | null = null;
@@ -43,7 +52,7 @@ function pgRpc(connectionString: string): Rpc {
     const values = names.map((n) => (CASTS[n] === 'jsonb' ? JSON.stringify(args[n] ?? {}) : args[n]));
     const { rows } = await (await getPool()).query(sql, values);
     const r = rows[0]?.r;
-    if (r == null) return null;
+    if (r == null || r === '') return null;          // a function that returns nothing (void)
     return fn === 'sf_redirect' ? r : JSON.parse(String(r));
   };
 }
@@ -74,6 +83,27 @@ export const data = {
   page: (store: string, kind: 'page' | 'policy', slug: string, preview: boolean) => call<Page>('sf_page', { p_store: store, p_kind: kind, p_slug: slug, p_preview: preview }),
   redirect: (store: string, path: string) => call<string>('sf_redirect', { p_store: store, p_path: path }),
   sitemap: (store: string) => call<Sitemap>('sf_sitemap', { p_store: store }),
+  // stage 3: the cart, the checkout and the payment (the amount is always the database's)
+  cart: (store: string, cart: string, preview: boolean) => call<Cart>('sf_cart', { p_store: store, p_cart: cart, p_preview: preview }),
+  cartSet: (store: string, cart: string, item: string, variant: string | null, qty: number, mode: 'set' | 'add', preview: boolean) =>
+    call<CartResult>('sf_cart_set', { p_store: store, p_cart: cart, p_item: item, p_variant: variant, p_qty: qty, p_mode: mode, p_preview: preview }),
+  cartCoupon: (store: string, cart: string, code: string, preview: boolean) =>
+    call<CartResult>('sf_cart_coupon', { p_store: store, p_cart: cart, p_code: code, p_preview: preview }),
+  checkoutStart: (store: string, cart: string, orderToken: string, customer: Record<string, string>, ipHash: string, preview: boolean) =>
+    call<CheckoutStart>('sf_checkout_start', { p_store: store, p_cart: cart, p_order_token: orderToken, p_customer: customer, p_ip_hash: ipHash, p_preview: preview }),
+  orderPage: (store: string, order: string, page: string) => call<null>('sf_order_page', { p_store: store, p_order: order, p_page: page }),
+  paymentAccount: (store: string) => call<PaymentAccount>('sf_payment_account', { p_store: store }),
+  paymentEvent: (store: string, order: string | null, provider: string, key: string, kind: 'callback' | 'return' | 'verify' | 'poll',
+                 signatureOk: boolean | null, payload: Record<string, unknown>) =>
+    call<boolean>('sf_payment_event', { p_store: store, p_order: order, p_provider: provider, p_key: key, p_kind: kind, p_signature_ok: signatureOk, p_payload: payload }),
+  orderPaid: (store: string, order: string, provider: string, txn: string, amount: number, currency: string) =>
+    call<{ result: string; status?: string }>('sf_order_paid', { p_store: store, p_order: order, p_provider: provider, p_txn: txn, p_amount: amount, p_currency: currency }),
+  orderFailed: (store: string, order: string, reason: string) =>
+    call<{ result: string; status?: string }>('sf_order_failed', { p_store: store, p_order: order, p_reason: reason }),
+  order: (store: string, orderToken: string) => call<OrderView>('sf_order', { p_store: store, p_order_token: orderToken }),
+  orderById: (store: string, order: string) => call<OrderView>('sf_order_by_id', { p_store: store, p_order: order }),
+  ordersUnconfirmed: (limit = 50) => call<{ store: string; id: string }[]>('sf_orders_unconfirmed', { p_limit: limit }),
+  rateHit: (key: string, windowSeconds: number, max: number) => call<boolean>('sf_rate_hit', { p_key: key, p_window: windowSeconds, p_max: max }),
 };
 
 /** the query of a list, as sf_products reads it (strings for numbers: the function parses them itself) */

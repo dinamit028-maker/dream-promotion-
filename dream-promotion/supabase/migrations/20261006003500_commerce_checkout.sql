@@ -592,7 +592,8 @@ begin
       'delivery', case when s.delivery_enabled then jsonb_build_object(
                     'price', trim_scale(public.sf_delivery_price(s, sub - disc)), 'base', trim_scale(s.delivery_price),
                     'free_over', trim_scale(s.free_delivery_over), 'note', s.delivery_note) end),
-    'can_checkout', public.sf_can_buy(s) and n > 0 and bad = 0);
+    'can_checkout', public.sf_can_buy(s) and n > 0 and bad = 0,
+    'test', coalesce((select a.mode = 'test' from public.payment_accounts a where a.business_id = s.business_id), true));
 end $$;
 revoke execute on function public.sf_cart_view(public.stores, public.store_carts) from public, anon, authenticated;
 
