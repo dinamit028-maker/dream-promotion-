@@ -590,6 +590,14 @@ select string_agg(tgrelid::regclass::text, ', ' order by tgrelid::regclass::text
 select has_function_privilege('authenticated', 'public.store_redirect_on_slug()', 'execute') as authenticated_runs;
 ```
 - **אמור לחזור:** 1; `catalog_collections, catalog_items, store_pages`; `false`.
+- **השוואה מדויקת לקובץ** (חושב על מסד מקומי שנבנה מכל המיגרציות, עם 3400 המלאה):
+```sql
+select (select md5(pg_get_functiondef(p.oid) || '|' || coalesce(p.proacl::text, '')) from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'store_redirect_on_slug') as fn_md5,
+       (select md5(string_agg(pg_get_triggerdef(oid), ',' order by tgrelid::regclass::text))
+          from pg_trigger where tgname = 'z_store_redirect' and not tgisinternal) as trg_md5;
+```
+  - **אמור לחזור:** `7dd44c716cab6c2ac336eb06520bdf94`, `b407bb117eb38684b4b64b4c6e9dc96e`. ההרשאות של הפונקציה: `{postgres=X/postgres,service_role=X/postgres}`.
 
 **בטלפון** — אחרי 3400, ואחרי שפרויקט החזית הוקם (`storefront/README.md`). **כל פעולה נכתבת למסד האמיתי.**
 1. **"חנות" ← "הגדרות":** "פתיחת החנות".
