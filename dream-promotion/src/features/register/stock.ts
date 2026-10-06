@@ -46,3 +46,49 @@ export function planAdjust(current: number, mode: 'add' | 'set', qty: number): {
 }
 
 export const MOVE_HE: Record<string, string> = { sale: 'מכירה', refund: 'החזר למלאי', cancel: 'ביטול מכירה', receive: 'קבלת סחורה', count: 'ספירת מלאי', adjust: 'תיקון' };
+
+// ---- units held for orders on the site (2.56) ----------------------------------------------------------------------------------
+/**
+ * The owner's decision (6.10.2026): a unit held for an order on the site is not sold at the register. The database refuses
+ * such a sale (c_sales_reserved); these give the screen the same answer first. A sale that touches no held unit behaves
+ * exactly as before — negative stock included.
+ */
+export interface Held { item_id: string; variant_id: string | null; qty: number }
+export interface HeldMap { byItem: Map<string, number>; byVariant: Map<string, number> }
+export function heldMap(rows: Held[] | null | undefined): HeldMap {
+  const byItem = new Map<string, number>(), byVariant = new Map<string, number>();
+  for (const r of rows ?? []) {
+    const q = Math.max(0, Math.floor(Number(r.qty) || 0));
+    if (!r.item_id || !q) continue;
+    byItem.set(r.item_id, (byItem.get(r.item_id) ?? 0) + q);
+    if (r.variant_id) byVariant.set(r.variant_id, (byVariant.get(r.variant_id) ?? 0) + q);
+  }
+  return { byItem, byVariant };
+}
+export const heldOf = (h: HeldMap, itemId: string, variantId?: string | null) => (variantId ? h.byVariant.get(variantId) ?? 0 : h.byItem.get(itemId) ?? 0);
+
+/** the first line ("name") that would take held units, or null — the database's rule, line by item and variant */
+export function heldConflict(
+  lines: Pick<Line, 'itemId' | 'variantId' | 'qty' | 'name'>[],
+  items: Pick<StockItem, 'id' | 'trackStock' | 'stockQty'>[],
+  variants: { id: string; itemId: string; stockQty: number }[],
+  h: HeldMap,
+): string | null {
+  const want = new Map<string, { item: string; variant: string | null; qty: number; name: string }>();
+  for (const l of lines) {
+    if (!l.itemId || !(l.qty > 0)) continue;
+    const v = l.variantId ?? null, k = `${l.itemId}|${v ?? ''}`;
+    const w = want.get(k) ?? { item: l.itemId, variant: v, qty: 0, name: l.name };
+    w.qty += Math.floor(l.qty); want.set(k, w);
+  }
+  for (const w of want.values()) {
+    const it = items.find((i) => i.id === w.item);
+    if (!it?.trackStock) continue;
+    const v = w.variant ? variants.find((x) => x.id === w.variant && x.itemId === it.id) : undefined;
+    const held = heldOf(h, it.id, v?.id ?? null);
+    if (!held) continue;
+    const have = v ? v.stockQty : it.stockQty;
+    if (w.qty > have - held) return w.name;
+  }
+  return null;
+}

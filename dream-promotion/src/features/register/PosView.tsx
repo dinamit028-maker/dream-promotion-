@@ -8,7 +8,7 @@ import { matches, phoneDigits, waLink } from '@/features/crm/crm';
 import type { Lead } from '@/types';
 import { computeSale, customerSnapshot, ils, methodLabel, remaining, topSellers, type ItemKind, type Line, type Method, type Pay, type Sale } from './money';
 import { MAX_HELD, holdCart, loadHeld, removeHeld, resumeHeld, saveHeld, type Cart, type HeldSale } from './held';
-import { stockLevel, stockText } from './stock';
+import { heldOf, stockLevel, stockText, type HeldMap } from './stock';
 import { cartKey, findByCode, lineName, posPrice, variantLabel, variantLevel, variantsOf, type CatalogVariant } from '@/features/catalog/catalog';
 import { EMPTY_BILLING, billingError, dealerDigits, type Billing } from './billing';
 
@@ -58,10 +58,12 @@ export function cashSuggestions(total: number) {
   return [...new Set([total, up(10), up(50), up(100), up(200), 200, 500].filter((v) => v >= total))].sort((a, b) => a - b).slice(0, 6);
 }
 
-export function PosView({ userId, items, variants = [], sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog, wide }: {
+export function PosView({ userId, items, variants = [], siteHeld, sales, leads, employees, todayAppts, vat, payLinkReady, onCheckout, onShowDoc, prefill, onGoCatalog, wide }: {
   userId: string; items: PosItem[]; sales: Sale[]; leads: Lead[]; employees: { id: string; name: string }[]; todayAppts: TodayAppt[];
   /** the variants of the price list (2.54): an item with variants asks which one */
   variants?: CatalogVariant[];
+  /** units held for orders on the site (2.56): shown on the tile, not sold here */
+  siteHeld?: HeldMap;
   vat: { type: 'exempt' | 'licensed'; rate: number }; payLinkReady: boolean;
   onCheckout: (c: CheckoutInput) => Promise<CheckoutResult>; onShowDoc?: () => void;
   prefill?: { customer: Customer; line: Line | null } | null; onGoCatalog?: () => void;
@@ -366,6 +368,7 @@ export function PosView({ userId, items, variants = [], sales, leads, employees,
                   <span className={cx('mt-1 tabular-nums text-ink-2', quick ? 'text-lg font-semibold' : 'text-sm')}>{ils(i.price)}</span>
                   {inCart > 0 && <span className="absolute end-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{inCart}</span>}
                   {level !== 'ok' && <span className={cx('mt-1 self-start rounded-full px-2 py-0.5 text-[11px] font-bold', level === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : 'bg-amber-500/15 text-amber-800 dark:text-amber-200')}>{stockText(i)}</span>}
+                  {siteHeld && i.trackStock && heldOf(siteHeld, i.id) > 0 && <span className="mt-1 self-start rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-bold text-sky-800 dark:text-sky-200">שמור להזמנה באתר: {heldOf(siteHeld, i.id)}</span>}
                 </button>
               );
             })}
@@ -409,6 +412,7 @@ export function PosView({ userId, items, variants = [], sales, leads, employees,
                   <span className="text-sm tabular-nums text-ink-2">{ils(posPrice(pick, v))}</span>
                   {lvl && lvl !== 'ok' && <span className={cx('mt-1 self-start rounded-full px-2 py-0.5 text-[11px] font-bold', lvl === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : 'bg-amber-500/15 text-amber-800 dark:text-amber-200')}>
                     {v.stockQty <= 0 ? 'אזל מהמלאי' : `נשארו ${v.stockQty}`}</span>}
+                  {siteHeld && pick.trackStock && heldOf(siteHeld, pick.id, v.id) > 0 && <span className="mt-1 self-start rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-bold text-sky-800 dark:text-sky-200">שמור לאתר: {heldOf(siteHeld, pick.id, v.id)}</span>}
                   {n > 0 && <span className="absolute end-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{n}</span>}
                 </button>
               );

@@ -3,6 +3,7 @@
  * (tests/store-settings.test.ts). The database holds the same rules (migration 20261005003400); these only give the
  * owner a clear sentence before a save fails.
  */
+import { toCheckout, type CheckoutSettings } from './checkout';
 import { isSlug, slugify, uniqueSlug } from '@/features/catalog/catalog';
 
 export type StoreStatus = 'draft' | 'published' | 'paused';
@@ -13,6 +14,7 @@ export interface StoreRow {
   id: string; businessId: string; name: string; status: StoreStatus; template: string; lang: 'he' | 'en'; logoUrl: string;
   description: string; phone: string; whatsapp: string; email: string; address: string; ga4Id: string; gscCode: string;
   showStockCount: boolean; publishedAt: string | null; updatedAt: string;
+  checkout: CheckoutSettings;                 // selling on the site (2.56)
 }
 export interface DomainRow {
   id: string; storeId: string; domain: string; isPrimary: boolean; status: DomainStatus; lastSeenAt: string | null;
@@ -31,7 +33,7 @@ export const toStore = (r: any): StoreRow => ({
   id: r.id, businessId: r.business_id, name: r.name ?? '', status: r.status ?? 'draft', template: r.template ?? 'bags', lang: r.lang ?? 'he',
   logoUrl: r.logo_url ?? '', description: r.description ?? '', phone: r.phone ?? '', whatsapp: r.whatsapp ?? '', email: r.email ?? '',
   address: r.address ?? '', ga4Id: r.ga4_id ?? '', gscCode: r.gsc_code ?? '', showStockCount: Boolean(r.show_stock_count),
-  publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? '',
+  publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? '', checkout: toCheckout(r),
 });
 export const toDomain = (r: any): DomainRow => ({
   id: r.id, storeId: r.store_id, domain: r.domain, isPrimary: Boolean(r.is_primary), status: r.status ?? 'pending',

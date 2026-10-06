@@ -8,6 +8,9 @@
  * records, the steps in Vercel), the policies written from their drafts (not published while "[…]" is left), a collection
  * picked by hand and one by tag, the menu, the design (a draft, versions, back to an older one, a preview link), and the
  * store goes on the air only when the checklist is complete — the domain counts only after the storefront served it.
+ * Stage 3 (2.56, test only): a PayPlus test terminal is connected (its keys never come back), pickup and delivery are set,
+ * selling is switched on; a coupon; an order from the site with its lines and timeline; the register shows the units held
+ * for an order on the site and does not sell them.
  *
  * Run: npm run test:e2e   (starts `next dev` on port 3219; needs the preinstalled Chromium)
  * Screenshots go to tests/e2e/shots/ (not committed).
@@ -21,6 +24,7 @@ import assert from 'node:assert/strict';
 import { FakeSupabase, session, type Tables } from './fake-supabase';
 import { domainRows, normalizeDomain } from '../../src/features/store/store';
 import { recordsFor, wwwRecord } from '../../src/features/store/vercel';
+import { checkTerminal, keyHint } from '../../src/features/store/checkout';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.E2E_COMMERCE_PORT ?? 3219);
@@ -156,6 +160,21 @@ async function main() {
       const store = fake.tables.stores?.[0];
       return r.fulfill({ json: { url: `https://storefront.test/?preview=${store?.id}.2000000000.sig`, expires: 2_000_000_000 } });
     });
+    // the terminal's route (src/app/api/store/payments — tested on its own in tests/store-checkout.test.ts): keys checked,
+    // sealed on the server, never sent back
+    await ctx.route(`${BASE}/api/store/payments`, (r: any) => {
+      const info = () => { const a = (fake.tables.payment_accounts ??= [])[0];
+        return { connected: Boolean(a), provider: a?.provider ?? null, mode: a?.mode ?? null, hint: a?.hint ?? '', connectedAt: a?.connected_at ?? null, ready: true }; };
+      if (r.request().method() === 'GET') return r.fulfill({ json: info() });
+      const b = JSON.parse(r.request().postData() ?? '{}');
+      if (b.action === 'connect') {
+        const t = checkTerminal({ apiKey: String(b.apiKey ?? ''), secretKey: String(b.secretKey ?? ''), pageUid: String(b.pageUid ?? '') });
+        if (!t.ok) return r.fulfill({ status: 400, json: { message: t.error } });
+        fake.tables.payment_accounts = [{ business_id: BIZ, provider: 'payplus', mode: 'test', sealed: 'v1.sealed-on-the-server', page_uid: t.pageUid, hint: keyHint(t.keys.api_key), connected_at: new Date().toISOString() }];
+      }
+      if (b.action === 'disconnect') fake.tables.payment_accounts = [];
+      return r.fulfill({ json: info() });
+    });
     await ctx.route('https://storefront.test/**', (r: any) => r.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><html lang="he"><title>תצוגה מקדימה</title><body>החזית</body></html>' }));
     ctx.setDefaultTimeout(30_000); ctx.setDefaultNavigationTimeout(180_000);
     const page = await ctx.newPage();
@@ -243,6 +262,8 @@ async function main() {
       assert.equal(await page.getByLabel('תיאור המוצר').inputValue(), AI_TEXT.description);
       await page.getByRole('button', { name: 'שמירה', exact: true }).click();
       await page.getByText('נשמר ✓').waitFor();
+      // "נשמר ✓" may still be on screen from the previous save: wait for this save itself to land (a slow machine)
+      for (let i = 0; i < 100 && shirt()!.description !== AI_TEXT.description; i++) await page.waitForTimeout(100);
       assert.deepEqual([shirt()!.description, shirt()!.seo_title], [AI_TEXT.description, AI_TEXT.seoTitle]);
       const asked = JSON.stringify(aiRequests.at(-1));
       assert.ok(asked.includes('חולצת כותנה') && asked.includes('שחור'), 'the product\'s own words');
@@ -532,6 +553,110 @@ async function main() {
       await st.goto(`${BASE}/store/products`, { waitUntil: 'domcontentloaded' });
       await st.getByText(/^החנות באוויר: מוצר שמסומן "באתר" מוצג בה/).waitFor({ timeout: 60_000 });
       await st.screenshot({ path: path.join(SHOTS, 'c10-store-live-phone.png') });
+    });
+
+    await step('stage 3 — selling (test): a PayPlus test terminal, pickup and delivery, then the switch', async () => {
+      await st.goto(`${BASE}/store/selling`, { waitUntil: 'domcontentloaded' });
+      await st.getByText(/^שלב בדיקה: התשלום עובר בסביבת הבדיקה של PayPlus בלבד/).waitFor({ timeout: 60_000 });
+      const sw = block(st, 'המכירה באתר');
+      await sw.getByText('חיבור מסוף סליקה (PayPlus, סביבת בדיקה)').waitFor();
+      assert.equal(await sw.getByRole('switch').isDisabled(), true, 'not before a terminal and a way to get the goods');
+      const term = block(st, 'מסוף סליקה — PayPlus (סביבת בדיקה)');
+      await term.getByLabel('API key').fill('abcd-1234-efgh');
+      await term.getByLabel('Secret key').fill('abcd-1234-efgh');
+      await term.getByLabel('Payment page UID').fill('1b2c3d4e-0000-4000-8000-1234567890ab');
+      await term.getByRole('button', { name: 'חיבור המסוף' }).click();
+      await term.getByText(/שני ערכים שונים/).waitFor();
+      assert.equal((fake.tables.payment_accounts ?? []).length, 0, 'nothing saved');
+      await term.getByLabel('Secret key').fill('zzzz-9999-yyyy');
+      await term.getByRole('button', { name: 'חיבור המסוף' }).click();
+      await term.getByText('מחובר', { exact: true }).waitFor();
+      await term.getByText(/מפתח שמסתיים ב-\s*efgh/).waitFor();
+      assert.equal(await term.getByLabel('Secret key').count(), 0, 'the keys are not shown again');
+      assert.ok(!(await st.content()).includes('zzzz-9999-yyyy'), 'the secret is nowhere on the page');
+      const ship = block(st, 'איך מקבלים את ההזמנה');
+      await ship.getByRole('switch', { name: 'איסוף עצמי' }).click();
+      await ship.getByLabel('איפה ומתי אוספים').fill('דיזנגוף 10, תל אביב');
+      await ship.getByRole('switch', { name: 'משלוח עד הבית' }).click();
+      await ship.getByLabel('מחיר משלוח (₪)').fill('30');
+      await ship.getByLabel('משלוח חינם מעל (₪, לא חובה)').fill('300');
+      await ship.getByRole('button', { name: 'שמירה' }).click();
+      await st.getByText('נשמר.', { exact: true }).waitFor();
+      assert.deepEqual([store().pickup_enabled, store().pickup_note, store().delivery_enabled, Number(store().delivery_price), Number(store().free_delivery_over)],
+        [true, 'דיזנגוף 10, תל אביב', true, 30, 300]);
+      await sw.getByRole('switch').click();
+      await st.getByText(/^המכירה באתר פעילה \(בדיקה\)/).waitFor();
+      assert.equal(store().checkout_enabled, true);
+      await noSideScroll(st, 'selling on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c11-store-selling-phone.png'), fullPage: true });
+    });
+
+    await step('a coupon: 10% until a date; the database counts its uses; switched off with one tap', async () => {
+      await st.goto(`${BASE}/store/coupons`, { waitUntil: 'domcontentloaded' });
+      const nw = block(st, 'קופון חדש');
+      await nw.getByLabel('קוד').fill('welcome10');
+      await nw.getByLabel('כמה אחוזים').fill('10');
+      await nw.getByLabel('בתוקף עד (לא חובה)').fill('2099-12-31');
+      await nw.getByRole('button', { name: 'שמירת הקופון' }).click();
+      await st.getByText('הקופון WELCOME10 נשמר.').waitFor();
+      const c = fake.tables.store_coupons.find((x) => x.code === 'WELCOME10')!;
+      assert.equal(c.kind, 'percent'); assert.equal(Number(c.value), 10); assert.equal(c.store_id, store().id);
+      const list = block(st, 'הקופונים');
+      await list.getByText('10% הנחה', { exact: false }).waitFor();
+      await list.getByRole('switch', { name: 'קופון WELCOME10 פעיל' }).click();
+      await list.getByText('כבוי', { exact: true }).waitFor();
+      assert.equal(fake.tables.store_coupons.find((x) => x.code === 'WELCOME10')!.active, false);
+    });
+
+    await step('orders: a test order from the site — its sum, its customer, its lines and its timeline; read only', async () => {
+      const id = randomUUID();
+      fake.tables.orders = [{ id, business_id: BIZ, store_id: store().id, number: 1001, is_test: true, payment_status: 'test_paid', fulfillment_status: 'unfulfilled',
+        currency: 'ILS', subtotal: 240, discount: 24, shipping: 30, total: 246, coupon_code: 'WELCOME10', customer_name: 'דנה כהן', customer_phone: '0501234567',
+        customer_email: 'dana@example.com', delivery_method: 'delivery', address: { city: 'תל אביב', street: 'הרצל', house: '5', apartment: '' }, notes: 'בבקשה להשאיר ליד הדלת',
+        provider: 'payplus', created_at: '2026-10-06T09:00:00Z', paid_at: '2026-10-06T09:03:00Z', expires_at: '2026-10-06T09:15:00Z' },
+        { id: randomUUID(), business_id: BIZ, store_id: store().id, number: 1002, is_test: true, payment_status: 'failed', currency: 'ILS', subtotal: 120, discount: 0,
+          shipping: 0, total: 120, coupon_code: '', customer_name: 'בני', customer_phone: '0521111111', customer_email: 'b@example.com', delivery_method: 'pickup',
+          address: {}, notes: '', provider: 'payplus', created_at: '2026-10-06T10:00:00Z', paid_at: null, expires_at: '2026-10-06T10:15:00Z' }];
+      fake.tables.order_lines = [{ id: randomUUID(), order_id: id, business_id: BIZ, name: 'חולצת כותנה', variant_label: 'M / שחור', sku: 'TS-M-B', unit_price: 120, qty: 2, line_total: 240, image_url: '', position: 1 }];
+      fake.tables.order_events = [
+        { id: 1, order_id: id, business_id: BIZ, kind: 'created', data: {}, at: '2026-10-06T09:00:00Z' },
+        { id: 2, order_id: id, business_id: BIZ, kind: 'payment_page', data: {}, at: '2026-10-06T09:00:02Z' },
+        { id: 3, order_id: id, business_id: BIZ, kind: 'test_paid', data: { txn: 't-1', amount: 246, late: false }, at: '2026-10-06T09:03:00Z' }];
+      await st.goto(`${BASE}/store/orders`, { waitUntil: 'domcontentloaded' });
+      await st.getByText('#1001 · דנה כהן').waitFor({ timeout: 60_000 });
+      await st.getByText('שולם (בדיקה)').first().waitFor();
+      await st.getByRole('tab', { name: 'לא שולמו' }).click();
+      await st.getByText('#1002 · בני').waitFor();
+      assert.equal(await st.getByText('#1001 · דנה כהן').count(), 0);
+      await st.getByRole('tab', { name: 'הכול' }).click();
+      await st.getByText('#1001 · דנה כהן').click();
+      await st.waitForURL(new RegExp(`/store/orders/${id}$`));
+      await st.getByText('הזמנת בדיקה: לא חויב כסף, לא נוצרה מכירה, המלאי לא זז ולא הופק מסמך.').waitFor({ timeout: 60_000 });
+      await st.getByText('2 × חולצת כותנה — M / שחור').waitFor();
+      await st.getByText(/משלוח: הרצל 5, תל אביב/).waitFor();
+      await st.getByText(/התשלום אושר ע״י חברת הסליקה \(סביבת בדיקה\)/).waitFor();
+      assert.equal(await st.getByRole('button', { name: /שולם|החזר|ביטול/ }).count(), 0, 'nothing here changes an order');
+      await noSideScroll(st, 'an order on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c12-store-order-phone.png'), fullPage: true });
+    });
+
+    await step('the register: units held for an order on the site are shown, and not sold here', async () => {
+      const cream = fake.tables.catalog_items.find((i) => i.id === CREAM)!;
+      fake.tables.stock_reservations = [{ id: randomUUID(), business_id: BIZ, order_id: randomUUID(), item_id: CREAM, variant_id: null, qty: Number(cream.stock_qty),
+        status: 'held', expires_at: new Date(Date.now() + 10 * 60_000).toISOString() }];
+      const before = Number(cream.stock_qty), sales = fake.tables.sales.length;
+      const { ctx, page: r } = await open({ access: 'full', userId: OWNER, path: '/register' });
+      try {
+        await tile(r, 'קרם לחות').waitFor({ timeout: 120_000 });
+        await tile(r, 'קרם לחות').getByText(`שמור להזמנה באתר: ${before}`).waitFor();
+        await tile(r, 'קרם לחות').click();
+        await pay(r).click();
+        await dialog(r).getByRole('button', { name: 'אשראי' }).click();
+        await r.getByText(/קרם לחות: היחידות שמורות להזמנה באתר/).first().waitFor();
+        assert.equal(fake.tables.sales.length, sales, 'no sale');
+        assert.equal(Number(cream.stock_qty), before, 'the stock did not move');
+        await r.screenshot({ path: path.join(SHOTS, 'c13-register-held.png') });
+      } finally { await ctx.close(); fake.tables.stock_reservations = []; }
     });
   } finally { await st.context().close(); current = null; }
 

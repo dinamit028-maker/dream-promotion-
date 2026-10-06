@@ -62,6 +62,7 @@ Next.js 14 (App Router) · TypeScript · Tailwind · Zustand · Supabase · Verc
 | רשות המסים (לא חובה) | `APP_URL`, `ITA_OAUTH_AUTHORIZE_URL`, `ITA_OAUTH_TOKEN_URL`, `ITA_CLIENT_ID`, `ITA_CLIENT_SECRET`, `ITA_OAUTH_SCOPE`, `ITA_ENVIRONMENT`; לשליחה: `TAX_GATEWAY_MODE=live`, `ITA_API_BASE_URL`, `ITA_ALLOCATION_PATH`, `ITA_SPEC_VERIFIED=1` (רק אחרי שמממשים את `mapRequest` / `mapResponse` לפי המפרט הרשמי) | אין בקשת מספר הקצאה אוטומטית — מזינים ידנית מספר שהתקבל מהרשות |
 | קריאת הוצאות עם AI | `ANTHROPIC_API_KEY` (+ `AI_SCAN_MODEL`, לא חובה) | ממלאים הוצאה ידנית |
 | החנות — תצוגה מקדימה (2.55) | `STOREFRONT_URL` (הכתובת של פרויקט החזית ב-Vercel), `STOREFRONT_PREVIEW_SECRET` (אותו ערך כמו בחזית) | "תצוגה מקדימה" מסבירה מה חסר |
+| החנות — מסוף סליקה (2.56) | `PAYMENT_SEAL_KEY` (32 תווים ומעלה, אותו ערך כמו בחזית) | "מכירה באתר" אומרת שהשרת לא מוכן לשמור מפתחות |
 | החנות — דומיין ב-Vercel (לא חובה, 2.55) | `VERCEL_API_TOKEN`, `VERCEL_STOREFRONT_PROJECT`, `VERCEL_TEAM_ID` (רק לצוות). **לא אומת מול Vercel** | המסך מציג את הצעדים להוספת הדומיין ב-Vercel ביד |
 
 ## 🚧 עוד לא / מוגבל
@@ -91,7 +92,7 @@ npm run build
 
 כל אובייקט במסד נוצר מקבצים ב-`supabase/migrations/`, לפי הסדר (כולם בטוחים להרצה חוזרת ולא מוחקים נתונים):
 Supabase → SQL Editor → להריץ כל קובץ, מהישן לחדש. פירוט ב-`supabase/migrations/README.md`.
-במסד החי של הפרויקט הורצו כל המיגרציות עד 3400 (3400 ב-6.10.2026). סעיף 3 של 3400 רץ ב-SQL Editor, ונבדק מול הקובץ. ראו "מצב מיגרציות" ב-`STATUS.md`.
+במסד החי של הפרויקט הורצו כל המיגרציות עד 3400 (3400 ב-6.10.2026). סעיף 3 של 3400 רץ ב-SQL Editor, ונבדק מול הקובץ. **3500 (`commerce_checkout`, 2.56.0) עוד לא — ממתינה לאישור.** ראו "מצב מיגרציות" ב-`STATUS.md`.
 
 אחר כך, פעם אחת: `supabase/cron-stories.sql` עם הערך של `CRON_SECRET` (לא נשמר בריפו).
 
@@ -155,6 +156,7 @@ Authentication → URL Configuration: Site URL = כתובת האתר ב-Vercel.
   - **החזית:** אפליקציה נפרדת, `storefront/` (Next 16). החנות נקבעת לפי הדומיין, והאתר קורא למסד רק דרך פונקציות `sf_*`. התבנית הראשונה: "שקיות ממותגות". אין קנייה. הקמה ב-Vercel, משתני סביבה ודומיין: `storefront/README.md`.
   - **בדשבורד, מודול "חנות":** הגדרות ודומיין, עיצוב (טיוטה, פרסום, גרסאות, תצוגה מקדימה), קולקציות, עמודים ומדיניות, ותפריטים (`src/features/store/`). השרת: `/api/store/domains`, `/api/store/preview-token`.
   - **מיגרציה `20261005003400_commerce_store.sql`:** נבדקה מקומית, **והוחלה על המסד החי ב-6.10.2026, אחרי אישור** (`20261006043124`). סעיף 3 שלה רץ ב-SQL Editor, ונבדק. פירוט: "מצב מיגרציות" ב-`STATUS.md`.
+  - **מיגרציה `20261006003500_commerce_checkout.sql` (2.56.0):** נבדקה מקומית, **ולא הוחלה על המסד החי — ממתינה לאישור.** אחריה, ידנית: `supabase/cron-commerce.sql`. פירוט: `STATUS.md` סעיף 4כב.
 
 ## הריל הסופי — איך זה עובד
 

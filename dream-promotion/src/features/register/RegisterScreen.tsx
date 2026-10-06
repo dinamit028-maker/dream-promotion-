@@ -20,7 +20,7 @@ import { israelToIso } from '@/lib/il-time';
 import { isDuplicateId } from '@/lib/db-errors';
 import { METHODS, computeSale, ils, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Refund, type Sale } from './money';
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
-import { MOVE_HE, applyStock, lowStockList, planAdjust, stockLevel, stockText } from './stock';
+import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type HeldMap } from './stock';
 import { billingColumns } from './billing';
 import { issueDocumentRow } from '@/features/finance/api';
 import { MIGRATION_3300, applyVariantStock, catalogError, lineName, toCatalogItem, toVariant, variantLevel, variantStockText, variantsOf, type CatalogItem, type CatalogVariant } from '@/features/catalog/catalog';
@@ -66,6 +66,15 @@ export function RegisterScreen() {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [variants, setVariants] = useState<CatalogVariant[]>([]);
   const [catalogReady, setCatalogReady] = useState(true);
+  // units held for orders on the site (2.56): not sold here; before migration 3500 there are none
+  const [held, setHeld] = useState<HeldMap>(() => heldMap([]));
+  const loadHeld = useCallback(async (): Promise<HeldMap | null> => {
+    const r = await supabase().rpc('reserved_stock');
+    if (r.error) return null;
+    const m = heldMap(r.data as any);
+    setHeld(m);
+    return m;
+  }, []);
   const [sales, setSales] = useState<Sale[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
@@ -110,6 +119,7 @@ export function RegisterScreen() {
       if (va.error && catalogError(va.error) !== MIGRATION_3300) throw va.error;
       setVariants(va.error ? [] : ((va.data ?? []) as any[]).map(toVariant));
       setCatalogReady(!va.error);
+      await loadHeld();
       // for the POS: who sells (names only — pos_employees(); before 2.50 the table itself) and today's appointments
       const dayStart = israelToIso(israelParts(Date.now()).date, '00:00');
       const [emps, appts, svcs, rf] = await Promise.all([
@@ -198,6 +208,8 @@ export function RegisterScreen() {
     let leadId = c.customer.leadId || leads.find((l) => c.customer.phone && phoneDigits(l.phone) === phoneDigits(c.customer.phone))?.id || null;
     // a new customer is saved first — the sale points to it
     if (!leadId && c.customer.name.trim()) leadId = await addLeadNow({ name: c.customer.name.trim(), phone: c.customer.phone.trim(), source: 'קופה', date: israelParts(Date.now()).date, status: c.paidNow ? 'נסגר' : 'מעוניין', value: 0 });
+    const heldName = heldConflict(c.lines, items, variants, (await loadHeld()) ?? held);
+    if (heldName) return { ok: false, error: `${heldName}: היחידות שמורות להזמנה באתר שממתינה לתשלום. אפשר למכור אותן כשההזמנה תשולם או תבוטל (עד רבע שעה).` };
     const now = new Date().toISOString();
     const id = c.saleId ?? crypto.randomUUID();
     const ins = await supabase().from('sales').insert({
@@ -218,7 +230,11 @@ export function RegisterScreen() {
         return { ok: false, error: `עסקה קודמת על ${ils(Number(again.data.total))} כבר נשמרה. בדקו ב"מכירות ודוחות" לפני שממשיכים.` };
       }
       data = again.data; replay = true;
-    } else if (ins.error) return { ok: false, error: errText(ins.error) };
+    } else if (ins.error) {
+      const m = /שמור להזמנה באתר: (.+)/.exec(String(ins.error.message ?? ''));
+      if (m) { void loadHeld(); return { ok: false, error: `${m[1]}: היחידות שמורות להזמנה באתר שממתינה לתשלום. אפשר למכור אותן כשההזמנה תשולם או תבוטל (עד רבע שעה).` }; }
+      return { ok: false, error: errText(ins.error) };
+    }
     const sale = toSale(data);
     setSales((all) => [sale, ...all.filter((x) => x.id !== sale.id)]);
     // the database moved the stock (trigger); the screen follows at once
@@ -378,7 +394,7 @@ export function RegisterScreen() {
               <span className="min-w-0 truncate">⚠️ מלאי נמוך: {low.slice(0, 4).map((i) => `${i.name} (${stockText(i)})`).join(' · ')}{low.length > 4 ? ` ועוד ${low.length - 4}` : ''}</span><span className="shrink-0">למלאי ←</span>
             </button>
           )}
-          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={items} variants={variants} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
+          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={items} variants={variants} siteHeld={held} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
             vat={vat} payLinkReady={Boolean(settings.payLink)} onCheckout={checkout} onShowDoc={cashier ? undefined : () => setTab('docs')} prefill={prefill}
             onGoCatalog={cashier ? undefined : () => setTab('catalog')} wide={kiosk} />
         </>
