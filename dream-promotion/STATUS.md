@@ -1,4 +1,4 @@
-# Dream Promotion — מצב הפרויקט (גרסה 2.57.2: כתובת לכל חנות גם בלי דומיין; 2.57.1: כתובת אוטומטית וסיסמה לכל חנות, מעל שלב 4 של Dream Commerce — מיגרציות 3600 ו-3700 הוחלו על המסד החי, 6 באוקטובר 2026; מכירה אמיתית עדיין נעולה)
+# Dream Promotion — מצב הפרויקט (גרסה 2.57.3: פרויקט אתר החנות ב-Vercel הוקם; 2.57.2: כתובת לכל חנות גם בלי דומיין; 2.57.1: כתובת אוטומטית וסיסמה לכל חנות, מעל שלב 4 של Dream Commerce — מיגרציות 3600 ו-3700 הוחלו על המסד החי, 6 באוקטובר 2026; מכירה אמיתית עדיין נעולה)
 
 מסמך לבודק חיצוני: מה בנוי, מה נבדק ואיך, מה פתוח, ואיפה כדאי לחפש בעיות.
 הקוד המלא נמצא באותו ZIP. README.md מתאר התקנה ומשתני סביבה. supabase/migrations/README.md מתאר את מסד הנתונים.
@@ -31,7 +31,7 @@
   - **משתני הסביבה ב-Vercel.**
   - **המתג `commerce_live`:** נשאר נעול עד האישור הנפרד.
 
-**כל 20 המיגרציות עד 3500 הורצו על המסד החי** (סעיף 3 של 3400 רץ ב-SQL Editor). **`supabase/cron-commerce.sql` עוד לא הורץ** — הוא צריך את הכתובת של פרויקט החזית, שעוד לא קיים. נבדק ישירות במסד החי (`list_migrations`, קריאה בלבד, 6.10.2026): 20 מיגרציות, האחרונה `20261006065045 commerce_checkout`.
+**כל 20 המיגרציות עד 3500 הורצו על המסד החי** (סעיף 3 של 3400 רץ ב-SQL Editor). **`supabase/cron-commerce.sql`: 3 מתוך 4 משימות הוגדרו (2.57.3, סעיף 4כו). משימת הניקוי ממתינה ל-SQL Editor.** נבדק ישירות במסד החי (`list_migrations`, קריאה בלבד, 6.10.2026): 20 מיגרציות, האחרונה `20261006065045 commerce_checkout`.
 
 **3500 `commerce_checkout` (2.56.0) — הוחלה על המסד החי ב-6.10.2026, אחרי אישור מפורש שלך** (שם הגרסה שם: `20261006065045`).
 - **הוחלה כולה, בקריאה אחת דרך ה-MCP.** אין בה `drop` ואין `delete`, ולכן לא היה צריך SQL Editor.
@@ -1768,6 +1768,33 @@
    - משתנים: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `STOREFRONT_PREVIEW_SECRET`.
 2. **בדשבורד:** `STOREFRONT_URL` = הכתובת של הפרויקט החדש, ו-`STOREFRONT_PREVIEW_SECRET` עם אותו ערך.
 
+## 4כו. פרויקט אתר החנות ב-Vercel (2.57.3)
+
+**מה הוגדר (6.10.2026, דרך ה-API של Vercel, בחשבון dinamit028-5772):**
+- **פרויקט חדש `dream-storefront`:** מאותו repo, Root Directory `storefront`, Next.js, אזור `fra1`. הכתובת: `https://dream-storefront.vercel.app`.
+- **ההגנה של Vercel:** כמו בדשבורד, Standard Protection. כתובת ה-production פתוחה לכולם, והכתובות של כל פריסה בנפרד נעולות.
+- **משתנים בחזית** (Production + Preview):
+  - `SUPABASE_URL`, `DASHBOARD_URL` (`https://dream-promotion.vercel.app`).
+  - סודות: `STOREFRONT_PREVIEW_SECRET`, `PAYMENT_SEAL_KEY`, `COMMERCE_SECRET`, `ORDER_LINK_SECRET`.
+  - `STOREFRONT_CRON_SECRET`: נשמר כ-Encrypted ולא כ-Sensitive, כדי שבעל המערכת יוכל לחשוף אותו ב-Vercel ולהעתיק אותו ל-`cron-commerce.sql`.
+- **משתנים בדשבורד** (Production): `STOREFRONT_URL` = `https://dream-storefront.vercel.app`, ו-`STOREFRONT_PREVIEW_SECRET`, `PAYMENT_SEAL_KEY`, `COMMERCE_SECRET`, `ORDER_LINK_SECRET`.
+  - **ארבעת הסודות המשותפים:** אותו ערך בשני הפרויקטים. הערכים נוצרו אקראית (36 בתים), ונשמרו רק ב-Vercel. לא ב-git ולא בקובץ.
+- **הפריסה הראשונה של החזית עברה בנייה** (`dpl_7Je6bGcJXKcxY2uDUoVVM91TZgst`, READY, הקומיט `afecf49`).
+
+**ה-cron (`cron-commerce.sql`) — 3 מתוך 4 המשימות הוגדרו דרך ה-MCP (6.10.2026, אחרי אישור שלך):**
+- `dp-commerce-release` (כל דקה), `dp-commerce-payments` (כל 5 דקות, לחזית, עם `STOREFRONT_CRON_SECRET`), `dp-commerce-finalize` (כל 2 דקות, לדשבורד).
+- **הסוד של `dp-commerce-finalize`:** הועתק במסד עצמו מהמשימה הקיימת `dp-publish-due`. הוא לא עבר דרך השיחה.
+- **`dp-commerce-cleanup` לא הוגדרה:** יש בה `delete`, וה-MCP עוצר. בעל המערכת מריץ ב-SQL Editor רק את החלק הזה מ-`cron-commerce.sql` (`select cron.schedule('dp-commerce-cleanup', …)`).
+
+**מה חסר:**
+- **`SUPABASE_SECRET_KEY` בחזית.** בדשבורד המפתח שמור כ-Sensitive, ואין דרך לקרוא אותו (גם לא דרך ה-MCP של Supabase). בעל המערכת מוסיף אותו ביד:
+  - Supabase ← Settings ← API Keys ← Secret key, או `service_role`.
+  - Vercel ← dream-storefront ← Settings ← Environment Variables.
+- **Redeploy לא בונה מחדש:** `ignoreCommand` ב-`vercel.json` משווה לקומיט של הפריסה האחרונה. אם אותו קומיט, הבנייה מבוטלת ("Ignored Build Step"). כך קרה ל-Redeploy של הדשבורד.
+  - **לכן הקומיט הזה נוגע בשתי התיקיות:** המיזוג שלו בונה את שני הפרויקטים, עם המשתנים החדשים.
+  - **הסדר:** קודם `SUPABASE_SECRET_KEY`, ואחר כך המיזוג.
+- **"פתח את האתר" ← `/s/followme` לא נבדק מכאן.** המדיניות של הסביבה שבה עבדתי חוסמת גישה ל-`*.vercel.app`. החנות `followme` במסד: טיוטה עם סיסמה. לכן אמור להופיע "בקרוב" עם שדה סיסמה, ועם הסיסמה — החנות.
+
 ## 5. בעיות וסיכונים ידועים
 
 1. **`reels/page.tsx` עדיין גדול** (1,230 שורות אחרי הפירוק הראשון). השלב הבא הוא SceneCard ו-hooks.
@@ -1822,7 +1849,7 @@
     - **לא להגדיר** `TAX_GATEWAY_MODE=mock` ב-Preview שמחובר למסד החי.
   - **קריאת הוצאות עם AI:** `ANTHROPIC_API_KEY` (קיים). המודל ב-`AI_SCAN_MODEL`, לא חובה.
 - **החנות (2.55):**
-  - **פרויקט Vercel חדש לחזית:** Root Directory `storefront`. המשתנים: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `STOREFRONT_PREVIEW_SECRET`, ולא חובה `STOREFRONT_PLATFORM_HOSTS`.
+  - **פרויקט Vercel לחזית — `dream-storefront`, הוקם ב-2.57.3 (סעיף 4כו). חסר רק `SUPABASE_SECRET_KEY`.** Root Directory `storefront`. המשתנים: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `STOREFRONT_PREVIEW_SECRET`, ולא חובה `STOREFRONT_PLATFORM_HOSTS`.
   - **בדשבורד:** `STOREFRONT_URL`, `STOREFRONT_PREVIEW_SECRET` (אותו ערך כמו בחזית). לא חובה: `VERCEL_API_TOKEN`, `VERCEL_STOREFRONT_PROJECT`, `VERCEL_TEAM_ID`.
   - פירוט: `storefront/README.md`.
 - **מכירה אמיתית (2.57):**
