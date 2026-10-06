@@ -580,6 +580,16 @@ select has_function_privilege('authenticated', 'public.sf_store(uuid, boolean)',
 select count(*) from public.stores;
 ```
 - **אמור לחזור:** 72 מדיניות; `false`, `false`; ו-0, כלומר עוד אין חנויות.
+- **תוצאה (6.10.2026, קריאה בלבד, דרך ה-MCP):** 72; `false`, `false`; 0.
+
+**סעיף 3 של 3400** (ההפניה הקבועה) רץ ב-SQL Editor, כי ה-MCP עוצר לאישור פונקציה שיש בה `delete`. אחרי שהוא רץ — בדיקה בקריאה בלבד:
+```sql
+select count(*) as fn from pg_proc where proname = 'store_redirect_on_slug';
+select string_agg(tgrelid::regclass::text, ', ' order by tgrelid::regclass::text) as on_tables
+  from pg_trigger where tgname = 'z_store_redirect' and not tgisinternal;
+select has_function_privilege('authenticated', 'public.store_redirect_on_slug()', 'execute') as authenticated_runs;
+```
+- **אמור לחזור:** 1; `catalog_collections, catalog_items, store_pages`; `false`.
 
 **בטלפון** — אחרי 3400, ואחרי שפרויקט החזית הוקם (`storefront/README.md`). **כל פעולה נכתבת למסד האמיתי.**
 1. **"חנות" ← "הגדרות":** "פתיחת החנות".
@@ -597,3 +607,5 @@ select count(*) from public.stores;
    - **אמור לקרות:** בדשבורד הדומיין "פעיל", ובאתר החנות עם התבנית.
 8. **"העלאת החנות לאוויר"** — רק כשכל הרשימה ✓.
    - **אמור לקרות:** "החנות באוויר". `https://followmecollection.com/sitemap.xml` מציג את המוצרים, הקולקציות והעמודים, ו-`www.followmecollection.com` מפנה לכתובת הראשית.
+9. **הפניה קבועה** (אחרי סעיף 3): בעורך של מוצר שכבר באתר משנים את הכתובת (`/products/…`) ← "שמירה". פותחים באתר את הכתובת הישנה.
+   - **אמור לקרות:** הדפדפן עובר לכתובת החדשה. אם משנים שוב, גם הכתובת הראשונה מפנה ישר לחדשה (בלי שרשרת).
