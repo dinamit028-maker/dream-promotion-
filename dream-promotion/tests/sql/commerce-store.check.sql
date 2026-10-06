@@ -216,7 +216,7 @@ select pg_temp.check(public.sf_resolve_host('nope.test') is null and public.sf_r
   'an unknown host finds nothing');
 -- a draft store: its name only, nothing else — unless previewed
 select pg_temp.check((select array_agg(k order by k collate "C") from jsonb_object_keys(public.sf_store('00000000-0000-0000-0000-000000345001')) k)
-  = '{id,lang,logo_url,name,primary_domain,status}', 'a draft store shows only its name ("בקרוב")');
+  = '{access,id,lang,logo_url,name,primary_domain,slug,status}', 'a draft store shows only its name ("בקרוב"), its address and who may open it');
 select pg_temp.check(public.sf_products('00000000-0000-0000-0000-000000345001') is null and public.sf_product('00000000-0000-0000-0000-000000345001', 'tote-bag') is null
   and public.sf_page('00000000-0000-0000-0000-000000345001', 'page', 'about') is null and public.sf_collections('00000000-0000-0000-0000-000000345001') is null
   and public.sf_sitemap('00000000-0000-0000-0000-000000345001') is null, 'a draft store shows no product, page, collection or sitemap');
@@ -247,7 +247,7 @@ select pg_temp.check((public.sf_store('00000000-0000-0000-0000-000000345001'))#>
   and (public.sf_store('00000000-0000-0000-0000-000000345001'))#>>'{legal,number_kind}' = 'company'
   and (public.sf_store('00000000-0000-0000-0000-000000345001'))#>>'{legal,address}' = 'הרצל 1, תל אביב', 'the business''s legal details for the footer');
 select pg_temp.check((select array_agg(k order by k collate "C") from jsonb_object_keys(public.sf_store('00000000-0000-0000-0000-000000345001')) k)
-  = '{can_buy,collections,contact,country,currency,description,ga4_id,gsc_code,id,lang,legal,logo_url,menus,name,policies,primary_domain,show_stock_count,status,template,theme}',
+  = '{access,can_buy,collections,contact,country,currency,description,ga4_id,gsc_code,id,lang,legal,logo_url,menus,name,policies,primary_domain,show_stock_count,slug,status,template,theme}',
   'sf_store returns its allow-list only');
 select pg_temp.check(pg_temp.slugs((public.sf_store('00000000-0000-0000-0000-000000345001'))->'collections') = 'eco,paper', 'only the published collections');
 select pg_temp.check((select string_agg(e->>'policy', ',') from jsonb_array_elements((public.sf_store('00000000-0000-0000-0000-000000345001'))->'policies') e)

@@ -8,6 +8,8 @@ export interface Link { label: string; href: string }
 
 export interface StoreLite {
   id: string; status: StoreStatus; name: string; lang: 'he' | 'en'; logo_url: string; primary_domain: string | null;
+  /** 2.57.1 (migration 3700): the store's own subdomain, and who may see it now (absent before it runs) */
+  slug?: string; access?: StoreAccess;
 }
 
 export interface Store extends StoreLite {
@@ -24,6 +26,8 @@ export interface Store extends StoreLite {
 
 /** the store as sf_store returns it: whole when it may be shown, only its name when it is not on the air */
 export type StoreAny = Store | StoreLite;
+/** public: on the air · password: before publishing or locked — open with the password (key: what the cookie is signed with) · closed: preview only */
+export interface StoreAccess { mode: 'public' | 'password' | 'closed'; key: string | null }
 export const isFullStore = (s: StoreAny): s is Store => 'theme' in s;
 
 export type PolicyKind = 'returns' | 'privacy' | 'accessibility' | 'terms' | 'shipping';

@@ -2,7 +2,7 @@ import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { blockedFor, workBusiness } from '@/lib/server/business';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
 import { isUuid } from '@/features/catalog/images';
-import { domainRows, normalizeDomain } from '@/features/store/store';
+import { cleanRoot, domainRows, normalizeDomain } from '@/features/store/store';
 import { addDomain, domainConfig, recordsFor, removeDomain, verifyDomain, vercelEnv, wwwRecord } from '@/features/store/vercel';
 
 export const runtime = 'nodejs';
@@ -43,6 +43,9 @@ export async function POST(req: Request) {
     if (body.action === 'connect') {
       const d = normalizeDomain(String(body.domain ?? ''));
       if (!d.ok) return bad(d.error);
+      // an address under the stores' root is the system's (<slug>.<root>, 2.57.1) — never a store's own domain
+      const root = cleanRoot(process.env.STORE_ROOT_DOMAIN);
+      if (root && (d.domain === root || d.domain.endsWith(`.${root}`))) return bad('זו כתובת של המערכת — הכתובת של החנות כבר עובדת שם. כאן מחברים דומיין משלכם.', 'platform_domain');
       const have = await list();
       if (have.some((r) => r.is_primary)) return bad('כבר מחובר דומיין ראשי. כדי להחליף, הסירו אותו קודם.', 'has_primary', 409);
       const rows = domainRows(d).map((r) => ({ business_id: business, store_id: storeId, domain: r.domain, is_primary: r.isPrimary, created_by: userId }));

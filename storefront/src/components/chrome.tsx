@@ -4,6 +4,7 @@ import { whatsappHref } from '@/lib/format';
 import type { Site } from '@/lib/site';
 import type { Link, PolicyKind, Store } from '@/lib/types';
 import { CartBadge } from './CartBadge';
+import { UnlockForm } from './UnlockForm';
 import { CookieConsent, CookieSettings } from './CookieConsent';
 
 export const POLICY_TITLE: Record<PolicyKind, string> = {
@@ -127,11 +128,12 @@ function PreviewBar({ site }: { site: Site }) {
 }
 
 export function StoreChrome({ site, children }: { site: Site & { store: Store }; children: ReactNode }) {
-  const analytics = !site.preview && !site.platform && site.store.status === 'published' ? site.store.ga4_id : '';
+  const analytics = site.via === 'public' && !site.locked && !site.platform && site.store.status === 'published' ? site.store.ga4_id : '';
   return (
     <>
       <a href="#main" className="skip">דלגו לתוכן</a>
-      {site.preview && <PreviewBar site={site} />}
+      {site.via === 'token' && <PreviewBar site={site} />}
+      {site.via === 'password' && <p className="preview-bar" role="status"><strong>האתר עוד לא פתוח לכולם</strong> — נכנסתם עם סיסמה.</p>}
       <Header site={site} />
       <main id="main" tabIndex={-1}>{children}</main>
       <Footer site={site} />
@@ -140,7 +142,7 @@ export function StoreChrome({ site, children }: { site: Site & { store: Store };
   );
 }
 
-export function ComingSoon({ name, logo }: { name: string; logo: string }) {
+export function ComingSoon({ name, logo, password = false }: { name: string; logo: string; password?: boolean }) {
   return (
     <main id="main" className="soon">
       {logo
@@ -149,6 +151,7 @@ export function ComingSoon({ name, logo }: { name: string; logo: string }) {
         : <p className="soon-name">{name}</p>}
       <h1>בקרוב</h1>
       <p className="muted">האתר בהכנה. נשמח לראות אתכם כאן ממש בקרוב.</p>
+      {password && <UnlockForm />}
     </main>
   );
 }

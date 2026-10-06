@@ -26,6 +26,11 @@ export function storeError(e: any, general = 'משהו השתבש. נסו שוב
   const m = String(e.message ?? '');
   const sale = checkoutError(m) ?? couponError(m);
   if (sale) return sale;
+  if (/store_slug_reserved/.test(m)) return 'השם הזה שמור למערכת. בחרו כתובת אחרת.';
+  if (/store_slug_invalid|stores_slug_check/.test(m)) return 'הכתובת לא תקינה: 3–40 אותיות באנגלית, ספרות ומקף.';
+  if (/stores_slug_uq/.test(m)) return 'הכתובת הזו כבר של חנות אחרת. בחרו אחרת.';
+  if (/stores_password_check/.test(m)) return 'סיסמה של 4 עד 40 תווים (או ריקה).';
+  if (/store_lock_needs_password/.test(m)) return 'כדי לנעול את האתר צריך סיסמה.';
   if (/store_not_ready/.test(m)) return 'החנות עוד לא מוכנה לעלות לאוויר — השלימו את מה שחסר ברשימה.';
   if (/stores_business_uq/.test(m)) return 'לעסק הזה כבר יש חנות.';
   if (/store_domains_domain_uq/.test(m)) return 'הדומיין כבר מחובר לחנות (אולי של עסק אחר). אם הוא שלכם — פנו אלינו.';
@@ -77,7 +82,8 @@ export async function openStore(name: string): Promise<Result<StoreRow>> {
 }
 
 export type StorePatch = Partial<{ name: string; description: string; logo_url: string; phone: string; whatsapp: string; email: string; address: string;
-  ga4_id: string; gsc_code: string; show_stock_count: boolean; status: 'draft' | 'published' | 'paused' } & CheckoutPatch & { checkout_enabled: boolean }>;
+  ga4_id: string; gsc_code: string; show_stock_count: boolean; status: 'draft' | 'published' | 'paused' } & CheckoutPatch & { checkout_enabled: boolean }
+  & { slug: string; storefront_password: string; password_lock: boolean }>;
 export async function updateStore(id: string, patch: StorePatch): Promise<Result<StoreRow> & { missing?: Missing[] }> {
   const { data, error } = await supabase().from('stores').update(patch).eq('id', id).select('*').single();
   if (error) return { ...fail(error, 'לא נשמר — נסו שוב.'), missing: missingFromError(String(error.message ?? '')) };
@@ -273,3 +279,9 @@ export async function loadEmailDomain(): Promise<Result<EmailDomain | null>> {
 }
 export const connectEmailDomain = (domain: string, fromName: string) => api<{ ok: true }>('/api/store/email-domain', { action: 'connect', domain, fromName });
 export const verifyEmailDomain = () => api<{ ok: true; status: string }>('/api/store/email-domain', { action: 'verify' });
+
+/** is an address free (the store's own address is) — {ok} or {ok: false, error, suggestion} */
+export async function slugAvailable(slug: string): Promise<Result<{ ok: boolean; error?: 'invalid' | 'reserved' | 'taken'; suggestion?: string }>> {
+  const { data, error } = await supabase().rpc('store_slug_available', { p_slug: slug });
+  return error ? fail(error, 'לא הצלחנו לבדוק את הכתובת.') : { ok: true, data: data as any };
+}

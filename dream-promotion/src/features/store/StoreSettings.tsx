@@ -6,9 +6,10 @@ import { cx } from '@/lib/utils';
 import { Button, PageHead, Pill } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
-import { checklist, checkDomains, connectDomain, openStore, previewLink, removeDomain, updateStore, type StorePatch } from './data';
+import { checklist, checkDomains, connectDomain, openStore, previewLink, removeDomain, slugAvailable, updateStore, type StorePatch } from './data';
 import {
-  CHECKLIST, cleanGa4, cleanGscCode, DOMAIN_STATUS, normalizeDomain, normalizeWhatsapp, toDomain, validEmail, validPhone,
+  CHECKLIST, checkPassword, checkSlug, cleanGa4, cleanGscCode, DOMAIN_STATUS, newPassword, normalizeDomain, normalizeWhatsapp, shareText,
+  SLUG_ERROR, storeAddress, storeVisibility, toDomain, validEmail, validPhone, VISIBILITY,
   type DomainRow, type Missing, type StoreRow,
 } from './store';
 import { AreaRow, Block, Notice, PicturePicker, TextRow } from './ui';
@@ -19,7 +20,7 @@ import { useStoreData } from './useStoreData';
  * checklist that lets it go on the air. Nothing here claims a connection the server did not confirm: a domain is "active"
  * only after the storefront served it; Search Console reads "קוד האימות מוצג באתר", not "connected".
  */
-export function StoreSettings() {
+export function StoreSettings({ root = '' }: { root?: string }) {
   const { data, error, loading, reload, setData } = useStoreData();
   const brandName = useApp((s) => s.brand?.name ?? '');
   const [name, setName] = useState('');
@@ -48,12 +49,12 @@ export function StoreSettings() {
       </>
     );
   }
-  return <Settings store={store} domains={data!.domains} reload={reload} setStore={(s) => setData((d) => (d ? { ...d, store: s } : d))}
+  return <Settings root={root} store={store} domains={data!.domains} reload={reload} setStore={(s) => setData((d) => (d ? { ...d, store: s } : d))}
     setDomains={(domains) => setData((d) => (d ? { ...d, domains } : d))} />;
 }
 
-function Settings({ store, domains, reload, setStore, setDomains }: {
-  store: StoreRow; domains: DomainRow[]; reload: () => Promise<unknown>; setStore: (s: StoreRow) => void; setDomains: (d: DomainRow[]) => void;
+function Settings({ root, store, domains, reload, setStore, setDomains }: {
+  root: string; store: StoreRow; domains: DomainRow[]; reload: () => Promise<unknown>; setStore: (s: StoreRow) => void; setDomains: (d: DomainRow[]) => void;
 }) {
   const [f, setF] = useState({
     name: store.name, description: store.description, logoUrl: store.logoUrl, phone: store.phone, whatsapp: store.whatsapp,
@@ -103,6 +104,8 @@ function Settings({ store, domains, reload, setStore, setDomains }: {
       <PageHead title="הגדרות ודומיין" sub={store.status === 'published' ? 'החנות באוויר.' : store.status === 'paused' ? 'החנות מושהית: הלקוחות רואים "בקרוב".' : 'החנות בטיוטה: רק מי שמקבל קישור תצוגה רואה אותה.'}
         action={<PreviewButton />} />
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+
+      <Address root={root} store={store} domains={domains} onSaved={(s) => { setStore(s); void refreshCheck(); }} />
 
       <Publish store={store} check={check} busy={saving} onStatus={setStatus} />
 
@@ -277,6 +280,100 @@ function Domains({ domains, onChange, reload }: { domains: DomainRow[]; onChange
             <li>אחרי שה-DNS מתעדכן (לפעמים כמה שעות), פותחים את האתר פעם אחת. אז הדומיין מסומן כאן "פעיל".</li>
           </ol>
         </div>
+      )}
+    </Block>
+  );
+}
+
+/**
+ * "כתובת האתר" (2.57.1): where the store lives (its own domain once that works, else <slug>.<root>), what a visitor sees
+ * (טיוטה / מוגן בסיסמה / באוויר), "פתח את האתר", "העתק קישור + סיסמה", the address itself and the password.
+ */
+function Address({ root, store, domains, onSaved }: { root: string; store: StoreRow; domains: DomainRow[]; onSaved: (s: StoreRow) => void }) {
+  const [slug, setSlug] = useState(store.slug);
+  const [password, setPassword] = useState(store.storefrontPassword);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'error' | 'warn'; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const where = storeAddress(store, domains, root);
+  const vis = storeVisibility(store);
+  const v = VISIBILITY[vis];
+  const sub = root ? `${store.slug}.${root}` : '';
+
+  const save = async (patch: StorePatch, ok: string) => {
+    setBusy(true); setMsg(null);
+    const r = await updateStore(store.id, patch);
+    setBusy(false);
+    if (!r.ok) { setMsg({ tone: 'error', text: r.error }); return false; }
+    onSaved(r.data); setSlug(r.data.slug); setPassword(r.data.storefrontPassword);
+    setMsg({ tone: 'ok', text: ok });
+    return true;
+  };
+  const saveSlug = async () => {
+    const c = checkSlug(slug);
+    if (!c.ok) { setMsg({ tone: 'error', text: c.error }); return; }
+    if (c.slug === store.slug) { setSlug(c.slug); return; }
+    const a = await slugAvailable(c.slug);
+    if (a.ok && !a.data.ok) {
+      setMsg({ tone: 'error', text: `${SLUG_ERROR[a.data.error ?? 'invalid']}${a.data.suggestion ? ` אפשר למשל: ${a.data.suggestion}` : ''}` });
+      return;
+    }
+    if (!window.confirm(`לשנות את הכתובת ל-${c.slug}${root ? `.${root}` : ''}? הכתובת הקודמת תפסיק לעבוד.`)) return;
+    await save({ slug: c.slug }, 'הכתובת נשמרה.');
+  };
+  const savePassword = async () => {
+    const c = checkPassword(password);
+    if (!c.ok) { setMsg({ tone: 'error', text: c.error }); return; }
+    if (!c.password && store.passwordLock) { setMsg({ tone: 'error', text: 'האתר נעול בסיסמה. קודם פותחים את הנעילה, ואז אפשר למחוק את הסיסמה.' }); return; }
+    await save({ storefront_password: c.password }, c.password ? 'הסיסמה נשמרה. מי שנכנס עם הסיסמה הקודמת יצטרך את החדשה.' : 'הסיסמה נמחקה: לפני הפרסום רק קישור התצוגה המקדימה פותח את האתר.');
+  };
+  const copy = async () => {
+    if (!where) return;
+    try {
+      await navigator.clipboard.writeText(shareText(where.url, vis === 'password' ? store.storefrontPassword : '', store.name));
+      setCopied(true); setTimeout(() => setCopied(false), 2500);
+    } catch { setMsg({ tone: 'warn', text: 'לא הצלחנו להעתיק. אפשר לסמן ולהעתיק ביד.' }); }
+  };
+
+  return (
+    <Block title="כתובת האתר" id="address" action={<Pill tone={v.tone}>{v.label}</Pill>} sub={v.text}>
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      {where ? (
+        <p className="mb-3 text-lg font-bold"><bdi dir="ltr">{where.url.replace(/^https:\/\//, '')}</bdi></p>
+      ) : (
+        <Notice tone="warn">הכתובת האוטומטית של החנות תעבוד אחרי שמגדירים את הדומיין של המערכת (STORE_ROOT_DOMAIN). עד אז — תצוגה מקדימה, או דומיין משלכם.</Notice>
+      )}
+      {where?.kind === 'domain' && sub && <p className="mb-3 text-sm text-muted">גם <bdi dir="ltr">{sub}</bdi> עובדת, ומעבירה לדומיין שלכם.</p>}
+      {where && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <a href={where.url} target="_blank" rel="noopener noreferrer"
+            className="inline-flex min-h-11 items-center rounded-full bg-primary px-5 font-semibold text-white">פתח את האתר</a>
+          <Button variant="ghost" onClick={() => void copy()}>{copied ? 'הועתק ✓' : vis === 'password' ? 'העתק קישור + סיסמה' : 'העתק קישור'}</Button>
+        </div>
+      )}
+      {root && (
+        <div className="mb-4">
+          <TextRow label="הכתובת של החנות" value={slug} onChange={(x) => setSlug(x.toLowerCase())} dir="ltr" max={40}
+            hint={`${slug || '…'}.${root} — אותיות באנגלית, ספרות ומקף. ייחודית בכל המערכת.`} />
+          {slug.trim().toLowerCase() !== store.slug && <Button variant="primary" disabled={busy} onClick={() => void saveSlug()}>שמירת הכתובת</Button>}
+        </div>
+      )}
+      <div className="mb-2">
+        <TextRow label="סיסמה לאתר" value={password} onChange={setPassword} dir="ltr" max={40}
+          hint="לפני הפרסום (או כשהאתר נעול) — נכנס רק מי שיש לו את הקישור והסיסמה. ריק = רק קישור התצוגה המקדימה." />
+        <div className="flex flex-wrap gap-2">
+          {password.trim() !== store.storefrontPassword && <Button variant="primary" disabled={busy} onClick={() => void savePassword()}>שמירת הסיסמה</Button>}
+          <Button variant="ghost" disabled={busy} onClick={() => setPassword(newPassword())}>סיסמה חדשה</Button>
+        </div>
+      </div>
+      {store.status === 'published' && (
+        <label className="mt-3 flex min-h-11 items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-ink-2">נעילת האתר בסיסמה (הלקוחות רואים "בקרוב")</span>
+          <Switch on={store.passwordLock} label="נעילת האתר בסיסמה" onClick={() => {
+            if (!store.passwordLock && !store.storefrontPassword) { setMsg({ tone: 'error', text: 'כדי לנעול את האתר צריך קודם לשמור סיסמה.' }); return; }
+            void save({ password_lock: !store.passwordLock }, store.passwordLock ? 'האתר פתוח לכולם.' : 'האתר נעול: נכנסים רק עם הסיסמה.');
+          }} />
+        </label>
       )}
     </Block>
   );

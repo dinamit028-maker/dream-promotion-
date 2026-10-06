@@ -1,4 +1,5 @@
 import { adminDb, userFromRequest } from '@/lib/server/admin';
+import { cleanRoot } from '@/features/store/store';
 import { LOCKED, REGISTER_ONLY, registerOnly, userLocked, workBusiness } from '@/lib/server/business';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
 import { isUuid } from '@/features/catalog/images';
@@ -27,10 +28,12 @@ export async function POST(req: Request) {
   const business = await workBusiness(userId);
   if (!isUuid(business)) return json(403, { code: 'no_business', message: 'החשבון לא משויך לעסק.' });
   const db = adminDb();
-  const { data: store } = await db.from('stores').select('id').eq('business_id', business).maybeSingle();
+  const { data: store } = await db.from('stores').select('*').eq('business_id', business).maybeSingle();
   if (!store) return json(404, { code: 'no_store', message: 'עוד אין חנות לעסק הזה.' });
   const { data: dom } = await db.from('store_domains').select('domain').eq('store_id', (store as any).id).eq('is_primary', true).eq('status', 'active').maybeSingle();
-  const base = dom ? `https://${(dom as any).domain}` : process.env.STOREFRONT_URL;
+  // its own domain once that works; else its own address (2.57.1) once the storefront served it; else the storefront's address
+  const root = cleanRoot(process.env.STORE_ROOT_DOMAIN), st = store as any;
+  const base = dom ? `https://${(dom as any).domain}` : root && st.slug && st.subdomain_seen_at ? `https://${st.slug}.${root}` : process.env.STOREFRONT_URL;
   if (!base || !/^https?:\/\//.test(base)) {
     return json(503, { code: 'not_configured', message: 'אין עדיין כתובת לתצוגה: הדומיין לא פעיל, ו-STOREFRONT_URL לא הוגדר ב-Vercel.' });
   }

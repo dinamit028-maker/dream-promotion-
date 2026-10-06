@@ -15,6 +15,8 @@ export interface StoreRow {
   description: string; phone: string; whatsapp: string; email: string; address: string; ga4Id: string; gscCode: string;
   showStockCount: boolean; publishedAt: string | null; updatedAt: string;
   checkout: CheckoutSettings;                 // selling on the site (2.56)
+  /** 2.57.1 (migration 3700): the store's own address <slug>.<STORE_ROOT_DOMAIN>, and its password */
+  slug: string; storefrontPassword: string; passwordLock: boolean; subdomainSeenAt: string | null;
 }
 export interface DomainRow {
   id: string; storeId: string; domain: string; isPrimary: boolean; status: DomainStatus; lastSeenAt: string | null;
@@ -34,6 +36,7 @@ export const toStore = (r: any): StoreRow => ({
   logoUrl: r.logo_url ?? '', description: r.description ?? '', phone: r.phone ?? '', whatsapp: r.whatsapp ?? '', email: r.email ?? '',
   address: r.address ?? '', ga4Id: r.ga4_id ?? '', gscCode: r.gsc_code ?? '', showStockCount: Boolean(r.show_stock_count),
   publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? '', checkout: toCheckout(r),
+  slug: r.slug ?? '', storefrontPassword: r.storefront_password ?? '', passwordLock: Boolean(r.password_lock), subdomainSeenAt: r.subdomain_seen_at ?? null,
 });
 export const toDomain = (r: any): DomainRow => ({
   id: r.id, storeId: r.store_id, domain: r.domain, isPrimary: Boolean(r.is_primary), status: r.status ?? 'pending',
@@ -126,7 +129,7 @@ export const CHECKLIST: { code: Missing; label: string; fix: string; href: strin
   { code: 'returns', label: 'מדיניות ביטולים והחזרות', fix: 'כותבים ומפרסמים בעמודים', href: '/store/pages?policy=returns' },
   { code: 'privacy', label: 'מדיניות פרטיות', fix: 'כותבים ומפרסמים בעמודים', href: '/store/pages?policy=privacy' },
   { code: 'accessibility', label: 'הצהרת נגישות', fix: 'כותבים ומפרסמים בעמודים', href: '/store/pages?policy=accessibility' },
-  { code: 'domain', label: 'דומיין פעיל', fix: 'מחברים את הדומיין, והחזית מאשרת שהוא עובד', href: '/store/settings#domain' },
+  { code: 'domain', label: 'כתובת פעילה (הכתובת של החנות או דומיין משלכם)', fix: 'פותחים את האתר פעם אחת, או מחברים דומיין', href: '/store/settings#address' },
   { code: 'product', label: 'לפחות מוצר אחד באתר', fix: 'מדליקים "באתר" ליד מוצר', href: '/store/products' },
 ];
 /** "store_not_ready: accessibility,domain" (the database's refusal) → the codes */
@@ -260,3 +263,72 @@ export function menuProblem(items: MenuLink[]): string | null {
   if (l.label.trim().length > STORE_LIMITS.menuLabel) return `השם של קישור ${i + 1} ארוך מדי (עד ${STORE_LIMITS.menuLabel} תווים).`;
   return `הכתובת של "${l.label.trim()}" לא תקינה: כתובת באתר שמתחילה ב-/ או קישור שמתחיל ב-https://`;
 }
+
+// ---- the store's own address and its password (2.57.1) -----------------------------------------------------------------------
+/**
+ * Names that are never a store's address — the same list as the database's store_slug_reserved() (migration 3700);
+ * tests/store-subdomain.test.ts fails when the two differ.
+ */
+export const RESERVED_SLUGS: readonly string[] = [
+  'www', 'app', 'apps', 'admin', 'administrator', 'api', 'mail', 'email', 'smtp', 'imap', 'pop', 'mx', 'ftp', 'ns1', 'ns2', 'dns',
+  'shop', 'shops', 'store', 'stores', 'my', 'dashboard', 'login', 'logout', 'signin', 'signup', 'auth', 'account', 'accounts',
+  'billing', 'pay', 'payment', 'payments', 'checkout', 'cart', 'orders', 'help', 'support', 'status', 'docs', 'blog', 'news',
+  'cdn', 'static', 'assets', 'media', 'img', 'images', 'files', 'download', 'downloads', 'preview', 'staging', 'dev', 'test',
+  'beta', 'demo', 'secure', 'security', 'root', 'system', 'internal', 'webmail', 'portal', 'dream', 'platform', 'official',
+];
+export const slugReserved = (s: string) => s.startsWith('xn--') || RESERVED_SLUGS.includes(s);
+
+/** what the owner typed → an address: lower case, 3–40 of a–z, 0–9 and single hyphens, not reserved */
+export function checkSlug(raw: string): { ok: true; slug: string } | { ok: false; error: string } {
+  const s = raw.trim().toLowerCase();
+  if (s.length < 3 || s.length > 40) return { ok: false, error: 'הכתובת צריכה 3 עד 40 תווים.' };
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(s)) return { ok: false, error: 'רק אותיות באנגלית, ספרות ומקף אחד בין מילים (למשל flowers-tlv).' };
+  if (slugReserved(s)) return { ok: false, error: 'השם הזה שמור למערכת. בחרו שם אחר.' };
+  return { ok: true, slug: s };
+}
+export const SLUG_ERROR: Record<'invalid' | 'reserved' | 'taken', string> = {
+  invalid: 'הכתובת לא תקינה: רק אותיות באנגלית, ספרות ומקף.', reserved: 'השם הזה שמור למערכת. בחרו שם אחר.', taken: 'הכתובת הזו כבר של חנות אחרת.',
+};
+
+/** the store's password: 4–40 characters, or empty (then a store before publishing is closed to everyone but the preview link) */
+export function checkPassword(raw: string): { ok: true; password: string } | { ok: false; error: string } {
+  const p = raw.trim();
+  if (p && (p.length < 4 || p.length > 40)) return { ok: false, error: 'סיסמה של 4 עד 40 תווים (או ריקה).' };
+  return { ok: true, password: p };
+}
+/** a new password: 10 letters and digits, no look-alikes (0/o, 1/l) */
+export function newPassword(random: (n: number) => number = (n) => Math.floor(Math.random() * n)): string {
+  const abc = 'abcdefghijkmnpqrstuvwxyz23456789';
+  return Array.from({ length: 10 }, () => abc[random(abc.length)]).join('');
+}
+
+/** the root of the stores' addresses (STORE_ROOT_DOMAIN), clean, or '' */
+export const cleanRoot = (raw: string | undefined) => {
+  const r = (raw ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\.$/, '');
+  return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(r) ? r : '';
+};
+/** where the store lives now: its own domain once that works, else its subdomain (when the root is set), else nowhere yet */
+export function storeAddress(store: Pick<StoreRow, 'slug'>, domains: Pick<DomainRow, 'domain' | 'isPrimary' | 'status'>[], root: string):
+  { url: string; kind: 'domain' | 'subdomain' } | null {
+  const own = domains.find((d) => d.isPrimary && d.status === 'active');
+  if (own) return { url: `https://${own.domain}`, kind: 'domain' };
+  if (root && store.slug) return { url: `https://${store.slug}.${root}`, kind: 'subdomain' };
+  return null;
+}
+
+/** what a visitor sees now: draft (closed), password, live — the same rule as the database's store_access() */
+export type Visibility = 'draft' | 'paused' | 'password' | 'live';
+export function storeVisibility(s: Pick<StoreRow, 'status' | 'storefrontPassword' | 'passwordLock'>): Visibility {
+  if (s.status === 'published' && !s.passwordLock) return 'live';
+  if (s.storefrontPassword) return 'password';
+  return s.status === 'paused' ? 'paused' : 'draft';
+}
+export const VISIBILITY: Record<Visibility, { label: string; tone: 'ok' | 'warn' | 'default'; text: string }> = {
+  live: { label: 'באוויר', tone: 'ok', text: 'כל אחד רואה את האתר, וגוגל יכול לאנדקס אותו.' },
+  password: { label: 'מוגן בסיסמה', tone: 'warn', text: 'רק מי שיש לו את הקישור והסיסמה נכנס. כל השאר רואים "בקרוב", וגוגל לא מאנדקס.' },
+  draft: { label: 'טיוטה', tone: 'default', text: 'בלי סיסמה: רק קישור התצוגה המקדימה פותח את האתר.' },
+  paused: { label: 'מושהה', tone: 'default', text: 'הלקוחות רואים "בקרוב".' },
+};
+/** "העתק קישור + סיסמה": what the owner pastes to whoever should see the store */
+export const shareText = (url: string, password: string, name: string) =>
+  password ? `${name}\n${url}\nסיסמה: ${password}` : `${name}\n${url}`;
