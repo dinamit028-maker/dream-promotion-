@@ -93,6 +93,7 @@ async function main() {
   const fake = new FakeSupabase(seed(), { businessId: BIZ, userId: OWNER, email: 'owner@sagabot.test' });
   const errors: string[] = [];
   const aiRequests: any[] = [];
+  const frameLoads: string[] = [];
   const picture = png(900, 600, [200, 120, 80]);
 
   async function open(o: { access: 'full' | 'register'; userId: string; viewport?: { width: number; height: number }; path: string }) {
@@ -164,7 +165,23 @@ async function main() {
     });
     await ctx.route(`${BASE}/api/store/preview-token`, (r: any) => {
       const store = fake.tables.stores?.[0];
-      return r.fulfill({ json: { url: `https://storefront.test/?preview=${store?.id}.2000000000.sig`, expires: 2_000_000_000 } });
+      return r.fulfill({ json: { url: `https://storefront.test/?preview=${store?.id}.2000000000.sig`, expires: 2_000_000_000,
+        token: `${store?.id}.2000000000.sig`, base: 'https://storefront.test' } });
+    });
+    // the store's page in the visual editor (2.61) — what the storefront's EditBridge sends (tested in the storefront's own e2e):
+    // each button names one thing, to the dashboard's origin only
+    await ctx.route('https://storefront.test/**', (r: any) => {
+      frameLoads.push(r.request().url());
+      return r.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html dir="rtl"><body>
+        <button id="title">הכותרת</button><button id="steps">איך זה עובד</button><button id="menu">התפריט</button><button id="go">לקולקציה</button>
+        <script>
+          const send = (m) => parent.postMessage(m, ${JSON.stringify(BASE)});
+          send({ type: 'ready', path: location.pathname });
+          document.getElementById('title').onclick = () => send({ type: 'text', section: 'hero', field: 'title', value: 'כותרת שנערכה באתר' });
+          document.getElementById('steps').onclick = () => send({ type: 'section', id: 'steps' });
+          document.getElementById('menu').onclick = () => send({ type: 'open', target: 'menus:main' });
+          document.getElementById('go').onclick = () => send({ type: 'navigate', path: '/collections/all' });
+        </script></body></html>` });
     });
     // the terminal's route (src/app/api/store/payments — tested on its own in tests/store-checkout.test.ts): keys checked,
     // sealed on the server, never sent back
@@ -181,7 +198,6 @@ async function main() {
       if (b.action === 'disconnect') fake.tables.payment_accounts = [];
       return r.fulfill({ json: info() });
     });
-    await ctx.route('https://storefront.test/**', (r: any) => r.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><html lang="he"><title>תצוגה מקדימה</title><body>החזית</body></html>' }));
     ctx.setDefaultTimeout(30_000); ctx.setDefaultNavigationTimeout(180_000);
     const page = await ctx.newPage();
     page.on('pageerror', (e: Error) => errors.push(`${o.access}: ${e.message}`));
@@ -629,6 +645,46 @@ async function main() {
       await popup.close();
       await noSideScroll(st, 'the design on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9-store-design-phone.png'), fullPage: true });
+    });
+
+    await step('"לחץ לעריכה" (2.61): the store in a frame — a title edited on the page is saved as the draft, a section opens its panel, the menus their editor', async () => {
+      await st.goto(`${BASE}/store/design`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('button', { name: '✏️ עריכה על האתר' }).click();
+      await st.getByRole('heading', { name: 'עריכה על האתר' }).waitFor();
+      const frame = st.frameLocator('iframe[title^="האתר"]');
+      await frame.locator('#title').waitFor();
+      assert.match(frameLoads.at(-1)!, /^https:\/\/storefront\.test\/\?edit=/, 'the frame opens with the edit token');
+      const versions = () => fake.tables.store_theme_versions ?? [];
+      const draft = () => versions().find((v) => v.status === 'draft');
+      // a message from anywhere but the frame changes nothing
+      await st.evaluate(() => window.postMessage({ type: 'text', section: 'hero', field: 'title', value: 'זיוף' }, '*'));
+      await frame.locator('#title').click();
+      await st.getByText('נשמר כטיוטה ✓').waitFor();
+      assert.equal(draft()!.settings.sections.find((x: any) => x.id === 'hero').settings.title, 'כותרת שנערכה באתר');
+      assert.equal(versions().find((v) => v.status === 'published')!.version, 1, 'the site keeps the published version');
+      // a section: its panel; moved down — saved, and the frame shows it again
+      const loads = frameLoads.length;
+      const before = draft()!.settings.sections.map((x: any) => x.id);
+      await frame.locator('#steps').click();
+      await st.getByRole('heading', { name: 'איך זה עובד' }).waitFor();
+      await st.getByRole('button', { name: 'להזיז למטה' }).click();
+      await st.waitForFunction(() => document.querySelector('[role="status"]')?.textContent?.includes('נשמר כטיוטה'));
+      await st.waitForTimeout(300);
+      const ids = draft()!.settings.sections.map((x: any) => x.id);
+      assert.equal(ids.indexOf('steps'), before.indexOf('steps') + 1, 'the steps moved one down');
+      assert.ok(frameLoads.length > loads, 'the frame shows the saved draft');
+      assert.equal(await st.getByRole('button', { name: 'שכפול' }).count(), 0, 'a closed template: no duplicating');
+      await noSideScroll(st, 'the visual editor on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c9b-visual-editor-phone.png'), fullPage: true });
+      // another page of the store; then the menus open their own editor
+      await frame.locator('#go').click();
+      await st.waitForFunction(() => (document.querySelector('iframe[title^="האתר"]') as HTMLIFrameElement | null)?.src.includes('/collections/all?edit='));
+      // "פרסום באתר": the draft goes on the air (a version, as in the classic editor)
+      await st.getByRole('button', { name: 'פרסום באתר' }).click();
+      await st.getByText(/גרסה \d+ פורסמה באתר\./).waitFor();
+      assert.equal(draft(), undefined, 'no draft left');
+      await frame.locator('#menu').click();
+      await st.waitForURL(/\/store\/navigation$/);
     });
 
     await step('starter kits (2.58): the gallery; a kit is applied as a draft — it creates what is missing and asks before replacing', async () => {

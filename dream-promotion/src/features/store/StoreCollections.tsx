@@ -43,9 +43,14 @@ function Collections() {
   useEffect(() => { void loadCatalog().then((r) => setItems(r.ok ? r.data.items : [])); }, []);
   const list = data?.collections ?? [];
   // "+ קולקציה חדשה" of the module
+  // and a collection clicked on the site, in the visual editor (?edit=<id>, 2.61)
   useEffect(() => {
-    if (!data?.store || params?.get('new') !== '1') return;
-    setEdit(draftOf(null, list.length)); router.replace(pathname, { scroll: false });
+    if (!data?.store) return;
+    const one = params?.get('edit') ? list.find((c) => c.id === params.get('edit')) : undefined;
+    if (one) setEdit(draftOf(one, one.position));
+    else if (params?.get('new') === '1') setEdit(draftOf(null, list.length));
+    else return;
+    router.replace(pathname, { scroll: false });
   }, [params, data?.store]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <><PageHead title="קולקציות" /><p className="flex items-center gap-2 text-muted"><Spinner /> טוען…</p></>;
