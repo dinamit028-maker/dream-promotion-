@@ -2,6 +2,7 @@ import { authHeaders } from './http';
 import type { RewriteMode } from './prompts';
 import type { BrandAnalysis, BrandProfile, ContentBrief, GeneratedVariant, Storyboard } from '@/types';
 import type { CopyBrief, ProductCopy } from '@/features/catalog/catalog';
+import type { PageCopy, ShortAsk, ShortCopy } from '@/features/store/page-ai';
 
 /**
  * AIService — the only place the app talks to a language model.
@@ -61,6 +62,11 @@ export const AIService = {
     call<{ lines: { text: string; hl?: number[]; emoji?: string }[] }>('captions', { brand, ...p }),
   /** Dream Commerce: a product page's description + its text for Google — a suggestion, approved before saving */
   productCopy: (brand: BrandProfile, brief: CopyBrief) => call<ProductCopy>('product', { brand, ...brief }),
+  /** Dream Commerce: a page or a policy of the site (the store's details are read on the server) — a suggestion, approved before saving */
+  storePage: (brand: BrandProfile, p: { kind: 'page' | 'policy'; policy: string | null; title: string; current: string }) =>
+    call<PageCopy>('storePage', { brand, ...p }),
+  /** a category's description or the store's one sentence */
+  storeText: (brand: BrandProfile, a: ShortAsk) => call<ShortCopy>('storeText', { brand, ...a }),
   assistant: (brand: BrandProfile, recentContent: string, question: string) =>
     call<{ text: string }>('assistant', { brand, recentContent, question }),
 };

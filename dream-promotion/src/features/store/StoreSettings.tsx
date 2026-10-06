@@ -14,6 +14,7 @@ import {
   SLUG_ERROR, storeAddress, storeVisibility, toDomain, validEmail, validPhone, VISIBILITY,
   type DomainRow, type Missing, type StoreRow,
 } from './store';
+import { AiShort } from './AiShort';
 import { AreaRow, Block, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 
@@ -130,6 +131,7 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
         <TextRow label="שם החנות" value={f.name} onChange={(v) => set('name', v)} max={80} />
         <AreaRow label="משפט על החנות (לגוגל ולתחתית האתר)" value={f.description} onChange={(v) => set('description', v)} rows={2} max={320}
           placeholder="למשל: שקיות ממותגות לעסקים, בהדפסה לפי המידה שלכם." />
+        <AiShort ask={{ field: 'store', title: f.name, tags: [], current: f.description }} autoKey={`store:${store.id}`} onUse={(c) => set('description', c.text)} />
         <PicturePicker label="לוגו" value={f.logoUrl} onChange={(u) => set('logoUrl', u)} />
       </Block>
 

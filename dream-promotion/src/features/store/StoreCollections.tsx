@@ -9,6 +9,7 @@ import { LIMITS, SEO_SHOWN, type CatalogItem } from '@/features/catalog/catalog'
 import { loadCatalog } from '@/features/catalog/data';
 import { deleteCollection, orderCollections, saveCollection, type CollectionInput } from './data';
 import { allTags, COLLECTION_SORT, collectionProblem, matchesTags, STORE_LIMITS, suggestSlug, type CollectionRow } from './store';
+import { AiShort } from './AiShort';
 import { AreaRow, Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 
@@ -152,6 +153,8 @@ function Editor({ draft, items, taken, onClose, onSaved }: {
         <TextRow label="כתובת באתר" value={d.slug} max={LIMITS.slug} dir="ltr" onChange={(v) => set({ slug: v.toLowerCase().replace(/\s+/g, '-'), slugTouched: true })}
           hint={`/collections/${d.slug || '…'}${d.id && draft.publishOnline ? ' · שינוי הכתובת משאיר הפניה מהכתובת הישנה' : ''}`} />
         <AreaRow label="תיאור (מוצג בראש העמוד)" value={d.description} onChange={(v) => set({ description: v })} max={STORE_LIMITS.collectionDescription} />
+        <AiShort ask={{ field: 'collection', title: d.title, tags: d.tags, current: d.description }} autoKey={`collection:${d.id ?? 'new'}`}
+          onUse={(c) => set({ description: c.text, seoTitle: d.seoTitle.trim() || c.seoTitle, seoDescription: d.seoDescription.trim() || c.seoDescription })} />
         <PicturePicker label="תמונה" value={d.imageUrl} onChange={(u) => set({ imageUrl: u })} />
         <label className="flex min-h-11 items-center justify-between gap-3">
           <span className="text-sm font-semibold">באתר</span>
