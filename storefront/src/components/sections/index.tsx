@@ -4,7 +4,7 @@ import type { Site } from '@/lib/site';
 import { safeImage, type Section } from '@/lib/theme';
 import type { Store } from '@/lib/types';
 import { resolveHref } from '../chrome';
-import { BagArt, ProductGrid } from '../ui';
+import { Art, PlaceholderGrid, ProductGrid } from '../ui';
 
 type S = Record<string, unknown>;
 const str = (s: S, k: string) => (typeof s[k] === 'string' ? (s[k] as string) : '');
@@ -36,7 +36,7 @@ function Hero({ s, site, first }: { s: S; site: Live; first: boolean }) {
           {img
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={img} alt="" className="hero-img" loading="eager" fetchPriority="high" decoding="async" />
-            : <BagArt />}
+            : <Art />}
         </div>
       </div>
     </section>
@@ -47,7 +47,7 @@ async function CollectionsSection({ s, site, id }: { s: S; site: Live; id: strin
   const list = (await data.collections(site.storeId, site.preview)) ?? [];
   if (!list.length) return null;
   return (
-    <section className="band" aria-labelledby={`${id}-t`}>
+    <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
         <h2 id={`${id}-t`} className="band-title">{str(s, 'title') || 'קולקציות'}</h2>
         {str(s, 'subtitle') && <p className="muted">{str(s, 'subtitle')}</p>}
@@ -57,10 +57,10 @@ async function CollectionsSection({ s, site, id }: { s: S; site: Live; id: strin
               <a href={`/collections/${encodeURIComponent(c.slug)}`} className="tile">
                 <span className="tile-media">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {c.image_url ? <img src={c.image_url} alt="" loading="lazy" decoding="async" /> : <BagArt className="tile-art" />}
+                  {c.image_url ? <img src={c.image_url} alt="" loading="lazy" decoding="async" /> : <Art className="tile-art" />}
                 </span>
                 <span className="tile-title">{c.title}</span>
-                <span className="tile-count">{c.count === 1 ? 'מוצר אחד' : `${c.count} מוצרים`}</span>
+                {c.count > 0 && <span className="tile-count">{c.count === 1 ? 'מוצר אחד' : `${c.count} מוצרים`}</span>}
               </a>
             </li>
           ))}
@@ -74,10 +74,21 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
   const collection = str(s, 'collection');
   const limit = typeof s.limit === 'number' ? s.limit : 8;
   const list = await data.products(site.storeId, { collection: collection || undefined, limit, sort: collection ? undefined : 'newest' }, site.preview);
-  if (!list?.items.length) return null;
+  // no products yet: the owner's preview shows where they will be; a shopper sees nothing
+  if (!list?.items.length) {
+    if (!site.preview) return null;
+    return (
+      <section className="band" id={id} aria-labelledby={`${id}-t`}>
+        <div className="wrap">
+          <h2 id={`${id}-t`} className="band-title">{str(s, 'title') || 'מוצרים'}</h2>
+          <PlaceholderGrid count={Math.min(limit, 4)} />
+        </div>
+      </section>
+    );
+  }
   const more = collection ? `/collections/${encodeURIComponent(collection)}` : '/collections/all';
   return (
-    <section className="band" aria-labelledby={`${id}-t`}>
+    <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
         <div className="band-head">
           <h2 id={`${id}-t`} className="band-title">{str(s, 'title') || 'מוצרים'}</h2>
@@ -92,11 +103,11 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
 function ImageText({ s, site, id }: { s: S; site: Live; id: string }) {
   const img = safeImage(s.image);
   return (
-    <section className="band band-soft" aria-labelledby={`${id}-t`}>
+    <section className="band band-soft" id={id} aria-labelledby={`${id}-t`}>
       <div className={`wrap split${str(s, 'imageSide') === 'end' ? ' split-end' : ''}`}>
         <div className="split-media">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {img ? <img src={img} alt="" loading="lazy" decoding="async" /> : <BagArt />}
+          {img ? <img src={img} alt="" loading="lazy" decoding="async" /> : <Art />}
         </div>
         <div className="split-text">
           <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
@@ -112,7 +123,7 @@ function Steps({ s, id }: { s: S; id: string }) {
   const items = (Array.isArray(s.items) ? s.items : []) as { title: string; text: string }[];
   if (!items.length) return null;
   return (
-    <section className="band" aria-labelledby={`${id}-t`}>
+    <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
         <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
         <ol className="steps">
@@ -129,7 +140,7 @@ function Faq({ s, id }: { s: S; id: string }) {
   const items = (Array.isArray(s.items) ? s.items : []) as { q: string; a: string }[];
   if (!items.length) return null;
   return (
-    <section className="band" aria-labelledby={`${id}-t`}>
+    <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap narrow">
         <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
         <div className="faq">
@@ -171,6 +182,40 @@ function TextSection({ s, id }: { s: S; id: string }) {
   );
 }
 
+/**
+ * 2.58: pictures with a caption — before / after, Instagram, a lookbook — and a button. With no picture yet, the owner's
+ * preview shows where they will be; a shopper sees the title and the button only (or nothing, without a button either).
+ */
+function Gallery({ s, site, id }: { s: S; site: Live; id: string }) {
+  const items = ((Array.isArray(s.items) ? s.items : []) as { image: string; caption: string }[]).filter((it) => safeImage(it.image));
+  const button = str(s, 'buttonLabel') && resolveHref(str(s, 'buttonHref'), site.store) ? str(s, 'buttonLabel') : '';
+  if (!items.length && !button && !site.preview) return null;
+  return (
+    <section className="band" id={id} aria-labelledby={`${id}-t`}>
+      <div className="wrap">
+        <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
+        {str(s, 'text') && <p className="muted">{str(s, 'text')}</p>}
+        {items.length > 0 ? (
+          <ul className="gallery" role="list">
+            {items.map((it, i) => (
+              <li key={i} className="gallery-item">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={safeImage(it.image)!} alt={it.caption || ''} loading="lazy" decoding="async" />
+                {it.caption && <span className="gallery-caption">{it.caption}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : site.preview ? (
+          <ul className="gallery" role="list" aria-label="מקום לתמונות">
+            {[0, 1, 2, 3].map((i) => <li key={i} className="gallery-item gallery-empty"><Art /><span className="gallery-caption muted">כאן תופיע תמונה</span></li>)}
+          </ul>
+        ) : null}
+        {button && <div className="actions"><Button label={button} href={str(s, 'buttonHref')} store={site.store} kind="ghost" /></div>}
+      </div>
+    </section>
+  );
+}
+
 /** one section of the template, by its type */
 export function SectionView({ section, site, first }: { section: Section; site: Live; first: boolean }) {
   const { settings: s, id } = section;
@@ -183,6 +228,9 @@ export function SectionView({ section, site, first }: { section: Section; site: 
     case 'faq': return <Faq s={s} id={id} />;
     case 'contact': return <Contact s={s} site={site} id={id} />;
     case 'text': return <TextSection s={s} id={id} />;
+    case 'gallery': return <Gallery s={s} site={site} id={id} />;
+    // the newsletter collects e-mail addresses only with consent to marketing — that is stage 5; until then it shows nothing
+    case 'newsletter': return null;
     default: return null;
   }
 }

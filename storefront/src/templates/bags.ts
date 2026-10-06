@@ -15,6 +15,7 @@ export const BAGS: Template = {
     accent: '#8a5a2b', accentSoft: '#f1e6d6', border: '#e7ddcf',
   },
   font: 'heebo',
+  art: 'bag',
   radius: 'medium',
   announcement: { enabled: true, text: 'שקיות ממותגות לעסקים — עם הלוגו שלכם', href: '/collections/all' },
   product: { related: true, whatsapp: true },

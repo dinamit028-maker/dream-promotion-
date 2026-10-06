@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { BagArt } from '@/components/ui';
+import { Art } from '@/components/ui';
 import { data } from '@/lib/data';
 import { liveSite } from '@/lib/site';
 
@@ -16,7 +16,7 @@ export default async function CollectionsPage({ params }: Props) {
       <ul className="tiles" role="list">
         <li>
           <a href="/collections/all" className="tile">
-            <span className="tile-media"><BagArt className="tile-art" /></span>
+            <span className="tile-media"><Art className="tile-art" /></span>
             <span className="tile-title">כל המוצרים</span>
           </a>
         </li>
@@ -25,7 +25,7 @@ export default async function CollectionsPage({ params }: Props) {
             <a href={`/collections/${encodeURIComponent(c.slug)}`} className="tile">
               <span className="tile-media">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                {c.image_url ? <img src={c.image_url} alt="" loading="lazy" decoding="async" /> : <BagArt className="tile-art" />}
+                {c.image_url ? <img src={c.image_url} alt="" loading="lazy" decoding="async" /> : <Art className="tile-art" />}
               </span>
               <span className="tile-title">{c.title}</span>
               <span className="tile-count">{c.count === 1 ? 'מוצר אחד' : `${c.count} מוצרים`}</span>

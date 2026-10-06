@@ -7,7 +7,7 @@ import { Switch } from '@/features/catalog/PublishSwitch';
 import { LIMITS, SEO_SHOWN } from '@/features/catalog/catalog';
 import { deletePage, savePage } from './data';
 import {
-  hasPlaceholders, pageProblem, POLICY_LABEL, policyDraft, policySlug, REQUIRED_POLICIES, STORE_LIMITS, suggestSlug,
+  hasPlaceholders, pageProblem, POLICY_ACK, policyAckProblem, POLICY_LABEL, policyDraft, policySlug, REQUIRED_POLICIES, STORE_LIMITS, suggestSlug,
   type PageRow, type PolicyKind, type StoreRow,
 } from './store';
 import { AreaRow, Block, NeedsStore, Notice, TextRow } from './ui';
@@ -50,7 +50,9 @@ function Pages() {
   useEffect(() => {
     if (!store) return;
     const policy = params?.get('policy') as PolicyKind | null;
+    const page = params?.get('page') ? pages.find((g) => g.id === params.get('page')) : undefined;
     if (policy && POLICIES.includes(policy)) open(policy);
+    else if (page) setEdit(draftOfPage(page));
     else if (params?.get('new') === '1') setEdit(newPage());
     else return;
     router.replace(pathname, { scroll: false });
@@ -116,6 +118,7 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
   const [d, setD] = useState<Draft>(draft);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [ack, setAck] = useState(false);
   const set = (patch: Partial<Draft>) => { setD((x) => ({ ...x, ...patch })); setError(''); };
   const policy = d.kind === 'policy';
   const required = policy && d.policy !== null && REQUIRED_POLICIES.includes(d.policy);
@@ -125,7 +128,7 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
 
   const save = async () => {
     const slug = d.slugTouched ? d.slug.trim() : suggestSlug(d.title, taken, 'עמוד');
-    const problem = pageProblem({ ...d, slug }, taken);
+    const problem = pageProblem({ ...d, slug }, taken) ?? policyAckProblem(d, draft.published, ack);
     if (problem) { setError(problem); return; }
     if (leavesLive(d.published) && !window.confirm('החנות באוויר, והעמוד הזה נדרש בה. להסתיר אותו בכל זאת?')) return;
     setBusy(true);
@@ -150,10 +153,17 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
         <AreaRow label="טקסט" value={d.body} onChange={(v) => set({ body: v })} rows={16} max={STORE_LIMITS.pageBody}
           hint="שורה ריקה = פסקה חדשה · ## בתחילת שורה = כותרת · - בתחילת שורה = רשימה" />
         {policy && hasPlaceholders(d.body) && <Notice tone="warn">יש בטקסט סימונים בסוגריים [ … ] שעוד לא הושלמו. אפשר לשמור כטיוטה; לפרסם — רק אחרי שהם מושלמים.</Notice>}
+        {!policy && hasPlaceholders(d.body) && <Notice tone="warn">יש בטקסט סימונים בסוגריים [ … ] — מקומות להשלים. אם תפרסמו כך, הלקוחות יראו אותם.</Notice>}
         <label className="flex min-h-11 items-center justify-between gap-3">
           <span className="text-sm font-semibold">באתר</span>
           <Switch on={d.published} onClick={() => set({ published: !d.published })} label="העמוד באתר" />
         </label>
+        {policy && d.published && !draft.published && (
+          <label className="mt-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-line p-3">
+            <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={ack} onChange={() => { setAck(!ack); setError(''); }} />
+            <span className="text-sm"><span className="block font-semibold">קראתי ואני מאשר/ת</span><span className="block text-xs text-muted">{POLICY_ACK}</span></span>
+          </label>
+        )}
       </Block>
 
       <Block title="בגוגל" sub="ריק = הכותרת ותחילת הטקסט.">

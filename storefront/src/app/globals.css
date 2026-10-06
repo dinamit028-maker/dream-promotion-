@@ -9,7 +9,7 @@
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 body {
   margin: 0; background: var(--c-bg); color: var(--c-text); line-height: 1.6; font-size: 16px;
-  font-family: 'Heebo Variable', 'Heebo', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  font-family: var(--font, 'Heebo Variable', 'Heebo', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif);
   text-rendering: optimizeLegibility;
 }
 img, svg { max-width: 100%; display: block; }
@@ -293,3 +293,21 @@ input, select, textarea {
 .order-lines ul { list-style: none; margin: 0; padding: 0; }
 .order-lines li { display: flex; justify-content: space-between; gap: 12px; padding-block: 6px; border-bottom: 1px solid var(--c-border); }
 .row-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-block: 16px; }
+
+/* 2.58 — starter kits: a plain shape where there is no picture, the owner's placeholders, and the gallery */
+.plain-art { display: block; width: 100%; max-width: 220px; height: auto; margin-inline: auto; }
+@media (min-width: 900px) { .plain-art { max-width: 340px; } }
+.plain-frame { fill: var(--c-accent-soft); stroke: var(--c-border); stroke-width: 4; }
+.plain-sun { fill: var(--c-accent); opacity: .55; }
+.plain-hills { fill: var(--c-accent); opacity: .35; }
+.card-noimage .plain-art, .tile-art.plain-art { width: 60%; }
+.card-placeholder .card-media { border: 2px dashed var(--c-border); }
+.band[id] { scroll-margin-top: 80px; }
+.gallery { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 900px) { .gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; } }
+.gallery-item { display: flex; flex-direction: column; gap: 6px; }
+.gallery-item img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius); }
+.gallery-empty { aspect-ratio: 1; border: 2px dashed var(--c-border); border-radius: var(--radius); align-items: center; justify-content: center; padding: 12px; }
+.gallery-empty .plain-art, .gallery-empty .bag-art { width: 50%; }
+.gallery-caption { font-size: .92rem; }
+.card-placeholder .card-link:hover .card-name { text-decoration: none; }

@@ -363,12 +363,31 @@ async function main() {
   const store = () => fake.tables.stores?.[0];
   const block = (page: any, title: string) => page.locator('section', { has: page.getByRole('heading', { name: title, exact: true }) });
   try {
-    await step('stage 2 — the store opens from Settings: one per business, a draft, the template "שקיות ממותגות"', async () => {
+    await step('stage 2 — the store opens from Settings: one per business, a draft — ready at once with the kit of its field (2.58)', async () => {
       await st.getByRole('heading', { name: 'פתיחת חנות' }).waitFor({ timeout: 120_000 });
       assert.equal(await st.getByLabel('שם החנות').inputValue(), 'SaGabot', 'the brand\'s name to start from');
+      await st.getByText(/ערכת ההקמה "אופנה"/).waitFor();
+      const items = fake.tables.catalog_items.length;
       await st.getByRole('button', { name: 'פתיחת החנות' }).click();
       await st.getByRole('heading', { name: 'הגדרות ודומיין' }).waitFor();
-      assert.deepEqual([fake.tables.stores.length, store().business_id, store().status, store().template], [1, BIZ, 'draft', 'bags']);
+      await st.getByText('האתר מוכן — עכשיו מוסיפים מוצרים.').waitFor();
+      assert.deepEqual([fake.tables.stores.length, store().business_id, store().status, store().template], [1, BIZ, 'draft', 'kit']);
+      // a store is never empty: the kit of the brand's field ("אופנה") — its pages and policies as drafts, and not one product
+      assert.deepEqual((fake.tables.store_theme_versions ?? []).map((v) => [v.status, v.template, v.settings.kit]), [['published', 'kit', 'fashion']],
+        'the store\'s first theme is the kit\'s (the site itself stays closed)');
+      const pages = fake.tables.store_pages ?? [];
+      assert.deepEqual(pages.filter((g) => g.kind === 'page').map((g) => g.slug).sort(), ['about', 'contact', 'faq', 'size-guide']);
+      assert.deepEqual(pages.filter((g) => g.kind === 'policy').map((g) => g.policy).sort(), ['accessibility', 'privacy', 'returns', 'shipping', 'terms']);
+      assert.ok(pages.every((g) => !g.published), 'nothing is published by a kit');
+      assert.deepEqual((fake.tables.catalog_collections ?? []).map((c) => c.slug).sort(), ['accessories', 'men', 'new', 'sale', 'women']);
+      assert.deepEqual((fake.tables.store_menus ?? []).find((m) => m.kind === 'main')!.items.map((l: any) => l.label), ['חדש', 'נשים', 'גברים', 'אקססוריז', 'מבצעים']);
+      assert.equal(fake.tables.catalog_items.length, items, 'a kit adds no product');
+      await st.screenshot({ path: path.join(SHOTS, 'c5-store-opened-kit-phone.png'), fullPage: true });
+      // the steps below check each screen by hand on a bare store (as before 2.58): the kit's rows are taken away here
+      fake.tables.store_theme_versions = []; fake.tables.store_pages = []; fake.tables.store_menus = []; fake.tables.catalog_collections = [];
+      store().template = 'bags';
+      await st.reload({ waitUntil: 'domcontentloaded' });
+      await st.getByRole('heading', { name: 'הגדרות ודומיין' }).waitFor({ timeout: 60_000 });
       const check = block(st, 'לפני שעולים לאוויר');
       await check.getByText('פרטי העסק (שם, מספר עוסק / ח.פ., כתובת) — קיים').waitFor();
       await check.getByText('דרך ליצור קשר (טלפון, וואטסאפ או מייל) — חסר').waitFor();
@@ -458,15 +477,22 @@ async function main() {
       await st.getByRole('button', { name: 'שמירה', exact: true }).click();
       await st.getByText(/סוגריים מרובעים/).first().waitFor();
       assert.equal((fake.tables.store_pages ?? []).length, 0, 'not published with "[…]" left');
-      const write = async (title: string, text: string) => {
+      const write = async (title: string, text: string, refusedFirst = false) => {
         await st.getByLabel('טקסט', { exact: true }).fill(text);
         if (!(await st.getByRole('switch', { name: 'העמוד באתר' }).getAttribute('aria-checked') === 'true')) await st.getByRole('switch', { name: 'העמוד באתר' }).click();
+        // 2.58: a policy goes on the site only after "קראתי ואני מאשר/ת"
+        if (refusedFirst) {
+          await st.getByRole('button', { name: 'שמירה', exact: true }).click();
+          await st.getByText(/סמנו "קראתי ואני מאשר\/ת"/).waitFor();
+          assert.equal((fake.tables.store_pages ?? []).filter((g) => g.published).length, 0, 'not published without it');
+        }
+        await st.getByRole('checkbox', { name: /קראתי ואני מאשר/ }).check();
         await st.getByRole('button', { name: 'שמירה', exact: true }).click();
         await st.getByText('העמוד נשמר ומוצג באתר.').waitFor();
         await st.getByRole('heading', { name: 'עמודים', exact: true }).waitFor();
         assert.ok(fake.tables.store_pages.some((g) => g.title === title && g.published), title);
       };
-      await write('ביטולים והחזרות', '## ביטול עסקה\n\nאפשר לבטל לפי חוק הגנת הצרכן.\n\n- פונים בטלפון 03-1234567');
+      await write('ביטולים והחזרות', '## ביטול עסקה\n\nאפשר לבטל לפי חוק הגנת הצרכן.\n\n- פונים בטלפון 03-1234567', true);
       for (const [kind, title] of [['privacy', 'מדיניות פרטיות'], ['accessibility', 'הצהרת נגישות']] as const) {
         await st.locator('li', { hasText: `/policies/${kind}` }).getByRole('button', { name: 'כתיבה' }).click();
         await st.getByRole('heading', { name: title }).waitFor();
@@ -573,6 +599,36 @@ async function main() {
       await popup.close();
       await noSideScroll(st, 'the design on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9-store-design-phone.png'), fullPage: true });
+    });
+
+    await step('starter kits (2.58): the gallery; a kit is applied as a draft — it creates what is missing and asks before replacing', async () => {
+      await st.goto(`${BASE}/store/design?kits=1`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('heading', { name: 'ערכות הקמה' }).waitFor({ timeout: 60_000 });
+      await st.locator('li', { has: st.getByText('ביוטי וקליניקה', { exact: true }) }).getByRole('button', { name: 'בחירה' }).click();
+      await st.getByRole('heading', { name: 'ערכת "ביוטי וקליניקה"' }).waitFor();
+      const menu = () => fake.tables.store_menus.find((m) => m.kind === 'main')!.items;
+      const mainBefore = structuredClone(menu());
+      const published = fake.tables.store_theme_versions.find((v) => v.status === 'published')!;
+      const items = fake.tables.catalog_items.length;
+      // the main menu the business made is asked about — and stays, unless ticked
+      await st.getByText('להחליף את התפריט הראשי').waitFor();
+      await noSideScroll(st, 'a kit\'s plan on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c9b-store-kit-plan-phone.png'), fullPage: true });
+      await st.getByRole('button', { name: 'החלת הערכה (כטיוטה)' }).click();
+      await st.getByText('האתר מוכן — עכשיו מוסיפים מוצרים.').waitFor();
+      assert.deepEqual(menu(), mainBefore, 'not ticked: the business\'s menu stays');
+      const draft = fake.tables.store_theme_versions.find((v) => v.status === 'draft')!;
+      assert.deepEqual([draft.template, draft.settings.kit, draft.note], ['kit', 'beauty', 'ערכה: ביוטי וקליניקה'], 'the kit is a draft');
+      assert.equal(fake.tables.store_theme_versions.find((v) => v.status === 'published')!.id, published.id, 'the site keeps the published version');
+      assert.equal(fake.tables.store_pages.find((g) => g.slug === 'treatments')?.published, false, 'its pages are drafts');
+      assert.equal(fake.tables.catalog_items.length, items, 'no product');
+      await st.getByText(/ערכה: ביוטי וקליניקה/).first().waitFor();
+      // the menus screen names a link to what is not on the site
+      await st.goto(`${BASE}/store/navigation`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('heading', { name: 'תפריטים', exact: true }).waitFor({ timeout: 60_000 });
+      // the kit's footer was created (the business had none): its pages are drafts, so their links are named
+      await block(st, 'קישורים שלא מופיעים באתר').getByText('הטיפולים', { exact: false }).first().waitFor();
+      // back to the published version for the steps below: the draft of the kit is replaced by a new edit later, or stays
     });
 
     await step('on the air: only with the checklist complete — the domain counts once the storefront served it', async () => {

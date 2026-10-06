@@ -95,7 +95,8 @@ test('never unreadable: text on a background below 4.5:1 → the template\'s pai
   assert.equal(t.colors.background, BAGS.colors.background);
   assert.equal(onColor('#1f1b16'), '#ffffff');
   assert.equal(onColor('#f5d76e'), '#14110e');
-  assert.match(themeCss(t), /^:root\{--c-bg:#[0-9a-f]{6};.*--radius-btn:999px\}$/);
+  // 2.58: then the font, and the rule that hides the drawing the template does not use
+  assert.match(themeCss(t), /^:root\{--c-bg:#[0-9a-f]{6};.*--radius-btn:999px;--font:'Heebo Variable'[^{}]*\}\.plain-art\{display:none\}$/);
 });
 
 test('links and pictures a template may hold', () => {

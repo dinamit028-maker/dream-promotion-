@@ -6,7 +6,9 @@ import { cx } from '@/lib/utils';
 import { Button, PageHead, Pill } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
-import { checklist, checkDomains, connectDomain, openStore, previewLink, removeDomain, slugAvailable, updateStore, type StorePatch } from './data';
+import { bookingUrl, checklist, checkDomains, connectDomain, openStore, previewLink, removeDomain, slugAvailable, updateStore, type KitApplied, type StorePatch } from './data';
+import { kitFor, type Kit } from './kits';
+import { applyFieldKit, KitReady } from './StoreKits';
 import {
   CHECKLIST, checkPassword, checkSlug, cleanGa4, cleanGscCode, DOMAIN_STATUS, newPassword, normalizeDomain, normalizeWhatsapp, shareText,
   SLUG_ERROR, storeAddress, storeVisibility, toDomain, validEmail, validPhone, VISIBILITY,
@@ -23,6 +25,8 @@ import { useStoreData } from './useStoreData';
 export function StoreSettings({ root = '', storefrontUrl = '' }: { root?: string; storefrontUrl?: string }) {
   const { data, error, loading, reload, setData } = useStoreData();
   const brandName = useApp((s) => s.brand?.name ?? '');
+  const industry = useApp((s) => [s.brand?.industry, s.brand?.description].filter(Boolean).join(' '));
+  const [applied, setApplied] = useState<{ kit: Kit; done: KitApplied } | null>(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error' | 'warn'; text: string } | null>(null);
@@ -38,19 +42,32 @@ export function StoreSettings({ root = '', storefrontUrl = '' }: { root?: string
         {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
         <Block title="שם החנות" sub="כך היא תיקרא באתר. אפשר לשנות אחר כך.">
           <TextRow label="שם החנות" value={name || brandName} onChange={setName} max={80} placeholder="למשל FollowMe Collection" />
-          <Notice tone="info">החנות נפתחת כטיוטה, עם התבנית "שקיות ממותגות". שום דבר לא עולה לאוויר לפני שהרשימה מושלמת ואתם מאשרים.</Notice>
+          <Notice tone="info">החנות נפתחת כטיוטה, מוכנה עם ערכת ההקמה "{kitFor(industry).name}" שמתאימה לתחום שלכם: עיצוב, תפריטים, עמודים ומדיניות. אפשר להחליף ערכה אחר כך. שום דבר לא עולה לאוויר לפני שהרשימה מושלמת ואתם מאשרים.</Notice>
           <Button variant="primary" disabled={busy || !(name || brandName).trim()} onClick={async () => {
             setBusy(true); setMsg(null);
             const r = await openStore(name || brandName);
+            if (!r.ok) { setBusy(false); setMsg({ tone: 'error', text: r.error }); return; }
+            // a store is never empty: its field's kit right away (a failure leaves an open store — the kit can be applied from Design)
+            const s = r.data;
+            const k = await applyFieldKit(industry, { name: s.name, booking: await bookingUrl(window.location.origin),
+              business: { name: s.name, phone: s.phone, email: s.email, address: s.address } });
             setBusy(false);
-            if (!r.ok) setMsg({ tone: 'error', text: r.error }); else await reload();
-          }}>{busy ? <><Spinner /> פותח…</> : 'פתיחת החנות'}</Button>
+            if (k.ok) setApplied({ kit: k.kit, done: k.done });
+            else setMsg({ tone: 'warn', text: `החנות נפתחה, אבל ערכת ההקמה לא הוחלה: ${k.error} אפשר להחיל אותה מ"עיצוב" ← "החלפת ערכה".` });
+            await reload();
+          }}>{busy ? <><Spinner /> פותח ומכין את האתר…</> : 'פתיחת החנות'}</Button>
         </Block>
       </>
     );
   }
-  return <Settings root={root} storefrontUrl={storefrontUrl} store={store} domains={data!.domains} reload={reload} setStore={(s) => setData((d) => (d ? { ...d, store: s } : d))}
-    setDomains={(domains) => setData((d) => (d ? { ...d, domains } : d))} />;
+  return (
+    <>
+      {applied && <KitReady kit={applied.kit} done={applied.done} />}
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      <Settings root={root} storefrontUrl={storefrontUrl} store={store} domains={data!.domains} reload={reload} setStore={(s) => setData((d) => (d ? { ...d, store: s } : d))}
+        setDomains={(domains) => setData((d) => (d ? { ...d, domains } : d))} />
+    </>
+  );
 }
 
 function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDomains }: {
