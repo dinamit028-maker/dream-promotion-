@@ -1,3 +1,4 @@
 {
-  "crons": [{ "path": "/api/cron/meta-stories", "schedule": "0 18 * * *" }]
+  "crons": [{ "path": "/api/cron/meta-stories", "schedule": "0 18 * * *" }],
+  "ignoreCommand": "git diff --quiet ${VERCEL_GIT_PREVIOUS_SHA:-HEAD^} HEAD -- ."
 }

@@ -43,6 +43,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (s: unknown): s is string => typeof s === 'string' && UUID.test(s);
 /** the folder of one picture: <business>/<item>/<upload> — its sizes are 400.webp, 800.webp … inside */
 export const mediaFolder = (business: string, item: string, upload: string) => `${business}/${item}/${upload}`;
+/** a picture of the store itself (its logo, a picture of the home page — 2.55): <business>/store/<upload> */
+export const storeFolder = (business: string, upload: string) => `${business}/store/${upload}`;
 export const sizeFile = (size: number, type: ImageType) => `${size}.${IMAGE_TYPES[type]}`;
 /** a folder of this business only (the server checks every path it removes) */
 export const inBusiness = (path: string, business: string) => isUuid(business) && path.startsWith(`${business}/`) && !path.includes('..');

@@ -2,7 +2,8 @@
  * An in-memory stand-in for Supabase (PostgREST + auth) for browser tests: Playwright routes every request
  * to http://sb.test here. It answers the queries the register makes and mirrors the database rules that the
  * screens rely on (document numbering, stock moving with sales / refunds / cancels, refunds never beyond what
- * was paid; 2.54: stock per variant, an item's sum of its variants, a signed upload to storage).
+ * was paid; 2.54: stock per variant, an item's sum of its variants, a signed upload to storage; 2.55: the store — one per
+ * business, its checklist before it goes on the air, theme versions, unique addresses of pages and collections).
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { randomUUID, randomBytes } from 'node:crypto';
@@ -198,7 +199,46 @@ export class FakeSupabase {
       r.created_at = now();
     }
     if (table === 'register_shifts') { r.opened_at ??= now(); if (this.t('register_shifts').some((x) => !x.closed_at)) return 'duplicate key value violates unique constraint "register_shifts_one_open_idx"'; }
+    // the store (3400): its defaults and the unique rules the screens rely on
+    const fill = (d: Row) => { for (const [k, v] of Object.entries(d)) if (r[k] === undefined) r[k] = v; };
+    if (table === 'stores') {
+      if (this.t('stores').some((x) => x.business_id === r.business_id)) return 'duplicate key value violates unique constraint "stores_business_uq"';
+      fill({ status: 'draft', template: 'bags', lang: 'he', logo_url: '', description: '', phone: '', whatsapp: '', email: '', address: '', ga4_id: '', gsc_code: '',
+        show_stock_count: false, published_at: null, updated_at: now() });
+      if (r.status === 'published') return `store_not_ready: ${this.storeMissing(r).join(',')}`;
+    }
+    if (table === 'store_theme_versions') {
+      if (this.t(table).some((v) => v.store_id === r.store_id && v.status === 'draft')) return 'duplicate key value violates unique constraint "store_theme_versions_draft_uq"';
+      Object.assign(r, { version: Math.max(0, ...this.t(table).filter((v) => v.store_id === r.store_id).map((v) => v.version)) + 1, status: 'draft', published_at: null, note: r.note ?? '' });
+    }
+    if (table === 'store_pages') {
+      fill({ kind: 'page', policy: null, body: '', seo_title: '', seo_description: '', published: false, updated_at: now() });
+      if (this.t(table).some((g) => g.store_id === r.store_id && g.slug === r.slug)) return 'duplicate key value violates unique constraint "store_pages_store_id_slug_key"';
+      if (r.policy && this.t(table).some((g) => g.store_id === r.store_id && g.policy === r.policy)) return 'duplicate key value violates unique constraint "store_pages_policy_uq"';
+      r.published_at = r.published ? now() : null;
+    }
+    if (table === 'store_menus') fill({ items: [], updated_at: now() });
+    if (table === 'catalog_collections') {
+      fill({ description: '', image_url: '', kind: 'manual', rules: {}, sort: 'manual', publish_online: false, seo_title: '', seo_description: '', position: 0, updated_at: now() });
+      if (r.slug === 'all' || this.t(table).some((c) => c.business_id === r.business_id && c.slug === r.slug)) return 'duplicate key value violates unique constraint "catalog_collections_slug_uq"';
+      r.published_at = r.publish_online ? now() : null;
+    }
+    if (table === 'catalog_collection_items') {
+      const c = this.t('catalog_collections').find((x) => x.id === r.collection_id);
+      if (!c || !this.t('catalog_items').some((i) => i.id === r.item_id && i.business_id === c.business_id)) return 'the product is not of this business';
+    }
     return null;
+  }
+  /** store_missing(): what a store still needs before it goes on the air (the same codes, in the same order) */
+  storeMissing(s: Row): string[] {
+    const r = this.t('register_settings').find((x) => x.business_id === s.business_id);
+    const out: string[] = [];
+    if (!r || !String(r.legal_name ?? '').trim() || !String(r.city ?? '').trim() || !(/^\d{9}$/.test(r.dealer_number ?? '') || /^\d{9}$/.test(r.company_number ?? ''))) out.push('legal');
+    if (!s.phone && !s.email && !s.whatsapp) out.push('contact');
+    for (const p of ['returns', 'privacy', 'accessibility']) if (!this.t('store_pages').some((g) => g.store_id === s.id && g.policy === p && g.published)) out.push(p);
+    if (!this.t('store_domains').some((d) => d.store_id === s.id && d.is_primary && d.status === 'active')) out.push('domain');
+    if (!this.t('catalog_items').some((i) => i.business_id === s.business_id && i.publish_online && i.active !== false && i.slug)) out.push('product');
+    return out;
   }
   private afterInsert(table: string, r: Row) {
     if (table === 'documents') {
@@ -237,6 +277,25 @@ export class FakeSupabase {
     if (table === 'catalog_items' && 'stock_qty' in patch && patch.stock_qty !== old.stock_qty) return 'stock changes only through adjust_stock';
     if (table === 'catalog_variants' && 'stock_qty' in patch && patch.stock_qty !== old.stock_qty) return 'stock changes only through a delivery or a count (adjust_variant_stock)';
     if (table === 'catalog_items' && patch.publish_online && !old.published_at) patch.published_at = now();
+    if (table === 'stores') {
+      patch.updated_at = now();
+      if (patch.status === 'published' && old.status !== 'published') {
+        const missing = this.storeMissing({ ...old, ...patch });
+        if (missing.length) return `store_not_ready: ${missing.join(',')}`;
+        patch.published_at = now();
+      }
+    }
+    if (table === 'store_theme_versions') {
+      if (old.status !== 'draft' && ('settings' in patch || 'note' in patch)) return 'only the draft is edited';
+      if (patch.status === 'published' && old.status !== 'published') patch.published_at = now();
+    }
+    if (table === 'store_pages' || table === 'catalog_collections') {
+      patch.updated_at = now();
+      if (patch.slug && patch.slug !== old.slug && this.t(table).some((x) => x !== old && x.slug === patch.slug && (table === 'store_pages' ? x.store_id === old.store_id : x.business_id === old.business_id))) {
+        return `duplicate key value violates unique constraint "${table === 'store_pages' ? 'store_pages_store_id_slug_key' : 'catalog_collections_slug_uq'}"`;
+      }
+      if ((table === 'store_pages' ? patch.published : patch.publish_online) && !old.published_at) patch.published_at = now();
+    }
     return null;
   }
   private afterUpdate(table: string, old: Row, r: Row) {
@@ -246,6 +305,22 @@ export class FakeSupabase {
   rpc(fn: string, args: any): { status: number; body: any } {
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
+    // the store (3400): the checklist, and "פרסום" of a theme version (the published one is archived)
+    if (fn === 'store_checklist') {
+      const st = this.t('stores').find((x) => x.id === args.p_store && x.business_id === this.opts.businessId);
+      if (!st) return { status: 400, body: { code: '42501', message: 'not allowed' } };
+      const missing = this.storeMissing(st);
+      return { status: 200, body: { ready: missing.length === 0, missing } };
+    }
+    if (fn === 'store_publish_theme') {
+      const v = this.t('store_theme_versions').find((x) => x.id === args.p_version);
+      if (!v) return { status: 400, body: { code: '42501', message: 'version not found' } };
+      if (v.status !== 'published') {
+        for (const x of this.t('store_theme_versions')) if (x.store_id === v.store_id && x.status === 'published') x.status = 'archived';
+        Object.assign(v, { status: 'published', published_at: now() });
+      }
+      return { status: 200, body: null };
+    }
     if (fn === 'adjust_stock') {
       const it = this.t('catalog_items').find((i) => i.id === args.p_item);
       if (!it) return { status: 400, body: { code: '42501', message: 'not allowed' } };

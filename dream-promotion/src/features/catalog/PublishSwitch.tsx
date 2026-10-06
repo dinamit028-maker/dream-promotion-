@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
@@ -9,7 +10,7 @@ import { setPublished } from './data';
 /**
  * "פרסם באתר" next to a product — in the register's price list, in finance and in the store (2.54). Off by default.
  * Switching it on when the product has no picture or no description offers to complete them (or a description from the
- * AI) — a suggestion, never a block. Until the store's site is up (stage 2), "באתר" only marks the product for it.
+ * AI) — a suggestion, never a block. Until the store is on the air (2.55: Store → Settings), "באתר" only marks the product for it.
  */
 export type EditorFocus = 'images' | 'description' | 'ai' | 'variants' | 'stock' | 'online';
 
@@ -67,8 +68,21 @@ export function PublishSwitch({ item, ready = true, onChanged, onComplete, onErr
   );
 }
 
-/** the honest line under every list with the switch: what "באתר" means while the site is not up */
+/** the honest line under every list with the switch: what "באתר" means — while the store is not on the air, and once it is */
 export const SITE_NOT_LIVE = 'החנות באתר עוד לא עלתה. מוצר שמסומן "באתר" יופיע בה כשתעלה. זה אותו מוצר של הקופה והכספים — שינוי במחיר, בתמונה או במלאי מופיע מיד בכל המקומות.';
+export const SITE_LIVE = 'החנות באוויר: מוצר שמסומן "באתר" מוצג בה. זה אותו מוצר של הקופה והכספים — שינוי במחיר, בתמונה או במלאי מופיע באתר מיד.';
+/** is the store of the business worked in now on the air (2.55)? No store, no table yet (before migration 3400), a cashier → no */
+export function useSiteLive(): boolean {
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    if (!isCloudConfigured) return;
+    let on = true;
+    void Promise.resolve(supabase().from('stores').select('status').maybeSingle())
+      .then(({ data }) => { if (on) setLive((data as { status?: string } | null)?.status === 'published'); }, () => undefined);
+    return () => { on = false; };
+  }, []);
+  return live;
+}
 
 /** next to a product wherever it appears (a document line, an expense): "באתר" and its editor */
 export function ProductControls({ product, ready, onChanged, onEdit, onError }: {

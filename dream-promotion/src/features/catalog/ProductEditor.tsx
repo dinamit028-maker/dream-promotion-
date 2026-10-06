@@ -19,7 +19,7 @@ import {
 } from './data';
 import { uploadPicture } from './upload';
 import { pickSize } from './images';
-import { Switch, SITE_NOT_LIVE, type EditorFocus } from './PublishSwitch';
+import { Switch, SITE_LIVE, SITE_NOT_LIVE, useSiteLive, type EditorFocus } from './PublishSwitch';
 
 /**
  * THE product editor (Dream Commerce 2.54) — the only place a product is created and edited, opened from the register's
@@ -69,6 +69,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const brand = useApp((s) => s.brand);
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(true);
+  const live = useSiteLive();
   const [item, setItem] = useState<CatalogItem | null>(null);
   const [draft, setDraft] = useState<ItemDraft>(() => emptyDraft(initial));
   const [variants, setVariants] = useState<CatalogVariant[]>([]);
@@ -401,7 +402,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
       </Section>
 
       {ready && (
-        <Section id="online" title="באתר" sectionRef={ref('online')} hint={SITE_NOT_LIVE}>
+        <Section id="online" title="באתר" sectionRef={ref('online')} hint={live ? SITE_LIVE : SITE_NOT_LIVE}>
           <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-surface-2 p-3">
             <span>
               <strong className="block">פרסם באתר</strong>
