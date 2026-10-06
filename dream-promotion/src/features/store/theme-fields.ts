@@ -4,17 +4,26 @@
  * given; this file is the editor's side of the same contract: the sections, their fields (with Hebrew labels), and a copy
  * of the template's defaults — tests/store-theme.test.ts fails if the copy and the storefront's template drift apart.
  * The dashboard never imports the storefront and the storefront never imports this.
+ * 2.58 (starter kits): the template "kit" is open — a kit's sections, with their types, are in the saved settings; the
+ * editor works on them the same way. Gallery and newsletter are new kinds of sections; font and art are new settings.
  */
 export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection';
 export interface FieldDef { key: string; label: string; kind: FieldKind; max?: number; hint?: string }
 export interface ListDef { key: 'items'; label: string; max: number; fields: FieldDef[]; add: string }
-export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text';
-export interface SectionDef { type: SectionType; label: string; fields: FieldDef[]; list?: ListDef }
+export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter';
+/** soon: the storefront does not show it yet (the newsletter waits for the consent to marketing of stage 5) */
+export interface SectionDef { type: SectionType; label: string; fields: FieldDef[]; list?: ListDef; soon?: string }
 export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown> }
 export interface Colors { background: string; surface: string; text: string; muted: string; primary: string; accent: string; accentSoft: string; border: string }
 export type Radius = 'none' | 'small' | 'medium' | 'large';
+export type Font = 'heebo' | 'rubik' | 'assistant' | 'frank';
+export type Art = 'bag' | 'plain';
+export const FONTS: { id: Font; label: string }[] = [
+  { id: 'heebo', label: 'Heebo — נקי ומודרני' }, { id: 'rubik', label: 'Rubik — עגול וידידותי' },
+  { id: 'assistant', label: 'Assistant — דק ואלגנטי' }, { id: 'frank', label: 'Frank Ruhl — קלאסי, עם סריפים' },
+];
 export interface Template {
-  id: string; name: string; colors: Colors; font: 'heebo'; radius: Radius;
+  id: string; name: string; colors: Colors; font: Font; art: Art; radius: Radius; open?: boolean;
   announcement: { enabled: boolean; text: string; href: string };
   product: { related: boolean; whatsapp: boolean };
   sections: Section[];
@@ -59,6 +68,16 @@ export const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { key: 'text', label: 'טקסט', kind: 'longtext', max: 400 },
   ] },
   text: { type: 'text', label: 'טקסט', fields: [{ key: 'title', label: 'כותרת', kind: 'text', max: 90 }, { key: 'text', label: 'טקסט', kind: 'longtext', max: 2000 }] },
+  gallery: { type: 'gallery', label: 'גלריה (לפני ואחרי, אינסטגרם)', fields: [
+    { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
+    { key: 'text', label: 'טקסט', kind: 'longtext', max: 300 },
+    { key: 'buttonLabel', label: 'כפתור', kind: 'text', max: 30 },
+    { key: 'buttonHref', label: 'לאן הכפתור מוביל (למשל הקישור לאינסטגרם)', kind: 'link', hint: LINK_HINT },
+  ], list: { key: 'items', label: 'תמונות', max: 8, add: '+ תמונה', fields: [{ key: 'image', label: 'תמונה', kind: 'image' }, { key: 'caption', label: 'כיתוב', kind: 'text', max: 80 }] } },
+  newsletter: { type: 'newsletter', label: 'הרשמה לדיוור', soon: 'יוצג באתר רק כשההרשמה לדיוור תיבנה, עם הסכמה לקבלת דיוור (שלב 5).', fields: [
+    { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
+    { key: 'text', label: 'טקסט', kind: 'longtext', max: 300 },
+  ] },
 };
 
 /** "שקיות ממותגות" — a copy of storefront/src/templates/bags.ts (the test keeps them equal) */
@@ -70,6 +89,7 @@ export const BAGS: Template = {
     accent: '#8a5a2b', accentSoft: '#f1e6d6', border: '#e7ddcf',
   },
   font: 'heebo',
+  art: 'bag',
   radius: 'medium',
   announcement: { enabled: true, text: 'שקיות ממותגות לעסקים — עם הלוגו שלכם', href: '/collections/all' },
   product: { related: true, whatsapp: true },
@@ -102,11 +122,39 @@ export const BAGS: Template = {
     { id: 'contact', type: 'contact', hidden: false, settings: { title: 'נדבר?', text: 'שאלה על דגם, כמויות או הדפסה — כתבו לנו ונחזור אליכם.' } },
   ],
 };
-export const TEMPLATES: Record<string, Template> = { bags: BAGS };
+/** "kit" — a copy of storefront/src/templates/kit.ts (the test keeps them equal): what an open template shows before settings */
+export const KIT: Template = {
+  id: 'kit',
+  name: 'ערכת הקמה',
+  open: true,
+  colors: {
+    background: '#fafafa', surface: '#ffffff', text: '#1a1a1a', muted: '#595959', primary: '#1a1a1a',
+    accent: '#2f5d8a', accentSoft: '#e8eef5', border: '#e2e2e2',
+  },
+  font: 'heebo',
+  art: 'plain',
+  radius: 'medium',
+  announcement: { enabled: false, text: '', href: '' },
+  product: { related: true, whatsapp: true },
+  sections: [
+    { id: 'hero', type: 'hero', hidden: false, settings: {
+      eyebrow: '', title: '', subtitle: '', primaryLabel: 'לכל המוצרים', primaryHref: '/collections/all',
+      secondaryLabel: 'שאלה בוואטסאפ', secondaryHref: 'whatsapp', image: '',
+    } },
+    { id: 'featured', type: 'products', hidden: false, settings: { title: 'חדש באתר', collection: '', limit: 8, buttonLabel: 'לכל המוצרים' } },
+    { id: 'collections', type: 'collections', hidden: false, settings: { title: 'קטגוריות', subtitle: '' } },
+    { id: 'contact', type: 'contact', hidden: false, settings: { title: 'יצירת קשר', text: '' } },
+  ],
+};
+export const TEMPLATES: Record<string, Template> = { bags: BAGS, kit: KIT };
 
 /** the editor's state: the template's values with what the business saved over them (only known keys) */
 export interface Draft {
-  colors: Pick<Colors, 'primary' | 'accent' | 'background' | 'text'>;
+  colors: Colors;
+  font: Font;
+  art: Art;
+  /** the starter kit applied (2.58) — the texts "חזרה לטקסט של הערכה" go back to; '' = none */
+  kit: string;
   radius: Radius;
   announcement: { enabled: boolean; text: string; href: string };
   product: { related: boolean; whatsapp: boolean };
@@ -115,21 +163,39 @@ export interface Draft {
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
+const SECTION_ID = /^[a-z][a-z0-9-]{0,30}$/;
+/** a section the settings bring (an open template): a known type, its fields empty until the settings fill them */
+function ownSection(r: Record<string, unknown>): Section | undefined {
+  if (typeof r.id !== 'string' || !SECTION_ID.test(r.id) || typeof r.type !== 'string' || !(r.type in SECTION_DEFS)) return undefined;
+  const def = SECTION_DEFS[r.type as SectionType];
+  const settings: Record<string, unknown> = Object.fromEntries(def.fields.map((f) => [f.key, '']));
+  if (def.list) settings.items = [];
+  return { id: r.id, type: def.type, hidden: false, settings };
+}
+
 export function draftOf(templateId: string, saved: unknown): Draft {
   const t = TEMPLATES[templateId] ?? BAGS;
   const o = obj(saved);
   const c = obj(o.colors), a = obj(o.announcement), p = obj(o.product);
-  const pick = (k: keyof Draft['colors']) => (typeof c[k] === 'string' && HEX.test(c[k] as string) ? (c[k] as string).toLowerCase() : t.colors[k]);
+  const pick = (k: keyof Colors) => (typeof c[k] === 'string' && HEX.test(c[k] as string) ? (c[k] as string).toLowerCase() : t.colors[k]);
   const byId = new Map(t.sections.map((s) => [s.id, s]));
   const sections: Section[] = [];
-  for (const raw of Array.isArray(o.sections) ? o.sections : []) {
-    const r = obj(raw); const def = typeof r.id === 'string' ? byId.get(r.id) : undefined;
+  for (const raw of Array.isArray(o.sections) ? o.sections.slice(0, 30) : []) {
+    const r = obj(raw); const known = typeof r.id === 'string' ? byId.get(r.id) : undefined;
+    // the same rule as the storefront: an open template takes a section of the settings with its own type
+    const def = known && (!t.open || r.type === undefined || r.type === known.type) ? known : t.open && !known ? ownSection(r) : undefined;
     if (!def || sections.some((s) => s.id === def.id)) continue;
     sections.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings: { ...def.settings, ...obj(r.settings) } });
   }
-  for (const s of t.sections) if (!sections.some((x) => x.id === s.id)) sections.push({ ...s, settings: { ...s.settings } });
+  if (!(t.open && sections.length)) for (const s of t.sections) if (!sections.some((x) => x.id === s.id)) sections.push({ ...s, settings: { ...s.settings } });
   return {
-    colors: { primary: pick('primary'), accent: pick('accent'), background: pick('background'), text: pick('text') },
+    colors: {
+      background: pick('background'), surface: pick('surface'), text: pick('text'), muted: pick('muted'), primary: pick('primary'),
+      accent: pick('accent'), accentSoft: pick('accentSoft'), border: pick('border'),
+    },
+    font: FONTS.some((f) => f.id === o.font) ? (o.font as Font) : t.font,
+    art: o.art === 'bag' || o.art === 'plain' ? o.art : t.art,
+    kit: typeof o.kit === 'string' && /^[a-z][a-z0-9-]{1,30}$/.test(o.kit) ? o.kit : '',
     radius: (['none', 'small', 'medium', 'large'] as const).includes(o.radius as Radius) ? (o.radius as Radius) : t.radius,
     announcement: {
       enabled: typeof a.enabled === 'boolean' ? a.enabled : t.announcement.enabled,
@@ -143,8 +209,9 @@ export function draftOf(templateId: string, saved: unknown): Draft {
 
 /** what is saved in store_theme_versions.settings: the whole state (the storefront checks it again) */
 export const settingsOf = (d: Draft) => ({
-  colors: d.colors, radius: d.radius, announcement: d.announcement, product: d.product,
-  sections: d.sections.map((s) => ({ id: s.id, hidden: s.hidden, settings: s.settings })),
+  ...(d.kit ? { kit: d.kit } : {}),
+  colors: d.colors, font: d.font, art: d.art, radius: d.radius, announcement: d.announcement, product: d.product,
+  sections: d.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings })),
 });
 
 /** WCAG contrast of two colours (the editor warns below 4.5:1 — the storefront then falls back to the template's pair) */

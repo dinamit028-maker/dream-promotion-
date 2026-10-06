@@ -4,6 +4,7 @@ import {
   checkoutError, couponError, toCoupon, toOrder, toOrderEvent, toOrderLine,
   type CheckoutPatch, type Coupon, type CouponRow, type OrderEvent, type OrderLine, type OrderRow, type TerminalInfo,
 } from './checkout';
+import { planBlocked, type KitChoices, type KitPlan } from './kits';
 import {
   missingFromError, toCollection, toDomain, toPage, toStore, toVersion,
   type CollectionRow, type DomainRow, type MenuLink, type Missing, type PageRow, type PolicyKind, type StoreRow, type ThemeVersion,
@@ -76,8 +77,9 @@ export async function loadStore(): Promise<Result<StoreBundle>> {
   } };
 }
 
+/** a new store is on the open template of the starter kits (2.58): the kit of its field is applied right after */
 export async function openStore(name: string): Promise<Result<StoreRow>> {
-  const { data, error } = await supabase().from('stores').insert({ name: name.trim().slice(0, 80), template: 'bags' }).select('*').single();
+  const { data, error } = await supabase().from('stores').insert({ name: name.trim().slice(0, 80), template: 'kit' }).select('*').single();
   return error || !data ? fail(error, 'החנות לא נפתחה — נסו שוב.') : { ok: true, data: toStore(data) };
 }
 
@@ -97,11 +99,12 @@ export async function checklist(id: string): Promise<Result<{ ready: boolean; mi
 }
 
 // ---- the theme: one draft, published versions ----------------------------------------------------------------------------
-export async function saveDraft(storeId: string, template: string, settings: Record<string, unknown>, draft: ThemeVersion | null): Promise<Result<ThemeVersion>> {
+export async function saveDraft(storeId: string, template: string, settings: Record<string, unknown>, draft: Pick<ThemeVersion, 'id'> | null, note?: string): Promise<Result<ThemeVersion>> {
   const sb = supabase();
+  // a draft may change its template (a kit moves it to "kit"); a published version never does (the database refuses)
   const q = draft
-    ? sb.from('store_theme_versions').update({ settings }).eq('id', draft.id).select('*').single()
-    : sb.from('store_theme_versions').insert({ store_id: storeId, template, settings }).select('*').single();
+    ? sb.from('store_theme_versions').update({ settings, template, ...(note !== undefined ? { note } : {}) }).eq('id', draft.id).select('*').single()
+    : sb.from('store_theme_versions').insert({ store_id: storeId, template, settings, ...(note !== undefined ? { note } : {}) }).select('*').single();
   const { data, error } = await q;
   return error || !data ? fail(error, 'הטיוטה לא נשמרה — נסו שוב.') : { ok: true, data: toVersion(data) };
 }
@@ -162,6 +165,60 @@ export async function orderCollections(list: { id: string; position: number }[])
 export async function deleteCollection(id: string): Promise<Result<true>> {
   const { error } = await supabase().from('catalog_collections').delete().eq('id', id);
   return error ? fail(error, 'הקולקציה לא נמחקה — נסו שוב.') : { ok: true, data: true };
+}
+
+// ---- starter kits (2.58) -------------------------------------------------------------------------------------------------------
+/** the business's booking page, when it takes appointments online (the existing appointments system) — else '' */
+export async function bookingUrl(origin: string): Promise<string> {
+  const { data } = await supabase().from('booking_settings').select('slug, enabled').maybeSingle();
+  const slug = (data as { slug?: string; enabled?: boolean } | null)?.slug;
+  return (data as any)?.enabled && slug && /^https:\/\//.test(origin) ? `${origin}/book/${slug}` : '';
+}
+
+export interface KitApplied { collections: number; pages: number; replacedPages: number; menus: number; version: number; published: boolean }
+/**
+ * A kit's plan, written: the missing collections and pages (drafts), the menus that were empty or that the owner chose to
+ * replace, and the theme as the one draft (published only for a store that never published a theme). Each step through the
+ * existing tables and row-level security; it stops at the first failure and says what was already done (a second run
+ * creates only what is still missing).
+ */
+export async function applyKit(storeId: string, plan: KitPlan, choices: KitChoices): Promise<Result<KitApplied> & { done?: Partial<KitApplied> }> {
+  const blocked = planBlocked(plan, choices);
+  if (blocked) return { ok: false, error: blocked };
+  const done: KitApplied = { collections: 0, pages: 0, replacedPages: 0, menus: 0, version: 0, published: false };
+  const stop = (error: string) => ({ ok: false as const, error, done });
+  for (const c of plan.collections) {
+    const r = await saveCollection(null, c, []);
+    if (!r.ok) return stop(`הקולקציה "${c.title}": ${r.error}`);
+    done.collections++;
+  }
+  for (const p of plan.pages) {
+    const r = await savePage(storeId, null, p);
+    if (!r.ok) return stop(`העמוד "${p.title}": ${r.error}`);
+    done.pages++;
+  }
+  for (const c of plan.pageConflicts.filter((x) => choices.replacePages.includes(x.id))) {
+    const r = await savePage(storeId, c.id, c.row);
+    if (!r.ok) return stop(`העמוד "${c.row.title}": ${r.error}`);
+    done.replacedPages++;
+  }
+  for (const kind of ['main', 'footer'] as const) {
+    const m = plan.menus[kind];
+    if (m.action === 'create' || (m.action === 'conflict' && choices.replaceMenus.includes(kind))) {
+      const r = await saveMenu(storeId, kind, m.items);
+      if (!r.ok) return stop(`התפריט: ${r.error}`);
+      done.menus++;
+    }
+  }
+  const v = await saveDraft(storeId, 'kit', plan.settings, plan.draft.id ? { id: plan.draft.id } : null, `ערכה: ${plan.kit.name}`);
+  if (!v.ok) return stop(`העיצוב: ${v.error}`);
+  done.version = v.data.version;
+  if (plan.publishTheme) {
+    const r = await publishVersion(v.data.id);
+    if (!r.ok) return stop(`העיצוב: ${r.error}`);
+    done.published = true;
+  }
+  return { ok: true, data: done };
 }
 
 // ---- the server: domains, a preview link, store pictures ------------------------------------------------------------------

@@ -1,4 +1,7 @@
 import '@fontsource-variable/heebo';
+import '@fontsource-variable/rubik';
+import '@fontsource-variable/assistant';
+import '@fontsource-variable/frank-ruhl-libre';
 import './globals.css';
 import type { ReactNode } from 'react';
 import type { Metadata, Viewport } from 'next';

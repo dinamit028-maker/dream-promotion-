@@ -224,6 +224,15 @@ export function pageProblem(p: { kind: 'page' | 'policy'; title: string; slug: s
   return seoProblem(p.seoTitle, p.seoDescription);
 }
 
+/**
+ * 2.58: a policy goes on the site only after the owner ticks "קראתי ואני מאשר/ת" — it is a starting text, not a legal check
+ * (NEEDS_LEGAL_VERIFICATION). Asked when it is about to be published, not on every save of one already on the site.
+ */
+export const POLICY_ACK = 'קראתי את הנוסח ואני מאשר/ת לפרסם אותו באתר. ידוע לי שזו נקודת התחלה ולא בדיקה משפטית.';
+export function policyAckProblem(p: { kind: 'page' | 'policy'; published: boolean }, wasPublished: boolean, acknowledged: boolean): string | null {
+  return p.kind === 'policy' && p.published && !wasPublished && !acknowledged ? 'כדי לפרסם מדיניות באתר, סמנו "קראתי ואני מאשר/ת".' : null;
+}
+
 function seoProblem(title: string, description: string): string | null {
   if (title.length > STORE_LIMITS.seoTitle) return `הכותרת לגוגל ארוכה מדי (עד ${STORE_LIMITS.seoTitle} תווים).`;
   if (description.length > STORE_LIMITS.seoDescription) return `התיאור לגוגל ארוך מדי (עד ${STORE_LIMITS.seoDescription} תווים).`;

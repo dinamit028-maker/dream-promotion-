@@ -393,6 +393,59 @@ async function main() {
       await ctx.close();
     });
 
+    await step('a store on a starter kit (2.58): its own sections and font; the owner\'s preview shows where pictures and products will be', async () => {
+      // the beauty kit as the dashboard writes it (kitSettings): the store's name filled in, "booking" → WhatsApp (no booking page)
+      const kit = JSON.parse(readFileSync(path.resolve(ROOT, '../dream-promotion/kits/beauty.json'), 'utf8'));
+      const settings = JSON.parse(JSON.stringify({ kit: kit.id, ...kit.theme }).split('{{name}}').join('Draft Store').split('"booking"').join('"whatsapp"'));
+      const sql = (v: unknown) => JSON.stringify(v).replace(/'/g, "''");
+      psql(`insert into public.store_theme_versions (store_id, template, settings, note) values ('${DRAFT_STORE}', 'kit', '${sql(settings)}', 'ערכה: ביוטי');
+        insert into public.store_pages (store_id, kind, slug, title, body, published) values ('${DRAFT_STORE}', 'page', 'treatments', 'הטיפולים שלנו', '## [שם הטיפול]', false);
+        insert into public.store_menus (store_id, kind, items) values ('${DRAFT_STORE}', 'main', '[{"label": "הטיפולים", "href": "/pages/treatments"}, {"label": "לפני ואחרי", "href": "/#before-after"}]');`);
+      const token = makePreviewToken(DRAFT_STORE, SECRET, Date.now() / 1000 + 3600);
+      const { ctx, page } = await phone();
+      await page.goto(url('draft.test', `/?preview=${encodeURIComponent(token)}`));
+      await page.getByRole('heading', { level: 1, name: 'הזמן שלך לטפח את עצמך' }).waitFor();
+      assert.ok(await page.locator('#before-after').getByRole('heading', { name: 'לפני ואחרי' }).isVisible(), 'the kit\'s gallery, with its anchor');
+      assert.equal(await page.locator('#before-after .gallery-empty').count(), 4, 'no pictures yet: where they will be');
+      assert.ok((await page.locator('#care .card-placeholder').count()) > 0, 'no products yet: where they will be — never a made-up product');
+      assert.equal(await page.locator('.card-placeholder .card-name').first().innerText(), 'כאן יופיע מוצר');
+      const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+      assert.match(font, /Frank Ruhl Libre/, 'the kit\'s font');
+      assert.equal(await page.locator('.bag-art').first().isVisible(), false, 'not the drawn bag of the first template');
+      assert.equal(await page.locator('#f-info').count(), 0, 'no policy published, no checkout: no empty "מידע" heading in the footer');
+      await page.screenshot({ path: path.join(SHOTS, 'kit-beauty-home.png'), fullPage: true });
+      // the owner's preview: the menu's link to a page not published yet, and the page itself
+      await page.locator('.nav-wide').getByRole('link', { name: 'הטיפולים', includeHidden: true }).waitFor({ state: 'attached' });
+      await page.goto(url('draft.test', '/pages/treatments'));
+      await page.getByRole('heading', { level: 1, name: 'הטיפולים שלנו' }).waitFor();
+      await page.screenshot({ path: path.join(SHOTS, 'kit-beauty-preview.png'), fullPage: true });
+      await ctx.close();
+      // a shopper never sees the newsletter (stage 5), nor any of this before the store is on the air
+      const soon = await raw('draft.test', '/');
+      assert.match(soon.body, /בקרוב/);
+    });
+
+    await step('on the air: a menu link to a page that is not published is left out for shoppers; the owner\'s preview keeps it', async () => {
+      const before = psql(`select items::text from public.store_menus where store_id = '${FOLLOWME_STORE}' and kind = 'main'`);
+      psql(`insert into public.store_pages (store_id, kind, slug, title, body, published) values ('${FOLLOWME_STORE}', 'page', 'how-to-order', 'איך מזמינים', 'בקרוב.', false);
+        update public.store_menus set items = items || '[{"label": "איך מזמינים", "href": "/pages/how-to-order"}]' where store_id = '${FOLLOWME_STORE}' and kind = 'main';`);
+      try {
+        const shopper = await raw('followme.test', '/');
+        assert.match(shopper.body, /אקולוגיות/, 'the links to what is on the site stay');
+        assert.doesNotMatch(shopper.body, /איך מזמינים/, 'the link to a page not published is not in the menu');
+        assert.equal((await raw('followme.test', '/pages/how-to-order')).status, 404, 'and the page itself is not shown');
+        const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        await page.locator('.nav-wide').getByRole('link', { name: 'איך מזמינים', includeHidden: true }).waitFor({ state: 'attached' });
+        await ctx.close();
+        psql(`update public.store_pages set published = true where store_id = '${FOLLOWME_STORE}' and slug = 'how-to-order';`);
+        assert.match((await raw('followme.test', '/')).body, /איך מזמינים/, 'published: the link is back');
+      } finally {
+        psql(`update public.store_menus set items = '${before.replace(/'/g, "''")}' where store_id = '${FOLLOWME_STORE}' and kind = 'main';`);
+      }
+    });
+
     await step('the owner previews the draft theme of a store on the air; the shoppers keep the published one', async () => {
       const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
       const { ctx, page } = await phone();

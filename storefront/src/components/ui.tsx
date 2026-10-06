@@ -45,7 +45,7 @@ export function ProductCard({ p, currency, eager = false }: { p: Card; currency:
     <li className="card">
       <a href={`/products/${encodeURIComponent(p.slug)}`} className="card-link">
         <span className="card-media">
-          {p.image ? <Picture pic={p.image} alt={p.image.alt || p.name} sizes="(min-width: 960px) 25vw, 50vw" eager={eager} /> : <span className="card-noimage" aria-hidden="true"><BagArt /></span>}
+          {p.image ? <Picture pic={p.image} alt={p.image.alt || p.name} sizes="(min-width: 960px) 25vw, 50vw" eager={eager} /> : <span className="card-noimage" aria-hidden="true"><Art /></span>}
           {!p.in_stock && <span className="badge">אזל</span>}
           {p.in_stock && p.compare_at != null && p.compare_at > p.price && <span className="badge badge-sale">מבצע</span>}
         </span>
@@ -58,6 +58,22 @@ export function ProductCard({ p, currency, eager = false }: { p: Card; currency:
 
 export function ProductGrid({ items, currency, eagerFirst = 0 }: { items: Card[]; currency: string; eagerFirst?: number }) {
   return <ul className="grid" role="list">{items.map((p, i) => <ProductCard key={p.slug} p={p} currency={currency} eager={i < eagerFirst} />)}</ul>;
+}
+
+/** 2.58: before there are products, the owner's preview shows where they will be — shapes only, never a made-up product */
+export function PlaceholderGrid({ count = 4, label = 'כאן יופיע מוצר' }: { count?: number; label?: string }) {
+  return (
+    <ul className="grid" role="list" aria-label="מקום למוצרים">
+      {Array.from({ length: count }, (_, i) => (
+        <li key={i} className="card card-placeholder">
+          <span className="card-link">
+            <span className="card-media"><span className="card-noimage" aria-hidden="true"><Art /></span></span>
+            <span className="card-name muted">{label}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** structured data for search engines; nothing inside can close the tag */
@@ -87,6 +103,25 @@ export function RichText({ text }: { text: string }) {
   }
   flush();
   return <div className="prose">{out}</div>;
+}
+
+/**
+ * Where the business has no picture yet (decorative): the drawn bag, or a plain shape (2.58). Both are in the page; the
+ * theme's CSS (themeCss) hides the one its template does not use — so a product card needs no theme to draw it.
+ */
+export function Art({ className = '' }: { className?: string }) {
+  return <><BagArt className={className} /><PlainArt className={className} /></>;
+}
+
+/** a plain shape in the theme's colours: a frame, a sun and two hills — no subject, so it fits any business */
+export function PlainArt({ className = '' }: { className?: string }) {
+  return (
+    <svg className={`plain-art ${className}`} viewBox="0 0 320 360" role="presentation" aria-hidden="true" focusable="false">
+      <rect x="40" y="60" width="240" height="240" rx="24" className="plain-frame" />
+      <circle cx="200" cy="130" r="26" className="plain-sun" />
+      <path d="M40 260l70-74 56 58 34-34 80 80v-6a24 24 0 0 1-24 24H64a24 24 0 0 1-24-24z" className="plain-hills" />
+    </svg>
+  );
 }
 
 /** the drawn bag of the template, when the business has no picture yet (decorative) */

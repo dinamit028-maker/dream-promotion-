@@ -1,11 +1,14 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { cx } from '@/lib/utils';
 import { Button, PageHead, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
-import { publishVersion, saveDraft } from './data';
-import { contrast, draftErrors, draftOf, SECTION_DEFS, settingsOf, TEMPLATES, type Draft, type FieldDef, type Section } from './theme-fields';
+import { publishVersion, saveDraft, type KitApplied, type StoreBundle } from './data';
+import { kitById, kitSettings, type Kit } from './kits';
+import { currentKit, KitGallery, KitReady, useKitContext } from './StoreKits';
+import { contrast, draftErrors, draftOf, FONTS, SECTION_DEFS, settingsOf, TEMPLATES, type Draft, type FieldDef, type Section } from './theme-fields';
 import type { CollectionRow, ThemeVersion } from './store';
 import { PreviewButton } from './StoreSettings';
 import { AreaRow, Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
@@ -18,24 +21,54 @@ import { useStoreData } from './useStoreData';
  * can be published again. The storefront checks every value again.
  */
 export function StoreDesign() {
+  return <Suspense fallback={<div className="py-10 text-center"><Spinner /></div>}><Design /></Suspense>;
+}
+
+function Design() {
   const { data, error, loading, reload } = useStoreData();
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [kits, setKits] = useState(false);
+  const [applied, setApplied] = useState<{ kit: Kit; done: KitApplied } | null>(null);
+  const [rev, setRev] = useState(0);
+  // "החלפת ערכה" from anywhere (?kits=1)
+  useEffect(() => { if (params?.get('kits') === '1') { setKits(true); router.replace(pathname, { scroll: false }); } }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <><PageHead title="עיצוב" /><p className="flex items-center gap-2 text-muted"><Spinner /> טוען…</p></>;
   if (error && !data) return <><PageHead title="עיצוב" /><Notice tone="error">{error}</Notice></>;
   if (!data?.store) return <><PageHead title="עיצוב" /><NeedsStore /></>;
-  return <Editor storeId={data.store.id} template={data.store.template} versions={data.versions} collections={data.collections} reload={reload} />;
+  // the template is the version's (a kit moves the draft to "kit"), the store's own only before any version
+  const shown = data.versions.find((v) => v.status === 'draft') ?? data.versions.find((v) => v.status === 'published');
+  return (
+    <>
+      {applied && <KitReady kit={applied.kit} done={applied.done} />}
+      {kits && <KitGallery bundle={data} onClose={() => setKits(false)} onApplied={async (kit, done) => {
+        await reload(); setKits(false); setApplied({ kit, done }); setRev((n) => n + 1); window.scrollTo({ top: 0, behavior: 'smooth' });
+      }} />}
+      <Editor key={rev} bundle={data} storeId={data.store.id} template={shown?.template ?? data.store.template} versions={data.versions} collections={data.collections}
+        reload={reload} onKits={() => { setApplied(null); setKits(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+    </>
+  );
 }
 
-function Editor({ storeId, template, versions, collections, reload }: {
-  storeId: string; template: string; versions: ThemeVersion[]; collections: CollectionRow[]; reload: () => Promise<unknown>;
+function Editor({ bundle, storeId, template, versions, collections, reload, onKits }: {
+  bundle: StoreBundle; storeId: string; template: string; versions: ThemeVersion[]; collections: CollectionRow[]; reload: () => Promise<unknown>; onKits: () => void;
 }) {
   const draftRow = versions.find((v) => v.status === 'draft') ?? null;
   const published = versions.find((v) => v.status === 'published') ?? null;
+  const { ctx } = useKitContext(bundle.store);
+  const kit = currentKit(bundle);
   const [d, setD] = useState<Draft>(() => draftOf(template, (draftRow ?? published)?.settings ?? {}));
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error' | 'warn'; text: string } | null>(null);
   const [open, setOpen] = useState<string | null>('hero');
   const errors = useMemo(() => draftErrors(d), [d]);
+  // "חזרה לטקסט / לצבעים": the kit's own values (with the store's name) on a kit, else the template's
+  const origin: Draft = useMemo(() => {
+    const k = d.kit ? kitById(d.kit) : null;
+    return k && ctx ? draftOf('kit', kitSettings(k, ctx)) : draftOf(template, {});
+  }, [d.kit, ctx, template]);
   useEffect(() => { const warn = (e: BeforeUnloadEvent) => { if (dirty) e.preventDefault(); }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [dirty]);
   const change = (next: Draft) => { setD(next); setDirty(true); setMsg(null); };
   const setSection = (id: string, s: Partial<Section>) => change({ ...d, sections: d.sections.map((x) => (x.id === id ? { ...x, ...s } : x)) });
@@ -65,8 +98,8 @@ function Editor({ storeId, template, versions, collections, reload }: {
 
   return (
     <>
-      <PageHead title="עיצוב" sub={`תבנית: ${TEMPLATES[template]?.name ?? template}${published ? ` · באתר: גרסה ${published.version}` : ' · עוד לא פורסם עיצוב (האתר מציג את התבנית כמו שהיא)'}`}
-        action={<PreviewButton label="תצוגה מקדימה של הטיוטה" />} />
+      <PageHead title="עיצוב" sub={`${kit ? `ערכה: ${kit.name}` : `תבנית: ${TEMPLATES[template]?.name ?? template}`}${published ? ` · באתר: גרסה ${published.version}` : ' · עוד לא פורסם עיצוב (האתר מציג את התבנית כמו שהיא)'}`}
+        action={<span className="flex flex-wrap gap-2"><Button variant="ghost" onClick={onKits}>החלפת ערכה</Button><PreviewButton label="תצוגה מקדימה של הטיוטה" /></span>} />
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
       <Notice tone="info">הטקסטים של התבנית הם דוגמה — כדאי לעבור עליהם ולהתאים לעסק. "תצוגה מקדימה" מראה את הטיוטה השמורה.</Notice>
 
@@ -87,7 +120,21 @@ function Editor({ storeId, template, versions, collections, reload }: {
             <option value="none">ישרות</option><option value="small">מעט עגולות</option><option value="medium">עגולות</option><option value="large">עגולות מאוד</option>
           </Select>
         </label>
-        <button type="button" className="mt-3 text-sm font-semibold text-primary underline underline-offset-2" onClick={() => change({ ...d, colors: { ...draftOf(template, {}).colors }, radius: draftOf(template, {}).radius })}>חזרה לצבעי התבנית</button>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-ink-2">גופן</span>
+            <Select value={d.font} onChange={(e) => change({ ...d, font: e.target.value as Draft['font'] })}>
+              {FONTS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </Select>
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-ink-2">איפה שעוד אין תמונה</span>
+            <Select value={d.art} onChange={(e) => change({ ...d, art: e.target.value as Draft['art'] })}>
+              <option value="plain">צורה פשוטה בצבעי האתר</option><option value="bag">שקית מצוירת</option>
+            </Select>
+          </label>
+        </div>
+        <button type="button" className="mt-3 text-sm font-semibold text-primary underline underline-offset-2" onClick={() => change({ ...d, colors: { ...origin.colors }, radius: origin.radius, font: origin.font, art: origin.art })}>{d.kit ? 'חזרה לצבעים של הערכה' : 'חזרה לצבעי התבנית'}</button>
       </Block>
 
       <Block title="הודעה בראש האתר">
@@ -109,8 +156,9 @@ function Editor({ storeId, template, versions, collections, reload }: {
             return (
               <li key={s.id} className={cx('rounded-md border border-line', s.hidden && 'opacity-70')}>
                 <div className="flex items-center gap-2 p-2">
-                  <button type="button" className="flex min-h-11 flex-1 items-center text-start font-semibold" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : s.id)}>
-                    {def.label}{s.hidden && <span className="ms-2 text-xs font-normal text-muted">(מוסתר)</span>}
+                  <button type="button" className="flex min-h-11 min-w-0 flex-1 items-center text-start font-semibold" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : s.id)}>
+                    <span className="shrink-0">{def.label}</span>{typeof s.settings.title === 'string' && s.settings.title && def.label !== s.settings.title && <span aria-hidden="true" className="ms-2 min-w-0 truncate text-sm font-normal text-muted">— {s.settings.title}</span>}
+                    {s.hidden && <span className="ms-2 text-xs font-normal text-muted">(מוסתר)</span>}
                   </button>
                   <Switch on={!s.hidden} onClick={() => setSection(s.id, { hidden: !s.hidden })} label={`להציג: ${def.label}`} />
                   <Button type="button" variant="soft" size="sm" aria-label={`להזיז למעלה: ${def.label}`} disabled={i === 0} onClick={() => move(i, -1)}>▲</Button>
@@ -118,12 +166,13 @@ function Editor({ storeId, template, versions, collections, reload }: {
                 </div>
                 {isOpen && (
                   <div className="border-t border-line p-3">
+                    {def.soon && <Notice tone="info">{def.soon}</Notice>}
                     {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections}
                       onChange={(v) => setSection(s.id, { settings: { ...s.settings, [f.key]: v } })} />)}
                     {def.list && <ListInput def={def.list} rows={(Array.isArray(s.settings.items) ? s.settings.items : []) as Record<string, unknown>[]}
                       onChange={(rows) => setSection(s.id, { settings: { ...s.settings, items: rows } })} />}
                     <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2"
-                      onClick={() => setSection(s.id, { settings: { ...(TEMPLATES[template]?.sections.find((x) => x.id === s.id)?.settings ?? {}) } })}>חזרה לטקסט של התבנית</button>
+                      onClick={() => setSection(s.id, { settings: { ...(origin.sections.find((x) => x.id === s.id)?.settings ?? {}) } })}>{d.kit ? 'חזרה לטקסט של הערכה' : 'חזרה לטקסט של התבנית'}</button>
                   </div>
                 )}
               </li>

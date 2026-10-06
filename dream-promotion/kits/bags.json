@@ -1,0 +1,80 @@
+{
+  "id": "bags",
+  "name": "שקיות ממותגות",
+  "description": "לעסקים שמוכרים שקיות ואריזות בהדפסה: סוגי שקיות, איך מזמינים, והדפסת לוגו.",
+  "order": 10,
+  "keywords": ["שקיות", "שקית", "אריזות", "אריזה", "מיתוג", "הדפסה על", "packaging", "bags"],
+  "seoDescription": "{{name}} — שקיות ממותגות לעסקים, בהדפסה לפי המידה שלכם.",
+  "theme": {
+    "colors": {
+      "background": "#fbf8f3", "surface": "#ffffff", "text": "#1f1b16", "muted": "#5f574e", "primary": "#1f1b16",
+      "accent": "#8a5a2b", "accentSoft": "#f1e6d6", "border": "#e7ddcf"
+    },
+    "font": "heebo",
+    "art": "bag",
+    "radius": "medium",
+    "announcement": { "enabled": true, "text": "שקיות ממותגות לעסקים — עם הלוגו שלכם", "href": "/collections/all" },
+    "product": { "related": true, "whatsapp": true },
+    "sections": [
+      { "id": "hero", "type": "hero", "hidden": false, "settings": {
+        "eyebrow": "שקיות ממותגות",
+        "title": "הלוגו שלכם, על כל שקית",
+        "subtitle": "שקיות לעסקים בהדפסה לפי המידה שלכם. בוחרים דגם, שולחים לוגו — ומקבלים שקיות מוכנות.",
+        "primaryLabel": "לכל השקיות", "primaryHref": "/collections/all",
+        "secondaryLabel": "שאלה בוואטסאפ", "secondaryHref": "whatsapp",
+        "image": ""
+      } },
+      { "id": "collections", "type": "collections", "hidden": false, "settings": { "title": "סוגי שקיות", "subtitle": "" } },
+      { "id": "featured", "type": "products", "hidden": false, "settings": { "title": "הכי מבוקשות", "collection": "", "limit": 8, "buttonLabel": "לכל השקיות" } },
+      { "id": "about", "type": "imageText", "hidden": false, "settings": {
+        "title": "למה שקית ממותגת?",
+        "text": "שקית עם הלוגו ממשיכה ללכת עם הלקוח גם אחרי הקנייה. היא חלק מהחוויה, והיא מזכירה את העסק בכל מקום שהיא מגיעה אליו.",
+        "image": "", "buttonLabel": "איך מזמינים", "buttonHref": "/pages/how-to-order", "imageSide": "start"
+      } },
+      { "id": "steps", "type": "steps", "hidden": false, "settings": {
+        "title": "איך זה עובד",
+        "items": [
+          { "title": "בוחרים שקית", "text": "דגם, מידה וצבע מהקטלוג." },
+          { "title": "שולחים לוגו", "text": "קובץ של הלוגו, ואם יש — גם הנחיות להדפסה." },
+          { "title": "מאשרים", "text": "מקבלים את כל הפרטים ומאשרים לפני ההדפסה." },
+          { "title": "מקבלים", "text": "השקיות מגיעות מודפסות ומוכנות." }
+        ]
+      } },
+      { "id": "faq", "type": "faq", "hidden": false, "settings": { "title": "שאלות נפוצות", "items": [
+        { "q": "מה הכמות המינימלית להזמנה?", "a": "זה תלוי בדגם ובסוג ההדפסה. כתבו לנו מה אתם צריכים ונחזור עם הפרטים." },
+        { "q": "באיזה קובץ לשלוח את הלוגו?", "a": "הכי טוב קובץ וקטורי (PDF, AI או SVG). אם אין — שלחו מה שיש ונבדוק יחד." }
+      ] } },
+      { "id": "contact", "type": "contact", "hidden": false, "settings": { "title": "נדבר?", "text": "שאלה על דגם, כמויות או הדפסה — כתבו לנו ונחזור אליכם." } }
+    ]
+  },
+  "menus": {
+    "main": [
+      { "label": "כל השקיות", "href": "/collections/all" },
+      { "label": "שקיות נייר", "href": "/collections/paper" },
+      { "label": "שקיות בד", "href": "/collections/fabric" },
+      { "label": "איך מזמינים", "href": "/pages/how-to-order" },
+      { "label": "צרו קשר", "href": "/pages/contact" }
+    ],
+    "footer": [
+      { "label": "אודות", "href": "/pages/about" },
+      { "label": "הדפסה ולוגו", "href": "/pages/printing" },
+      { "label": "שאלות נפוצות", "href": "/pages/faq" },
+      { "label": "משלוחים", "href": "/policies/shipping" },
+      { "label": "תנאי שימוש", "href": "/policies/terms" },
+      { "label": "צרו קשר", "href": "/pages/contact" }
+    ]
+  },
+  "collections": [
+    { "slug": "paper", "title": "שקיות נייר", "description": "שקיות נייר עם הדפסה.", "tags": ["נייר"] },
+    { "slug": "fabric", "title": "שקיות בד", "description": "שקיות בד לשימוש חוזר.", "tags": ["בד"] },
+    { "slug": "gift", "title": "אריזות מתנה", "description": "אריזות ושקיות למתנות.", "tags": ["מתנה"] }
+  ],
+  "pages": [
+    { "slug": "about", "title": "אודות", "body": "## מי אנחנו\n\n{{name}} מייצרים שקיות ממותגות לעסקים. [כמה מילים על העסק: ממתי, למי, ומה מיוחד אצלכם.]" },
+    { "slug": "how-to-order", "title": "איך מזמינים", "body": "## ארבעה שלבים\n\n- בוחרים דגם, מידה וצבע מהקטלוג.\n- שולחים קובץ של הלוגו.\n- מקבלים את כל הפרטים ומאשרים לפני ההדפסה.\n- השקיות מגיעות מודפסות ומוכנות.\n\n## זמני הכנה\n\n[כמה זמן לוקחת הזמנה, מהאישור ועד שהשקיות אצלכם.]" },
+    { "slug": "printing", "title": "הדפסה ולוגו", "body": "## איזה קובץ לשלוח\n\nהכי טוב קובץ וקטורי: PDF, AI או SVG. אם אין — שלחו מה שיש ונבדוק יחד.\n\n## צבעים ושיטות הדפסה\n\n[אילו שיטות הדפסה יש, וכמה צבעים אפשר להדפיס.]" },
+    { "slug": "contact", "title": "צרו קשר", "body": "## נשמח לשמוע מכם\n\nשאלה על דגם, כמויות או הדפסה — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר." },
+    { "slug": "faq", "title": "שאלות נפוצות", "body": "## מה הכמות המינימלית?\n\n[הכמות המינימלית לכל דגם.]\n\n## באיזה קובץ לשלוח את הלוגו?\n\nהכי טוב קובץ וקטורי (PDF, AI או SVG).\n\n## מתי ההזמנה מגיעה?\n\n[זמני הכנה ומשלוח.]" }
+  ],
+  "policies": {}
+}

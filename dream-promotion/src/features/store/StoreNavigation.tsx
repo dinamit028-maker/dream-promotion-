@@ -1,9 +1,12 @@
 'use client';
+import Link from 'next/link';
 import { useState } from 'react';
 import { Button, Input, PageHead, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
-import { saveMenu } from './data';
-import { linkTargets, menuProblem, STORE_LIMITS, type MenuLink } from './store';
+import { saveMenu, savePage } from './data';
+import { hiddenLinks, type HiddenLink } from './kits';
+import { hasPlaceholders, linkTargets, menuProblem, STORE_LIMITS, type MenuLink, type PageRow } from './store';
+import { storeHref } from './routes';
 import { Block, NeedsStore, Notice } from './ui';
 import { useStoreData } from './useStoreData';
 
@@ -13,7 +16,7 @@ import { useStoreData } from './useStoreData';
  * menu shows the storefront's own: every product and the collections.
  */
 export function StoreNavigation() {
-  const { data, error, loading, setData } = useStoreData();
+  const { data, error, loading, setData, reload } = useStoreData();
   if (loading) return <><PageHead title="תפריטים" /><p className="flex items-center gap-2 text-muted"><Spinner /> טוען…</p></>;
   if (error && !data) return <><PageHead title="תפריטים" /><Notice tone="error">{error}</Notice></>;
   if (!data?.store) return <><PageHead title="תפריטים" /><NeedsStore /></>;
@@ -22,11 +25,60 @@ export function StoreNavigation() {
   return (
     <>
       <PageHead title="תפריטים" sub="הקישורים בראש האתר ובתחתית שלו." />
+      <HiddenLinks storeId={data.store.id} links={hiddenLinks(data.menus, data.pages, data.collections)} pages={data.pages} reload={reload} />
       <Menu key={`main-${data.store.id}`} storeId={data.store.id} kind="main" title="תפריט ראשי" empty='ריק — האתר מציג: "כל המוצרים", עד 4 קולקציות ו"צרו קשר".'
         initial={data.menus.main} targets={targets} onSaved={(items) => saved('main', items)} />
       <Menu key={`footer-${data.store.id}`} storeId={data.store.id} kind="footer" title="תפריט בתחתית" empty="ריק — האתר מציג עד 6 קולקציות. המדיניות ופרטי הקשר מוצגים בתחתית תמיד."
         initial={data.menus.footer} targets={targets} onSaved={(items) => saved('footer', items)} />
     </>
+  );
+}
+
+/**
+ * 2.58: a link to a page, a policy or a collection that is not on the site is left out of the menu the shoppers see
+ * (migration 3800) — said here plainly, with a way to put it on the site.
+ */
+function HiddenLinks({ storeId, links, pages, reload }: { storeId: string; links: HiddenLink[]; pages: PageRow[]; reload: () => Promise<unknown> }) {
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  if (!links.length && !msg) return null;
+  const publish = async (l: HiddenLink) => {
+    const g = pages.find((p) => p.id === l.target?.id);
+    if (!g) return;
+    setBusy(g.id); setMsg(null);
+    const r = await savePage(storeId, g.id, { kind: g.kind, policy: g.policy, slug: g.slug, title: g.title, body: g.body, seo_title: g.seoTitle, seo_description: g.seoDescription, published: true });
+    setBusy('');
+    if (!r.ok) { setMsg({ tone: 'error', text: r.error }); return; }
+    setMsg({ tone: 'ok', text: `"${g.title}" פורסם, והקישור אליו מופיע עכשיו בתפריט.` });
+    await reload();
+  };
+  return (
+    <Block title="קישורים שלא מופיעים באתר" sub="הם מובילים לעמוד, למדיניות או לקולקציה שעוד לא באתר — ולכן הלקוחות לא רואים אותם בתפריט. בתצוגה המקדימה הם מופיעים.">
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      <ul className="space-y-2">
+        {links.map((l, i) => {
+          const g = l.target?.kind === 'page' ? pages.find((p) => p.id === l.target!.id) : undefined;
+          const direct = g && g.body.trim() && !hasPlaceholders(g.body);
+          return (
+            <li key={`${l.menu}-${i}`} className="flex flex-wrap items-center gap-3 rounded-md border border-line px-3 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold">{l.label} <span className="text-xs font-normal text-muted">({l.menu === 'main' ? 'תפריט ראשי' : 'תפריט בתחתית'})</span></span>
+                <span className="block text-xs text-muted">
+                  {!l.target ? 'העמוד הזה לא קיים בכלל — כדאי להסיר את הקישור או ליצור את העמוד.'
+                    : l.target.kind === 'collection' ? `הקולקציה "${l.target.title}" לא מוצגת באתר.`
+                    : l.target.kind === 'policy' ? `"${l.target.title}" עוד לא פורסם (מדיניות מתפרסמת אחרי השלמה ואישור).`
+                    : direct ? `העמוד "${l.target.title}" עוד לא פורסם.` : `העמוד "${l.target.title}" עוד לא פורסם, ויש בו מקומות להשלים [ … ].`}
+                </span>
+              </span>
+              {l.target?.kind === 'page' && direct && <Button variant="primary" size="sm" disabled={busy === l.target.id} onClick={() => void publish(l)}>{busy === l.target.id ? <Spinner /> : 'פרסם את העמוד'}</Button>}
+              {l.target?.kind === 'page' && !direct && <Link className="text-sm font-semibold text-primary underline underline-offset-2" href={storeHref('pages', { page: l.target.id })}>להשלמה ופרסום</Link>}
+              {l.target?.kind === 'policy' && <Link className="text-sm font-semibold text-primary underline underline-offset-2" href={storeHref('pages', { policy: l.href.split('/').pop()! })}>להשלמה ופרסום</Link>}
+              {l.target?.kind === 'collection' && <Link className="text-sm font-semibold text-primary underline underline-offset-2" href={storeHref('collections')}>לקולקציות</Link>}
+            </li>
+          );
+        })}
+      </ul>
+    </Block>
   );
 }
 
