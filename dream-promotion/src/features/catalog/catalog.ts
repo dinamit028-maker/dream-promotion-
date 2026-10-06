@@ -365,3 +365,14 @@ export function catalogPicks(items: CatalogItem[], variants: CatalogVariant[]): 
       : [{ id: i.id, name: i.name, price: i.price, kind: i.kind }];
   });
 }
+
+/**
+ * "📣 קדם מוצר" (2.60, stage 5): the content studio opens with the product — its main picture as a library item, and a brief
+ * from the product's own words (never its price or stock: the AI writes the post, the owner edits and approves it there).
+ */
+export function promoteBrief(d: { name: string; description: string }): string {
+  const about = d.description.replace(/\s+/g, ' ').trim().slice(0, 300);
+  return `פוסט שמקדם את המוצר "${d.name.trim().slice(0, LIMITS.name)}"${about ? `: ${about}` : ''}`;
+}
+export const promoteUrl = (brief: string, mediaId: string | null) =>
+  `/create?kind=post&brief=${encodeURIComponent(brief)}${mediaId ? `&media=${encodeURIComponent(mediaId)}` : ''}`;

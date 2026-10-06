@@ -152,6 +152,7 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
         <TextRow label="Search Console — קוד אימות" value={f.gsc} onChange={(v) => set('gsc', v)} dir="ltr" placeholder='<meta name="google-site-verification" content="…">'
           hint='ב-Search Console בוחרים אימות בתג HTML, ומדביקים כאן את התג. אחרי הפרסום: מגישים שם את /sitemap.xml.' />
         {store.gscCode && <p className="text-sm text-muted">קוד האימות מוצג באתר (כשהחנות באוויר).</p>}
+        <p className="text-sm text-muted">Google Merchant Center (קניות בגוגל): בוחרים שם "הוספת מוצרים ← קובץ ← כתובת", ומדביקים את כתובת האתר עם <bdi dir="ltr">/feeds/google.xml</bdi> בסוף. הפיד מתעדכן לבד, ומופיע רק כשהחנות באוויר.</p>
       </Block>
 
       <div className="sticky bottom-20 z-10 mb-6 flex justify-end sm:bottom-4">

@@ -1,6 +1,8 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
+import { Repo } from '@/lib/repo';
 import { Button, Card, Field, Input, Select, SmallSelect, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { ImageGlyph } from '@/components/ui/Icon';
@@ -9,7 +11,7 @@ import { AIService } from '@/lib/services';
 import { ils } from '@/features/register/money';
 import {
   KIND_HE, LIMITS, MAX_OPTIONS, MAX_PICTURES, MIGRATION_3300, SEO_SHOWN, changedColumns, cleanProductCopy, copyBrief, draftError, draftOf, emptyDraft,
-  itemColumns, itemColumnsOf, newFieldKey, onlinePriceOf, planVariants, posPrice, publishGaps, slugify, splitList, unassignedUnits, uniqueSlug,
+  itemColumns, itemColumnsOf, newFieldKey, onlinePriceOf, planVariants, posPrice, promoteBrief, promoteUrl, publishGaps, slugify, splitList, unassignedUnits, uniqueSlug,
   variantColumns, variantLabel, variantLevel, type CatalogItem, type CatalogMedia, type CatalogOption, type CatalogVariant, type FieldDef,
   type ItemDraft, type ItemKind, type ProductCopy,
 } from './catalog';
@@ -231,6 +233,24 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
     } catch (e) { setAi({ busy: false, proposal: null, error: aiErrorText(e) }); }
   }
 
+  // ---- 📣 קדם מוצר (2.60): the main picture goes into the library, then the studio opens with it -----------------------------
+  const router = useRouter();
+  const [promoting, setPromoting] = useState(false);
+  async function promote() {
+    const dirty = Boolean(item) && Object.keys(changedColumns(itemColumns(draft, fields), itemColumnsOf(item!) as Record<string, unknown>)).length > 0;
+    if (dirty && !window.confirm('יש שינויים שלא נשמרו. לעבור לאולפן היצירה בלי לשמור?')) return;
+    setPromoting(true);
+    const main = [...media].sort((a, b) => a.position - b.position)[0];
+    let mediaId: string | null = null;
+    if (main && userId) {
+      const asset = { id: crypto.randomUUID(), url: pickSize(main, 1600), name: draft.name.trim().slice(0, 200), kind: 'image' as const, persistent: false };
+      await Repo.saveMedia(userId, asset);
+      useApp.setState((st) => ({ media: [{ ...asset, persistent: true }, ...st.media] }));
+      mediaId = asset.id;
+    }
+    router.push(promoteUrl(promoteBrief(draft), mediaId));
+  }
+
   // ---- variants ------------------------------------------------------------------------------------------------------------
   async function applyOptions() {
     const filled = opts.filter((o) => o.name.trim() || o.values.trim());
@@ -403,6 +423,12 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
 
       {ready && (
         <Section id="online" title="באתר" sectionRef={ref('online')} hint={live ? SITE_LIVE : SITE_NOT_LIVE}>
+          {item?.id && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line p-3">
+              <span className="text-sm"><strong className="block">📣 קדם מוצר</strong><span className="text-xs text-muted">פוסט עם התמונה והתיאור — באולפן היצירה, שם עורכים ומתזמנים.</span></span>
+              <Button size="sm" variant="soft" disabled={promoting} onClick={() => void promote()}>{promoting ? <><Spinner /> פותח…</> : 'קדם מוצר'}</Button>
+            </div>
+          )}
           <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-surface-2 p-3">
             <span>
               <strong className="block">פרסם באתר</strong>
