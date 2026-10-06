@@ -194,10 +194,11 @@ test('a link in a menu to something not on the site is named, with what to do', 
   const collections = [{ id: 'c', slug: 'sale', title: 'מבצעים', publishOnline: false }, { id: 'd', slug: 'new', title: 'חדש', publishOnline: true }];
   const menus = { main: [{ label: 'אודות', href: '/pages/about' }, { label: 'שאלות', href: '/pages/faq' }, { label: 'מבצעים', href: '/collections/sale' },
     { label: 'חדש', href: '/collections/new' }, { label: 'הכל', href: '/collections/all' }, { label: 'בית', href: '/' }, { label: 'אינסטגרם', href: 'https://instagram.com/x' }],
-    footer: [{ label: 'החזרות', href: '/policies/returns' }, { label: 'אין כזה', href: '/pages/nope' }] };
+    footer: [{ label: 'החזרות', href: '/policies/returns' }, { label: 'אין כזה', href: '/pages/nope' }, { label: 'שבור', href: '/pages/%E0%A4%A' }, { label: 'מקודד', href: '/pages/fa%71' }] };
   const h = hiddenLinks(menus, pages, collections);
   assert.deepEqual(h.map((l) => [l.menu, l.label, l.target?.kind ?? null]),
-    [['main', 'אודות', 'page'], ['main', 'מבצעים', 'collection'], ['footer', 'החזרות', 'policy'], ['footer', 'אין כזה', null]]);
+    [['main', 'אודות', 'page'], ['main', 'מבצעים', 'collection'], ['footer', 'החזרות', 'policy'], ['footer', 'אין כזה', null], ['footer', 'שבור', null], ['footer', 'מקודד', null]],
+    'compared as written, like sf_menu_visible: a malformed or encoded link is named, not a crash');
 });
 
 test('a policy is published only after "קראתי ואני מאשר/ת"', () => {

@@ -326,7 +326,8 @@ export function planBlocked(plan: KitPlan, c: KitChoices): string | null {
 
 /**
  * Menu links that lead to something that is not on the site (a page or a policy not published, a collection not on the
- * site): the storefront leaves them out of the menu (migration 3800) — the screen says so, with a way to publish.
+ * site): the storefront leaves them out of the menu (migration 3800) — the screen says so, with a way to publish. The slug is
+ * compared as written, like sf_menu_visible (no decoding: "/pages/%D7%90" is hidden on the site, so it is named here too).
  */
 export interface HiddenLink { menu: 'main' | 'footer'; label: string; href: string; target: { kind: 'page' | 'policy' | 'collection'; id: string; title: string } | null }
 export function hiddenLinks(menus: { main: MenuLink[]; footer: MenuLink[] }, pages: Pick<PageRow, 'id' | 'kind' | 'policy' | 'slug' | 'title' | 'published'>[],
@@ -336,7 +337,7 @@ export function hiddenLinks(menus: { main: MenuLink[]; footer: MenuLink[] }, pag
     for (const l of menus[menu]) {
       let m = l.href.match(/^\/pages\/([^/?#]+)$/);
       if (m) {
-        const g = pages.find((p) => p.kind === 'page' && p.slug === decodeURIComponent(m![1]));
+        const g = pages.find((p) => p.kind === 'page' && p.slug === m![1]);
         if (!g?.published) out.push({ menu, label: l.label, href: l.href, target: g ? { kind: 'page', id: g.id, title: g.title } : null });
         continue;
       }
@@ -348,7 +349,7 @@ export function hiddenLinks(menus: { main: MenuLink[]; footer: MenuLink[] }, pag
       }
       m = l.href.match(/^\/collections\/([^/?#]+)$/);
       if (m && m[1] !== 'all') {
-        const c = collections.find((x) => x.slug === decodeURIComponent(m![1]));
+        const c = collections.find((x) => x.slug === m![1]);
         if (!c?.publishOnline) out.push({ menu, label: l.label, href: l.href, target: c ? { kind: 'collection', id: c.id, title: c.title } : null });
       }
     }
