@@ -87,14 +87,17 @@ export function Footer({ site }: { site: Site & { store: Store } }) {
             <ul role="list">{footerLinks.map((l, i) => <NavLink key={i} link={l} store={store} />)}</ul>
           </nav>
         )}
-        <nav aria-labelledby="f-info">
-          <h2 id="f-info" className="footer-title">מידע</h2>
-          <ul role="list">
-            {store.policies.map((p) => <li key={p.policy}><a href={`/policies/${p.policy}`}>{p.title || POLICY_TITLE[p.policy]}</a></li>)}
-            {store.can_buy && <li><a href="/cancel">ביטול עסקה</a></li>}
-            {store.ga4_id && !site.preview && <li><CookieSettings /></li>}
-          </ul>
-        </nav>
+        {/* no policy published yet, no checkout, no cookies: no empty "מידע" heading */}
+        {(store.policies.length > 0 || store.can_buy || (store.ga4_id && !site.preview)) && (
+          <nav aria-labelledby="f-info">
+            <h2 id="f-info" className="footer-title">מידע</h2>
+            <ul role="list">
+              {store.policies.map((p) => <li key={p.policy}><a href={`/policies/${p.policy}`}>{p.title || POLICY_TITLE[p.policy]}</a></li>)}
+              {store.can_buy && <li><a href="/cancel">ביטול עסקה</a></li>}
+              {store.ga4_id && !site.preview && <li><CookieSettings /></li>}
+            </ul>
+          </nav>
+        )}
         <section aria-labelledby="f-contact" id="contact-details">
           <h2 id="f-contact" className="footer-title">יצירת קשר</h2>
           <ul role="list" className="contact-list">

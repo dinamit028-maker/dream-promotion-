@@ -412,6 +412,7 @@ async function main() {
       const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
       assert.match(font, /Frank Ruhl Libre/, 'the kit\'s font');
       assert.equal(await page.locator('.bag-art').first().isVisible(), false, 'not the drawn bag of the first template');
+      assert.equal(await page.locator('#f-info').count(), 0, 'no policy published, no checkout: no empty "מידע" heading in the footer');
       await page.screenshot({ path: path.join(SHOTS, 'kit-beauty-home.png'), fullPage: true });
       // the owner's preview: the menu's link to a page not published yet, and the page itself
       await page.locator('.nav-wide').getByRole('link', { name: 'הטיפולים', includeHidden: true }).waitFor({ state: 'attached' });
