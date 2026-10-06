@@ -793,6 +793,7 @@ select has_table_privilege('service_role', 'public.platform_flags', 'update') as
        has_function_privilege('authenticated', 'public.order_set_fulfillment(uuid, text, text, text)', 'execute') as screen_fulfills;
 ```
    - **אמור לחזור:** 21; `false`; `false`, `false`, `true`.
+   - **תוצאה (6.10.2026, קריאה בלבד, דרך ה-MCP, אחרי ההחלה):** 21; `false`; `false`, `false`, ומשתמש מחובר מריץ את `order_set_fulfillment`. בנוסף, השוואה מלאה מול מסד מקומי — זהה (md5): `STATUS.md`, "מצב מיגרציות".
 2. `supabase/cron-commerce.sql` שוב ב-SQL Editor, עם הכתובת של הדשבורד ו-`CRON_SECRET` (המשימה החדשה `dp-commerce-finalize`).
 3. **ב-Vercel:**
    - **בדשבורד:** `COMMERCE_SECRET`, `ORDER_LINK_SECRET`, `RESEND_API_KEY`.
@@ -874,6 +875,7 @@ select slug, storefront_password <> '' as has_password, status from public.store
 select public.store_slug_reserved('admin') as admin_reserved, public.store_slug_reserved('flowers') as flowers_reserved;
 ```
    - **אמור לחזור:** כל חנות עם כתובת וסיסמה; `true`, `false`.
+   - **תוצאה (6.10.2026, אחרי ההחלה):** `followme`, עם סיסמה, טיוטה; `store_slug_base('FollowMe')` = `followme`; השוואה מלאה — זהה (md5).
 
 **בטלפון:**
 1. **"חנות" ← "הגדרות ודומיין" ← "כתובת האתר":** הכתובת `…​.<הדומיין>` ו"מוגן בסיסמה".
