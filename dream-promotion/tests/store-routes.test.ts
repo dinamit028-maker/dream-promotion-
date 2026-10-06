@@ -106,6 +106,13 @@ test('a domain without Vercel\'s token: recorded for the own store (and www), th
   assert.equal(v.status, 403); assert.equal(v.body.code, 'view_only');
   assert.equal((await post('domains', NOSTORE, { action: 'connect', domain: 'a.com' })).status, 404, 'no store yet');
   assert.equal((await post('domains', OWN, { action: 'connect', domain: 'not a domain' })).status, 400);
+  // 2.57.1: an address under the stores' root is the system's, never a store's own domain
+  process.env.STORE_ROOT_DOMAIN = 'mystores.co.il';
+  try {
+    const sys = await post('domains', OWN, { action: 'connect', domain: 'someone.mystores.co.il' });
+    assert.equal(sys.status, 400);
+    assert.equal((await post('domains', OWN, { action: 'connect', domain: 'mystores.co.il' })).status, 400);
+  } finally { delete process.env.STORE_ROOT_DOMAIN; }
   assert.equal((await post('domains', OWN, { action: 'fly' })).status, 400);
 
   const r = await post('domains', OWN, { action: 'connect', domain: 'https://www.FollowMeCollection.com/', storeId: S2, businessId: B2 });

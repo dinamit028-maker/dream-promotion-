@@ -82,7 +82,8 @@ async function main() {
   const { chromium } = pw.default ?? pw;
   const dev = spawn('npx', ['next', 'dev', '-p', String(PORT)], {
     cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
-    env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://sb.test', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-test-key', NEXT_TELEMETRY_DISABLED: '1' },
+    env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://sb.test', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-test-key', NEXT_TELEMETRY_DISABLED: '1',
+      STORE_ROOT_DOMAIN: 'stores.test' },
   });
   const results: { name: string; ok: boolean; error?: string }[] = [];
   const browser = await (async () => { await waitForServer(dev); return chromium.launch(); })();
@@ -376,6 +377,45 @@ async function main() {
       await st.screenshot({ path: path.join(SHOTS, 'c5-store-settings-phone.png'), fullPage: true });
     });
 
+    await step('the store\'s own address: sagabot.stores.test, "מוגן בסיסמה", open / copy link + password, the address and the password', async () => {
+      await st.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+      const ad = block(st, 'כתובת האתר');
+      await ad.getByText('sagabot.stores.test', { exact: true }).waitFor();
+      await ad.getByText('מוגן בסיסמה', { exact: true }).waitFor();
+      assert.equal(await ad.getByRole('link', { name: 'פתח את האתר' }).getAttribute('href'), 'https://sagabot.stores.test');
+      assert.equal(await ad.getByRole('link', { name: 'פתח את האתר' }).getAttribute('target'), '_blank');
+      await ad.getByRole('button', { name: 'העתק קישור + סיסמה' }).click();
+      await ad.getByRole('button', { name: 'הועתק ✓' }).waitFor();
+      assert.equal(await st.evaluate(() => navigator.clipboard.readText()), `${store().name}\nhttps://sagabot.stores.test\nסיסמה: e2epass123`);
+      // the address: reserved names and a taken one are refused before saving; a free one is saved after a confirmation
+      const slug = ad.getByLabel('הכתובת של החנות');
+      await slug.fill('admin');
+      await ad.getByRole('button', { name: 'שמירת הכתובת' }).click();
+      await ad.getByText('השם הזה שמור למערכת. בחרו שם אחר.').waitFor();
+      await slug.fill('taken-one');
+      await ad.getByRole('button', { name: 'שמירת הכתובת' }).click();
+      await ad.getByText(/כבר של חנות אחרת\. אפשר למשל: taken-one-2/).waitFor();
+      assert.equal(store().slug, 'sagabot', 'nothing saved');
+      await slug.fill('SaGabot-Shop');
+      await ad.getByRole('button', { name: 'שמירת הכתובת' }).click();
+      await ad.getByText('הכתובת נשמרה.').waitFor();
+      assert.equal(store().slug, 'sagabot-shop');
+      await ad.getByText('sagabot-shop.stores.test', { exact: true }).waitFor();
+      // no password: a draft is closed (only the preview link); a new password: protected again
+      const pw = ad.getByLabel('סיסמה לאתר');
+      await pw.fill('');
+      await ad.getByRole('button', { name: 'שמירת הסיסמה' }).click();
+      await ad.getByText('טיוטה', { exact: true }).waitFor();
+      await ad.getByRole('button', { name: 'העתק קישור', exact: true }).waitFor();
+      await ad.getByRole('button', { name: 'סיסמה חדשה' }).click();
+      assert.match(await pw.inputValue(), /^[a-z2-9]{10}$/);
+      await ad.getByRole('button', { name: 'שמירת הסיסמה' }).click();
+      await ad.getByText('מוגן בסיסמה', { exact: true }).waitFor();
+      assert.match(store().storefront_password, /^[a-z2-9]{10}$/);
+      await noSideScroll(st, 'the store\'s address on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c5b-store-address-phone.png'), fullPage: true });
+    });
+
     await step('details and contact: WhatsApp in the international form, Google\'s codes from the whole tag', async () => {
       await st.getByLabel('טלפון', { exact: true }).fill('03-1234567');
       await st.getByLabel('וואטסאפ', { exact: true }).fill('050-1234567');
@@ -538,14 +578,14 @@ async function main() {
     await step('on the air: only with the checklist complete — the domain counts once the storefront served it', async () => {
       await st.goto(`${BASE}/store/settings`, { waitUntil: 'domcontentloaded' });
       const check = block(st, 'לפני שעולים לאוויר');
-      await check.getByText('דומיין פעיל — חסר').waitFor({ timeout: 60_000 });
+      await check.getByText('כתובת פעילה (הכתובת של החנות או דומיין משלכם) — חסר').waitFor({ timeout: 60_000 });
       for (const ok of ['מדיניות ביטולים והחזרות — קיים', 'מדיניות פרטיות — קיים', 'הצהרת נגישות — קיים', 'לפחות מוצר אחד באתר — קיים']) await check.getByText(ok).waitFor();
       assert.equal(await st.getByRole('button', { name: 'העלאת החנות לאוויר' }).isDisabled(), true);
       // the storefront served followmecollection.com (sf_domain_seen): DNS and the certificate work
       Object.assign(fake.tables.store_domains.find((d) => d.is_primary)!, { status: 'active', last_seen_at: new Date().toISOString() });
       await st.reload({ waitUntil: 'domcontentloaded' });
       await block(st, 'דומיין').getByText('פעיל', { exact: true }).waitFor({ timeout: 60_000 });
-      await block(st, 'לפני שעולים לאוויר').getByText('דומיין פעיל — קיים').waitFor();
+      await block(st, 'לפני שעולים לאוויר').getByText('כתובת פעילה (הכתובת של החנות או דומיין משלכם) — קיים').waitFor();
       await st.getByRole('button', { name: 'העלאת החנות לאוויר' }).click();
       await st.getByText('החנות באוויר.', { exact: true }).first().waitFor();
       assert.equal(store().status, 'published');

@@ -220,7 +220,9 @@ export class FakeSupabase {
     if (table === 'stores') {
       if (this.t('stores').some((x) => x.business_id === r.business_id)) return 'duplicate key value violates unique constraint "stores_business_uq"';
       fill({ status: 'draft', template: 'bags', lang: 'he', logo_url: '', description: '', phone: '', whatsapp: '', email: '', address: '', ga4_id: '', gsc_code: '',
-        show_stock_count: false, published_at: null, updated_at: now() });
+        show_stock_count: false, published_at: null, updated_at: now(),
+        // 3700: an address from the business's name, and a password (the database makes them; here, fixed)
+        slug: 'sagabot', storefront_password: 'e2epass123', password_lock: false, subdomain_seen_at: null });
       if (r.status === 'published') return `store_not_ready: ${this.storeMissing(r).join(',')}`;
     }
     if (table === 'store_theme_versions') {
@@ -252,7 +254,7 @@ export class FakeSupabase {
     if (!r || !String(r.legal_name ?? '').trim() || !String(r.city ?? '').trim() || !(/^\d{9}$/.test(r.dealer_number ?? '') || /^\d{9}$/.test(r.company_number ?? ''))) out.push('legal');
     if (!s.phone && !s.email && !s.whatsapp) out.push('contact');
     for (const p of ['returns', 'privacy', 'accessibility']) if (!this.t('store_pages').some((g) => g.store_id === s.id && g.policy === p && g.published)) out.push(p);
-    if (!this.t('store_domains').some((d) => d.store_id === s.id && d.is_primary && d.status === 'active')) out.push('domain');
+    if (!s.subdomain_seen_at && !this.t('store_domains').some((d) => d.store_id === s.id && d.is_primary && d.status === 'active')) out.push('domain');
     if (!this.t('catalog_items').some((i) => i.business_id === s.business_id && i.publish_online && i.active !== false && i.slug)) out.push('product');
     return out;
   }
@@ -295,6 +297,12 @@ export class FakeSupabase {
     if (table === 'catalog_items' && patch.publish_online && !old.published_at) patch.published_at = now();
     if (table === 'stores') {
       patch.updated_at = now();
+      if ('slug' in patch && patch.slug !== old.slug) {
+        if (['www', 'app', 'admin', 'api', 'mail', 'shop', 'store'].includes(patch.slug)) return 'store_slug_reserved';
+        if (this.t('stores').some((x) => x.slug === patch.slug && x.id !== old.id)) return 'duplicate key value violates unique constraint "stores_slug_uq"';
+        patch.subdomain_seen_at = null;
+      }
+      if ((patch.password_lock ?? old.password_lock) && (patch.storefront_password ?? old.storefront_password) === '') return 'store_lock_needs_password';
       if (patch.status === 'published' && old.status !== 'published') {
         const missing = this.storeMissing({ ...old, ...patch });
         if (missing.length) return `store_not_ready: ${missing.join(',')}`;
@@ -425,6 +433,11 @@ export class FakeSupabase {
       return { status: 200, body: { ok: true } };
     }
     if (fn === 'store_alerts_seen') return { status: 200, body: null };
+    if (fn === 'store_slug_available') {
+      const c = String(args.p_slug ?? '').trim().toLowerCase();
+      if (c === 'taken-one') return { status: 200, body: { ok: false, error: 'taken', suggestion: 'taken-one-2' } };
+      return { status: 200, body: { ok: true } };
+    }
     return { status: 404, body: { code: 'PGRST202', message: `function ${fn} not found` } };
   }
 
