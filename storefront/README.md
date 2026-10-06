@@ -59,7 +59,9 @@
 
 ## הקמה ב-Vercel — פעם אחת, על ידי בעל המערכת
 
-**בוצע ב-2.57.3:** הפרויקט `dream-storefront` (`https://dream-storefront.vercel.app`) קיים, וכל המשתנים מוגדרים, כולל `SUPABASE_SECRET_KEY` (Production). פירוט ב-STATUS.md, סעיף 4כו.
+**בוצע ב-2.57.3:** הפרויקט `dream-storefront` (`https://dream-storefront.vercel.app`) קיים, וכל המשתנים מוגדרים, כולל `SUPABASE_SECRET_KEY` (Production).
+
+**`SUPABASE_SECRET_KEY` — להעתיק בכפתור ההעתקה של Supabase, אחרי לחיצה על העין.** טקסט שמסומן ביד מגיע עם הנקודות של המפתח המוסתר (`••••`). עם מפתח כזה הבקשה לא יוצאת בכלל, וכל עמוד מחזיר 500 — בלי שום שורה ביומן של Supabase. שינוי במשתנה דורש בנייה חדשה (קומיט שנוגע ב-`storefront/`), כי Redeploy מתבטל בגלל `ignoreCommand`. פירוט ב-STATUS.md, סעיף 4כו.
 
 1. **פרויקט:** Vercel ← Add New ← Project, מאותו repo.
    - **Root Directory:** `storefront`.
