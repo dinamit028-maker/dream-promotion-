@@ -1798,7 +1798,7 @@
 
 **הסיבה נמצאה ותוקנה (6.10.2026), בעזרת 2.57.4:** `dp-commerce-payments` החזיר `Cannot convert argument to a ByteString … index 10 … 8230`. כלומר ב-Vercel נשמר `sb_secret_…` — הטקסט המקוצר מהטבלה של Supabase, ולא המפתח. בעל המערכת העתיק את המפתח המלא בכפתור ההעתקה ושמר אותו מחדש.
 - `STOREFRONT_CRON_SECRET` הפך ל-Sensitive (אחרי שה-cron הוגדר), כך ש-Vercel כבר לא מסמן אותו "Needs Attention".
-- **החלפת המפתח (6.10.2026):** המפתח הוצג בצילום מסך בשיחה. בעל המערכת יצר ב-Supabase מפתח חדש בשם `storefront` ושמר אותו ב-Vercel. אחרי שהחזית עובדת איתו, מוחקים ב-Supabase את `default` (הישן).
+- **החלפת המפתח (6.10.2026):** המפתח הוצג בצילום מסך בשיחה. בעל המערכת יצר ב-Supabase מפתח חדש בשם `storefront` ושמר אותו ב-Vercel. גם הדשבורד השתמש ב-`default` (נבדק ב-`edge_logs`: `request.sb.apikey.apikey.prefix`), ולכן קיבל מפתח משלו, `dashboard`, ב-`SUPABASE_SERVICE_ROLE_KEY`. רק אחרי ששני השרתים עובדים עם המפתחות החדשים, מוחקים ב-Supabase את `default`.
 
 **2.57.4 — אתר החנות מחזיר 500 גם עם המפתח (6.10.2026, בבדיקה):**
 - `dp-commerce-payments` מקבל 500 עם תשובה ריקה, גם אחרי שהמפתח נוסף ותוקן ואתר החנות נבנה מחדש.
