@@ -18,7 +18,7 @@ import { RefundPanel, refundSlipHtml } from './RefundPanel';
 import { CommissionsTab } from './CommissionsTab';
 import { israelToIso } from '@/lib/il-time';
 import { isDuplicateId } from '@/lib/db-errors';
-import { METHODS, computeSale, ils, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Refund, type Sale } from './money';
+import { METHODS, computeSale, ils, isPosSale, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Refund, type Sale } from './money';
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
 import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type HeldMap } from './stock';
 import { billingColumns } from './billing';
@@ -92,8 +92,8 @@ export function RegisterScreen() {
     if (!userId) return;
     const oldest = sales.reduce((a, s) => (s.createdAt < a ? s.createdAt : a), new Date().toISOString());
     const { data } = await supabase().from('sales').select('*').lt('created_at', oldest).order('created_at', { ascending: false }).limit(300);
-    const more = (data ?? []).map(toSale);
-    if (more.length < 300) setOlderDone(true);
+    const more = (data ?? []).filter(isPosSale).map(toSale);
+    if ((data ?? []).length < 300) setOlderDone(true);
     setSales((all) => [...all, ...more.filter((m) => !all.some((x) => x.id === m.id))]);
   }
   const [prefill, setPrefill] = useState<{ customer: { name: string; phone: string; leadId: string | null; appointmentId: string | null }; line: Line | null } | null>(null);
@@ -134,8 +134,10 @@ export function RegisterScreen() {
       const price = new Map(((svcs.data ?? []) as any[]).map((x) => [x.id, x.price == null ? null : Number(x.price)]));
       setTodayAppts(appts.error ? [] : ((appts.data ?? []) as any[]).filter((a) => a.status !== 'cancelled' && a.status !== 'no_show')
         .map((a) => ({ id: a.id, name: a.name, phone: a.phone ?? '', leadId: a.lead_id, serviceName: a.service_name ?? '', start: a.start_at, price: price.get(a.service_id) ?? null })));
-      setSales((sa.data ?? []).map(toSale));
-      setRefunds(rf.error ? [] : ((rf.data ?? []) as any[]).map(toRefund)); // before the migration there are no refunds
+      setSales((sa.data ?? []).filter(isPosSale).map(toSale));   // the site's sales are not the register's (2.57)
+      // before the migration there are no refunds; a refund of a site order (2.57) is not the register's money either
+      const online = new Set(((sa.data ?? []) as any[]).filter((x) => !isPosSale(x)).map((x) => x.id));
+      setRefunds(rf.error ? [] : ((rf.data ?? []) as any[]).filter((x) => !online.has(x.sale_id)).map(toRefund));
       setError(null);
     } catch (e) { setError(errText(e)); }
     finally { setLoading(false); }

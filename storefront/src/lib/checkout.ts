@@ -2,6 +2,8 @@ import { data } from './data';
 import { providerOf } from './pay';
 import { ProviderError, type Verified } from './pay/types';
 import { openKeys } from './seal';
+import { notifyPaid } from './dashboard';
+import { after } from 'next/server';
 import { hashToken, newToken } from './tokens';
 import type { Cart, CheckoutStart, CouponError, OrderView } from './types';
 
@@ -122,6 +124,7 @@ export async function confirmOrder(storeId: string, order: Pick<OrderView, 'id' 
   if (v.orderId && v.orderId !== order.id) return order.status;              // a page of another order: never this one
   if (v.status === 'approved' && v.amount != null) {
     const r = await data.orderPaid(storeId, order.id, account.provider, v.txn, v.amount, v.currency || 'ILS');
+    if (r?.result === 'ok') afterResponse(() => notifyPaid(order.id));   // the sale, the document, the alert, the email — now
     return (r?.status as Confirmed) ?? order.status;
   }
   if (v.status === 'declined' && order.status === 'pending') {
@@ -129,4 +132,9 @@ export async function confirmOrder(storeId: string, order: Pick<OrderView, 'id' 
     return (r?.status as Confirmed) ?? order.status;
   }
   return order.status;
+}
+
+/** after the answer went out (the shopper does not wait); outside a request (tests, scripts) it simply runs */
+function afterResponse(job: () => Promise<unknown>) {
+  try { after(job); } catch { void job().catch(() => undefined); }
 }

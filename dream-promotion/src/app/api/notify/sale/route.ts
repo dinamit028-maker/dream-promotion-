@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { pushToUser } from '@/lib/server/push';
-import { businessManagers, workBusiness } from '@/lib/server/business';
+import { workBusiness } from '@/lib/server/business';
+import { notifyManagers } from '@/lib/server/notify';
 import { lowStockList, stockText, type StockItem } from '@/features/register/stock';
 
 export const runtime = 'nodejs';
@@ -23,15 +24,12 @@ export async function POST(req: Request) {
   if (!s) return NextResponse.json({ code: 'not_found' }, { status: 404 });
   const items: { name: string; itemId?: string }[] = Array.isArray((s as any).items) ? (s as any).items : [];
   const what = items.map((l) => l.name).slice(0, 3).join(', ');
-  const managers = await businessManagers(businessId);
-  const to = managers.length ? managers : [userId];
   const sale = {
     title: s.status === 'pending' ? `בקשת תשלום ${ils(s.total)}` : `💰 עסקה חדשה ${ils(s.total)}`,
     body: [s.customer_name || 'לקוח מזדמן', METHOD[s.method] ?? s.method, what, s.employee_name ? `מוכר/ת: ${s.employee_name}` : ''].filter(Boolean).join(' · '),
     url: '/register', tag: `sale-${saleId}`,
   };
-  let sent = 0;
-  for (const u of to) sent += (await pushToUser(u, sale)).sent ?? 0;
+  const { sent, to } = await notifyManagers(businessId, sale, userId);
 
   // low stock: only the products of this sale, only when they are tracked
   const ids = [...new Set(items.map((l) => l.itemId).filter((x): x is string => Boolean(x)))];

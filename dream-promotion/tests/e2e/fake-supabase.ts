@@ -411,6 +411,20 @@ export class FakeSupabase {
       for (const l of this.lines(e?.stock_lines)) { this.stock(l.id, l.qty, 'receive', { note: `הוצאה ${e!.expense_number}`, variant: l.variant }); n++; }
       return { status: 200, body: n };
     }
+    // stage 4 (3600): where the goods stand (an email to the customer on "ready" / "shipped"), the owner saw the alerts
+    if (fn === 'order_set_fulfillment') {
+      const o = this.t('orders').find((x) => x.id === args.p_order && x.business_id === this.opts.businessId);
+      if (!o) return { status: 400, body: { code: '42501', message: 'not allowed' } };
+      if (args.p_url && !/^https:\/\//.test(args.p_url)) return { status: 200, body: { ok: false, error: 'url' } };
+      const from = o.fulfillment_status;
+      Object.assign(o, { fulfillment_status: args.p_status, ...(args.p_status === 'shipped' ? { tracking_number: args.p_tracking ?? '', tracking_url: args.p_url ?? '', shipped_at: now() } : {}) });
+      this.t('order_events').push({ id: this.t('order_events').length + 100, order_id: o.id, business_id: o.business_id, kind: 'fulfillment', data: { from, to: args.p_status, tracking: args.p_tracking ?? '' }, at: now() });
+      if (args.p_status === 'shipped' && o.delivery_method === 'delivery' && !this.t('email_outbox').some((e) => e.order_id === o.id && e.kind === 'order_shipped')) {
+        this.t('email_outbox').push({ id: randomUUID(), business_id: o.business_id, order_id: o.id, kind: 'order_shipped', ref: '', status: 'queued', last_error: '', sent_at: null, created_at: now() });
+      }
+      return { status: 200, body: { ok: true } };
+    }
+    if (fn === 'store_alerts_seen') return { status: 200, body: null };
     return { status: 404, body: { code: 'PGRST202', message: `function ${fn} not found` } };
   }
 

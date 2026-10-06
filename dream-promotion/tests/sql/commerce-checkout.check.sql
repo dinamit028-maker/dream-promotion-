@@ -264,7 +264,7 @@ select pg_temp.check((public.sf_order('00000000-0000-0000-0000-000000355001', pg
   'the customer''s link shows it');
 select pg_temp.check(public.sf_order('00000000-0000-0000-0000-000000355002', pg_temp.h('order-1')) is null, 'not through another store');
 select pg_temp.check((select array_agg(k order by k collate "C") from jsonb_object_keys(public.sf_order('00000000-0000-0000-0000-000000355001', pg_temp.h('order-1'))) k)
-  = '{coupon,created_at,currency,discount,expires_at,id,lines,method,name,number,page,paid_at,provider,shipping,status,subtotal,test,total}',
+  = '{coupon,created_at,currency,discount,doc_token,document,expires_at,fulfillment,id,lines,method,name,number,page,paid_at,provider,refunded,request,shipping,state,status,subtotal,test,total,tracking,tracking_url}',
   'the order page''s allow-list (no phone, no email, no address)');
 -- the TWENTY coupon has 1 use: D's order uses it, then nobody else can
 select pg_temp.check((public.sf_order_paid('00000000-0000-0000-0000-000000355001', (select id from public.orders where token_hash = pg_temp.h('order-4')), 'mock', 'txn-4', 80, 'ILS'))->>'result' = 'ok', 'D paid');

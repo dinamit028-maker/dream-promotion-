@@ -90,6 +90,7 @@ export function Footer({ site }: { site: Site & { store: Store } }) {
           <h2 id="f-info" className="footer-title">מידע</h2>
           <ul role="list">
             {store.policies.map((p) => <li key={p.policy}><a href={`/policies/${p.policy}`}>{p.title || POLICY_TITLE[p.policy]}</a></li>)}
+            {store.can_buy && <li><a href="/cancel">ביטול עסקה</a></li>}
             {store.ga4_id && !site.preview && <li><CookieSettings /></li>}
           </ul>
         </nav>

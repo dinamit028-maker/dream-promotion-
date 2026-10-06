@@ -261,7 +261,7 @@ input, select, textarea {
 .stepper { display: inline-flex; align-items: center; border: 1px solid var(--c-border); border-radius: 999px; background: var(--c-surface); }
 .stepper button { width: 44px; height: 44px; border: 0; background: none; font-size: 1.2rem; cursor: pointer; border-radius: 999px; }
 .stepper output { min-width: 28px; text-align: center; font-weight: 700; }
-.cart-summary, .checkout fieldset, .order-lines { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); padding: 16px; }
+.cart-summary, .checkout fieldset, .order-lines, .order-status { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); padding: 16px; }
 .summary-title { font-size: 1.2rem; }
 .coupon label { font-weight: 600; display: block; margin-bottom: 4px; }
 .coupon-row { display: flex; gap: 8px; }

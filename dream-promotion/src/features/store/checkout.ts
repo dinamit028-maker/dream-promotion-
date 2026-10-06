@@ -90,7 +90,9 @@ export function checkTerminal(f: TerminalForm): { ok: true; keys: { api_key: str
   return { ok: true, keys: { api_key: apiKey, secret_key: secretKey }, pageUid };
 }
 export const keyHint = (apiKey: string) => apiKey.trim().slice(-4);
-export interface TerminalInfo { connected: boolean; provider: 'payplus' | 'mock' | null; mode: 'test' | 'live' | null; hint: string; connectedAt: string | null; ready: boolean }
+export interface TerminalInfo { connected: boolean; provider: 'payplus' | 'mock' | null; mode: 'test' | 'live' | null; hint: string; connectedAt: string | null; ready: boolean;
+  /** the platform's switch of real sales (commerce_live) — off until the owner's separate approval */
+  liveOpen?: boolean }
 
 // ---- coupons -------------------------------------------------------------------------------------------------------------------
 export interface Coupon {
@@ -154,6 +156,10 @@ export interface OrderRow {
   discount: number; shipping: number; currency: string; couponCode: string; customerName: string; customerPhone: string;
   customerEmail: string; deliveryMethod: 'pickup' | 'delivery'; address: Record<string, string>; notes: string; provider: string;
   createdAt: string; paidAt: string | null; expiresAt: string;
+  /** stage 4 (migration 3600): the sale and the customer it became, its document, the goods, a request, refunds */
+  saleId: string | null; leadId: string | null; documentStatus: 'not_required' | 'pending' | 'issued' | 'blocked'; documentId: string | null;
+  documentError: string; trackingNumber: string; trackingUrl: string; shippedAt: string | null; requestKind: '' | 'cancel' | 'return';
+  requestNote: string; requestedAt: string | null; refundedTotal: number;
 }
 export interface OrderLine { name: string; variantLabel: string; sku: string; unitPrice: number; qty: number; lineTotal: number; imageUrl: string }
 export interface OrderEvent { kind: string; data: Record<string, unknown>; at: string }
@@ -165,6 +171,10 @@ export const toOrder = (r: any): OrderRow => ({
   customerEmail: r.customer_email ?? '', deliveryMethod: r.delivery_method === 'delivery' ? 'delivery' : 'pickup',
   address: (r.address && typeof r.address === 'object' ? r.address : {}) as Record<string, string>, notes: r.notes ?? '',
   provider: r.provider ?? '', createdAt: r.created_at, paidAt: r.paid_at ?? null, expiresAt: r.expires_at,
+  saleId: r.sale_id ?? null, leadId: r.lead_id ?? null, documentStatus: r.document_status ?? 'not_required', documentId: r.document_id ?? null,
+  documentError: r.document_error ?? '', trackingNumber: r.tracking_number ?? '', trackingUrl: r.tracking_url ?? '', shippedAt: r.shipped_at ?? null,
+  requestKind: r.request_kind === 'cancel' || r.request_kind === 'return' ? r.request_kind : '', requestNote: r.request_note ?? '',
+  requestedAt: r.requested_at ?? null, refundedTotal: Number(r.refunded_total ?? 0),
 });
 export const toOrderLine = (r: any): OrderLine => ({
   name: r.name, variantLabel: r.variant_label ?? '', sku: r.sku ?? '', unitPrice: Number(r.unit_price), qty: Number(r.qty),
@@ -192,6 +202,16 @@ export const ORDER_FILTERS: { id: 'all' | 'paid' | 'pending' | 'failed'; label: 
   { id: 'failed', label: 'לא שולמו', match: (s) => s === 'failed' || s === 'expired' },
 ];
 
+export const FULFILLMENT_HE: Record<string, string> = {
+  unfulfilled: 'טרם טופל', processing: 'בהכנה', ready: 'מוכן לאיסוף', shipped: 'נשלח', delivered: 'נמסר', returned: 'הוחזר',
+};
+export const EMAIL_KIND_HE: Record<string, string> = {
+  order_confirmation: 'אישור הזמנה', order_ready: 'מוכן לאיסוף', order_shipped: 'ההזמנה נשלחה', order_refunded: 'החזר כספי',
+};
+export const DOCUMENT_STATUS_HE: Record<OrderRow['documentStatus'], string> = {
+  not_required: 'לא נדרש', pending: 'שולם — מסמך ממתין', issued: 'הופק', blocked: 'לא הופק',
+};
+
 /** a line of the order's timeline in words; the provider's ids and amounts as they were logged */
 export function eventText(e: OrderEvent): string {
   const d = e.data;
@@ -204,6 +224,17 @@ export function eventText(e: OrderEvent): string {
     case 'amount_mismatch': return `התקבל אישור על סכום אחר (${d.amount ?? '?'} ${d.currency ?? ''}). ההזמנה לא סומנה כשולמה — לבדוק מול חברת הסליקה.`;
     case 'double_payment': return 'התקבל אישור על תשלום נוסף להזמנה ששולמה — לבדוק מול חברת הסליקה (ייתכן חיוב כפול).';
     case 'payment_rejected': return 'התקבלה הודעת תשלום שלא מתאימה להזמנה. היא נרשמה ולא שינתה כלום.';
+    // stage 4
+    case 'paid': return `התשלום אושר ע״י חברת הסליקה${d.late ? ' — אחרי שזמן השמירה עבר (כדאי לבדוק מלאי)' : ''}. המוצרים שמורים עד שהמכירה נרשמת.`;
+    case 'sale_recorded': return 'נרשמה מכירה מהאתר: המלאי ירד, והלקוח נוסף ללקוחות (או עודכן).';
+    case 'document_issued': return 'המסמך הופק.';
+    case 'document_blocked': return `המסמך לא הופק: ${String(d.error ?? '')}`;
+    case 'document_retry': return 'ניסיון נוסף להפיק את המסמך.';
+    case 'fulfillment': return `מצב המשלוח: ${FULFILLMENT_HE[String(d.to)] ?? String(d.to)}${d.tracking ? ` · מספר מעקב ${String(d.tracking)}` : ''}`;
+    case 'refund': return `נרשם החזר של ₪${Number(d.amount ?? 0).toLocaleString('he-IL', { maximumFractionDigits: 2 })}${d.restock ? ', והמוצרים חזרו למלאי' : ''}.`;
+    case 'request': return d.kind === 'cancel' ? 'הלקוח ביקש לבטל את ההזמנה.' : 'הלקוח ביקש להחזיר את ההזמנה.';
+    case 'email_sent': return `נשלח מייל ללקוח: ${EMAIL_KIND_HE[String(d.kind)] ?? String(d.kind)}.`;
+    case 'email_failed': return `המייל ללקוח לא נשלח (${EMAIL_KIND_HE[String(d.kind)] ?? String(d.kind)}).`;
     default: return e.kind;
   }
 }

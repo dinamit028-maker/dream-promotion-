@@ -17,6 +17,7 @@ import { deflateSync } from 'node:zlib';
 import assert from 'node:assert/strict';
 import { makePreviewToken } from '../../src/lib/preview';
 import { sealKeys } from '../../src/lib/seal';
+import { orderRef } from '../../src/lib/order-link';
 
 const ROOT = path.resolve(__dirname, '../..');
 const MIGRATIONS = path.resolve(ROOT, '../dream-promotion/supabase/migrations');
@@ -26,6 +27,9 @@ const DB = process.env.SF_E2E_DB ?? 'sf_e2e';
 const SECRET = 'e2e-preview-secret-0123456789abcdef';
 const SEAL = 'e2e-payment-seal-key-0123456789abcdef';
 const CRON = 'e2e-cron-secret-0123456789';
+const COMMERCE = 'e2e-commerce-secret-0123456789';   // the storefront → the dashboard ("an order was paid")
+const LINK = 'e2e-order-link-secret-0123456789';     // the signed order link of an email
+const DASH_PORT = PORT + 1;                           // a stand-in for the dashboard's server
 const MOCK_KEYS = { api_key: 'mock-api', secret_key: 'mock-secret' };
 const SHOTS = path.join(__dirname, 'shots');
 const DRAFT_STORE = 'cccccccc-0000-4000-8000-0000000000c1';
@@ -117,10 +121,32 @@ async function main() {
     await waitFor(b, /Proxy|Route \(app\)[\s\S]*ƒ/, 'next build', 400_000);
     await new Promise((r) => b.on('exit', r));
   }
+  // the dashboard's server, as far as the storefront sees it: "finalize" records the sale the way the dashboard does
+  // (commerce_record_sale, VAT 18% of the total), and a document's PDF by its share token
+  const finalized: string[] = [];
+  const dashboard = http.createServer((req, res) => {
+    let body = ''; req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      if (req.method === 'POST' && req.url === '/api/commerce/finalize' && req.headers['x-commerce-secret'] === COMMERCE) {
+        const id = String(JSON.parse(body || '{}').orderId ?? '');
+        if (/^[0-9a-f-]{36}$/.test(id)) {
+          psql(`select public.commerce_record_sale(o.id, 18, round(o.total * 18 / 118, 2)) from public.orders o where o.id = '${id}' and not o.is_test`);
+          finalized.push(id);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return;
+      }
+      if (req.method === 'GET' && /^\/api\/doc\/[0-9a-f]+\/pdf$/.test(req.url ?? '')) {
+        res.writeHead(200, { 'Content-Type': 'application/pdf', 'X-Served-By': 'dashboard' }); res.end('%PDF-1.4 e2e'); return;
+      }
+      res.writeHead(404); res.end();
+    });
+  });
+  await new Promise<void>((r) => dashboard.listen(DASH_PORT, '127.0.0.1', r));
   const server = run('npx', ['next', 'start', '-p', String(PORT)], {
     SF_DATA: 'pg', SF_DATABASE_URL: `postgres://sf_e2e:sf_e2e@127.0.0.1:5432/${DB}`,
     STOREFRONT_PREVIEW_SECRET: SECRET, STOREFRONT_PLATFORM_HOSTS: 'platform.test',
     PAYMENT_MOCK: '1', PAYMENT_SEAL_KEY: SEAL, STOREFRONT_CRON_SECRET: CRON,
+    DASHBOARD_URL: `http://127.0.0.1:${DASH_PORT}`, COMMERCE_SECRET: COMMERCE, ORDER_LINK_SECRET: LINK,
   });
   await waitFor(server, /Ready|started server|Local:/i, 'next start');
 
@@ -538,6 +564,83 @@ async function main() {
       assert.equal(psql(`select count(*) from public.payment_events where order_id = '${id}' and kind = 'poll'`), '1');
     });
 
+    await step('a real order (the platform\'s switch on): the dashboard is told, the sale recorded; the order page, its PDF, a request, /cancel', async () => {
+      const BIZ = 'aaaaaaaa-0000-4000-8000-00000000000a', OWNER = 'aaaaaaaa-0000-4000-8000-0000000000f1';
+      psql(`update public.platform_flags set enabled = true where key = 'commerce_live';
+            update public.payment_accounts set mode = 'live' where business_id = '${BIZ}';`);
+      try {
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', '/products/tote-bag'));
+        const before = Number(psql(`select stock_qty from public.catalog_variants where id = '${M_BLACK}'`));
+        assert.equal((await setCart(page, M_BLACK, 1)).ok, true);
+        await payPage(page);
+        await page.getByRole('button', { name: 'אישור התשלום' }).click();
+        await page.waitForURL(/\/checkout\/return\?o=/);
+        await page.getByRole('heading', { level: 1, name: 'ההזמנה התקבלה' }).waitFor();
+        assert.doesNotMatch(await text(page), /הזמנת בדיקה/, 'a real order says nothing of a test');
+        const token = new URL(page.url()).searchParams.get('o')!;
+        const [id] = lastOrder();
+        assert.equal(psql(`select is_test || ':' || payment_status from public.orders where id = '${id}'`), 'false:paid');
+        // told after the answer went out: the "dashboard" recorded the sale (stock down, a customer)
+        for (let i = 0; i < 100 && !finalized.includes(id); i++) await new Promise((r) => setTimeout(r, 100));
+        assert.ok(finalized.includes(id), 'the dashboard was told');
+        assert.equal(psql(`select channel || ':' || status || ':' || (lead_id is not null) from public.sales where id = '${id}'`), 'online:paid:true');
+        assert.equal(Number(psql(`select stock_qty from public.catalog_variants where id = '${M_BLACK}'`)), before - 1, 'the sale took the unit');
+        // the customer's page: what happens now; the document comes later
+        await page.getByRole('link', { name: 'לעמוד ההזמנה' }).click();
+        await page.waitForURL(/\/orders\//);
+        await page.getByText('ההזמנה התקבלה ומחכה לטיפול.').waitFor();
+        await page.getByText('החשבונית תופיע כאן בקרוב.').waitFor();
+        await page.screenshot({ path: path.join(SHOTS, 'order-page-390.png'), fullPage: true });
+        // the dashboard issued it (a fixture: the document's own checks are the SQL tests'), shipped it with tracking
+        psql(`set session_replication_role = replica;
+              insert into public.documents (id, user_id, business_id, doc_type, doc_number, doc_date, before_discount, after_discount, vat_amount, total, vat_rate, sale_id, share_token)
+              values ('aaaaaaaa-0000-4000-8000-0000000d0c01', '${OWNER}', '${BIZ}', 320, 1, current_date, 21.19, 21.19, 3.81, 25, 18, '${id}', '${'ab'.repeat(32)}');
+              set session_replication_role = origin;
+              update public.orders set document_status = 'issued', document_id = 'aaaaaaaa-0000-4000-8000-0000000d0c01', fulfillment_status = 'shipped',
+                tracking_number = 'RR123IL', tracking_url = 'https://track.example/RR123IL' where id = '${id}';`);
+        await page.reload();
+        await page.getByText('ההזמנה נשלחה.').waitFor();
+        await page.getByText('RR123IL').first().waitFor();
+        assert.equal(await page.getByRole('link', { name: 'המסמך של ההזמנה (PDF)' }).getAttribute('href'), `/orders/${token}/document`);
+        const pdf = await raw('followme.test', `/orders/${token}/document`);
+        assert.equal(pdf.status, 200);
+        assert.match(String(pdf.headers['content-type']), /application\/pdf/);
+        assert.match(pdf.body, /^%PDF/);
+        assert.ok(!pdf.headers['x-served-by'] && !/127\.0\.0\.1/.test(JSON.stringify(pdf.headers)), 'nothing of the dashboard reaches the customer');
+        assert.equal((await raw('followme.test', '/orders/nope/document')).status, 404);
+        // the signed link of an email opens the same page; one wrong character does not
+        const ref = orderRef(id, LINK)!;
+        assert.equal((await raw('followme.test', `/orders/${ref}`)).status, 200);
+        assert.equal((await raw('followme.test', `/orders/${ref.slice(0, -1)}${ref.endsWith('x') ? 'y' : 'x'}`)).status, 404);
+        assert.equal((await raw('shoes.test', `/orders/${ref}`)).status, 404, 'never through another store');
+        // a request to cancel: recorded, told to the owner, no money moved
+        await page.getByRole('radio', { name: 'ביטול ההזמנה' }).check();
+        await page.getByLabel('פרטים (לא חובה)').fill('הזמנתי בטעות');
+        await page.getByRole('button', { name: 'שליחת הבקשה' }).click();
+        await page.getByText('בקשת הביטול התקבלה').waitFor();
+        assert.equal(psql(`select request_kind || ':' || payment_status from public.orders where id = '${id}'`), 'cancel:paid');
+        assert.equal(psql(`select count(*) from public.store_alerts where order_id = '${id}' and kind = 'request'`), '1');
+        // /cancel from the footer: the number and the email of the order
+        const num = psql(`select number from public.orders where id = '${id}'`);
+        await page.goto(url('followme.test', '/'));
+        await page.getByRole('contentinfo').getByRole('link', { name: 'ביטול עסקה' }).click();
+        await page.getByRole('heading', { level: 1, name: 'ביטול עסקה' }).waitFor();
+        await page.getByLabel('מספר הזמנה').fill(num);
+        await page.getByLabel('האימייל שאיתו הזמנתם').fill('someone@example.com');
+        await page.getByRole('button', { name: 'שליחת הבקשה' }).click();
+        await page.getByRole('alert').filter({ hasText: 'לא מצאנו הזמנה' }).waitFor();
+        await page.getByLabel('האימייל שאיתו הזמנתם').fill('Dana@Example.com');
+        await page.getByRole('button', { name: 'שליחת הבקשה' }).click();
+        await page.getByRole('alert').filter({ hasText: 'כבר התקבלה בקשה' }).waitFor();
+        await page.screenshot({ path: path.join(SHOTS, 'cancel-390.png'), fullPage: true });
+        await ctx.close();
+      } finally {
+        psql(`update public.platform_flags set enabled = false where key = 'commerce_live';
+              update public.payment_accounts set mode = 'test' where business_id = '${BIZ}';`);
+      }
+    });
+
     await step('phones 375 / 390 / 430 and a desktop: nothing sideways', async () => {
       for (const width of [375, 390, 430, 1280]) {
         const { ctx, page } = await phone(width);
@@ -566,6 +669,7 @@ async function main() {
     });
   } finally {
     await browser.close();
+    dashboard.close();
     try { process.kill(-server.pid!, 'SIGTERM'); } catch { /* gone */ }
   }
   const failed = results.filter((r) => !r.ok);

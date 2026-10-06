@@ -15,11 +15,13 @@ import {
  * through the server (/api/store/…). Before migration 3400 runs, the tables are missing: the screens say so.
  */
 export const MIGRATION_3400 = 'החנות עוד לא מוכנה במסד הנתונים: צריך להריץ את מיגרציה 20261005003400_commerce_store.sql.';
+export const MIGRATION_3600 = 'רישום מכירות מהאתר עוד לא מוכן במסד הנתונים: צריך להריץ את מיגרציה 20261006003600_commerce_finance.sql.';
 export const MIGRATION_3500 = 'המכירה באתר עוד לא מוכנה במסד הנתונים: צריך להריץ את מיגרציה 20261006003500_commerce_checkout.sql.';
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 const missingTable = (e: any) => /PGRST20[2-5]|does not exist|schema cache/i.test(`${e?.code ?? ''} ${e?.message ?? ''}`);
 export function storeError(e: any, general = 'משהו השתבש. נסו שוב.'): string {
   if (!e) return general;
+  if (missingTable(e) && /email_outbox|store_alerts|store_email_domains|order_set_fulfillment|store_alerts_seen|commerce_live|tracking|document_error|request_kind/.test(String(e.message ?? ''))) return MIGRATION_3600;
   if (missingTable(e)) return /store_coupons|orders|order_|payment_|checkout|reserve|pickup|delivery/.test(String(e.message ?? '')) ? MIGRATION_3500 : MIGRATION_3400;
   const m = String(e.message ?? '');
   const sale = checkoutError(m) ?? couponError(m);
@@ -182,7 +184,8 @@ async function apiGet<T>(path: string): Promise<Result<T>> {
   } catch { return { ok: false, error: 'אין חיבור לשרת. בדקו את האינטרנט ונסו שוב.' }; }
 }
 export const terminalInfo = () => apiGet<TerminalInfo>('/api/store/payments');
-export const connectTerminal = (apiKey: string, secretKey: string, pageUid: string) => api<TerminalInfo>('/api/store/payments', { action: 'connect', apiKey, secretKey, pageUid });
+export const connectTerminal = (apiKey: string, secretKey: string, pageUid: string, mode: 'test' | 'live' = 'test') =>
+  api<TerminalInfo>('/api/store/payments', { action: 'connect', apiKey, secretKey, pageUid, mode });
 export const disconnectTerminal = () => api<TerminalInfo>('/api/store/payments', { action: 'disconnect' });
 
 export async function loadCoupons(): Promise<Result<Coupon[]>> {
@@ -209,7 +212,15 @@ export async function loadOrders(limit = 200): Promise<Result<OrderRow[]>> {
   const { data, error } = await supabase().from('orders').select('*').order('created_at', { ascending: false }).limit(limit);
   return error ? fail(error, 'ההזמנות לא נטענו.') : { ok: true, data: ((data ?? []) as any[]).map(toOrder) };
 }
-export async function loadOrder(id: string): Promise<Result<{ order: OrderRow; lines: OrderLine[]; events: OrderEvent[] } | null>> {
+export interface OrderEmail { kind: string; status: 'queued' | 'sending' | 'sent' | 'failed'; error: string; sentAt: string | null }
+export interface OrderDoc { id: string; type: number; number: number; token: string }
+export interface OrderRefund { id: string; amount: number; at: string; restock: boolean; reason: string }
+export interface OrderDetail {
+  order: OrderRow; lines: OrderLine[]; events: OrderEvent[];
+  /** stage 4 (migration 3600): what was sent to the customer, the documents and refunds of its sale */
+  emails: OrderEmail[]; docs: OrderDoc[]; refunds: OrderRefund[]; saleItems: { name: string; qty: number; price: number }[]; storeName: string;
+}
+export async function loadOrder(id: string): Promise<Result<OrderDetail | null>> {
   const sb = supabase();
   const [o, l, e] = await Promise.all([
     sb.from('orders').select('*').eq('id', id).maybeSingle(),
@@ -219,5 +230,46 @@ export async function loadOrder(id: string): Promise<Result<{ order: OrderRow; l
   const bad = [o, l, e].find((x) => x.error);
   if (bad) return fail(bad.error, 'ההזמנה לא נטענה.');
   if (!o.data) return { ok: true, data: null };
-  return { ok: true, data: { order: toOrder(o.data), lines: ((l.data ?? []) as any[]).map(toOrderLine), events: ((e.data ?? []) as any[]).map(toOrderEvent) } };
+  const order = toOrder(o.data);
+  // before migration 3600 these are missing: the page shows the order without them
+  const [m, d, r, s, st] = await Promise.all([
+    sb.from('email_outbox').select('kind, status, last_error, sent_at, created_at').eq('order_id', id).order('created_at'),
+    order.saleId ? sb.from('documents').select('id, doc_type, doc_number, share_token').eq('sale_id', order.saleId).order('issued_at') : Promise.resolve({ data: [], error: null }),
+    order.saleId ? sb.from('sale_refunds').select('id, amount, created_at, restock, reason').eq('sale_id', order.saleId).order('created_at') : Promise.resolve({ data: [], error: null }),
+    order.saleId ? sb.from('sales').select('items').eq('id', order.saleId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    sb.from('stores').select('name').eq('id', (o.data as any).store_id).maybeSingle(),
+  ]);
+  return { ok: true, data: {
+    order, lines: ((l.data ?? []) as any[]).map(toOrderLine), events: ((e.data ?? []) as any[]).map(toOrderEvent),
+    emails: ((m.data ?? []) as any[]).map((x) => ({ kind: x.kind, status: x.status, error: x.last_error ?? '', sentAt: x.sent_at ?? null })),
+    docs: ((d.data ?? []) as any[]).map((x) => ({ id: x.id, type: Number(x.doc_type), number: Number(x.doc_number), token: x.share_token })),
+    refunds: ((r.data ?? []) as any[]).map((x) => ({ id: x.id, amount: Number(x.amount), at: x.created_at, restock: Boolean(x.restock), reason: x.reason ?? '' })),
+    saleItems: (((s.data as any)?.items ?? []) as any[]).map((x) => ({ name: String(x.name ?? ''), qty: Number(x.qty ?? 0), price: Number(x.price ?? 0) })),
+    storeName: String((st.data as any)?.name ?? ''),
+  } };
 }
+
+// ---- stage 4: handling an order ------------------------------------------------------------------------------------------
+/** where the goods stand; "ready" / "shipped" email the customer (the server sends it now, the cron otherwise) */
+export async function setFulfillment(id: string, status: string, tracking = '', url = ''): Promise<Result<true>> {
+  const { data, error } = await supabase().rpc('order_set_fulfillment', { p_order: id, p_status: status, p_tracking: tracking, p_url: url });
+  if (error) return fail(error, 'לא נשמר — נסו שוב.');
+  const r = data as { ok: boolean; error?: string };
+  if (!r?.ok) return { ok: false, error: r?.error === 'url' ? 'קישור המעקב צריך להתחיל ב-https://' : r?.error === 'not_paid' ? 'אפשר לעדכן רק הזמנה ששולמה.' : 'לא נשמר — נסו שוב.' };
+  void api('/api/commerce/finalize', { orderId: id });
+  return { ok: true, data: true };
+}
+export const retryOrderDocument = (id: string) => api<{ document: string; error?: string }>('/api/commerce/finalize', { orderId: id, retry: true });
+export interface RefundBody { orderId: string; mode: 'full' | 'items' | 'amount'; qty?: number[]; amount?: number; restock: boolean; reason: string; confirmed: boolean }
+export const refundOrder = (b: RefundBody) => api<{ ok: true; refundId: string; amount: number; credit: string }>('/api/store/orders/refund', b);
+export async function alertsSeen(id: string) { try { await supabase().rpc('store_alerts_seen', { p_order: id }); } catch { /* a mark only */ } }
+
+/** the store's sending domain for customers' emails (written by the server with Resend's answer) */
+export interface EmailDomain { domain: string; status: 'pending' | 'verified' | 'failed'; fromName: string; records: { type: string; name: string; value: string; priority?: number }[]; checkedAt: string | null }
+export async function loadEmailDomain(): Promise<Result<EmailDomain | null>> {
+  const { data, error } = await supabase().from('store_email_domains').select('domain, status, from_name, records, checked_at').maybeSingle();
+  if (error) return fail(error, 'כתובת השליחה לא נטענה.');
+  return { ok: true, data: data ? { domain: data.domain, status: data.status, fromName: data.from_name ?? '', records: Array.isArray(data.records) ? data.records : [], checkedAt: data.checked_at ?? null } : null };
+}
+export const connectEmailDomain = (domain: string, fromName: string) => api<{ ok: true }>('/api/store/email-domain', { action: 'connect', domain, fromName });
+export const verifyEmailDomain = () => api<{ ok: true; status: string }>('/api/store/email-domain', { action: 'verify' });

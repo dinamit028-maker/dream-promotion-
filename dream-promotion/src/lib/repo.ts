@@ -3,6 +3,7 @@ import { supabase, isCloudConfigured } from './supabase/client';
 import type { AdDraft, BrandProfile, ContentItem, Lead, LeadActivity, MediaAsset } from '@/types';
 import type { Pronunciation } from './pronunciation';
 import { reportSaveError, reported } from './save-status';
+import { leadPatchRow } from '@/features/crm/crm';
 
 /**
  * Every read and write against the user's own rows. Row-level security in Postgres
@@ -154,6 +155,23 @@ export const Repo = {
     // before migration 20261004003000 there are no billing columns; before 20261002000900 no CRM columns — keep the contact itself
     if (error && /billing_/i.test(error.message)) ({ error } = await supabase().from('leads').upsert(crm));
     if (error && /column|schema cache/i.test(error.message)) ({ error } = await supabase().from('leads').upsert(base));
+    if (error) reportSaveError('איש הקשר', error);
+    return error ? error.message : null;
+  },
+  /** a change of a contact: only the changed fields (2.57 — never the whole card over what changed elsewhere) */
+  async updateLead(id: string, patch: Partial<Lead>) {
+    let row = leadPatchRow(patch);
+    if (!Object.keys(row).length) return null;
+    let { error } = await supabase().from('leads').update(row).eq('id', id).then((r) => r, (e) => ({ error: { message: String(e?.message ?? e) } as any }));
+    // before migration 20261004003000 there are no billing columns; before 20261002000900 no CRM columns
+    if (error && /billing_/i.test(error.message)) {
+      row = Object.fromEntries(Object.entries(row).filter(([k]) => !k.startsWith('billing_')));
+      if (Object.keys(row).length) ({ error } = await supabase().from('leads').update(row).eq('id', id)); else error = null;
+    }
+    if (error && /column|schema cache/i.test(error.message)) {
+      const base = Object.fromEntries(Object.entries(row).filter(([k]) => ['name', 'phone', 'source', 'status', 'notes', 'date', 'campaign_id'].includes(k)));
+      if (Object.keys(base).length) ({ error } = await supabase().from('leads').update(base).eq('id', id)); else error = null;
+    }
     if (error) reportSaveError('איש הקשר', error);
     return error ? error.message : null;
   },

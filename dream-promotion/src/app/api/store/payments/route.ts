@@ -7,7 +7,8 @@ import { checkTerminal, keyHint, type TerminalInfo } from '@/features/store/chec
 export const runtime = 'nodejs';
 
 /**
- * The store's payment terminal (Dream Commerce stage 3): PayPlus, its TEST environment only in this stage.
+ * The store's payment terminal (Dream Commerce stage 3–4): PayPlus. A live terminal only while the platform's switch is on
+ * (commerce_live, migration 3600 — off until the owner's separate approval); otherwise its TEST environment.
  *   GET                       → connected or not, the provider, test / live, the last 4 characters of the API key
  *   POST {action: 'connect'}  → the keys are checked, sealed (PAYMENT_SEAL_KEY) and kept for the business worked in now;
  *                               they are never sent back to any browser
@@ -21,7 +22,9 @@ const bad = (message: string, code = 'bad_request', status = 400) => json(status
 async function info(businessId: string): Promise<TerminalInfo> {
   const { data } = await adminDb().from('payment_accounts').select('provider, mode, hint, connected_at').eq('business_id', businessId).maybeSingle();
   const r = data as { provider: 'payplus' | 'mock'; mode: 'test' | 'live'; hint: string; connected_at: string } | null;
-  return { connected: Boolean(r), provider: r?.provider ?? null, mode: r?.mode ?? null, hint: r?.hint ?? '', connectedAt: r?.connected_at ?? null, ready: paymentSealReady() };
+  const live = await adminDb().rpc('commerce_live');
+  return { connected: Boolean(r), provider: r?.provider ?? null, mode: r?.mode ?? null, hint: r?.hint ?? '', connectedAt: r?.connected_at ?? null, ready: paymentSealReady(),
+    liveOpen: live.data === true };
 }
 
 export async function GET(req: Request) {
@@ -43,8 +46,14 @@ export async function POST(req: Request) {
     if (!paymentSealReady()) return bad('השרת עוד לא מוכן לשמור מפתחות סליקה (חסר PAYMENT_SEAL_KEY ב-Vercel).', 'not_configured', 503);
     const t = checkTerminal({ apiKey: String(body.apiKey ?? ''), secretKey: String(body.secretKey ?? ''), pageUid: String(body.pageUid ?? '') });
     if (!t.ok) return bad(t.error);
+    let mode: 'test' | 'live' = 'test';
+    if (body.mode === 'live') {
+      const live = await db.rpc('commerce_live');
+      if (live.data !== true) return bad('מכירה אמיתית עוד סגורה במערכת — אפשר לחבר רק את סביבת הבדיקה.', 'live_closed', 403);
+      mode = 'live';
+    }
     const { error } = await db.from('payment_accounts').upsert({
-      business_id: c.businessId, provider: 'payplus', mode: 'test', sealed: sealPaymentKeys(t.keys), page_uid: t.pageUid,
+      business_id: c.businessId, provider: 'payplus', mode, sealed: sealPaymentKeys(t.keys), page_uid: t.pageUid,
       hint: keyHint(t.keys.api_key), connected_at: new Date().toISOString(), updated_by: c.userId,
     }, { onConflict: 'business_id' });
     if (error) return bad(/does not exist|schema cache/i.test(error.message) ? 'צריך קודם להריץ את מיגרציה 20261006003500_commerce_checkout.sql.' : 'המסוף לא נשמר — נסו שוב.', 'save_failed', 500);

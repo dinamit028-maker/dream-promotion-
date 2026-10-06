@@ -241,9 +241,8 @@ export const useApp = create<AppState>()(
       },
       updateLead: (id, patch) => {
         set((s) => ({ leads: s.leads.map((l) => (l.id === id ? { ...l, ...patch } : l)) }));
-        const { userId, leads } = get();
-        const lead = leads.find((l) => l.id === id);
-        if (userId && lead) void Repo.saveLead(userId, lead);
+        // only what changed (2.57): the whole card would put old values back over a change made elsewhere meanwhile
+        if (get().userId && Object.keys(patch).length) void Repo.updateLead(id, patch);
       },
       addAd: (a) => {
         const ad: AdDraft = { ...a, id: crypto.randomUUID() };

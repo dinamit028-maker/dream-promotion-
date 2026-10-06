@@ -1,4 +1,4 @@
-import type { Cart, CartResult, CheckoutStart, CollectionCard, HostInfo, OrderView, Page, PaymentAccount, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
+import type { Cart, CartResult, CheckoutStart, CollectionCard, HostInfo, OrderRequestResult, OrderView, Page, PaymentAccount, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
 
 /**
  * The storefront's only door to the database: the sf_* functions (migrations 20261005003400 and 20261006003500), from the
@@ -12,7 +12,8 @@ type Args = Record<string, unknown>;
 type Rpc = (fn: SfFunction, args: Args) => Promise<unknown>;
 type SfFunction = 'sf_resolve_host' | 'sf_domain_seen' | 'sf_store' | 'sf_products' | 'sf_product' | 'sf_collections' | 'sf_page' | 'sf_redirect' | 'sf_sitemap'
   | 'sf_cart' | 'sf_cart_set' | 'sf_cart_coupon' | 'sf_checkout_start' | 'sf_order_page' | 'sf_payment_account' | 'sf_payment_event'
-  | 'sf_order_paid' | 'sf_order_failed' | 'sf_order' | 'sf_order_by_id' | 'sf_orders_unconfirmed' | 'sf_rate_hit';
+  | 'sf_order_paid' | 'sf_order_failed' | 'sf_order' | 'sf_order_by_id' | 'sf_orders_unconfirmed' | 'sf_rate_hit'
+  | 'sf_order_request' | 'sf_order_request_by_id' | 'sf_order_request_by_number';
 
 export class DataError extends Error {}
 
@@ -36,7 +37,7 @@ const CASTS: Record<string, string> = {
   p_cart: 'text', p_item: 'uuid', p_variant: 'uuid', p_qty: 'int', p_mode: 'text', p_code: 'text', p_order_token: 'text',
   p_customer: 'jsonb', p_ip_hash: 'text', p_order: 'uuid', p_page: 'text', p_provider: 'text', p_key: 'text',
   p_signature_ok: 'boolean', p_payload: 'jsonb', p_txn: 'text', p_amount: 'numeric', p_currency: 'text', p_reason: 'text',
-  p_limit: 'int', p_window: 'int', p_max: 'int',
+  p_limit: 'int', p_window: 'int', p_max: 'int', p_number: 'int', p_email: 'text', p_note: 'text',
 };
 
 function pgRpc(connectionString: string): Rpc {
@@ -103,6 +104,13 @@ export const data = {
   order: (store: string, orderToken: string) => call<OrderView>('sf_order', { p_store: store, p_order_token: orderToken }),
   orderById: (store: string, order: string) => call<OrderView>('sf_order_by_id', { p_store: store, p_order: order }),
   ordersUnconfirmed: (limit = 50) => call<{ store: string; id: string }[]>('sf_orders_unconfirmed', { p_limit: limit }),
+  /** stage 4: the customer asks to cancel or return (recorded on the order; no money moves by itself) */
+  orderRequest: (store: string, orderToken: string, kind: 'cancel' | 'return', note: string) =>
+    call<OrderRequestResult>('sf_order_request', { p_store: store, p_order_token: orderToken, p_kind: kind, p_note: note }),
+  orderRequestById: (store: string, order: string, kind: 'cancel' | 'return', note: string) =>
+    call<OrderRequestResult>('sf_order_request_by_id', { p_store: store, p_order: order, p_kind: kind, p_note: note }),
+  orderRequestByNumber: (store: string, num: number, email: string, kind: 'cancel' | 'return', note: string) =>
+    call<OrderRequestResult>('sf_order_request_by_number', { p_store: store, p_number: num, p_email: email, p_kind: kind, p_note: note }),
   rateHit: (key: string, windowSeconds: number, max: number) => call<boolean>('sf_rate_hit', { p_key: key, p_window: windowSeconds, p_max: max }),
 };
 
