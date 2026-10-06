@@ -13,6 +13,7 @@ import type { CollectionRow, ThemeVersion } from './store';
 import { PreviewButton } from './StoreSettings';
 import { AreaRow, Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
+import { VisualEditor } from './StoreVisual';
 
 /**
  * "עיצוב" (2.55, the basic editor of stage 2): the template "שקיות ממותגות", its colours and corners, the bar at the top,
@@ -39,6 +40,11 @@ function Design() {
   if (!data?.store) return <><PageHead title="עיצוב" /><NeedsStore /></>;
   // the template is the version's (a kit moves the draft to "kit"), the store's own only before any version
   const shown = data.versions.find((v) => v.status === 'draft') ?? data.versions.find((v) => v.status === 'published');
+  // "עריכה על האתר" (2.61): the store's page itself, click to edit (?visual=1)
+  if (params?.get('visual') === '1') {
+    return <VisualEditor key={rev} bundle={data} template={shown?.template ?? data.store.template} versions={data.versions} reload={reload}
+      onClassic={() => { setRev((n) => n + 1); void reload(); router.replace(pathname, { scroll: false }); }} />;
+  }
   return (
     <>
       {applied && <KitReady kit={applied.kit} done={applied.done} />}
@@ -54,6 +60,7 @@ function Design() {
 function Editor({ bundle, storeId, template, versions, collections, reload, onKits }: {
   bundle: StoreBundle; storeId: string; template: string; versions: ThemeVersion[]; collections: CollectionRow[]; reload: () => Promise<unknown>; onKits: () => void;
 }) {
+  const router = useRouter();
   const draftRow = versions.find((v) => v.status === 'draft') ?? null;
   const published = versions.find((v) => v.status === 'published') ?? null;
   const { ctx } = useKitContext(bundle.store);
@@ -99,7 +106,10 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
   return (
     <>
       <PageHead title="עיצוב" sub={`${kit ? `ערכה: ${kit.name}` : `תבנית: ${TEMPLATES[template]?.name ?? template}`}${published ? ` · באתר: גרסה ${published.version}` : ' · עוד לא פורסם עיצוב (האתר מציג את התבנית כמו שהיא)'}`}
-        action={<span className="flex flex-wrap gap-2"><Button variant="ghost" onClick={onKits}>החלפת ערכה</Button><PreviewButton label="תצוגה מקדימה של הטיוטה" /></span>} />
+        action={<span className="flex flex-wrap gap-2"><Button variant="primary" onClick={async () => {
+          if (dirty && !(await save())) return;
+          router.push('/store/design?visual=1');
+        }}>✏️ עריכה על האתר</Button><Button variant="ghost" onClick={onKits}>החלפת ערכה</Button><PreviewButton label="תצוגה מקדימה של הטיוטה" /></span>} />
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
       <Notice tone="info">הטקסטים של התבנית הם דוגמה — כדאי לעבור עליהם ולהתאים לעסק. "תצוגה מקדימה" מראה את הטיוטה השמורה.</Notice>
 
@@ -207,7 +217,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
   );
 }
 
-function FieldInput({ f, value, onChange, collections }: { f: FieldDef; value: unknown; onChange: (v: unknown) => void; collections: CollectionRow[] }) {
+export function FieldInput({ f, value, onChange, collections }: { f: FieldDef; value: unknown; onChange: (v: unknown) => void; collections: CollectionRow[] }) {
   const v = typeof value === 'string' ? value : value == null ? '' : String(value);
   if (f.kind === 'image') return <PicturePicker label={f.label} value={v} onChange={onChange} />;
   if (f.kind === 'longtext') return <AreaRow label={f.label} value={v} onChange={onChange} max={f.max} />;
@@ -241,7 +251,7 @@ function FieldInput({ f, value, onChange, collections }: { f: FieldDef; value: u
   return <TextRow label={f.label} value={v} onChange={onChange} max={f.max} hint={f.hint} dir={f.kind === 'link' ? 'ltr' : undefined} />;
 }
 
-function ListInput({ def, rows, onChange }: { def: NonNullable<(typeof SECTION_DEFS)[keyof typeof SECTION_DEFS]['list']>; rows: Record<string, unknown>[]; onChange: (rows: Record<string, unknown>[]) => void }) {
+export function ListInput({ def, rows, onChange }: { def: NonNullable<(typeof SECTION_DEFS)[keyof typeof SECTION_DEFS]['list']>; rows: Record<string, unknown>[]; onChange: (rows: Record<string, unknown>[]) => void }) {
   return (
     <fieldset className="mb-4">
       <legend className="mb-2 text-sm font-semibold text-ink-2">{def.label}</legend>

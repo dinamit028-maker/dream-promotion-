@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { editLink } from '@/lib/edit';
 import type { Metadata } from 'next';
 import { RichText } from '@/components/ui';
 import { data } from '@/lib/data';
@@ -28,7 +29,7 @@ export default async function PolicyPage({ params }: Props) {
   const g = known(kind) ? await policy(site.storeId, kind, site.preview) : null;
   if (!g) return movedOr404(site, `/policies/${kind}`);
   return (
-    <div className="wrap content-page">
+    <div className="wrap content-page" {...editLink(Boolean(site.edit), `page:policy:${kind}`)}>
       <header className="page-head">
         <h1 className="page-title">{g.title}</h1>
         <p className="muted">עודכן: <time dateTime={g.updated_at}>{new Date(g.updated_at).toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem' })}</time></p>

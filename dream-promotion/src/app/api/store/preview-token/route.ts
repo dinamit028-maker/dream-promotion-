@@ -38,5 +38,7 @@ export async function POST(req: Request) {
     return json(503, { code: 'not_configured', message: 'אין עדיין כתובת לתצוגה: הדומיין לא פעיל, ו-STOREFRONT_URL לא הוגדר ב-Vercel.' });
   }
   const expires = Math.floor(Date.now() / 1000) + PREVIEW_SECONDS;
-  return json(200, { url: previewUrl(base, makePreviewToken((store as any).id, secret, expires)), expires });
+  const token = makePreviewToken((store as any).id, secret, expires);
+  // the visual editor (2.61) frames the store with the same token (?edit=), and talks only to the store's origin
+  return json(200, { url: previewUrl(base, token), expires, token, base: new URL(base).origin });
 }

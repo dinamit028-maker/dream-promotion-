@@ -5,6 +5,7 @@ import { safeImage, type Section } from '@/lib/theme';
 import type { Store } from '@/lib/types';
 import { resolveHref } from '../chrome';
 import { Art, PlaceholderGrid, ProductGrid } from '../ui';
+import { editField as F, editImage as I } from '@/lib/edit';
 
 type S = Record<string, unknown>;
 const str = (s: S, k: string) => (typeof s[k] === 'string' ? (s[k] as string) : '');
@@ -19,20 +20,21 @@ function Button({ label, href, store, kind = 'primary' }: { label: string; href:
 
 function Hero({ s, site, first }: { s: S; site: Live; first: boolean }) {
   const img = safeImage(s.image);
+  const e = Boolean(site.edit);
   const Title = first ? 'h1' : 'h2';
   return (
     <section className="hero" aria-labelledby="hero-title">
       <div className="wrap hero-grid">
         <div className="hero-text">
-          {str(s, 'eyebrow') && <p className="eyebrow">{str(s, 'eyebrow')}</p>}
-          <Title id="hero-title" className="hero-title">{str(s, 'title') || site.store.name}</Title>
-          {str(s, 'subtitle') && <p className="hero-sub">{str(s, 'subtitle')}</p>}
+          {str(s, 'eyebrow') && <p className="eyebrow" {...F(e, 'eyebrow')}>{str(s, 'eyebrow')}</p>}
+          <Title id="hero-title" className="hero-title" {...F(e, 'title')}>{str(s, 'title') || site.store.name}</Title>
+          {str(s, 'subtitle') && <p className="hero-sub" {...F(e, 'subtitle')}>{str(s, 'subtitle')}</p>}
           <div className="actions">
             <Button label={str(s, 'primaryLabel')} href={str(s, 'primaryHref')} store={site.store} />
             <Button label={str(s, 'secondaryLabel')} href={str(s, 'secondaryHref')} store={site.store} kind="ghost" />
           </div>
         </div>
-        <div className="hero-media">
+        <div className="hero-media" {...I(e, 'image')}>
           {img
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={img} alt="" className="hero-img" loading="eager" fetchPriority="high" decoding="async" />
@@ -49,8 +51,8 @@ async function CollectionsSection({ s, site, id }: { s: S; site: Live; id: strin
   return (
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
-        <h2 id={`${id}-t`} className="band-title">{str(s, 'title') || 'קולקציות'}</h2>
-        {str(s, 'subtitle') && <p className="muted">{str(s, 'subtitle')}</p>}
+        <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'קולקציות'}</h2>
+        {str(s, 'subtitle') && <p className="muted" {...F(Boolean(site.edit), 'subtitle')}>{str(s, 'subtitle')}</p>}
         <ul className="tiles" role="list">
           {list.map((c) => (
             <li key={c.slug}>
@@ -80,7 +82,7 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
     return (
       <section className="band" id={id} aria-labelledby={`${id}-t`}>
         <div className="wrap">
-          <h2 id={`${id}-t`} className="band-title">{str(s, 'title') || 'מוצרים'}</h2>
+          <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'מוצרים'}</h2>
           <PlaceholderGrid count={Math.min(limit, 4)} />
         </div>
       </section>
@@ -91,7 +93,7 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
         <div className="band-head">
-          <h2 id={`${id}-t`} className="band-title">{str(s, 'title') || 'מוצרים'}</h2>
+          <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'מוצרים'}</h2>
           {list.total > list.items.length && <a href={more} className="more">{str(s, 'buttonLabel') || 'לכל המוצרים'}</a>}
         </div>
         <ProductGrid items={list.items} currency={site.store.currency} />
@@ -102,16 +104,17 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
 
 function ImageText({ s, site, id }: { s: S; site: Live; id: string }) {
   const img = safeImage(s.image);
+  const e = Boolean(site.edit);
   return (
     <section className="band band-soft" id={id} aria-labelledby={`${id}-t`}>
       <div className={`wrap split${str(s, 'imageSide') === 'end' ? ' split-end' : ''}`}>
-        <div className="split-media">
+        <div className="split-media" {...I(e, 'image')}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {img ? <img src={img} alt="" loading="lazy" decoding="async" /> : <Art />}
         </div>
         <div className="split-text">
-          <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
-          {str(s, 'text').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
+          <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>
+          <div {...F(e, 'text', false)}>{str(s, 'text').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}</div>
           <Button label={str(s, 'buttonLabel')} href={str(s, 'buttonHref')} store={site.store} kind="ghost" />
         </div>
       </div>
@@ -119,14 +122,14 @@ function ImageText({ s, site, id }: { s: S; site: Live; id: string }) {
   );
 }
 
-function Steps({ s, id }: { s: S; id: string }) {
+function Steps({ s, id, e }: { s: S; id: string; e: boolean }) {
   const items = (Array.isArray(s.items) ? s.items : []) as { title: string; text: string }[];
   if (!items.length) return null;
   return (
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
-        <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
-        <ol className="steps">
+        <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>
+        <ol className="steps" {...F(e, 'items', false)}>
           {items.map((it, i) => (
             <li key={i} className="step"><span className="step-n" aria-hidden="true">{i + 1}</span><h3>{it.title}</h3>{it.text && <p>{it.text}</p>}</li>
           ))}
@@ -136,14 +139,14 @@ function Steps({ s, id }: { s: S; id: string }) {
   );
 }
 
-function Faq({ s, id }: { s: S; id: string }) {
+function Faq({ s, id, e }: { s: S; id: string; e: boolean }) {
   const items = (Array.isArray(s.items) ? s.items : []) as { q: string; a: string }[];
   if (!items.length) return null;
   return (
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap narrow">
-        <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
-        <div className="faq">
+        <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>
+        <div className="faq" {...F(e, 'items', false)}>
           {items.map((it, i) => <details key={i}><summary>{it.q}</summary><p>{it.a}</p></details>)}
         </div>
       </div>
@@ -158,8 +161,8 @@ function Contact({ s, site, id }: { s: S; site: Live; id: string }) {
   return (
     <section className="band band-ink" id="contact" aria-labelledby={`${id}-t`}>
       <div className="wrap narrow center">
-        <h2 id={`${id}-t`} className="band-title">{str(s, 'title') || 'יצירת קשר'}</h2>
-        {str(s, 'text') && <p>{str(s, 'text')}</p>}
+        <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'יצירת קשר'}</h2>
+        {str(s, 'text') && <p {...F(Boolean(site.edit), 'text')}>{str(s, 'text')}</p>}
         <div className="actions center">
           {wa && <a className="btn btn-light" href={wa} target="_blank" rel="noopener noreferrer">וואטסאפ</a>}
           {c.phone && <a className="btn btn-outline-light" href={`tel:${c.phone.replace(/[^\d+]/g, '')}`}><bdi>{c.phone}</bdi></a>}
@@ -170,13 +173,13 @@ function Contact({ s, site, id }: { s: S; site: Live; id: string }) {
   );
 }
 
-function TextSection({ s, id }: { s: S; id: string }) {
+function TextSection({ s, id, e }: { s: S; id: string; e: boolean }) {
   if (!str(s, 'title') && !str(s, 'text')) return null;
   return (
     <section className="band" aria-labelledby={`${id}-t`}>
       <div className="wrap narrow">
-        {str(s, 'title') && <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>}
-        {str(s, 'text').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
+        {str(s, 'title') && <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>}
+        <div {...F(e, 'text', false)}>{str(s, 'text').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}</div>
       </div>
     </section>
   );
@@ -193,10 +196,10 @@ function Gallery({ s, site, id }: { s: S; site: Live; id: string }) {
   return (
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
-        <h2 id={`${id}-t`} className="band-title">{str(s, 'title')}</h2>
-        {str(s, 'text') && <p className="muted">{str(s, 'text')}</p>}
+        <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title')}</h2>
+        {str(s, 'text') && <p className="muted" {...F(Boolean(site.edit), 'text')}>{str(s, 'text')}</p>}
         {items.length > 0 ? (
-          <ul className="gallery" role="list">
+          <ul className="gallery" role="list" {...F(Boolean(site.edit), 'items', false)}>
             {items.map((it, i) => (
               <li key={i} className="gallery-item">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -206,7 +209,7 @@ function Gallery({ s, site, id }: { s: S; site: Live; id: string }) {
             ))}
           </ul>
         ) : site.preview ? (
-          <ul className="gallery" role="list" aria-label="מקום לתמונות">
+          <ul className="gallery" role="list" aria-label="מקום לתמונות" {...F(Boolean(site.edit), 'items', false)}>
             {[0, 1, 2, 3].map((i) => <li key={i} className="gallery-item gallery-empty"><Art /><span className="gallery-caption muted">כאן תופיע תמונה</span></li>)}
           </ul>
         ) : null}
@@ -224,10 +227,10 @@ export function SectionView({ section, site, first }: { section: Section; site: 
     case 'collections': return <CollectionsSection s={s} site={site} id={id} />;
     case 'products': return <ProductsSection s={s} site={site} id={id} />;
     case 'imageText': return <ImageText s={s} site={site} id={id} />;
-    case 'steps': return <Steps s={s} id={id} />;
-    case 'faq': return <Faq s={s} id={id} />;
+    case 'steps': return <Steps s={s} id={id} e={Boolean(site.edit)} />;
+    case 'faq': return <Faq s={s} id={id} e={Boolean(site.edit)} />;
     case 'contact': return <Contact s={s} site={site} id={id} />;
-    case 'text': return <TextSection s={s} id={id} />;
+    case 'text': return <TextSection s={s} id={id} e={Boolean(site.edit)} />;
     case 'gallery': return <Gallery s={s} site={site} id={id} />;
     // the newsletter collects e-mail addresses only with consent to marketing — that is stage 5; until then it shows nothing
     case 'newsletter': return null;

@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { editLink } from '@/lib/edit';
 import type { Metadata } from 'next';
 import { RichText } from '@/components/ui';
 import { data } from '@/lib/data';
@@ -27,7 +28,7 @@ export default async function ContentPage({ params }: Props) {
   const g = await page(site.storeId, s, site.preview);
   if (!g) return movedOr404(site, `/pages/${s}`);
   return (
-    <div className="wrap content-page">
+    <div className="wrap content-page" {...editLink(Boolean(site.edit), `page:page:${g.slug ?? s}`)}>
       <header className="page-head"><h1 className="page-title">{g.title}</h1></header>
       <RichText text={g.body} />
     </div>

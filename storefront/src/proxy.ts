@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { buildCsp } from '@/lib/csp';
 import { normalizeHost } from '@/lib/host';
-import { PREVIEW_COOKIE, verifyPreviewToken } from '@/lib/preview';
+import { dashboardOrigin, EDIT_HEADER, EDIT_PARAM, PREVIEW_COOKIE, verifyPreviewToken } from '@/lib/preview';
 
 /**
  * Every request of every store: the Host chooses the store (the pages ask the database which), so the request is rewritten
@@ -9,7 +9,7 @@ import { PREVIEW_COOKIE, verifyPreviewToken } from '@/lib/preview';
  * pretend to choose a store are dropped. A preview link (?preview=<token>) becomes a cookie of this host, and the address
  * loses the token. Every page gets this request's CSP nonce. No database here: the proxy stays fast and independent.
  */
-const OURS = ['x-sf-host', 'x-sf-path', 'x-nonce'];
+const OURS = ['x-sf-host', 'x-sf-path', 'x-nonce', EDIT_HEADER];
 
 export function proxy(request: NextRequest) {
   const rawHost = request.headers.get('host') ?? '';
@@ -37,11 +37,17 @@ export function proxy(request: NextRequest) {
     return res;
   }
 
+  // "לחץ לעריכה" (2.61): a valid edit token, and a dashboard to frame it — the token travels in a header, never a cookie
+  const edit = url.searchParams.get(EDIT_PARAM);
+  const frameAncestor = edit ? dashboardOrigin(process.env.DASHBOARD_URL) : null;
+  const editing = Boolean(frameAncestor && verifyPreviewToken(edit, process.env.STOREFRONT_PREVIEW_SECRET));
+
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
-  const csp = buildCsp(nonce, { dev: process.env.NODE_ENV === 'development', https });
+  const csp = buildCsp(nonce, { dev: process.env.NODE_ENV === 'development', https, frameAncestor: editing ? frameAncestor : null });
   const headers = new Headers(request.headers);
   for (const h of OURS) headers.delete(h);
   headers.set('x-nonce', nonce);
+  if (editing) headers.set(EDIT_HEADER, edit!);
   headers.set('content-security-policy', csp);
   headers.set('x-sf-host', host);
   headers.set('x-sf-path', url.pathname + url.search);
@@ -50,6 +56,7 @@ export function proxy(request: NextRequest) {
   target.pathname = `/site/${encodeURIComponent(host || '_')}${url.pathname === '/' ? '' : url.pathname}`;
   const res = NextResponse.rewrite(target, { request: { headers } });
   res.headers.set('Content-Security-Policy', csp);
+  if (editing) res.headers.set('Cache-Control', 'no-store');
   return res;
 }
 

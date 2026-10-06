@@ -234,7 +234,7 @@ export interface DomainAnswer { domains: any[]; vercel: 'connected' | 'not_confi
 export const connectDomain = (domain: string) => api<DomainAnswer>('/api/store/domains', { action: 'connect', domain });
 export const checkDomains = () => api<DomainAnswer>('/api/store/domains', { action: 'check' });
 export const removeDomain = (id: string) => api<DomainAnswer>('/api/store/domains', { action: 'remove', domainId: id });
-export const previewLink = () => api<{ url: string; expires: number }>('/api/store/preview-token', {});
+export const previewLink = () => api<{ url: string; expires: number; token: string; base: string }>('/api/store/preview-token', {});
 export const storeMediaApi = <T>(body: unknown) => api<T>('/api/store/media', body);
 
 // ---- selling on the site (2.56): the terminal, coupons, orders -----------------------------------------------------------
