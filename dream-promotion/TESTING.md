@@ -598,6 +598,21 @@ select (select md5(pg_get_functiondef(p.oid) || '|' || coalesce(p.proacl::text, 
           from pg_trigger where tgname = 'z_store_redirect' and not tgisinternal) as trg_md5;
 ```
   - **אמור לחזור:** `7dd44c716cab6c2ac336eb06520bdf94`, `b407bb117eb38684b4b64b4c6e9dc96e`. ההרשאות של הפונקציה: `{postgres=X/postgres,service_role=X/postgres}`.
+  - **פונקציה שהודבקה ב-SQL Editor** יכולה להישמר עם סופי שורה של Windows (`\r\n`), וה-md5 שלה ישתנה. לכן משווים גם אחרי המרה:
+```sql
+select md5(replace(pg_get_functiondef(p.oid), E'\r\n', E'\n') || '|' || coalesce(p.proacl::text, '')) as fn_md5_lf,
+       length(p.prosrc) - length(replace(p.prosrc, E'\r', '')) as cr_count,
+       position(E'\r' in replace(p.prosrc, E'\r\n', '')) as lone_cr
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and p.proname = 'store_redirect_on_slug';
+```
+  - **אמור לחזור:** `7dd44c716cab6c2ac336eb06520bdf94`; ו-`lone_cr` = 0 (אין `\r` חוץ מסופי שורה).
+- **תוצאה (6.10.2026, קריאה בלבד, דרך ה-MCP, אחרי שסעיף 3 רץ ב-SQL Editor):**
+  - 1; `catalog_collections, catalog_items, store_pages`; `false`.
+  - `trg_md5` = `b407bb117eb38684b4b64b4c6e9dc96e` — זהה. ההרשאות: `{postgres=X/postgres,service_role=X/postgres}` — זהות.
+  - `fn_md5` = `6ae62fe62a1e4036dd1f1208531dae27` — שונה, בגלל סופי השורות: הגוף נשמר עם `\r\n` (24). אחרי ההמרה: `7dd44c716cab6c2ac336eb06520bdf94` — זהה לקובץ; `lone_cr` = 0.
+  - לא משנה את ההתנהגות (ב-PL/pgSQL ‏`\r` הוא רווח, וההערה היחידה בגוף נגמרת בסוף השורה). אין צורך להריץ שוב.
+  - 72 מדיניות, 0 חנויות, 0 הפניות.
 
 **בטלפון** — אחרי 3400, ואחרי שפרויקט החזית הוקם (`storefront/README.md`). **כל פעולה נכתבת למסד האמיתי.**
 1. **"חנות" ← "הגדרות":** "פתיחת החנות".

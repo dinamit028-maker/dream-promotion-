@@ -769,12 +769,13 @@
   - רק אחרי אישור מפורש.
   - דרך ה-MCP, ובלי `drop`.
   - **פונקציה שבגוף שלה יש `delete`:** ה-MCP עוצר גם אותה לאישור, ולכן היא רצה ב-SQL Editor (נמצא ב-3400, 6.10.2026).
+  - **פונקציה שהודבקה ב-SQL Editor** יכולה להישמר עם סופי שורה `\r\n`. בהשוואת md5 לקובץ ממירים קודם `\r\n` ל-`\n` (`TESTING.md` סעיף 21).
   - אחרי ההחלה: בדיקה בקריאה בלבד, ועדכון "מצב מיגרציות" ב-STATUS.
 
 | קובץ | שלב | מה בפנים | רמת סיכון | איך מוחלת |
 |---|---|---|---|---|
 | `…3300_commerce_catalog.sql` | 1 | <ul><li>הרחבת `catalog_items`.</li><li>הטבלאות `catalog_options`, `catalog_variants`, `catalog_media`, `catalog_field_defs`.</li><li>`stock_movements.variant_id`.</li><li>הפונקציות `stock_move_v`, `stock_move_ref_v`, `stock_lines_v`, `adjust_variant_stock`, `catalog_enable_variants`.</li><li>טריגרי מלאי מוחלפים (`create or replace`, אותה חתימה).</li><li>ה-bucket `store-media`.</li></ul> | **גבוהה:** נוגעת בפונקציות המלאי של הקופה | MCP, אחרי אישור |
-| `…3400_commerce_store.sql` | 2 | <ul><li>`stores`, `store_domains`, `store_theme_versions`, `store_pages`, `store_menus`, `catalog_collections` (+ items), `store_redirects`.</li><li>`store_checklist`, `store_publish_theme`, הפניה קבועה כשמשנים slug.</li><li>פונקציות `sf_*` לקריאה.</li><li>**תוקן ב-2.55:** בלי `store_platform_settings` ובלי טריגר רענון (`pg_net`).</li></ul> | נמוכה | MCP, אחרי אישור — **הוחלה ב-6.10.2026** (`20261006043124`). סעיף 3 (הפונקציה של ההפניה, שמוחקת שורה) ב-SQL Editor |
+| `…3400_commerce_store.sql` | 2 | <ul><li>`stores`, `store_domains`, `store_theme_versions`, `store_pages`, `store_menus`, `catalog_collections` (+ items), `store_redirects`.</li><li>`store_checklist`, `store_publish_theme`, הפניה קבועה כשמשנים slug.</li><li>פונקציות `sf_*` לקריאה.</li><li>**תוקן ב-2.55:** בלי `store_platform_settings` ובלי טריגר רענון (`pg_net`).</li></ul> | נמוכה | MCP, אחרי אישור — **הוחלה ב-6.10.2026** (`20261006043124`). סעיף 3 (הפונקציה של ההפניה, שמוחקת שורה) רץ ב-SQL Editor ונבדק — זהה לקובץ, חוץ מסופי שורה `\r\n` מההדבקה |
 | `…3500_commerce_checkout.sql` | 3 | <ul><li>`store_carts` (+ lines), `orders`, `order_lines`, `order_events`, `stock_reservations`, `payment_accounts`, `payment_events`, `store_order_counters`, `rate_limits`.</li><li>הפונקציות `sf_cart_*`, `sf_checkout_start`, `sf_order_paid`.</li><li>קובץ cron נפרד לשחרור שמירות ולבדיקת תשלומים, כמו `cron-*.sql`.</li></ul> | בינונית | MCP; קובץ ה-cron ידנית |
 | `…3600_commerce_finance.sql` | 4 | <ul><li>`sales.channel`.</li><li>`phone_key` ואינדקסים על `leads`.</li><li>`commerce_upsert_customer`.</li><li>`commerce_record_sale` (רישום המכירה מהדשבורד).</li><li>`email_outbox`, `store_alerts`.</li></ul> | בינונית: נוגעת ב-`sales` | MCP, אחרי אישור |
 | `…3700_commerce_engage.sql` | 5 | <ul><li>`site` ב-CHECK של `social_messages`.</li><li>`store_chat_threads`, `marketing_consents`.</li></ul> | **מכילה `drop` של CHECK** | ה-`drop` ידנית ב-SQL Editor, אחרי אישור; השאר דרך MCP |
