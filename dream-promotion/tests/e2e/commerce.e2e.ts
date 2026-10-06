@@ -469,7 +469,7 @@ async function main() {
       assert.deepEqual([auto.kind, auto.rules, auto.sort, auto.publish_online], ['auto', { tags: ['כותנה'] }, 'newest', false]);
       assert.equal(fake.tables.catalog_collection_items.filter((x) => x.collection_id === auto.id).length, 0, 'no hand-picked rows');
       await st.getByRole('button', { name: 'להזיז למעלה: כותנה' }).click();
-      for (let i = 0; i < 50 && auto.position !== 0; i++) await st.waitForTimeout(100);
+      for (let i = 0; i < 50 && (auto.position !== 0 || paper.position !== 1); i++) await st.waitForTimeout(100);
       assert.deepEqual([auto.position, paper.position], [0, 1], 'the order of the collections on the site');
       await noSideScroll(st, 'the collections on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c8-store-collections-phone.png'), fullPage: true });
@@ -557,7 +557,9 @@ async function main() {
 
     await step('stage 3 — selling (test): a PayPlus test terminal, pickup and delivery, then the switch', async () => {
       await st.goto(`${BASE}/store/selling`, { waitUntil: 'domcontentloaded' });
-      await st.getByText(/^שלב בדיקה: התשלום עובר בסביבת הבדיקה של PayPlus בלבד/).waitFor({ timeout: 60_000 });
+      // 2.57: real sales stay closed until the platform's switch (commerce_live) — the screen says so, and stays in test
+      await st.getByText(/^מכירה אמיתית עוד סגורה במערכת/).waitFor({ timeout: 60_000 });
+      await block(st, 'מיילים ללקוחות').getByLabel('הדומיין שממנו יוצאים המיילים').waitFor();
       const sw = block(st, 'המכירה באתר');
       await sw.getByText('חיבור מסוף סליקה (PayPlus, סביבת בדיקה)').waitFor();
       assert.equal(await sw.getByRole('switch').isDisabled(), true, 'not before a terminal and a way to get the goods');
@@ -638,6 +640,49 @@ async function main() {
       assert.equal(await st.getByRole('button', { name: /שולם|החזר|ביטול/ }).count(), 0, 'nothing here changes an order');
       await noSideScroll(st, 'an order on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c12-store-order-phone.png'), fullPage: true });
+    });
+
+    await step('stage 4 — a real order: its document blocked (the reason, "נסו שוב"), the customer\'s request, shipped with tracking, a refund only after confirming', async () => {
+      const id = randomUUID(), sale = id;
+      fake.tables.orders.push({ id, business_id: BIZ, store_id: store().id, number: 1003, is_test: false, payment_status: 'paid', fulfillment_status: 'unfulfilled',
+        document_status: 'blocked', document_error: 'חסרים פרטי העסק למסמכים (מספר עוסק בן 9 ספרות) — ממלאים ב"הגדרות".', sale_id: sale, lead_id: randomUUID(),
+        request_kind: 'cancel', request_note: 'הזמנתי בטעות', requested_at: '2026-10-06T11:10:00Z', refunded_total: 0, tracking_number: '', tracking_url: '',
+        currency: 'ILS', subtotal: 120, discount: 0, shipping: 30, total: 150, coupon_code: '', customer_name: 'נועה לוי', customer_phone: '0547777777',
+        customer_email: 'noa@example.com', delivery_method: 'delivery', address: { city: 'חיפה', street: 'הנביאים', house: '3', apartment: '' }, notes: '',
+        provider: 'payplus', created_at: '2026-10-06T11:00:00Z', paid_at: '2026-10-06T11:02:00Z', expires_at: '2026-10-06T11:15:00Z' });
+      fake.tables.order_lines.push({ id: randomUUID(), order_id: id, business_id: BIZ, name: 'חולצת כותנה', variant_label: 'L / לבן', sku: 'TS-L-W', unit_price: 120, qty: 1, line_total: 120, image_url: '', position: 1 });
+      fake.tables.order_events.push({ id: 50, order_id: id, business_id: BIZ, kind: 'paid', data: { late: false }, at: '2026-10-06T11:02:00Z' },
+        { id: 51, order_id: id, business_id: BIZ, kind: 'sale_recorded', data: {}, at: '2026-10-06T11:02:05Z' },
+        { id: 52, order_id: id, business_id: BIZ, kind: 'document_blocked', data: { error: 'חסרים פרטי העסק' }, at: '2026-10-06T11:02:06Z' });
+      fake.tables.email_outbox = [{ id: randomUUID(), business_id: BIZ, order_id: id, kind: 'order_confirmation', ref: '', status: 'sent', last_error: '', sent_at: '2026-10-06T11:02:10Z', created_at: '2026-10-06T11:02:00Z' }];
+      fake.tables.sales.push({ id: sale, business_id: BIZ, user_id: OWNER, channel: 'online', status: 'paid', method: 'card', subtotal: 150, discount: 0, total: 150, vat_rate: 18, vat_amount: 22.88,
+        items: [{ name: 'חולצת כותנה — L / לבן', price: 120, qty: 1, kind: 'product' }, { name: 'משלוח', price: 30, qty: 1, kind: 'service' }], created_at: '2026-10-06T11:02:05Z', paid_at: '2026-10-06T11:02:00Z' });
+      await st.goto(`${BASE}/store/orders/${id}`, { waitUntil: 'domcontentloaded' });
+      await st.getByText(/חסרים פרטי העסק למסמכים/).first().waitFor({ timeout: 60_000 });
+      await block(st, 'מסמך').getByRole('button', { name: 'נסו שוב' }).waitFor();
+      await st.getByText(/הלקוח ביקש לבטל את ההזמנה .*הזמנתי בטעות/).waitFor();
+      await block(st, 'מיילים ללקוח').getByText(/נשלח ✓/).waitFor();
+      // shipped, with its tracking: the customer gets an email (queued — "נשלח" only with the provider's id)
+      const ful = block(st, 'טיפול בהזמנה');
+      await ful.getByLabel('מצב').selectOption('shipped');
+      await ful.getByLabel('קישור למעקב (לא חובה)').fill('http://track');
+      await ful.getByRole('button', { name: 'שמירה' }).click();
+      await ful.getByText('קישור המעקב צריך להתחיל ב-https://').waitFor();
+      await ful.getByLabel('מספר מעקב (לא חובה)').fill('RR123IL');
+      await ful.getByLabel('קישור למעקב (לא חובה)').fill('https://track.example/RR123IL');
+      await ful.getByRole('button', { name: 'שמירה' }).click();
+      await ful.getByText('נשלח.', { exact: true }).or(ful.getByText(/עכשיו: נשלח/)).first().waitFor();
+      const o = fake.tables.orders.find((x) => x.id === id)!;
+      assert.deepEqual([o.fulfillment_status, o.tracking_number], ['shipped', 'RR123IL']);
+      await block(st, 'מיילים ללקוח').getByText('ממתין לשליחה').waitFor();
+      // a refund: nothing until the owner confirms it was done at the payment company
+      const rf = block(st, 'החזר');
+      await rf.getByText('אפשר להחזיר עד ₪150').waitFor();
+      assert.equal(await rf.getByRole('button', { name: 'רישום ההחזר' }).isDisabled(), true, 'not before the confirmation');
+      await rf.getByRole('checkbox', { name: /ההחזר בוצע בממשק של חברת הסליקה/ }).check();
+      assert.equal(await rf.getByRole('button', { name: 'רישום ההחזר' }).isDisabled(), false);
+      await noSideScroll(st, 'a real order on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c12b-store-order-live-phone.png'), fullPage: true });
     });
 
     await step('the register: units held for an order on the site are shown, and not sold here', async () => {
