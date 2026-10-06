@@ -687,6 +687,7 @@ select has_function_privilege('authenticated', 'public.sf_checkout_start(uuid, t
        has_function_privilege('authenticated', 'public.reserved_stock()', 'execute') as register_reads_held;
 ```
    - **אמור לחזור:** 37 מדיניות (נבדק על מסד מקומי עם כל המיגרציות); 0 (שרת בלבד); `false`, `true`.
+   - **תוצאה (6.10.2026, קריאה בלבד, דרך ה-MCP, אחרי ההחלה):** 37; 0; `false`, `true`. בנוסף, השוואה מלאה מול מסד מקומי: 364 פריטים זהים (md5) — `STATUS.md`, "מצב מיגרציות".
 2. `supabase/cron-commerce.sql` ב-SQL Editor, עם הכתובת של החזית והסוד.
 3. ב-Vercel: `PAYMENT_SEAL_KEY` בשני הפרויקטים (אותו ערך), ו-`STOREFRONT_CRON_SECRET` בחזית.
 
