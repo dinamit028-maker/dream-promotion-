@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { confirmOrder } from '@/lib/checkout';
 import { data } from '@/lib/data';
+import { failureReason } from '@/lib/failure';
 
 /**
  * Orders whose payment nobody confirmed after 10 minutes (the notice did not arrive, the shopper closed the tab): the
@@ -15,6 +16,16 @@ function authorized(req: Request): boolean {
 
 export async function POST(req: Request) {
   if (!authorized(req)) return new Response('no', { status: 401 });
+  try {
+    return await run();
+  } catch (e) {
+    console.error(e);
+    // 2.57.4: the reason goes back to pg_cron (net._http_response), where it can be read without Vercel's logs
+    return Response.json({ error: failureReason(e) }, { status: 500, headers: { 'Cache-Control': 'no-store' } });
+  }
+}
+
+async function run(): Promise<Response> {
   const list = (await data.ordersUnconfirmed(30)) ?? [];
   const results: Record<string, number> = {};
   const started = Date.now();
