@@ -580,6 +580,39 @@ select has_function_privilege('authenticated', 'public.sf_store(uuid, boolean)',
 select count(*) from public.stores;
 ```
 - **אמור לחזור:** 72 מדיניות; `false`, `false`; ו-0, כלומר עוד אין חנויות.
+- **תוצאה (6.10.2026, קריאה בלבד, דרך ה-MCP):** 72; `false`, `false`; 0.
+
+**סעיף 3 של 3400** (ההפניה הקבועה) רץ ב-SQL Editor, כי ה-MCP עוצר לאישור פונקציה שיש בה `delete`. אחרי שהוא רץ — בדיקה בקריאה בלבד:
+```sql
+select count(*) as fn from pg_proc where proname = 'store_redirect_on_slug';
+select string_agg(tgrelid::regclass::text, ', ' order by tgrelid::regclass::text) as on_tables
+  from pg_trigger where tgname = 'z_store_redirect' and not tgisinternal;
+select has_function_privilege('authenticated', 'public.store_redirect_on_slug()', 'execute') as authenticated_runs;
+```
+- **אמור לחזור:** 1; `catalog_collections, catalog_items, store_pages`; `false`.
+- **השוואה מדויקת לקובץ** (חושב על מסד מקומי שנבנה מכל המיגרציות, עם 3400 המלאה):
+```sql
+select (select md5(pg_get_functiondef(p.oid) || '|' || coalesce(p.proacl::text, '')) from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'store_redirect_on_slug') as fn_md5,
+       (select md5(string_agg(pg_get_triggerdef(oid), ',' order by tgrelid::regclass::text))
+          from pg_trigger where tgname = 'z_store_redirect' and not tgisinternal) as trg_md5;
+```
+  - **אמור לחזור:** `7dd44c716cab6c2ac336eb06520bdf94`, `b407bb117eb38684b4b64b4c6e9dc96e`. ההרשאות של הפונקציה: `{postgres=X/postgres,service_role=X/postgres}`.
+  - **פונקציה שהודבקה ב-SQL Editor** יכולה להישמר עם סופי שורה של Windows (`\r\n`), וה-md5 שלה ישתנה. לכן משווים גם אחרי המרה:
+```sql
+select md5(replace(pg_get_functiondef(p.oid), E'\r\n', E'\n') || '|' || coalesce(p.proacl::text, '')) as fn_md5_lf,
+       length(p.prosrc) - length(replace(p.prosrc, E'\r', '')) as cr_count,
+       position(E'\r' in replace(p.prosrc, E'\r\n', '')) as lone_cr
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and p.proname = 'store_redirect_on_slug';
+```
+  - **אמור לחזור:** `7dd44c716cab6c2ac336eb06520bdf94`; ו-`lone_cr` = 0 (אין `\r` חוץ מסופי שורה).
+- **תוצאה (6.10.2026, קריאה בלבד, דרך ה-MCP, אחרי שסעיף 3 רץ ב-SQL Editor):**
+  - 1; `catalog_collections, catalog_items, store_pages`; `false`.
+  - `trg_md5` = `b407bb117eb38684b4b64b4c6e9dc96e` — זהה. ההרשאות: `{postgres=X/postgres,service_role=X/postgres}` — זהות.
+  - `fn_md5` = `6ae62fe62a1e4036dd1f1208531dae27` — שונה, בגלל סופי השורות: הגוף נשמר עם `\r\n` (24). אחרי ההמרה: `7dd44c716cab6c2ac336eb06520bdf94` — זהה לקובץ; `lone_cr` = 0.
+  - לא משנה את ההתנהגות (ב-PL/pgSQL ‏`\r` הוא רווח, וההערה היחידה בגוף נגמרת בסוף השורה). אין צורך להריץ שוב.
+  - 72 מדיניות, 0 חנויות, 0 הפניות.
 
 **בטלפון** — אחרי 3400, ואחרי שפרויקט החזית הוקם (`storefront/README.md`). **כל פעולה נכתבת למסד האמיתי.**
 1. **"חנות" ← "הגדרות":** "פתיחת החנות".
@@ -597,3 +630,5 @@ select count(*) from public.stores;
    - **אמור לקרות:** בדשבורד הדומיין "פעיל", ובאתר החנות עם התבנית.
 8. **"העלאת החנות לאוויר"** — רק כשכל הרשימה ✓.
    - **אמור לקרות:** "החנות באוויר". `https://followmecollection.com/sitemap.xml` מציג את המוצרים, הקולקציות והעמודים, ו-`www.followmecollection.com` מפנה לכתובת הראשית.
+9. **הפניה קבועה** (אחרי סעיף 3): בעורך של מוצר שכבר באתר משנים את הכתובת (`/products/…`) ← "שמירה". פותחים באתר את הכתובת הישנה.
+   - **אמור לקרות:** הדפדפן עובר לכתובת החדשה. אם משנים שוב, גם הכתובת הראשונה מפנה ישר לחדשה (בלי שרשרת).
