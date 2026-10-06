@@ -1799,6 +1799,11 @@
 **הסיבה נמצאה ותוקנה (6.10.2026), בעזרת 2.57.4:** `dp-commerce-payments` החזיר `Cannot convert argument to a ByteString … index 10 … 8230`. כלומר ב-Vercel נשמר `sb_secret_…` — הטקסט המקוצר מהטבלה של Supabase, ולא המפתח. בעל המערכת העתיק את המפתח המלא בכפתור ההעתקה ושמר אותו מחדש.
 - `STOREFRONT_CRON_SECRET` הפך ל-Sensitive (אחרי שה-cron הוגדר), כך ש-Vercel כבר לא מסמן אותו "Needs Attention".
 - **החלפת המפתח (6.10.2026):** המפתח הוצג בצילום מסך בשיחה. בעל המערכת יצר ב-Supabase מפתח חדש בשם `storefront` ושמר אותו ב-Vercel. גם הדשבורד השתמש ב-`default` (נבדק ב-`edge_logs`: `request.sb.apikey.apikey.prefix`), ולכן קיבל מפתח משלו, `dashboard`, ב-`SUPABASE_SERVICE_ROLE_KEY`. רק אחרי ששני השרתים עובדים עם המפתחות החדשים, מוחקים ב-Supabase את `default`.
+- **`default` נמחק (6.10.2026), ואחרי זה התגלה נזק:**
+  - **הסיבה:** `TOKEN_ENCRYPTION_KEY` לא היה מוגדר. לכן `secrets.ts` גזר את מפתח ההצפנה של טוקני החיבור (Meta, TikTok, רשות המסים) מ-`SUPABASE_SERVICE_ROLE_KEY`.
+  - **מה נשבר:** אחרי ההחלפה הטוקנים השמורים לא נפתחים ("Unsupported state or unable to authenticate data"). 2 חיבורי פייסבוק, 2 של אינסטגרם ו-1 של טיקטוק. אין חיבור לרשות המסים.
+  - **התיקון:** `TOKEN_ENCRYPTION_KEY` חדש, אקראי ו-Sensitive בדשבורד. בעל המערכת מחבר מחדש את פייסבוק/אינסטגרם (FollowMe, SaGabot) ואת טיקטוק.
+  - **מעכשיו:** החלפת המפתח של Supabase לא נוגעת בהצפנה. **שינוי של `TOKEN_ENCRYPTION_KEY` עצמו = לחבר מחדש את כל החשבונות.**
 
 **2.57.4 — אתר החנות מחזיר 500 גם עם המפתח (6.10.2026, בבדיקה):**
 - `dp-commerce-payments` מקבל 500 עם תשובה ריקה, גם אחרי שהמפתח נוסף ותוקן ואתר החנות נבנה מחדש.
@@ -1848,7 +1853,7 @@
   - **גיבוי:** הפרויקט בתוכנית Free — אין גיבוי יומי אוטומטי. לפני פיילוט: Pro, או `supabase db dump` תקופתי לאחסון חיצוני.
   - **Auth:** להפעיל Leaked password protection. Site URL ו-Redirect URLs צריכים לכלול את `/auth`, לקישור איפוס הסיסמה.
   - `cron-stories.sql` ו-`cron-publish.sql` עם CRON_SECRET.
-- **Vercel env:** Supabase ×3, ANTHROPIC_API_KEY, FAL_KEY, ELEVENLABS_API_KEY, META_* ×5, TIKTOK_* ×3, CRON_SECRET, ADMIN_EMAILS.
+- **Vercel env:** `TOKEN_ENCRYPTION_KEY` (הוגדר ב-6.10.2026; בלעדיו ההצפנה נגזרת מהמפתח של Supabase, והחלפה שלו מנתקת את כל החשבונות), Supabase ×3, ANTHROPIC_API_KEY, FAL_KEY, ELEVENLABS_API_KEY, META_* ×5, TIKTOK_* ×3, CRON_SECRET, ADMIN_EMAILS.
 - **חתימה דיגיטלית (לא חובה):** DOC_SIGN_P12_BASE64, DOC_SIGN_P12_PASSWORD.
 - **כספים (2.51):**
   - **מסד:** מיגרציה `20261004003100_dream_finance.sql` — הוחלה (`20261005055117`).
