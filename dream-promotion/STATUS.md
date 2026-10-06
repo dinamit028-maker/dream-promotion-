@@ -31,7 +31,7 @@
   - **משתני הסביבה ב-Vercel.**
   - **המתג `commerce_live`:** נשאר נעול עד האישור הנפרד.
 
-**כל 20 המיגרציות עד 3500 הורצו על המסד החי** (סעיף 3 של 3400 רץ ב-SQL Editor). **`supabase/cron-commerce.sql` עוד לא הורץ** — הוא צריך את הכתובת של פרויקט החזית, שעוד לא קיים. נבדק ישירות במסד החי (`list_migrations`, קריאה בלבד, 6.10.2026): 20 מיגרציות, האחרונה `20261006065045 commerce_checkout`.
+**כל 20 המיגרציות עד 3500 הורצו על המסד החי** (סעיף 3 של 3400 רץ ב-SQL Editor). **`supabase/cron-commerce.sql`: 3 מתוך 4 משימות הוגדרו (2.57.3, סעיף 4כו). משימת הניקוי ממתינה ל-SQL Editor.** נבדק ישירות במסד החי (`list_migrations`, קריאה בלבד, 6.10.2026): 20 מיגרציות, האחרונה `20261006065045 commerce_checkout`.
 
 **3500 `commerce_checkout` (2.56.0) — הוחלה על המסד החי ב-6.10.2026, אחרי אישור מפורש שלך** (שם הגרסה שם: `20261006065045`).
 - **הוחלה כולה, בקריאה אחת דרך ה-MCP.** אין בה `drop` ואין `delete`, ולכן לא היה צריך SQL Editor.
@@ -1780,6 +1780,11 @@
 - **משתנים בדשבורד** (Production): `STOREFRONT_URL` = `https://dream-storefront.vercel.app`, ו-`STOREFRONT_PREVIEW_SECRET`, `PAYMENT_SEAL_KEY`, `COMMERCE_SECRET`, `ORDER_LINK_SECRET`.
   - **ארבעת הסודות המשותפים:** אותו ערך בשני הפרויקטים. הערכים נוצרו אקראית (36 בתים), ונשמרו רק ב-Vercel. לא ב-git ולא בקובץ.
 - **הפריסה הראשונה של החזית עברה בנייה** (`dpl_7Je6bGcJXKcxY2uDUoVVM91TZgst`, READY, הקומיט `afecf49`).
+
+**ה-cron (`cron-commerce.sql`) — 3 מתוך 4 המשימות הוגדרו דרך ה-MCP (6.10.2026, אחרי אישור שלך):**
+- `dp-commerce-release` (כל דקה), `dp-commerce-payments` (כל 5 דקות, לחזית, עם `STOREFRONT_CRON_SECRET`), `dp-commerce-finalize` (כל 2 דקות, לדשבורד).
+- **הסוד של `dp-commerce-finalize`:** הועתק במסד עצמו מהמשימה הקיימת `dp-publish-due`. הוא לא עבר דרך השיחה.
+- **`dp-commerce-cleanup` לא הוגדרה:** יש בה `delete`, וה-MCP עוצר. בעל המערכת מריץ ב-SQL Editor רק את החלק הזה מ-`cron-commerce.sql` (`select cron.schedule('dp-commerce-cleanup', …)`).
 
 **מה חסר:**
 - **`SUPABASE_SECRET_KEY` בחזית.** בדשבורד המפתח שמור כ-Sensitive, ואין דרך לקרוא אותו (גם לא דרך ה-MCP של Supabase). בעל המערכת מוסיף אותו ביד:
