@@ -32,3 +32,19 @@ export function verifyPreviewToken(token: string | null | undefined, secret: str
   if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
   return { store, expires };
 }
+
+/**
+ * "לחץ לעריכה" (2.61): the dashboard's visual editor frames the store with ?edit=<the same signed token>. The token stays
+ * in the address (a framed page cannot rely on a cookie of another site), the proxy hands it on in EDIT_HEADER, and the
+ * page may be framed only by the dashboard (DASHBOARD_URL's origin) — every other site still gets frame-ancestors 'none'.
+ */
+export const EDIT_PARAM = 'edit';
+export const EDIT_HEADER = 'x-sf-edit';
+/** the dashboard's origin, from DASHBOARD_URL: https only (http only for localhost, in development and tests) — or null */
+export function dashboardOrigin(url: string | undefined): string | null {
+  try {
+    const u = new URL(url ?? '');
+    if (u.protocol === 'https:' || (u.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(u.hostname))) return u.origin;
+  } catch { /* not a URL */ }
+  return null;
+}

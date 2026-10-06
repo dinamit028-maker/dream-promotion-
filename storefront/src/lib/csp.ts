@@ -3,7 +3,7 @@
  * styles from the storefront or with the nonce (no inline style attributes), pictures over https, nothing framed, forms
  * only to the store. Google Analytics is allowed to talk only after the shopper agreed (the script loads only then).
  */
-export function buildCsp(nonce: string, { dev = false, https = true }: { dev?: boolean; https?: boolean } = {}): string {
+export function buildCsp(nonce: string, { dev = false, https = true, frameAncestor = null }: { dev?: boolean; https?: boolean; frameAncestor?: string | null } = {}): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
@@ -14,7 +14,8 @@ export function buildCsp(nonce: string, { dev = false, https = true }: { dev?: b
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    // the dashboard's visual editor (2.61) may frame a page opened with a valid edit token; nobody else, ever
+    `frame-ancestors ${frameAncestor && /^https?:\/\/[a-z0-9.:-]+$/i.test(frameAncestor) ? frameAncestor : "'none'"}`,
     ...(https ? ['upgrade-insecure-requests'] : []),
   ].join('; ');
 }

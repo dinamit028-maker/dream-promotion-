@@ -138,6 +138,14 @@ async function main() {
       if (req.method === 'GET' && /^\/api\/doc\/[0-9a-f]+\/pdf$/.test(req.url ?? '')) {
         res.writeHead(200, { 'Content-Type': 'application/pdf', 'X-Served-By': 'dashboard' }); res.end('%PDF-1.4 e2e'); return;
       }
+      // the dashboard's visual editor (2.61), as far as the storefront sees it: a page that frames the store and keeps its messages
+      if (req.method === 'GET' && (req.url ?? '').startsWith('/frame?src=')) {
+        const src = decodeURIComponent((req.url ?? '').slice('/frame?src='.length));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!doctype html><html><body><iframe id="f" src="${src.replace(/"/g, '&quot;')}" width="390" height="800"></iframe>
+          <script>window.msgs = []; addEventListener('message', (e) => window.msgs.push({ origin: e.origin, data: e.data }));</script></body></html>`);
+        return;
+      }
       res.writeHead(404); res.end();
     });
   });
@@ -453,6 +461,50 @@ async function main() {
       } finally {
         psql(`update public.store_menus set items = '${before.replace(/'/g, "''")}' where store_id = '${FOLLOWME_STORE}' and kind = 'main';`);
       }
+    });
+
+    await step('"לחץ לעריכה" (2.61): only the dashboard frames the editor; a click names what to edit, a title is edited in place', async () => {
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      const editUrl = url('followme.test', `/?edit=${encodeURIComponent(token)}`);
+      const direct = await raw('followme.test', `/?edit=${encodeURIComponent(token)}`);
+      assert.equal(direct.status, 200);
+      assert.match(String(direct.headers['content-security-policy']), new RegExp(`frame-ancestors http://127\\.0\\.0\\.1:${DASH_PORT}`));
+      assert.match(direct.body, /data-edit-section="hero"/);
+      assert.equal(direct.headers['set-cookie'], undefined, 'no preview cookie: the token stays in the address');
+      const shopper = await raw('followme.test', '/');
+      assert.doesNotMatch(shopper.body, /data-edit-/, 'a shopper\'s page has no edit marks');
+      assert.match(String(shopper.headers['content-security-policy']), /frame-ancestors 'none'/);
+      const forged = await raw('followme.test', '/?edit=x');
+      assert.doesNotMatch(forged.body, /data-edit-/);
+
+      const { ctx, page } = await phone(800);
+      await page.goto(`http://127.0.0.1:${DASH_PORT}/frame?src=${encodeURIComponent(editUrl)}`);
+      const frame = page.frameLocator('#f');
+      await frame.locator('[data-edit-section="hero"]').waitFor();
+      const msgs = async () => (await page.evaluate(() => (window as any).msgs)) as { origin: string; data: any }[];
+      await page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'ready'));
+      assert.ok((await msgs()).every((m) => m.origin === 'http://followme.test:' + PORT), 'the messages come from the store');
+      // a section: named to the dashboard
+      await frame.locator('[data-edit-section="steps"] .step').first().click();
+      await page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'field' && m.data.section === 'steps'));
+      // the hero's title: edited in place, sent when done
+      const title = frame.locator('[data-edit-section="hero"] [data-edit-field="title"]');
+      await title.click();
+      await page.keyboard.press('End');
+      await page.keyboard.type(' חדש');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'text'));
+      const text = (await msgs()).find((m) => m.data.type === 'text')!.data;
+      assert.equal(text.section, 'hero'); assert.equal(text.field, 'title'); assert.match(text.value, / חדש$/);
+      // a link to another page of the store: the dashboard is asked to go there, the frame stays
+      await frame.locator('footer a[href^="/collections/"]').first().click();
+      await page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'navigate'));
+      assert.match((await msgs()).find((m) => m.data.type === 'navigate')!.data.path, /^\/collections\//);
+      // the menus and the business's details: the dashboard opens their editors
+      await frame.locator('footer .legal').click();
+      await page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'open' && m.data.target === 'settings'));
+      await page.screenshot({ path: path.join(SHOTS, 'edit-frame.png') });
+      await ctx.close();
     });
 
     await step('the owner previews the draft theme of a store on the air; the shoppers keep the published one', async () => {

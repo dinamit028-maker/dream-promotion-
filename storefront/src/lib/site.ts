@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { data } from './data';
 import { ACCESS_COOKIE, hasAccess } from './access';
 import { isPlatformHost, subdomainOf } from './host';
-import { PREVIEW_COOKIE, verifyPreviewToken } from './preview';
+import { dashboardOrigin, EDIT_HEADER, PREVIEW_COOKIE, verifyPreviewToken } from './preview';
 import { PLATFORM_STORE_COOKIE } from './host';
 import { resolveTheme, type Theme } from './theme';
 import { isFullStore, type Store, type StoreAny } from './types';
@@ -29,6 +29,8 @@ export interface Site {
   live: boolean;             // may be shown: on the air, previewed, or opened with the password
   locked: boolean;           // not open to everyone (before publishing, or locked): never indexed
   passwordPage: boolean;     // "בקרוב" offers the password
+  /** the dashboard's visual editor (2.61): its origin, when this page was opened with a valid edit token — else null */
+  edit: { origin: string; token: string } | null;
 }
 
 const seen = new Map<string, number>();
@@ -36,7 +38,12 @@ const seen = new Map<string, number>();
 export const getSite = cache(async (host: string): Promise<Site | null> => {
   if (!host || host === '_') return null;
   const jar = await cookies();
-  const pv = verifyPreviewToken(jar.get(PREVIEW_COOKIE)?.value, process.env.STOREFRONT_PREVIEW_SECRET);
+  const h = await headers();
+  // the visual editor's token (set by the proxy only, after it checked it) comes before a preview cookie
+  const editToken = h.get(EDIT_HEADER);
+  const editPv = editToken ? verifyPreviewToken(editToken, process.env.STOREFRONT_PREVIEW_SECRET) : null;
+  const editOrigin = editPv ? dashboardOrigin(process.env.DASHBOARD_URL) : null;
+  const pv = editPv && editOrigin ? editPv : verifyPreviewToken(jar.get(PREVIEW_COOKIE)?.value, process.env.STOREFRONT_PREVIEW_SECRET);
   const slug = subdomainOf(host);
   const resolved = slug ? await data.resolveSlug(slug) : await data.resolveHost(host);
   let storeId: string, token = false, platform = false, isPrimary = true;
@@ -62,7 +69,6 @@ export const getSite = cache(async (host: string): Promise<Site | null> => {
   // the subdomain: its canonical address is the store's own domain only once that works (the database says which)
   const primaryDomain = slug ? resolved?.primary_domain ?? null : platformResolved ? platformResolved.primary_domain ?? null
     : store.primary_domain ?? resolved?.primary_domain ?? null;
-  const h = await headers();
   const proto = h.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const origin = primaryDomain && !platform ? `https://${primaryDomain}` : `${proto}://${h.get('host') ?? host}`;
   return {
@@ -72,6 +78,7 @@ export const getSite = cache(async (host: string): Promise<Site | null> => {
     live: access.mode === 'public' || token || unlocked,
     locked: access.mode !== 'public',
     passwordPage: access.mode === 'password' && (!platform || Boolean(platformResolved)),
+    edit: token && editPv && editOrigin && editPv === pv ? { origin: editOrigin, token: editToken! } : null,
   };
 });
 

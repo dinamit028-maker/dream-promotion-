@@ -6,6 +6,8 @@ import type { Link, PolicyKind, Store } from '@/lib/types';
 import { CartBadge } from './CartBadge';
 import { UnlockForm } from './UnlockForm';
 import { CookieConsent, CookieSettings } from './CookieConsent';
+import { EditBridge } from './EditBridge';
+import { editLink } from '@/lib/edit';
 
 export const POLICY_TITLE: Record<PolicyKind, string> = {
   returns: 'ביטולים והחזרות', privacy: 'מדיניות פרטיות', accessibility: 'הצהרת נגישות', terms: 'תנאי שימוש', shipping: 'משלוחים',
@@ -37,12 +39,13 @@ export function Header({ site }: { site: Site & { store: Store } }) {
   const links = mainLinks(store);
   const ann = theme?.announcement;
   const annHref = ann?.href ? resolveHref(ann.href, store) : null;
+  const e = Boolean(site.edit);
   return (
     <>
       {ann?.enabled && ann.text && (
-        <div className="announce">{annHref ? <a href={annHref}>{ann.text}</a> : ann.text}</div>
+        <div className="announce" {...editLink(e, 'announcement')}>{annHref ? <a href={annHref}>{ann.text}</a> : ann.text}</div>
       )}
-      <header className="site-header">
+      <header className="site-header" {...editLink(e, 'menus:main')}>
         <div className="wrap header-row">
           <details className="menu">
             <summary aria-label="פתיחת התפריט"><span className="burger" aria-hidden="true" /></summary>
@@ -50,7 +53,7 @@ export function Header({ site }: { site: Site & { store: Store } }) {
               <ul role="list">{links.map((l, i) => <NavLink key={i} link={l} store={store} />)}</ul>
             </nav>
           </details>
-          <a href="/" className="brand" aria-label={`${store.name} — דף הבית`}>
+          <a href="/" className="brand" {...editLink(e, 'settings')} aria-label={`${store.name} — דף הבית`}>
             {store.logo_url
               // eslint-disable-next-line @next/next/no-img-element
               ? <img src={store.logo_url} alt={store.name} className="brand-logo" />
@@ -71,18 +74,19 @@ export function Header({ site }: { site: Site & { store: Store } }) {
 
 export function Footer({ site }: { site: Site & { store: Store } }) {
   const { store } = site;
+  const e = Boolean(site.edit);
   const wa = whatsappHref(store.contact.whatsapp, `היי, הגעתי מהאתר של ${store.name}`);
   const year = new Date().getFullYear();
   const footerLinks = store.menus.footer.length ? store.menus.footer : store.collections.slice(0, 6).map((c) => ({ label: c.title, href: `/collections/${c.slug}` }));
   return (
     <footer className="site-footer">
       <div className="wrap footer-grid">
-        <section aria-labelledby="f-store">
+        <section aria-labelledby="f-store" {...editLink(e, 'settings')}>
           <h2 id="f-store" className="footer-title">{store.name}</h2>
           {store.description && <p className="muted">{store.description}</p>}
         </section>
         {footerLinks.length > 0 && (
-          <nav aria-labelledby="f-shop">
+          <nav aria-labelledby="f-shop" {...editLink(e, 'menus:footer')}>
             <h2 id="f-shop" className="footer-title">חנות</h2>
             <ul role="list">{footerLinks.map((l, i) => <NavLink key={i} link={l} store={store} />)}</ul>
           </nav>
@@ -92,13 +96,13 @@ export function Footer({ site }: { site: Site & { store: Store } }) {
           <nav aria-labelledby="f-info">
             <h2 id="f-info" className="footer-title">מידע</h2>
             <ul role="list">
-              {store.policies.map((p) => <li key={p.policy}><a href={`/policies/${p.policy}`}>{p.title || POLICY_TITLE[p.policy]}</a></li>)}
+              {store.policies.map((p) => <li key={p.policy} {...editLink(e, `page:policy:${p.policy}`)}><a href={`/policies/${p.policy}`}>{p.title || POLICY_TITLE[p.policy]}</a></li>)}
               {store.can_buy && <li><a href="/cancel">ביטול עסקה</a></li>}
               {store.ga4_id && !site.preview && <li><CookieSettings /></li>}
             </ul>
           </nav>
         )}
-        <section aria-labelledby="f-contact" id="contact-details">
+        <section aria-labelledby="f-contact" id="contact-details" {...editLink(e, 'settings')}>
           <h2 id="f-contact" className="footer-title">יצירת קשר</h2>
           <ul role="list" className="contact-list">
             {store.contact.phone && <li><a href={`tel:${store.contact.phone.replace(/[^\d+]/g, '')}`}><bdi>{store.contact.phone}</bdi></a></li>}
@@ -108,7 +112,7 @@ export function Footer({ site }: { site: Site & { store: Store } }) {
           </ul>
         </section>
       </div>
-      <div className="wrap legal">
+      <div className="wrap legal" {...editLink(e, 'settings')}>
         <p>
           {store.legal.name}
           {store.legal.number && <> · {store.legal.number_kind === 'company' ? 'ח.פ.' : 'ע.מ.'} <bdi>{store.legal.number}</bdi></>}
@@ -135,12 +139,13 @@ export function StoreChrome({ site, children }: { site: Site & { store: Store };
   return (
     <>
       <a href="#main" className="skip">דלגו לתוכן</a>
-      {site.via === 'token' && <PreviewBar site={site} />}
+      {site.via === 'token' && !site.edit && <PreviewBar site={site} />}
       {site.via === 'password' && <p className="preview-bar" role="status"><strong>האתר עוד לא פתוח לכולם</strong> — נכנסתם עם סיסמה.</p>}
       <Header site={site} />
       <main id="main" tabIndex={-1}>{children}</main>
       <Footer site={site} />
       {analytics && <CookieConsent ga4={analytics} />}
+      {site.edit && <EditBridge dashboard={site.edit.origin} />}
     </>
   );
 }

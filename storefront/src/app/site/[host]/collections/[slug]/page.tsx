@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { editLink } from '@/lib/edit';
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { Filters, Results } from '@/components/listing';
@@ -51,7 +52,7 @@ export default async function CollectionPage({ params, searchParams }: Props) {
   const title = l.collection?.title ?? 'כל המוצרים';
   const sorts: Sort[] = l.collection ? ['manual', 'newest', 'price_asc', 'price_desc', 'name'] : ['newest', 'price_asc', 'price_desc', 'name'];
   return (
-    <div className="wrap">
+    <div className="wrap" {...editLink(Boolean(site.edit) && Boolean(l.collection), `collection:${s}`)}>
       <JsonLd data={breadcrumbsJsonLd(site.origin, [{ name: 'דף הבית', path: '/' }, { name: title, path }])} nonce={nonce} />
       <nav className="crumbs" aria-label="פירורי לחם"><ol><li><a href="/">דף הבית</a></li><li><span aria-current="page">{title}</span></li></ol></nav>
       <header className="page-head">

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { SectionView } from '@/components/sections';
 import { JsonLd } from '@/components/ui';
+import { editSection } from '@/lib/edit';
 import { og, orgJsonLd } from '@/lib/seo';
 import { getSite, hostOf, liveSite } from '@/lib/site';
 import { isFullStore } from '@/lib/types';
@@ -26,7 +27,10 @@ export default async function Home({ params }: Props) {
     <>
       <JsonLd data={orgJsonLd(site)} nonce={nonce} />
       {sections[0]?.type !== 'hero' && <h1 className="sr-only">{site.store.name}</h1>}
-      {sections.map((s, i) => <SectionView key={s.id} section={s} site={site} first={i === 0} />)}
+      {sections.map((s, i) => site.edit
+        // the visual editor (2.61): each section is one element the owner clicks to edit
+        ? <div key={s.id} {...editSection(true, s.id, s.type)}><SectionView section={s} site={site} first={i === 0} /></div>
+        : <SectionView key={s.id} section={s} site={site} first={i === 0} />)}
     </>
   );
 }

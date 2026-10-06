@@ -311,3 +311,12 @@ input, select, textarea {
 .gallery-empty .plain-art, .gallery-empty .bag-art { width: 50%; }
 .gallery-caption { font-size: .92rem; }
 .card-placeholder .card-link:hover .card-name { text-decoration: none; }
+
+/* ---- "לחץ לעריכה" (2.61): only inside the dashboard's visual editor (EditBridge adds .edit-mode) ----------------------- */
+.edit-mode [data-edit-section], .edit-mode [data-edit-link], .edit-mode [data-edit-field], .edit-mode [data-edit-image] { cursor: pointer; }
+.edit-mode [data-edit-section] { outline: 2px dashed transparent; outline-offset: -2px; transition: outline-color .15s; }
+.edit-mode [data-edit-section]:hover { outline-color: #6b3bf5; }
+.edit-mode [data-edit-section].edit-selected { outline: 3px solid #6b3bf5; }
+.edit-mode [data-edit-link]:hover, .edit-mode [data-edit-field]:hover, .edit-mode [data-edit-image]:hover { outline: 2px solid #ff7fa8; outline-offset: 2px; border-radius: 4px; }
+.edit-mode [contenteditable] { outline: 2px solid #6b3bf5 !important; outline-offset: 2px; background: color-mix(in srgb, #6b3bf5 6%, transparent); cursor: text; }
+@media (prefers-reduced-motion: reduce) { .edit-mode [data-edit-section] { transition: none; } }
