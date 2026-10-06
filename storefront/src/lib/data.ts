@@ -13,7 +13,8 @@ type Rpc = (fn: SfFunction, args: Args) => Promise<unknown>;
 type SfFunction = 'sf_resolve_host' | 'sf_domain_seen' | 'sf_store' | 'sf_products' | 'sf_product' | 'sf_collections' | 'sf_page' | 'sf_redirect' | 'sf_sitemap'
   | 'sf_cart' | 'sf_cart_set' | 'sf_cart_coupon' | 'sf_checkout_start' | 'sf_order_page' | 'sf_payment_account' | 'sf_payment_event'
   | 'sf_order_paid' | 'sf_order_failed' | 'sf_order' | 'sf_order_by_id' | 'sf_orders_unconfirmed' | 'sf_rate_hit'
-  | 'sf_order_request' | 'sf_order_request_by_id' | 'sf_order_request_by_number';
+  | 'sf_order_request' | 'sf_order_request_by_id' | 'sf_order_request_by_number'
+  | 'sf_resolve_slug' | 'sf_slug_seen' | 'sf_store_unlock';
 
 export class DataError extends Error {}
 
@@ -54,7 +55,7 @@ function pgRpc(connectionString: string): Rpc {
     const { rows } = await (await getPool()).query(sql, values);
     const r = rows[0]?.r;
     if (r == null || r === '') return null;          // a function that returns nothing (void)
-    return fn === 'sf_redirect' ? r : JSON.parse(String(r));
+    return fn === 'sf_redirect' || fn === 'sf_store_unlock' ? r : JSON.parse(String(r));   // the two that return text
   };
 }
 
@@ -77,6 +78,11 @@ const call = <T>(fn: SfFunction, args: Args) => client()(fn, args) as Promise<T 
 export const data = {
   resolveHost: (host: string) => call<HostInfo>('sf_resolve_host', { p_host: host }),
   domainSeen: (host: string) => call<null>('sf_domain_seen', { p_host: host }),
+  /** 2.57.1: <slug>.<STORE_ROOT_DOMAIN> — the store, and whether its own domain (once working) is the primary address */
+  resolveSlug: (slug: string) => call<HostInfo>('sf_resolve_slug', { p_slug: slug }),
+  slugSeen: (slug: string) => call<null>('sf_slug_seen', { p_slug: slug }),
+  /** a password typed on "בקרוב": the key to sign the cookie with when it is right, else null */
+  storeUnlock: (store: string, password: string) => call<string>('sf_store_unlock', { p_store: store, p_password: password }),
   store: (store: string, preview: boolean) => call<StoreAny>('sf_store', { p_store: store, p_preview: preview }),
   products: (store: string, q: ProductQuery, preview: boolean) => call<ProductList>('sf_products', { p_store: store, p_opts: toOpts(q), p_preview: preview }),
   product: (store: string, slug: string, preview: boolean) => call<Product>('sf_product', { p_store: store, p_slug: slug, p_preview: preview }),

@@ -147,6 +147,7 @@ async function main() {
     STOREFRONT_PREVIEW_SECRET: SECRET, STOREFRONT_PLATFORM_HOSTS: 'platform.test',
     PAYMENT_MOCK: '1', PAYMENT_SEAL_KEY: SEAL, STOREFRONT_CRON_SECRET: CRON,
     DASHBOARD_URL: `http://127.0.0.1:${DASH_PORT}`, COMMERCE_SECRET: COMMERCE, ORDER_LINK_SECRET: LINK,
+    STORE_ROOT_DOMAIN: 'stores.test',
   });
   await waitFor(server, /Ready|started server|Local:/i, 'next start');
 
@@ -638,6 +639,105 @@ async function main() {
       } finally {
         psql(`update public.platform_flags set enabled = false where key = 'commerce_live';
               update public.payment_accounts set mode = 'test' where business_id = '${BIZ}';`);
+      }
+    });
+
+    await step('every store\'s own address: <slug>.stores.test — routing, isolation, and a 308 to its own domain once that works', async () => {
+      assert.equal(psql(`select string_agg(slug, ',' order by slug) from public.stores`), 'draft,followme,shoes', 'made from the businesses\' names');
+      // FollowMe's own domain works (followme.test is active): the subdomain redirects there, with the path, permanently
+      const moved = await raw('followme.stores.test', '/products/tote-bag?variant=x');
+      assert.equal(moved.status, 308);
+      assert.equal(moved.headers.location, 'https://followme.test/products/tote-bag?variant=x');
+      // before its own domain works, the subdomain is the store's address: served, canonical to itself, open to crawlers
+      psql(`update public.store_domains set status = 'pending' where domain in ('followme.test', 'www.followme.test')`);
+      try {
+        const home = await raw('followme.stores.test', '/');
+        assert.equal(home.status, 200);
+        assert.match(home.body, /FollowMe Collection/);
+        assert.match(home.body, new RegExp(`<link rel="canonical" href="http://followme\\.stores\\.test:${PORT}"`));
+        assert.doesNotMatch(home.body, /noindex/);
+        assert.match((await raw('followme.stores.test', '/robots.txt')).body, /Allow: \/\n/);
+        assert.equal(psql(`select subdomain_seen_at is not null from public.stores where slug = 'followme'`), 't', 'served: a working address');
+      } finally {
+        psql(`update public.store_domains set status = 'active' where domain in ('followme.test', 'www.followme.test')`);
+      }
+      // each address its own store; an unknown one, the root and www are nobody's
+      const shoes = await raw('shoes.stores.test', '/');
+      assert.equal(shoes.status, 308, 'Shoes has its own working domain too');
+      assert.equal(shoes.headers.location, 'https://shoes.test/');
+      assert.equal((await raw('nobody.stores.test', '/')).status, 404);
+      assert.doesNotMatch((await raw('nobody.stores.test', '/')).body, /FollowMe|Shoes/);
+      assert.equal((await raw('stores.test', '/')).status, 404);
+      assert.equal((await raw('www.stores.test', '/')).status, 404);
+      assert.equal((await raw('a.b.stores.test', '/')).status, 404);
+    });
+
+    await step('a password: "בקרוב" for everyone, the store for whoever has the link and the password — never indexed', async () => {
+      // the draft's own domain was served earlier (so its subdomain would redirect there): here, before it works
+      const draftDomains = psql(`select string_agg(domain || '=' || status, ',') from public.store_domains where store_id = '${DRAFT_STORE}'`);
+      psql(`update public.store_domains set status = 'pending' where store_id = '${DRAFT_STORE}'`);
+      try {
+      const password = psql(`select storefront_password from public.stores where id = '${DRAFT_STORE}'`);
+      assert.match(password, /^[0-9a-z]{10}$/, 'a new store gets a password');
+      const soon = await raw('draft.stores.test', '/');
+      assert.equal(soon.status, 200);
+      assert.match(soon.body, /בקרוב/);
+      assert.match(soon.body, /noindex/);
+      assert.doesNotMatch(soon.body, /מוצר טיוטה/);
+      assert.match((await raw('draft.stores.test', '/robots.txt')).body, /Disallow: \/\n/);
+      assert.equal((await raw('draft.stores.test', '/sitemap.xml')).status, 404);
+      const { ctx, page } = await phone();
+      await page.goto(url('draft.stores.test', '/collections/all'));
+      await page.getByRole('heading', { level: 1, name: 'בקרוב' }).waitFor();
+      await page.getByLabel('יש לכם סיסמה? כניסה לאתר').fill('wrong-password');
+      await page.getByRole('button', { name: 'כניסה' }).click();
+      await page.getByRole('alert').filter({ hasText: 'הסיסמה לא נכונה.' }).waitFor();
+      await page.getByLabel('יש לכם סיסמה? כניסה לאתר').fill(password);
+      await page.getByRole('button', { name: 'כניסה' }).click();
+      await page.getByRole('status').filter({ hasText: 'נכנסתם עם סיסמה' }).waitFor();
+      assert.deepEqual(await page.locator('.grid .card-name').allInnerTexts(), ['מוצר טיוטה'], 'the draft opens behind the password');
+      assert.equal(await page.locator('meta[name="robots"]').getAttribute('content'), 'noindex, nofollow', 'and is still not indexed');
+      assert.equal(await page.getByRole('status').filter({ hasText: 'תצוגה מקדימה' }).count(), 0, 'not the owner\'s preview');
+      const cookie = (await ctx.cookies()).find((c: any) => c.name === 'sf_access');
+      assert.ok(cookie && cookie.httpOnly && cookie.domain.includes('draft.stores.test'), 'an httpOnly cookie of this address only');
+      await page.screenshot({ path: path.join(SHOTS, 'password-unlocked-390.png'), fullPage: true });
+      // the cookie of one store opens no other, even with its value copied
+      const other = await raw('shoes.test', '/', { cookie: `sf_access=${cookie.value}` });
+      assert.equal(other.status, 200);
+      // a new password signs everyone out
+      psql(`update public.stores set storefront_password = 'brand-new-1' where id = '${DRAFT_STORE}'`);
+      await page.reload();
+      await page.getByRole('heading', { level: 1, name: 'בקרוב' }).waitFor();
+      // ten wrong tries, then a pause (the database counts)
+      let limited = 0;
+      for (let i = 0; i < 12; i++) {
+        const r = await rawPost('draft.stores.test', '/api/unlock', JSON.stringify({ password: 'nope' }), { origin: `http://draft.stores.test:${PORT}` });
+        if (r.status === 429) limited++;
+      }
+      assert.ok(limited >= 1, 'too many tries are refused');
+      await ctx.close();
+      // no password: closed to everyone (the owner's preview link still opens it — the step of "בקרוב" above)
+      psql(`update public.stores set storefront_password = '' where id = '${DRAFT_STORE}'`);
+      const closed = await raw('draft.stores.test', '/');
+      assert.match(closed.body, /בקרוב/);
+      assert.doesNotMatch(closed.body, /יש לכם סיסמה/);
+      psql(`update public.stores set storefront_password = 'brand-new-1' where id = '${DRAFT_STORE}'`);
+      // a published store its owner locked: "בקרוב" and noindex at its own domain too, until the password
+      psql(`update public.stores set password_lock = true where slug = 'shoes'`);
+      try {
+        const locked = await raw('shoes.test', '/');
+        assert.match(locked.body, /בקרוב/);
+        assert.match(locked.body, /noindex/);
+        assert.match((await raw('shoes.test', '/robots.txt')).body, /Disallow: \/\n/);
+      } finally {
+        psql(`update public.stores set password_lock = false where slug = 'shoes'`);
+      }
+      assert.doesNotMatch((await raw('shoes.test', '/')).body, /noindex/, 'unlocked: open again');
+      } finally {
+        for (const x of (draftDomains || '').split(',').filter(Boolean)) {
+          const [d, st] = x.split('=');
+          psql(`update public.store_domains set status = '${st}' where domain = '${d}'`);
+        }
       }
     });
 

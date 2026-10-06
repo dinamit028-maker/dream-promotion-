@@ -228,6 +228,7 @@ input, select, textarea {
 .soon { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; gap: 8px; }
 .soon-logo { max-height: 72px; width: auto; margin-bottom: 12px; }
 .soon-name { font-weight: 800; font-size: 1.4rem; }
+.unlock { width: 100%; max-width: 340px; margin-top: 20px; text-align: start; display: grid; gap: 10px; }
 .soon h1 { font-size: clamp(2.4rem, 9vw, 4rem); font-weight: 800; }
 .not-found { padding-block: 64px; text-align: center; }
 

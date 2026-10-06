@@ -22,7 +22,8 @@ export async function generateMetadata(): Promise<Metadata> {
   // the tab's icon: the store's logo, else none at all ("data:," — no request for a /favicon.ico that does not exist)
   if (!site) return { title: 'הדף לא נמצא', robots: { index: false, follow: false }, icons: { icon: 'data:,' } };
   const s = site.store;
-  const indexable = !site.preview && !site.platform && s.status === 'published';
+  // only a store open to everyone, at its primary address, is indexed: never before publishing, locked, previewed or by password
+  const indexable = site.via === 'public' && !site.locked && !site.platform && s.status === 'published';
   return {
     metadataBase: new URL(site.origin),
     title: { default: s.name, template: `%s | ${s.name}` },
@@ -38,12 +39,12 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const { h, site } = await current();
   const nonce = h.get('x-nonce') ?? undefined;
-  // www ↔ the bare name: one address per store (308, permanent)
-  if (site && !site.isPrimary && site.primaryDomain && !site.preview && !site.platform) {
+  // www ↔ the bare name, and the subdomain ↔ the store's own domain once it works: one address per store (308, permanent)
+  if (site && !site.isPrimary && site.primaryDomain && site.via !== 'token' && !site.platform) {
     permanentRedirect(`https://${site.primaryDomain}${h.get('x-sf-path') || '/'}`);
   }
   // the storefront served this domain: it works (DNS + certificate) — the dashboard shows it "active"
-  if (site && !site.platform) after(() => markSeen(site.host));
+  if (site && !site.platform) after(() => markSeen(site.host, site.subdomain));
   const lang = site?.store.lang ?? 'he';
   return (
     <html lang={lang} dir={lang === 'he' ? 'rtl' : 'ltr'}>
@@ -56,7 +57,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         ) : site.live && isFullStore(site.store) ? (
           <StoreChrome site={{ ...site, store: site.store }}>{children}</StoreChrome>
         ) : (
-          <ComingSoon name={site.store.name} logo={site.store.logo_url} />
+          <ComingSoon name={site.store.name} logo={site.store.logo_url} password={site.passwordPage} />
         )}
       </body>
     </html>

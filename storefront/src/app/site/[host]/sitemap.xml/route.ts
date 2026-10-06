@@ -7,7 +7,7 @@ const day = (iso: string) => (/^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10) 
 
 export async function GET(_req: Request, { params }: { params: Promise<{ host: string }> }) {
   const site = await getSite(hostOf((await params).host));
-  const map = site && !site.preview && !site.platform && site.isPrimary ? await data.sitemap(site.storeId) : null;
+  const map = site && site.via === 'public' && !site.locked && !site.platform && site.isPrimary ? await data.sitemap(site.storeId) : null;
   if (!site || !map) return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   const o = site.origin;
   const urls: [string, string][] = [
