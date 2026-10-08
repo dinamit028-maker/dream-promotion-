@@ -1,16 +1,11 @@
-import bags from './kit-images/bags.json';
-import beauty from './kit-images/beauty.json';
-import fashion from './kit-images/fashion.json';
-import furniture from './kit-images/furniture.json';
-import general from './kit-images/general.json';
-import retail from './kit-images/retail.json';
-import services from './kit-images/services.json';
+import MANIFESTS from './kit-manifests.json';
 
 /**
  * The default pictures of the starter kits (2.62): shown where the business has no picture of its own yet — the hero, the
  * image-and-text section and a collection's tile — and gone the moment it adds one. They are not products and never enter
  * the catalog. A kit's pictures are files of this app (public/kit-images/<kit>/), its manifest is
- * src/lib/kit-images/<kit>.json (scripts/kit-images.mjs makes both from a delivered folder).
+ * src/lib/kit-images/<kit>.json (scripts/kit-images.mjs makes both from a delivered folder), gathered into
+ * src/lib/kit-manifests.json by the dashboard's `npm run kits`.
  * Gallery pictures stay in the owner's preview only: a gallery says "this is us" (before / after, Instagram), and a stock
  * picture there would claim something about the business.
  */
@@ -20,9 +15,9 @@ export interface KitImage {
 }
 export interface KitManifest { kit: string; version: number; images: KitImage[] }
 
-export const KIT_MANIFESTS: Record<string, KitManifest> = Object.fromEntries(
-  [bags, beauty, fashion, furniture, general, retail, services].map((m) => [m.kit, m as KitManifest]),
-);
+// 2.71: every kit's manifest, one generated file (dashboard `npm run kits`, from src/lib/kit-images/*.json) — a new kit
+// is a manifest and its pictures, no line of code here
+export const KIT_MANIFESTS = MANIFESTS as unknown as Record<string, KitManifest>;
 
 /** a picture ready for <img>: its address on this site, its size, its alt text and the class that sets its focal point */
 export interface KitPicture { src: string; width: number; height: number; alt: string; className: string }

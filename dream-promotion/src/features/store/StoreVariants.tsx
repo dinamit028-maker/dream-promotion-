@@ -77,6 +77,20 @@ export function DesignChoices({ d, change }: { d: Draft; change: (next: Draft) =
 }
 export type { ChromeKey, CommerceKey, DesignKey };
 
+/**
+ * 2.71 (the spec's sections 39–40): one design choice where it belongs in the visual editor — the header's and the footer's
+ * look in their own panels, the product card in a products section, the collection card in a collections section.
+ * The same choice as in "עיצוב כללי" (the business's over the kit's, back to the kit's).
+ */
+export function OneChoice({ d, group, name, change }: { d: Draft; group: Group; name: string; change: (next: Draft) => void }) {
+  const def = (LISTS[group] as Record<string, { label: string; options: { id: string; label: string }[] }>)[name];
+  return (
+    <Choice label={def.label} options={def.options} hasKit={Boolean(kitById(d.kit))}
+      own={(d.overrides[group] as Record<string, string>)[name]} kit={(kitVariants(d)[group] as Record<string, string>)[name]}
+      onPick={(v) => change(withOverride(d, group, name, v))} />
+  );
+}
+
 /** one section's layout — only for a type with more than one */
 export function SectionLayout({ d, section, change }: { d: Draft; section: Section; change: (next: Draft) => void }) {
   const options = SECTION_VARIANT_OPTIONS[section.type] ?? [];

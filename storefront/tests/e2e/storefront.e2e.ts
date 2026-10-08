@@ -895,7 +895,9 @@ async function main() {
         const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 0.5, locale: 'he-IL' });
         const page = await ctx.newPage();
         await page.goto(url('draft.test', `/?preview=${encodeURIComponent(token)}`));
-        for (const kit of ['bags', 'beauty', 'fashion', 'furniture', 'general', 'retail', 'services']) {
+        // 2.71: every kit in the dashboard's kits/ — a new kit gets its picture with no change here
+        const kitIds = readdirSync(path.resolve(ROOT, '../dream-promotion/kits')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
+        for (const kit of kitIds) {
           // the kit's own menus (a booking link → the contact page, as a kit applied with no booking page)
           const k = JSON.parse(readFileSync(path.resolve(ROOT, `../dream-promotion/kits/${kit}.json`), 'utf8'));
           const fix = (items: { label: string; href: string }[]) => items.map((l) => ({ ...l, href: l.href === 'booking' ? '/pages/contact' : l.href }));

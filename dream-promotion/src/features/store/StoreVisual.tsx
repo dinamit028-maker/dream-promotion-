@@ -9,7 +9,7 @@ import { loadCatalog } from '@/features/catalog/data';
 import { previewLink, publishVersion, saveDraft, type StoreBundle } from './data';
 import { DEVICES, draftErrors, draftOf, SECTION_DEFS, settingsOf, type Device, type Draft } from './theme-fields';
 import type { ThemeVersion } from './store';
-import { GlobalDesign, liveClasses, SectionLayout } from './StoreVariants';
+import { GlobalDesign, liveClasses, OneChoice, SectionLayout } from './StoreVariants';
 import { kitPictureShown } from './kits';
 import { FieldInput, ListInput } from './StoreDesign';
 import { Notice, TextRow } from './ui';
@@ -40,7 +40,7 @@ type Live = 'rerender' | 'reload' | 'none' | { move: string } | { remove: string
  * site stays right on every screen. Every change is saved as the draft by itself; "פרסום באתר" puts it on the air, and the
  * versions (the classic editor) bring an older one back.
  */
-type Sel = { id: string; field?: string; block?: string } | { add: true; after: string | null } | { announcement: true } | null;
+type Sel = { id: string; field?: string; block?: string } | { add: true; after: string | null } | { chrome: 'header' | 'footer' } | { announcement: true } | null;
 const SAVE_AFTER = 700;
 
 export function VisualEditor({ bundle, template, versions, reload, onClassic }: {
@@ -226,7 +226,21 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
 
   const panel = (
     <div className="space-y-3">
-      {sel && 'add' in sel ? (
+      {sel && 'chrome' in sel ? (
+        <>
+          <PanelHead title={sel.chrome === 'header' ? 'ראש האתר' : 'תחתית האתר'} onBack={() => setSel(null)} />
+          <p className="text-sm text-muted">{sel.chrome === 'header'
+            ? 'איך ראש האתר נראה — בכל העמודים. מה שכתוב בו (התפריט, הלוגו) נערך בעורכים שלו.'
+            : 'איך תחתית האתר נראית — בכל העמודים. הקישורים ופרטי העסק נערכים בעורכים שלהם.'}</p>
+          <OneChoice d={d} group="chrome" name={sel.chrome} change={changeGlobal} />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="soft" onClick={async () => { if (state !== 'saved' && !(await save())) return; router.push('/store/navigation'); }}>
+              {sel.chrome === 'header' ? 'עריכת התפריט הראשי' : 'עריכת הקישורים בתחתית'}</Button>
+            <Button size="sm" variant="ghost" onClick={async () => { if (state !== 'saved' && !(await save())) return; router.push('/store/settings#details'); }}>
+              {sel.chrome === 'header' ? 'השם והלוגו' : 'פרטי העסק'}</Button>
+          </div>
+        </>
+      ) : sel && 'add' in sel ? (
         <AddGallery where={sel.after ? `אחרי "${SECTION_DEFS[d.sections.find((s) => s.id === sel.after)?.type ?? 'text'].label}"` : 'בסוף עמוד הבית'}
           onBack={() => setSel(null)} onPick={(type) => {
             const r = addSection(d, type, sel.after, bundle.store!.name);
@@ -271,6 +285,8 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
           )}
           {SECTION_DEFS[section.type].soon && <Notice tone="info">{SECTION_DEFS[section.type].soon}</Notice>}
           <SectionLayout d={d} section={section} change={change} />
+          {section.type === 'products' && <OneChoice d={d} group="commerce" name="productCard" change={changeGlobal} />}
+          {section.type === 'collections' && <OneChoice d={d} group="commerce" name="collectionCard" change={changeGlobal} />}
           <SectionStyle d={d} section={section} device={device} onDevice={setDevice} change={(next, key) => {
             // at once on the page (its classes, checked there), the saved draft behind it
             const s = next.sections.find((x) => x.id === section.id);
@@ -301,7 +317,11 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
             <summary className="cursor-pointer text-sm font-semibold">עיצוב כללי — צבעים, גופן, ראש ותחתית, ריווח וכפתורים</summary>
             <div className="mt-3"><GlobalDesign d={d} change={changeGlobal} /></div>
           </details>
-          <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2" onClick={() => setSel({ announcement: true })}>הודעה בראש האתר</button>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2" onClick={() => setSel({ chrome: 'header' })}>עיצוב ראש האתר</button>
+            <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2" onClick={() => setSel({ chrome: 'footer' })}>עיצוב התחתית</button>
+            <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2" onClick={() => setSel({ announcement: true })}>הודעה בראש האתר</button>
+          </div>
         </>
       )}
     </div>
