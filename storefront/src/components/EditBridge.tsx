@@ -1,5 +1,6 @@
 'use client';
 import { useEffect } from 'react';
+import { STYLE_CLASS } from '@/lib/builder-registry';
 import type { EditMessage } from '@/lib/edit';
 import { tokenVars } from '@/lib/theme-tokens';
 
@@ -223,6 +224,11 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
       else if (m.type === 'remove' && id) { const el = byId(id); if (el === selected) select(null); el?.remove(); }
       else if (m.type === 'rerender' && Number.isInteger(m.rev)) void rerender(m.rev as number);
       else if (m.type === 'style') applyStyle(m);
+      // 2.68: a section's own design at once — only classes of the scales' shape (STYLE_CLASS), the saved draft follows
+      else if (m.type === 'sectionStyle' && id && Array.isArray(m.classes) && m.classes.length <= 12 && m.classes.every((c) => typeof c === 'string' && STYLE_CLASS.test(c))) {
+        const el = byId(id);
+        if (el) { el.classList.remove(...Array.from(el.classList).filter((c) => STYLE_CLASS.test(c))); el.classList.add(...(m.classes as string[])); }
+      }
     };
     document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);

@@ -1,6 +1,6 @@
 {
   "name": "dream-storefront",
-  "version": "2.67.0",
+  "version": "2.68.0",
   "private": true,
   "description": "The public storefront of Dream Commerce: one app for every business, chosen by the domain. Reads the database only through sf_* functions.",
   "engines": {

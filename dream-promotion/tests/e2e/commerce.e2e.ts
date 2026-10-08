@@ -863,6 +863,21 @@ async function main() {
       await until(() => free()?.columns[1].blocks.length === 0);
       const got = await frame.locator('body').evaluate(() => (window as any).got as any[]);
       assert.ok(got.some((m: any) => m.type === 'select' && m.id === 'custom-2' && m.block), 'the page is told which block is open');
+      // 2.68 (PR-3d): the section's own design — on the page at once ("sectionStyle"), then saved; a tablet its own, and back
+      await st.getByLabel('ריווח למעלה ולמטה (טלפון)').selectOption('l');
+      await until(() => free()?.style?.padY === 'l');
+      const sx = async () => ((await frame.locator('body').evaluate(() => (window as any).got as any[])).filter((m: any) => m.type === 'sectionStyle').at(-1));
+      assert.deepEqual(await sx(), { type: 'sectionStyle', id: 'custom-2', classes: ['sx-py-l'] });
+      await st.getByRole('button', { name: 'עיצוב לטאבלט' }).click();
+      assert.match((await st.locator('iframe[title^="האתר"]').getAttribute('class')) ?? '', /w-\[820px\]/, 'the site in a tablet\'s width');
+      await st.getByLabel('רקע (טאבלט)').selectOption('dark');
+      await until(() => free()?.responsive?.md?.surface === 'dark');
+      assert.deepEqual((await sx()).classes, ['sx-py-l', 'sx-md-sf-dark']);
+      await st.getByText('• רק בטאבלט').waitFor();
+      await st.getByRole('button', { name: /^חזרה לטלפון/ }).click();
+      await until(() => free()?.responsive === undefined);
+      assert.deepEqual(free().style, { padY: 'l' }, 'the phone\'s stays');
+      await st.getByRole('button', { name: 'עיצוב לטלפון' }).click();
       await noSideScroll(st, 'the free section\'s panel on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9c-blocks-phone.png'), fullPage: true });
     });

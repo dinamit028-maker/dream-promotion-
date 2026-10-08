@@ -91,3 +91,43 @@ export function cleanColumns(raw: unknown): Column[] {
   }
   return out;
 }
+
+/**
+ * 2.68 (PR-3d): a section's own design — only steps of fixed scales, never a colour or a pixel (the colours are the
+ * theme's tokens). The phone is the base; a tablet takes the phone's unless it has its own, a computer the tablet's.
+ * Nothing chosen = the look of the kit, as before. The classes are the same on both sides (styleClasses), and the
+ * storefront's CSS has one rule per value — so the editor may set them on the page at once.
+ */
+export const STYLE_SCALES = {
+  padY: [{ value: 'none', label: 'בלי' }, { value: 's', label: 'קטן' }, { value: 'm', label: 'בינוני' }, { value: 'l', label: 'גדול' }, { value: 'xl', label: 'גדול מאוד' }],
+  surface: [{ value: 'background', label: 'רקע האתר' }, { value: 'surface', label: 'לבן' }, { value: 'accentSoft', label: 'צבע עדין' }, { value: 'primary', label: 'הצבע הראשי' }, { value: 'dark', label: 'כהה' }],
+  align: [{ value: 'start', label: 'לימין' }, { value: 'center', label: 'למרכז' }],
+  width: [{ value: 'narrow', label: 'צר' }, { value: 'normal', label: 'רגיל' }, { value: 'wide', label: 'רחב' }, { value: 'full', label: 'כל המסך' }],
+} as const;
+export type StyleKey = keyof typeof STYLE_SCALES;
+export const STYLE_KEYS = Object.keys(STYLE_SCALES) as StyleKey[];
+export const STYLE_LABELS: Record<StyleKey, string> = { padY: 'ריווח למעלה ולמטה', surface: 'רקע', align: 'יישור', width: 'רוחב התוכן' };
+export type StyleValues = { [K in StyleKey]?: (typeof STYLE_SCALES)[K][number]['value'] };
+export type StyleDevice = 'md' | 'lg';
+export type Responsive = { [D in StyleDevice]?: StyleValues };
+const CLASS_KEY: Record<StyleKey, string> = { padY: 'py', surface: 'sf', align: 'al', width: 'w' };
+const CLASS_VALUE = (v: string) => v.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);   // accentSoft → accent-soft
+
+/** a style as it may be saved: only known keys, only values of their scale — else nothing */
+export function cleanStyle(raw: unknown): StyleValues {
+  const o = obj(raw), out: Record<string, string> = {};
+  for (const k of STYLE_KEYS) if (typeof o[k] === 'string' && STYLE_SCALES[k].some((x) => x.value === o[k])) out[k] = o[k] as string;
+  return out as StyleValues;
+}
+export function cleanResponsive(raw: unknown): Responsive {
+  const o = obj(raw), out: Responsive = {};
+  for (const d of ['md', 'lg'] as const) { const s = cleanStyle(o[d]); if (Object.keys(s).length) out[d] = s; }
+  return out;
+}
+/** the classes of a section's wrapper: sx-<key>-<value> for the phone, sx-md-… / sx-lg-… for the others */
+export function styleClasses(style: StyleValues | undefined, responsive: Responsive | undefined): string[] {
+  const one = (s: StyleValues | undefined, prefix: string) => STYLE_KEYS.filter((k) => s?.[k]).map((k) => `sx-${prefix}${CLASS_KEY[k]}-${CLASS_VALUE(s![k]!)}`);
+  return [...one(style, ''), ...one(responsive?.md, 'md-'), ...one(responsive?.lg, 'lg-')];
+}
+/** a class the page may take from the editor (the same shape as styleClasses) */
+export const STYLE_CLASS = /^sx-(md-|lg-)?(py|sf|al|w)-[a-z][a-z-]{0,14}$/;

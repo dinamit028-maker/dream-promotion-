@@ -16,6 +16,7 @@ import { AreaRow, Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui
 import { useStoreData } from './useStoreData';
 import { VisualEditor } from './StoreVisual';
 import { ColumnsField } from './BlockEditor';
+import { SectionStyle } from './SectionStyle';
 
 /**
  * "עיצוב" (2.55, the basic editor of stage 2): the template "שקיות ממותגות", its colours and corners, the bar at the top,
@@ -184,6 +185,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
                   <div className="border-t border-line p-3">
                     {def.soon && <Notice tone="info">{def.soon}</Notice>}
                     <SectionLayout d={d} section={s} change={change} />
+                    <SectionStyle d={d} section={s} device="base" change={(next) => change(next)} />
                     {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections} kitPicture={kitPictureShown(d.kit, s.type, f.key) && !(f.kind === 'kitpick' && s.settings.image)}
                       onChange={(v) => setSection(s.id, { settings: { ...s.settings, [f.key]: v } })} />)}
                     {s.type === 'custom' && <ColumnsField columns={s.columns ?? []} onChange={(columns) => setSection(s.id, { columns })} />}
