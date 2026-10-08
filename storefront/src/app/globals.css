@@ -633,7 +633,13 @@ input, select, textarea {
 @media (min-width: 1024px) { .hide-lg { display: none; } }
 
 /* ---- 2.67 — a free section: columns (a width of 12) and blocks; on a phone the columns stack ---------------------------- */
-.blk-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
+.blk-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px 16px; align-items: start; }
+.blk-b-3 { grid-column: span 3; }
+.blk-b-4 { grid-column: span 4; }
+.blk-b-6 { grid-column: span 6; }
+.blk-b-8 { grid-column: span 8; }
+.blk-b-9 { grid-column: span 9; }
+.blk-b-12 { grid-column: span 12; }   /* 2.70: a phone — 12 (one under the other) unless chosen */
 .blk-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .blk { min-width: 0; }
 .blk-h { font-weight: 800; letter-spacing: -.01em; line-height: 1.2; overflow-wrap: anywhere; }
@@ -650,13 +656,21 @@ input, select, textarea {
 .blk-space-m { height: 24px; }
 .blk-space-l { height: 56px; }
 @media (min-width: 700px) {
-  .blk-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 32px; }
+  .blk-grid { gap: 32px; }
   .blk-span-3 { grid-column: span 3; }
   .blk-span-4 { grid-column: span 4; }
   .blk-span-6 { grid-column: span 6; }
   .blk-span-8 { grid-column: span 8; }
   .blk-span-9 { grid-column: span 9; }
   .blk-span-12 { grid-column: span 12; }
+}
+@media (min-width: 1024px) {   /* 2.70: a computer, when it has its own */
+  .blk-l-3 { grid-column: span 3; }
+  .blk-l-4 { grid-column: span 4; }
+  .blk-l-6 { grid-column: span 6; }
+  .blk-l-8 { grid-column: span 8; }
+  .blk-l-9 { grid-column: span 9; }
+  .blk-l-12 { grid-column: span 12; }
 }
 .edit-mode [data-edit-block] { cursor: pointer; outline: 2px dashed transparent; outline-offset: 3px; border-radius: 4px; }
 .edit-mode [data-edit-block]:hover { outline-color: #ff7fa8; }

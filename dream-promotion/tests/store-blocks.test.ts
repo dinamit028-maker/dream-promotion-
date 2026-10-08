@@ -61,7 +61,7 @@ test('columns and blocks: added within the limits, with free ids; removed; a wid
   assert.deepEqual(shape(d.columns)[0], `c1:b1,${d.id},b2,b3`);
   assert.deepEqual(shape(removeBlock(cols(), 'b2')), ['c1:b1,b3', 'c2:b4', 'c3:']);
   assert.deepEqual(shape(removeColumn(cols(), 'c1')), ['c2:b4', 'c3:']);
-  assert.equal(setSpan(cols(), 'c1', 9)[0].span, 9);
+  assert.equal(setSpan(cols(), 'c1', 9)[0].span, 9, 'a tablet (and a computer): span');
   const same = cols();
   assert.equal(setSpan(same, 'c1', 7)[0], same[0], 'a width not on the list');
   assert.deepEqual(shape(stepColumn(cols(), 'c2', -1)), ['c2:b4', 'c1:b1,b2,b3', 'c3:']);

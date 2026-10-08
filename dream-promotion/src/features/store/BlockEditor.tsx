@@ -9,7 +9,7 @@ import { cx } from '@/lib/utils';
 import { Button, Select } from '@/components/ui/primitives';
 import { BLOCK_TYPES, BLOCKS, blockLinkOk, MAX_BLOCKS, MAX_COLUMNS, SPANS, type Block, type BlockType, type Column } from './builder-registry';
 import {
-  addBlock, addColumn, duplicateBlock, findBlock, moveBlock, removeBlock, removeColumn, setBlockField, setSpan, stepBlock, stepColumn,
+  addBlock, addColumn, duplicateBlock, findBlock, moveBlock, removeBlock, removeColumn, setBlockField, setSpan, spanShown, stepBlock, stepColumn, type ColumnDevice,
 } from './blocks';
 import { FieldInput } from './StoreDesign';
 import { Notice } from './ui';
@@ -27,19 +27,23 @@ const summary = (b: Block) => {
   return t.length > 28 ? `${t.slice(0, 28)}…` : t;
 };
 
-export function ColumnsEditor({ columns, block, onChange, onBlock }: {
+const DEVICE_LABEL: Record<ColumnDevice, string> = { base: 'טלפון', md: 'טאבלט', lg: 'מחשב' };
+
+export function ColumnsEditor({ columns, block, onChange, onBlock, device = 'md' }: {
   columns: Column[]; block: string | null;
+  /** 2.70: the screen whose widths are shown and set (the editor's screen switch) */
+  device?: ColumnDevice;
   onChange: (cols: Column[], key?: string | null) => void;
   onBlock: (id: string | null) => void;
 }) {
   const open = block ? findBlock(columns, block) : null;
   if (open) return <BlockFields columns={columns} at={open} onChange={onChange} onBlock={onBlock} />;
-  const total = columns.reduce((n, c) => n + c.span, 0);
+  const total = columns.reduce((n, c) => n + spanShown(c, device), 0);
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted">עמודות זו לצד זו במחשב ובטאבלט; בטלפון אחת מתחת לשנייה. בכל עמודה — בלוקים, שאפשר לגרור גם לעמודה אחרת.</p>
-      {total > 12 && <Notice tone="info">{`סך הרוחב ${total} מתוך 12 — מה שלא נכנס בשורה יורד לשורה הבאה.`}</Notice>}
-      <BlockBoard columns={columns} onChange={onChange} onBlock={onBlock} />
+      <p className="text-sm text-muted">{`הרוחב של כל עמודה — ב${DEVICE_LABEL[device]} (מחליפים מסך למעלה). בטלפון, בלי בחירה, העמודות אחת מתחת לשנייה; במחשב — כמו בטאבלט. בכל עמודה בלוקים, שאפשר לגרור גם לעמודה אחרת.`}</p>
+      {total > 12 && <Notice tone="info">{`ב${DEVICE_LABEL[device]}: סך הרוחב ${total} מתוך 12 — מה שלא נכנס בשורה יורד לשורה הבאה.`}</Notice>}
+      <BlockBoard columns={columns} onChange={onChange} onBlock={onBlock} device={device} />
       <Button size="sm" variant="soft" disabled={columns.length >= MAX_COLUMNS} onClick={() => onChange(addColumn(columns))}>
         {columns.length >= MAX_COLUMNS ? `עד ${MAX_COLUMNS} עמודות` : '+ עמודה'}
       </Button>
@@ -50,10 +54,19 @@ export function ColumnsEditor({ columns, block, onChange, onBlock }: {
 /** the classic editor: the same panel, the open block kept here (there is no page to click on) */
 export function ColumnsField({ columns, onChange }: { columns: Column[]; onChange: (cols: Column[]) => void }) {
   const [block, setBlock] = useState<string | null>(null);
-  return <ColumnsEditor columns={columns} block={block} onChange={(cols) => onChange(cols)} onBlock={setBlock} />;
+  const [device, setDevice] = useState<ColumnDevice>('md');
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-1" role="group" aria-label="הרוחב של העמודות — לאיזה מסך">
+        {(['base', 'md', 'lg'] as const).map((dv) => <Button key={dv} size="sm" variant={device === dv ? 'primary' : 'ghost'} aria-pressed={device === dv}
+          onClick={() => setDevice(dv)}>{DEVICE_LABEL[dv]}</Button>)}
+      </div>
+      <ColumnsEditor columns={columns} block={block} onChange={(cols) => onChange(cols)} onBlock={setBlock} device={device} />
+    </div>
+  );
 }
 
-function BlockBoard({ columns, onChange, onBlock }: { columns: Column[]; onChange: (cols: Column[]) => void; onBlock: (id: string) => void }) {
+function BlockBoard({ columns, onChange, onBlock, device }: { columns: Column[]; onChange: (cols: Column[]) => void; onBlock: (id: string) => void; device: ColumnDevice }) {
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 400, tolerance: 8 } }),
@@ -84,8 +97,8 @@ function BlockBoard({ columns, onChange, onBlock }: { columns: Column[]; onChang
       accessibility={{ announcements, screenReaderInstructions: { draggable: 'כדי להזיז בלוק: רווח כדי להרים, חיצים כדי להזיז (גם לעמודה אחרת), רווח כדי להניח, Escape כדי לבטל.' } }}>
       <div className="space-y-3">
         {columns.map((c, n) => (
-          <ColumnBox key={c.id} column={c} n={n} count={columns.length} onBlock={onBlock}
-            onSpan={(span) => onChange(setSpan(columns, c.id, span))}
+          <ColumnBox key={c.id} column={c} n={n} count={columns.length} onBlock={onBlock} device={device}
+            onSpan={(span) => onChange(setSpan(columns, c.id, span, device))}
             onStep={(by) => onChange(stepColumn(columns, c.id, by))}
             onRemove={() => { if (!c.blocks.length || window.confirm(`למחוק את עמודה ${n + 1} עם הבלוקים שבה?`)) onChange(removeColumn(columns, c.id)); }}
             onAdd={(type) => { const r = addBlock(columns, c.id, type); if (r) { onChange(r.columns); onBlock(r.id); } }} />
@@ -95,8 +108,8 @@ function BlockBoard({ columns, onChange, onBlock }: { columns: Column[]; onChang
   );
 }
 
-function ColumnBox({ column: c, n, count, onBlock, onSpan, onStep, onRemove, onAdd }: {
-  column: Column; n: number; count: number; onBlock: (id: string) => void;
+function ColumnBox({ column: c, n, count, onBlock, device, onSpan, onStep, onRemove, onAdd }: {
+  column: Column; n: number; count: number; onBlock: (id: string) => void; device: ColumnDevice;
   onSpan: (span: number) => void; onStep: (by: -1 | 1) => void; onRemove: () => void; onAdd: (type: BlockType) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `${COL}${c.id}` });
@@ -106,8 +119,10 @@ function ColumnBox({ column: c, n, count, onBlock, onSpan, onStep, onRemove, onA
       <legend className="px-1 text-sm font-bold">{`עמודה ${n + 1}`}</legend>
       <div className="mb-2 flex flex-wrap items-end gap-2">
         <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-ink-2">רוחב</span>
-          <Select value={String(c.span)} onChange={(e) => onSpan(Number(e.target.value))} aria-label={`הרוחב של עמודה ${n + 1}`}>
+          <span className="mb-1 flex gap-1 text-xs font-semibold text-ink-2">{`רוחב (${DEVICE_LABEL[device]})`}
+            {device === 'base' && c.spanBase && <span className="text-primary">• לא אחת מתחת לשנייה</span>}
+            {device === 'lg' && c.spanLg && <span className="text-primary">• רק במחשב</span>}</span>
+          <Select value={String(spanShown(c, device))} onChange={(e) => onSpan(Number(e.target.value))} aria-label={`הרוחב של עמודה ${n + 1} (${DEVICE_LABEL[device]})`}>
             {SPANS.map((s) => <option key={s} value={s}>{`${SPAN_LABEL[s]} (${s}/12)`}</option>)}
           </Select>
         </label>

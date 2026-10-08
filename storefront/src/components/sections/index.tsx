@@ -2,7 +2,7 @@ import { data } from '@/lib/data';
 import { whatsappHref } from '@/lib/format';
 import type { Site } from '@/lib/site';
 import { safeImage, type Section } from '@/lib/theme';
-import type { Block, Column } from '@/lib/builder-registry';
+import { columnClasses, type Block, type Column } from '@/lib/builder-registry';
 import type { Store } from '@/lib/types';
 import { resolveHref } from '../chrome';
 import { Art, PlaceholderGrid, ProductGrid } from '../ui';
@@ -323,7 +323,7 @@ function Custom({ columns, site, id }: { columns: Column[]; site: Live; id: stri
     <section className="band blk-section" id={id}>
       <div className="wrap blk-grid">
         {columns.map((c) => (
-          <div key={c.id} className={`blk-col blk-span-${c.span}${c.blocks.length ? '' : ' blk-col-empty'}`} {...editColumn(e, c.id)}>
+          <div key={c.id} className={['blk-col', ...columnClasses(c), ...(c.blocks.length ? [] : ['blk-col-empty'])].join(' ')} {...editColumn(e, c.id)}>
             {c.blocks.map((b) => <BlockView key={b.id} b={b} site={site} />)}
           </div>
         ))}

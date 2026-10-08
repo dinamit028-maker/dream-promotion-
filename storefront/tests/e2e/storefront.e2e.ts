@@ -647,6 +647,23 @@ async function main() {
         const [m1, m2] = await Promise.all([page.locator('#free .blk-span-8').boundingBox(), page.locator('#free .blk-span-4').boundingBox()]);
         assert.ok(m2!.y > m1!.y + m1!.height - 1 && Math.abs(m1!.width - m2!.width) < 2, 'one under the other on a phone');
         await ctx.close();
+        // 2.70: a width for the phone — half and half, side by side; a computer its own (9 + 3)
+        const per = JSON.parse(JSON.stringify(settings));
+        per.sections[1].columns[0] = { ...per.sections[1].columns[0], spanBase: 6, spanLg: 9 };
+        per.sections[1].columns[1] = { ...per.sections[1].columns[1], spanBase: 6, spanLg: 3 };
+        psql(`update public.store_theme_versions set settings = '${JSON.stringify(per).replace(/'/g, "''")}' where id = '${DRAFT}'`);
+        const p2 = await phone();
+        await p2.page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        const [q1, q2] = await Promise.all([p2.page.locator('#free .blk-b-6').first().boundingBox(), p2.page.locator('#free .blk-b-6').nth(1).boundingBox()]);
+        assert.ok(Math.abs(q1!.y - q2!.y) < 2 && Math.abs(q1!.width - q2!.width) < 2, 'side by side on a phone');
+        await p2.ctx.close();
+        const d2 = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+        const dp2 = await d2.newPage();
+        await dp2.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        const [w1, w2] = await Promise.all([dp2.locator('#free .blk-l-9').boundingBox(), dp2.locator('#free .blk-l-3').boundingBox()]);
+        assert.ok(w1!.width > w2!.width * 2.5, 'a computer: 9 and 3');
+        await d2.close();
+        psql(`update public.store_theme_versions set settings = '${JSON.stringify(settings).replace(/'/g, "''")}' where id = '${DRAFT}'`);
         // a shopper's page has no placeholder (the draft is not theirs anyway); the edit frame: a block names itself
         const edit = await phone(800);
         await edit.page.goto(`http://127.0.0.1:${DASH_PORT}/frame?src=${encodeURIComponent(url('followme.test', `/?edit=${encodeURIComponent(token)}`))}`);

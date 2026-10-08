@@ -159,3 +159,12 @@ export function editFrameUrl(base: string, path: string, token: string): string 
   u.searchParams.set('edit', token);
   return u.toString();
 }
+
+/**
+ * 2.70: the frame at a screen's real width, in the space the dashboard has: scaled down (never up) to fit its width,
+ * as tall as the space when scaled, centred. A phone sees a tablet's or a computer's page whole, only smaller.
+ */
+export function frameFit(space: { width: number; height: number }, frameWidth: number): { scale: number; width: number; height: number; left: number } {
+  const scale = space.width > 0 ? Math.min(1, space.width / frameWidth) : 1;
+  return { scale, width: frameWidth, height: Math.round(space.height / scale), left: Math.max(0, Math.round((space.width - frameWidth * scale) / 2)) };
+}

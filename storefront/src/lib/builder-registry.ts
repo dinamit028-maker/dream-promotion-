@@ -12,7 +12,11 @@ export type BlockType = 'heading' | 'paragraph' | 'button' | 'image' | 'badge' |
 export type Span = 3 | 4 | 6 | 8 | 9 | 12;
 export const SPANS: readonly Span[] = [3, 4, 6, 8, 9, 12];
 export interface Block { id: string; type: BlockType; settings: Record<string, string> }
-export interface Column { id: string; span: Span; blocks: Block[] }
+/**
+ * A column's width of 12: `span` on a tablet (and a computer, unless `spanLg`); on a phone `spanBase` — 12 when not set,
+ * so the columns stack, as before 2.70.
+ */
+export interface Column { id: string; span: Span; spanBase?: Span; spanLg?: Span; blocks: Block[] }
 
 export type BlockFieldKind = 'text' | 'longtext' | 'link' | 'image' | 'choice';
 export interface BlockField { key: string; label: string; kind: BlockFieldKind; max?: number; options?: { value: string; label: string }[] }
@@ -47,6 +51,10 @@ export const MAX_COLUMNS = 4;
 export const MAX_BLOCKS = 12;
 const ID = /^[a-z][a-z0-9-]{0,30}$/;
 
+/** 2.70: a column's classes — a phone (blk-b-N), a tablet and up (blk-span-N), a computer (blk-l-N) */
+export const columnClasses = (c: Column): string[] =>
+  [`blk-b-${c.spanBase ?? 12}`, `blk-span-${c.span}`, ...(c.spanLg ? [`blk-l-${c.spanLg}`] : [])];
+
 /** a link the storefront may render: a path of the store, an https address, the store's WhatsApp or its contact section */
 export function blockLinkOk(v: string): boolean {
   if (v === '' || v === 'whatsapp' || v === '#contact') return true;
@@ -76,6 +84,9 @@ export function cleanColumns(raw: unknown): Column[] {
     if (typeof o.id !== 'string' || !ID.test(o.id) || seen.has(o.id)) continue;
     seen.add(o.id);
     const span = SPANS.includes(o.span as Span) ? (o.span as Span) : 12;
+    const more: Partial<Column> = {};
+    if (SPANS.includes(o.spanBase as Span) && o.spanBase !== 12) more.spanBase = o.spanBase as Span;
+    if (SPANS.includes(o.spanLg as Span) && o.spanLg !== span) more.spanLg = o.spanLg as Span;
     const blocks: Block[] = [];
     for (const b of Array.isArray(o.blocks) ? o.blocks.slice(0, MAX_BLOCKS) : []) {
       const r = obj(b);
@@ -87,7 +98,7 @@ export function cleanColumns(raw: unknown): Column[] {
       for (const f of def.fields) { const v = cleanField(f, s[f.key]); if (v !== undefined) settings[f.key] = v; }
       blocks.push({ id: r.id, type: def.type, settings });
     }
-    out.push({ id: o.id, span, blocks });
+    out.push({ id: o.id, span, ...more, blocks });
   }
   return out;
 }

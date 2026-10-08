@@ -14,7 +14,7 @@ import { kitPictureShown } from './kits';
 import { FieldInput, ListInput } from './StoreDesign';
 import { Notice, TextRow } from './ui';
 import {
-  addSection, applyText, canGrow, duplicateSection, editFrameUrl, editRoute, moveSection, moveSectionAt, moveSectionTo, readMessage,
+  addSection, applyText, frameFit, canGrow, duplicateSection, editFrameUrl, editRoute, moveSection, moveSectionAt, moveSectionTo, readMessage,
   removeSection, shownIndex,
 } from './visual-edit';
 import { emptyHistory, record, redo as redoStep, undo as undoStep, type History } from './history';
@@ -60,6 +60,20 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
   const [path, setPath] = useState('/');
   const [frameRev, setFrameRev] = useState(0);
   const [device, setDevice] = useState<Device>('base');
+  // 2.70: the frame at the screen's real width (390 / 820 / 1280), scaled down to fit the space it has (a phone, a laptop)
+  const box = useRef<HTMLDivElement>(null);
+  const [space, setSpace] = useState({ width: 0, height: 512 });
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => setSpace({ width: el.clientWidth, height: Math.max(512, window.innerHeight - 224) });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el); window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
+  const frameWidth = DEVICES.find((x) => x.id === device)!.width;
+  const fit = frameFit(space, frameWidth);
   const frame = useRef<HTMLIFrameElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rerenderAfter = useRef(false);
@@ -269,7 +283,7 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
                 onChange={(v) => setSection({ settings: { ...section.settings, [f.key]: v } }, 'rerender', `field:${section.id}:${f.key}`)} />
             </div>
           ))}
-          {section.type === 'custom' && <ColumnsEditor columns={section.columns ?? []} block={sel && 'id' in sel ? sel.block ?? null : null}
+          {section.type === 'custom' && <ColumnsEditor columns={section.columns ?? []} device={device} block={sel && 'id' in sel ? sel.block ?? null : null}
             onChange={(cols, key = null) => change(withColumns(d, section.id, cols), 'rerender', key ? `${section.id}:${key}` : null)}
             onBlock={(block) => { setSel({ id: section.id, ...(block ? { block } : {}) }); post({ type: 'select', id: section.id, block }); }} />}
           {SECTION_DEFS[section.type].list && <ListInput def={SECTION_DEFS[section.type].list!} rows={(Array.isArray(section.settings.items) ? section.settings.items : []) as Record<string, unknown>[]}
@@ -312,11 +326,12 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
         {path !== '/' && <Button size="sm" variant="ghost" onClick={() => { setPath('/'); setSel(null); setFrameRev((n) => n + 1); }}>לדף הבית</Button>}
       </div>
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-4">
-        <div className="flex justify-center overflow-hidden rounded-xl border border-line bg-surface-2">
+        <div ref={box} className="relative overflow-hidden rounded-xl border border-line bg-surface-2" style={{ height: space.height }}>
           {link ? (
             <iframe key={`${frameRev}-${link.token}`} ref={frame} title="האתר — לחיצה על חלק פותחת את העריכה שלו"
               src={editFrameUrl(link.base, path, link.token)}
-              className={cx('h-[calc(100dvh-14rem)] min-h-[32rem] max-w-full bg-white', { base: 'w-[390px]', md: 'w-[820px]', lg: 'w-full' }[device])} />
+              data-scale={fit.scale.toFixed(3)} className="absolute top-0 bg-white"
+              style={{ width: fit.width, height: fit.height, left: fit.left, transform: `scale(${fit.scale})`, transformOrigin: 'top left' }} />
           ) : !linkError && <p className="flex items-center gap-2 p-6 text-muted"><Spinner /> טוען את האתר…</p>}
         </div>
         {/* the panel: beside the site on a wide screen; a bottom sheet on a phone, when something is chosen */}

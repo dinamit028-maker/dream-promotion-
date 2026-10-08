@@ -45,3 +45,13 @@ test('the library (2.69): every kind\'s starting words pass the storefront\'s th
     if (x.columns) assert.deepEqual(s.columns, x.columns);
   }
 });
+
+test('columns per screen (2.70): every width class has its rule — a phone, a tablet, a computer', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { columnClasses, SPANS } = await import('../../src/lib/builder-registry');
+  const css = readFileSync(join(__dirname, '../../src/app/globals.css'), 'utf8');
+  for (const n of SPANS) for (const c of columnClasses({ id: 'x', span: n, spanBase: n, spanLg: n, blocks: [] })) assert.ok(css.includes(`.${c} {`), c);
+  const t = resolveTheme('kit', { sections: [{ id: 'f', type: 'custom', settings: {}, columns: [{ id: 'a', span: 8, spanBase: 6, spanLg: 9, blocks: [] }] }] });
+  assert.deepEqual(t.sections[0].columns, [{ id: 'a', span: 8, spanBase: 6, spanLg: 9, blocks: [] }]);
+});

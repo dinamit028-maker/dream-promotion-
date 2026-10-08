@@ -30,9 +30,19 @@ export function addColumn(cols: Column[]): Column[] {
   return cols.length >= MAX_COLUMNS ? cols : [...cols, { id: freeId(cols, 'c'), span: 4, blocks: [] }];
 }
 export const removeColumn = (cols: Column[], id: string): Column[] => (cols.some((c) => c.id === id) ? cols.filter((c) => c.id !== id) : cols);
-export function setSpan(cols: Column[], id: string, span: number): Column[] {
-  if (!SPANS.includes(span as Span)) return cols;
-  return cols.map((c) => (c.id === id && c.span !== span ? { ...c, span: span as Span } : c));
+/** 2.70: a column's width on a screen — a phone: 12 unless chosen; a tablet: `span`; a computer: the tablet's unless chosen */
+export type ColumnDevice = 'base' | 'md' | 'lg';
+export const spanShown = (c: Column, device: ColumnDevice): Span => (device === 'base' ? c.spanBase ?? 12 : device === 'lg' ? c.spanLg ?? c.span : c.span);
+/** a width for one screen; a phone's 12 and a computer's equal to the tablet's are not kept (they are what is there anyway) */
+export function setSpan(cols: Column[], id: string, span: number, device: ColumnDevice = 'md'): Column[] {
+  const c = cols.find((x) => x.id === id);
+  if (!c || !SPANS.includes(span as Span) || spanShown(c, device) === span) return cols;
+  const s = span as Span;
+  let next: Column;
+  if (device === 'base') { const { spanBase: _b, ...rest } = c; next = s === 12 ? rest : { ...rest, spanBase: s }; }
+  else if (device === 'lg') { const { spanLg: _l, ...rest } = c; next = s === c.span ? rest : { ...rest, spanLg: s }; }
+  else { const { spanLg, ...rest } = c; next = { ...rest, span: s, ...(spanLg && spanLg !== s ? { spanLg } : {}) }; }
+  return cols.map((x) => (x === c ? next : x));
 }
 /** a column one place to the side (in a Hebrew page, -1 is to the right) */
 export function stepColumn(cols: Column[], id: string, by: -1 | 1): Column[] {
