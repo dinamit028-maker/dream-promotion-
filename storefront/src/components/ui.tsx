@@ -56,14 +56,15 @@ export function ProductCard({ p, currency, eager = false }: { p: Card; currency:
   );
 }
 
-export function ProductGrid({ items, currency, eagerFirst = 0 }: { items: Card[]; currency: string; eagerFirst?: number }) {
-  return <ul className="grid" role="list">{items.map((p, i) => <ProductCard key={p.slug} p={p} currency={currency} eager={i < eagerFirst} />)}</ul>;
+/** layout (2.63): '' = the grid; 'carousel' = one row that scrolls sideways */
+export function ProductGrid({ items, currency, eagerFirst = 0, layout = '' }: { items: Card[]; currency: string; eagerFirst?: number; layout?: string }) {
+  return <ul className={layout === 'carousel' ? 'grid grid--carousel' : 'grid'} role="list">{items.map((p, i) => <ProductCard key={p.slug} p={p} currency={currency} eager={i < eagerFirst} />)}</ul>;
 }
 
 /** 2.58: before there are products, the owner's preview shows where they will be — shapes only, never a made-up product */
-export function PlaceholderGrid({ count = 4, label = 'כאן יופיע מוצר' }: { count?: number; label?: string }) {
+export function PlaceholderGrid({ count = 4, label = 'כאן יופיע מוצר', layout = '' }: { count?: number; label?: string; layout?: string }) {
   return (
-    <ul className="grid" role="list" aria-label="מקום למוצרים">
+    <ul className={layout === 'carousel' ? 'grid grid--carousel' : 'grid'} role="list" aria-label="מקום למוצרים">
       {Array.from({ length: count }, (_, i) => (
         <li key={i} className="card card-placeholder">
           <span className="card-link">

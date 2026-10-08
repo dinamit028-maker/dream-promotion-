@@ -717,6 +717,24 @@ async function main() {
       // (the hero is the section the editor opens with)
       await st.getByText('באתר מוצגת עכשיו תמונה של הערכה. תמונה שתעלו תחליף אותה.').waitFor({ timeout: 60_000 });
       await st.getByText('של הערכה', { exact: true }).waitFor();
+      // 2.63: the design choices — the kit's shown as "(של הערכה)"; the business's choice is the only thing saved, and goes back
+      const look = block(st, 'עיצוב האתר');
+      const header = look.getByLabel('ראש האתר');
+      assert.equal(await header.inputValue(), 'centered-logo', 'the beauty kit\'s header');
+      await header.selectOption('transparent-overlay');
+      await st.getByRole('button', { name: 'שמירת טיוטה' }).click();
+      await st.getByText(/הטיוטה נשמרה/).waitFor();
+      const saved = () => fake.tables.store_theme_versions.find((v) => v.status === 'draft')!.settings;
+      assert.deepEqual(saved().chrome, { header: 'transparent-overlay' }, 'only what the business picked');
+      assert.equal(saved().design, undefined, 'nothing else of the design');
+      await look.getByRole('button', { name: 'חזרה לברירת המחדל של הערכה' }).click();
+      assert.equal(await header.inputValue(), 'centered-logo');
+      await st.getByRole('button', { name: 'שמירת טיוטה' }).click();
+      await st.waitForFunction(() => !document.body.textContent?.includes('יש שינויים שלא נשמרו'));
+      for (let i = 0; i < 50 && saved().chrome !== undefined; i++) await st.waitForTimeout(100);
+      assert.equal(saved().chrome, undefined, 'back to the kit\'s: nothing saved');
+      // a section's layout: the hero, the kit's "editorial"
+      assert.equal(await st.getByLabel('פריסה').first().inputValue(), 'editorial');
       // the menus screen names a link to what is not on the site
       await st.goto(`${BASE}/store/navigation`, { waitUntil: 'domcontentloaded' });
       await st.getByRole('heading', { name: 'תפריטים', exact: true }).waitFor({ timeout: 60_000 });

@@ -1,0 +1,189 @@
+{
+  "bags": {
+    "design": {
+      "spacing": "normal",
+      "headingScale": "large",
+      "buttonStyle": "solid",
+      "container": "normal",
+      "cardStyle": "border"
+    },
+    "chrome": {
+      "header": "commerce-wide",
+      "footer": "multi-column"
+    },
+    "commerce": {
+      "productCard": "classic",
+      "collectionCard": "grid",
+      "productPage": "classic"
+    },
+    "sections": {
+      "hero": "split",
+      "collections": "grid",
+      "featured": "grid",
+      "about": "split",
+      "steps": "cards",
+      "faq": "accordion",
+      "contact": "centered"
+    }
+  },
+  "beauty": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "display",
+      "buttonStyle": "soft",
+      "container": "wide",
+      "cardStyle": "soft"
+    },
+    "chrome": {
+      "header": "centered-logo",
+      "footer": "centered"
+    },
+    "commerce": {
+      "productCard": "minimal",
+      "collectionCard": "circles",
+      "productPage": "gallery-right"
+    },
+    "sections": {
+      "hero": "editorial",
+      "treatments": "overlap",
+      "before-after": "editorial",
+      "care": "grid",
+      "steps": "cards",
+      "faq": "accordion",
+      "contact": "centered"
+    }
+  },
+  "fashion": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "display",
+      "buttonStyle": "underline",
+      "container": "wide",
+      "cardStyle": "flat"
+    },
+    "chrome": {
+      "header": "transparent-overlay",
+      "footer": "minimal"
+    },
+    "commerce": {
+      "productCard": "editorial",
+      "collectionCard": "editorial",
+      "productPage": "gallery-left"
+    },
+    "sections": {
+      "hero": "full-image",
+      "new": "grid",
+      "categories": "editorial",
+      "story": "full-bleed",
+      "instagram": "masonry",
+      "newsletter": "minimal",
+      "contact": "dark"
+    }
+  },
+  "furniture": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "large",
+      "buttonStyle": "outline",
+      "container": "wide",
+      "cardStyle": "flat"
+    },
+    "chrome": {
+      "header": "minimal",
+      "footer": "multi-column"
+    },
+    "commerce": {
+      "productCard": "minimal",
+      "collectionCard": "editorial",
+      "productPage": "wide"
+    },
+    "sections": {
+      "hero": "editorial",
+      "rooms": "editorial",
+      "featured": "grid",
+      "delivery": "overlap",
+      "steps": "cards",
+      "faq": "accordion",
+      "contact": "centered"
+    }
+  },
+  "general": {
+    "design": {
+      "spacing": "normal",
+      "headingScale": "normal",
+      "buttonStyle": "solid",
+      "container": "normal",
+      "cardStyle": "border"
+    },
+    "chrome": {
+      "header": "compact",
+      "footer": "minimal"
+    },
+    "commerce": {
+      "productCard": "classic",
+      "collectionCard": "grid",
+      "productPage": "classic"
+    },
+    "sections": {
+      "hero": "centered",
+      "featured": "grid",
+      "collections": "grid",
+      "about": "split",
+      "faq": "accordion",
+      "contact": "centered"
+    }
+  },
+  "retail": {
+    "design": {
+      "spacing": "compact",
+      "headingScale": "large",
+      "buttonStyle": "solid",
+      "container": "normal",
+      "cardStyle": "shadow"
+    },
+    "chrome": {
+      "header": "search-heavy",
+      "footer": "dark"
+    },
+    "commerce": {
+      "productCard": "compact",
+      "collectionCard": "carousel",
+      "productPage": "classic"
+    },
+    "sections": {
+      "hero": "slider",
+      "categories": "carousel",
+      "new": "carousel",
+      "sale": "carousel",
+      "recommended": "carousel",
+      "faq": "accordion",
+      "contact": "dark"
+    }
+  },
+  "services": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "large",
+      "buttonStyle": "solid",
+      "container": "wide",
+      "cardStyle": "soft"
+    },
+    "chrome": {
+      "header": "centered-logo",
+      "footer": "multi-column"
+    },
+    "commerce": {
+      "productCard": "horizontal",
+      "collectionCard": "grid",
+      "productPage": "compact"
+    },
+    "sections": {
+      "hero": "split",
+      "what": "split",
+      "steps": "horizontal",
+      "packages": "grid",
+      "faq": "accordion",
+      "contact": "centered"
+    }
+  }
+}

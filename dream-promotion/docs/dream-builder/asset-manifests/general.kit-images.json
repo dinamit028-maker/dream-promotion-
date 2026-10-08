@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "kit": "general",
+  "source": "existing-kit-images-branch",
+  "verified": true,
+  "zip": "general.zip",
+  "folder": "general",
+  "assets": [
+    {
+      "file": "general-hero-wide.webp",
+      "slot": "hero",
+      "variant": "wide",
+      "order": 1,
+      "width": 1672,
+      "height": 940,
+      "focal": {
+        "x": 0.25,
+        "y": 0.6
+      },
+      "textSafe": "start",
+      "alt": "מטבח מודרני עם אי אבן אפור וקערה כחולה מלאה לימונים"
+    },
+    {
+      "file": "general-hero-wide-2.webp",
+      "slot": "hero",
+      "variant": "wide",
+      "order": 2,
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.25,
+        "y": 0.65
+      },
+      "textSafe": "start",
+      "alt": "ספסל עץ כחול על בסיסי בטון בחצר עם לבנדר ועשבים גבוהים"
+    },
+    {
+      "file": "general-hero-vertical.webp",
+      "slot": "hero",
+      "variant": "vertical",
+      "order": 3,
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.55,
+        "y": 0.6
+      },
+      "textSafe": "",
+      "alt": "מיטה עם מצעי פשתן אפורים ושמיכה כחולה ליד חלון"
+    },
+    {
+      "file": "general-image-text.webp",
+      "slot": "imageText",
+      "variant": "wide",
+      "order": 1,
+      "width": 1255,
+      "height": 941,
+      "focal": {
+        "x": 0.45,
+        "y": 0.45
+      },
+      "textSafe": "",
+      "alt": "מתלה בגדים שחור עם חולצות ומעילים בכחול, אפור ולבן"
+    },
+    {
+      "file": "general-cat-new.webp",
+      "slot": "collection",
+      "variant": "wide",
+      "order": 1,
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "textSafe": "",
+      "alt": "בקבוק מים כחול, כוס זכוכית, מברשת, סבון ומגבות מסודרים על רקע אפור",
+      "collection": "new"
+    },
+    {
+      "file": "general-cat-sale.webp",
+      "slot": "collection",
+      "variant": "wide",
+      "order": 2,
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.45,
+        "y": 0.5
+      },
+      "textSafe": "",
+      "alt": "ערימת סוודרים סרוגים בכחול, אפור ושמנת",
+      "collection": "sale"
+    },
+    {
+      "file": "general-gallery-1.webp",
+      "slot": "gallery",
+      "variant": "vertical",
+      "order": 1,
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "textSafe": "",
+      "alt": "מים נמזגים מקנקן זכוכית לכוס כחולה"
+    },
+    {
+      "file": "general-gallery-2.webp",
+      "slot": "gallery",
+      "variant": "vertical",
+      "order": 2,
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.4,
+        "y": 0.5
+      },
+      "textSafe": "",
+      "alt": "שרך ירוק בעציץ קרמיקה כחול על בסיס בטון"
+    },
+    {
+      "file": "general-gallery-3.webp",
+      "slot": "gallery",
+      "variant": "vertical",
+      "order": 3,
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.55,
+        "y": 0.6
+      },
+      "textSafe": "",
+      "alt": "אופניים כחולים עם סל קש נשענים על קיר אבן"
+    }
+  ]
+}

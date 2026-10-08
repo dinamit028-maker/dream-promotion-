@@ -1,0 +1,244 @@
+{
+  "id": "services",
+  "name": "שירותים",
+  "description": "לנותני שירות: מה אתם עושים, איך זה עובד, חבילות ושאלות נפוצות — עם דרך מהירה לפנות.",
+  "order": 50,
+  "keywords": [
+    "שירות",
+    "שירותים",
+    "ייעוץ",
+    "יועץ",
+    "יועצת",
+    "הדרכה",
+    "קורס",
+    "סדנה",
+    "אימון",
+    "מאמן",
+    "צילום",
+    "צלם",
+    "הובלות",
+    "שיפוצים",
+    "ניקיון",
+    "עורך דין",
+    "רואה חשבון",
+    "services",
+    "consulting"
+  ],
+  "seoDescription": "{{name}} — השירותים, איך זה עובד, ודרך מהירה לפנות אלינו.",
+  "theme": {
+    "colors": {
+      "background": "#f8fafc",
+      "surface": "#ffffff",
+      "text": "#0f172a",
+      "muted": "#475569",
+      "primary": "#0f3b66",
+      "accent": "#0f766e",
+      "accentSoft": "#e6f4f2",
+      "border": "#e2e8f0"
+    },
+    "font": "rubik",
+    "art": "plain",
+    "radius": "medium",
+    "announcement": {
+      "enabled": false,
+      "text": "",
+      "href": ""
+    },
+    "product": {
+      "related": true,
+      "whatsapp": true
+    },
+    "sections": [
+      {
+        "id": "hero",
+        "type": "hero",
+        "hidden": false,
+        "settings": {
+          "eyebrow": "{{name}}",
+          "title": "עושים את זה נכון, מהפעם הראשונה",
+          "subtitle": "ספרו לנו מה אתם צריכים, ונחזור אליכם עם הצעה ברורה.",
+          "primaryLabel": "לתיאום שיחה",
+          "primaryHref": "whatsapp",
+          "secondaryLabel": "השירותים שלנו",
+          "secondaryHref": "/pages/services",
+          "image": ""
+        },
+        "variant": "split"
+      },
+      {
+        "id": "what",
+        "type": "imageText",
+        "hidden": false,
+        "settings": {
+          "title": "מה אנחנו עושים",
+          "text": "כאן מתארים את השירות: מה אתם עושים, למי, ומה הלקוח מקבל בסוף.",
+          "image": "",
+          "buttonLabel": "לפירוט השירותים",
+          "buttonHref": "/pages/services",
+          "imageSide": "start"
+        },
+        "variant": "split"
+      },
+      {
+        "id": "steps",
+        "type": "steps",
+        "hidden": false,
+        "settings": {
+          "title": "איך זה עובד",
+          "items": [
+            {
+              "title": "פונים אלינו",
+              "text": "בוואטסאפ, בטלפון או במייל."
+            },
+            {
+              "title": "מתאמים",
+              "text": "מבינים יחד מה צריך, ומקבלים הצעה."
+            },
+            {
+              "title": "מתחילים",
+              "text": "אחרי האישור שלכם."
+            }
+          ]
+        },
+        "variant": "horizontal"
+      },
+      {
+        "id": "packages",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "חבילות ושירותים",
+          "collection": "packages",
+          "limit": 6,
+          "buttonLabel": "לכל החבילות"
+        },
+        "variant": "grid"
+      },
+      {
+        "id": "faq",
+        "type": "faq",
+        "hidden": false,
+        "settings": {
+          "title": "שאלות נפוצות",
+          "items": [
+            {
+              "q": "כמה זה עולה?",
+              "a": "זה תלוי במה שצריך. ספרו לנו, ונחזור עם הצעה."
+            },
+            {
+              "q": "תוך כמה זמן אפשר להתחיל?",
+              "a": "כתבו לנו, ונבדוק יחד את המועד הקרוב."
+            }
+          ]
+        },
+        "variant": "accordion"
+      },
+      {
+        "id": "contact",
+        "type": "contact",
+        "hidden": false,
+        "settings": {
+          "title": "בואו נדבר",
+          "text": "שאלה, הצעת מחיר או תיאום — כתבו לנו ונחזור אליכם."
+        },
+        "variant": "centered"
+      }
+    ],
+    "design": {
+      "spacing": "airy",
+      "headingScale": "large",
+      "buttonStyle": "solid",
+      "container": "wide",
+      "cardStyle": "soft"
+    },
+    "chrome": {
+      "headerVariant": "centered-logo",
+      "footerVariant": "multi-column"
+    },
+    "commerceDesign": {
+      "productCardVariant": "horizontal",
+      "collectionCardVariant": "grid",
+      "productPageVariant": "compact"
+    }
+  },
+  "menus": {
+    "main": [
+      {
+        "label": "השירותים",
+        "href": "/pages/services"
+      },
+      {
+        "label": "חבילות",
+        "href": "/collections/packages"
+      },
+      {
+        "label": "שאלות נפוצות",
+        "href": "/pages/faq"
+      },
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
+    ],
+    "footer": [
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "השירותים",
+        "href": "/pages/services"
+      },
+      {
+        "label": "שאלות נפוצות",
+        "href": "/pages/faq"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
+    ]
+  },
+  "collections": [
+    {
+      "slug": "packages",
+      "title": "חבילות",
+      "description": "חבילות ושירותים שאפשר להזמין באתר.",
+      "tags": [
+        "חבילה"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "slug": "about",
+      "title": "אודות",
+      "body": "## מי אנחנו\n\n[מי עומד מאחורי {{name}}, מה הניסיון, ולמה לבחור בכם.]"
+    },
+    {
+      "slug": "services",
+      "title": "השירותים שלנו",
+      "body": "## [שם השירות]\n\n[מה כולל השירות, למי הוא מתאים ומה מקבלים בסוף.]\n\n## [שם השירות]\n\n[מה כולל השירות, למי הוא מתאים ומה מקבלים בסוף.]"
+    },
+    {
+      "slug": "contact",
+      "title": "צרו קשר",
+      "body": "## בואו נדבר\n\nשאלה, הצעת מחיר או תיאום — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר.\n\n## שעות פעילות\n\n[ימים ושעות]"
+    },
+    {
+      "slug": "faq",
+      "title": "שאלות נפוצות",
+      "body": "## כמה זה עולה?\n\n[איך נקבע המחיר.]\n\n## תוך כמה זמן אפשר להתחיל?\n\n[זמני התחלה.]"
+    }
+  ],
+  "policies": {},
+  "schemaVersion": 2,
+  "preview": {
+    "image": "/kits/services/preview.webp",
+    "category": "services"
+  }
+}

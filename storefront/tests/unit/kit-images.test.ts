@@ -62,6 +62,7 @@ test('the importer: one shape for every delivered JSON — order within a slot, 
   ] }, 'a', sizes);
   assert.deepEqual(manifest.images.map((i: { file: string; order: number }) => [i.file, i.order]), [['a-hero.webp', 1], ['a-v.webp', 1], ['a-cat.webp', 1], ['a-g.webp', 1]]);
   assert.equal(manifest.images[0].height, 5, 'the file\'s real size');
+  assert.equal(manifest.images[0].textSafe, 'start', 'the free side for text: right (physical) → start (logical, RTL)');
   assert.equal(manifest.images[2].variant, undefined, 'a variant only on a hero');
   assert.equal(manifest.images[2].focal.x, 0.5, 'a focal point out of range → the middle');
   assert.equal(manifest.version, 2);

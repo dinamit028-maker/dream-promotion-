@@ -13,7 +13,7 @@
       },
       "alt": "מגוון שקיות נייר קרפט ולבנות ושקיות בד בגדלים שונים",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 1
     },
     {
@@ -27,7 +27,7 @@
       },
       "alt": "שולחן עבודה עם שקיות נייר ובד, ערימות שקיות מקופלות",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 2
     },
     {

@@ -13,7 +13,7 @@
       },
       "alt": "מתלה בגדים באדום, שחור ושמנת בבוטיק מואר באור שמש",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 1
     },
     {
@@ -27,7 +27,7 @@
       },
       "alt": "כובע לבד אדום על ערימת סריגים, צעיף ואקססוריז על שיש",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 2
     },
     {

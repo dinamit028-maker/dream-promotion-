@@ -10,10 +10,13 @@
 export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection';
 export interface FieldDef { key: string; label: string; kind: FieldKind; max?: number; hint?: string }
 export interface ListDef { key: 'items'; label: string; max: number; fields: FieldDef[]; add: string }
+import { CHROME_OPTIONS, cleanGroup, COMMERCE_OPTIONS, DESIGN_OPTIONS, sectionVariantOk, type Overrides } from './variants';
+
 export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter';
 /** soon: the storefront does not show it yet (the newsletter waits for the consent to marketing of stage 5) */
 export interface SectionDef { type: SectionType; label: string; fields: FieldDef[]; list?: ListDef; soon?: string }
-export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown> }
+/** variant (2.63): the layout the business picked for this section — absent = the kit's (variants.ts) */
+export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string }
 export interface Colors { background: string; surface: string; text: string; muted: string; primary: string; accent: string; accentSoft: string; border: string }
 export type Radius = 'none' | 'small' | 'medium' | 'large';
 export type Font = 'heebo' | 'rubik' | 'assistant' | 'frank';
@@ -159,6 +162,8 @@ export interface Draft {
   announcement: { enabled: boolean; text: string; href: string };
   product: { related: boolean; whatsapp: boolean };
   sections: Section[];
+  /** 2.63: the business's own design choices — only what it picked (the rest comes from the kit) */
+  overrides: Overrides;
 }
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -185,7 +190,10 @@ export function draftOf(templateId: string, saved: unknown): Draft {
     // the same rule as the storefront: an open template takes a section of the settings with its own type
     const def = known && (!t.open || r.type === undefined || r.type === known.type) ? known : t.open && !known ? ownSection(r) : undefined;
     if (!def || sections.some((s) => s.id === def.id)) continue;
-    sections.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings: { ...def.settings, ...obj(r.settings) } });
+    const own: Section = { ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings: { ...def.settings, ...obj(r.settings) } };
+    delete own.variant;
+    if (sectionVariantOk(def.type, r.variant)) own.variant = r.variant;
+    sections.push(own);
   }
   if (!(t.open && sections.length)) for (const s of t.sections) if (!sections.some((x) => x.id === s.id)) sections.push({ ...s, settings: { ...s.settings } });
   return {
@@ -204,6 +212,7 @@ export function draftOf(templateId: string, saved: unknown): Draft {
     },
     product: { related: typeof p.related === 'boolean' ? p.related : t.product.related, whatsapp: typeof p.whatsapp === 'boolean' ? p.whatsapp : t.product.whatsapp },
     sections,
+    overrides: { design: cleanGroup(DESIGN_OPTIONS, o.design), chrome: cleanGroup(CHROME_OPTIONS, o.chrome), commerce: cleanGroup(COMMERCE_OPTIONS, o.commerce) },
   };
 }
 
@@ -211,7 +220,11 @@ export function draftOf(templateId: string, saved: unknown): Draft {
 export const settingsOf = (d: Draft) => ({
   ...(d.kit ? { kit: d.kit } : {}),
   colors: d.colors, font: d.font, art: d.art, radius: d.radius, announcement: d.announcement, product: d.product,
-  sections: d.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings })),
+  sections: d.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings, ...(s.variant ? { variant: s.variant } : {}) })),
+  // only what the business picked: a choice that is not here is the kit's
+  ...(Object.keys(d.overrides.design).length ? { design: d.overrides.design } : {}),
+  ...(Object.keys(d.overrides.chrome).length ? { chrome: d.overrides.chrome } : {}),
+  ...(Object.keys(d.overrides.commerce).length ? { commerce: d.overrides.commerce } : {}),
 });
 
 /** WCAG contrast of two colours (the editor warns below 4.5:1 — the storefront then falls back to the template's pair) */

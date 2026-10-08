@@ -14,7 +14,7 @@ export default async function CollectionsPage({ params }: Props) {
   return (
     <div className="wrap">
       <header className="page-head"><h1 className="page-title">קולקציות</h1></header>
-      <ul className="tiles" role="list">
+      <ul className={`tiles tiles--${site.theme.commerce.collectionCard}`} role="list">
         <li>
           <a href="/collections/all" className="tile">
             <span className="tile-media"><Art className="tile-art" /></span>

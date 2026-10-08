@@ -16,7 +16,7 @@ import services from './kit-images/services.json';
  */
 export interface KitImage {
   file: string; slot: 'hero' | 'imageText' | 'collection' | 'gallery'; width: number; height: number;
-  focal: { x: number; y: number }; alt: string; variant?: 'wide' | 'vertical'; textSafe?: 'left' | 'right'; collection?: string; order: number;
+  focal: { x: number; y: number }; alt: string; variant?: 'wide' | 'vertical'; textSafe?: 'start' | 'end'; collection?: string; order: number;
 }
 export interface KitManifest { kit: string; version: number; images: KitImage[] }
 
@@ -37,6 +37,19 @@ export function kitImage(kit: string | null, slot: 'hero' | 'imageText'): KitPic
   if (!m) return null;
   return picture(m.kit, first(m.images.filter((i) => i.slot === slot && (slot !== 'hero' || i.variant === 'wide'))));
 }
+/**
+ * The hero's pictures (2.63): the first wide one, its portrait one for phones, and the side that is free for text
+ * ('start' / 'end', logical — the delivered JSON's "right" is start). The second wide one is for a slider or as a choice.
+ */
+export function kitHero(kit: string | null): { wide: KitPicture; second: KitPicture | null; mobile: KitPicture | null; textSafe: 'start' | 'end' | '' } | null {
+  const m = kit ? KIT_MANIFESTS[kit] : undefined;
+  if (!m) return null;
+  const wideImg = first(m.images.filter((i) => i.slot === 'hero' && i.variant === 'wide'));
+  const wide = picture(m.kit, wideImg);
+  if (!wide) return null;
+  const second = picture(m.kit, m.images.filter((i) => i.slot === 'hero' && i.variant === 'wide').sort((a, b) => a.order - b.order)[1]);
+  return { wide, second, mobile: picture(m.kit, first(m.images.filter((i) => i.slot === 'hero' && i.variant === 'vertical'))), textSafe: wideImg?.textSafe ?? '' };
+}
 /** the kit's picture for a collection, by its address (slug) */
 export function kitCollectionImage(kit: string | null, slug: string): KitPicture | null {
   const m = kit ? KIT_MANIFESTS[kit] : undefined;
@@ -54,5 +67,8 @@ export function kitImageCss(kit: string | null): string {
   const m = kit ? KIT_MANIFESTS[kit] : undefined;
   if (!m) return '';
   const pct = (n: number) => `${Math.round(Math.min(1, Math.max(0, n)) * 100)}%`;
-  return m.images.filter((i) => FILE.test(i.file)).map((i) => `.kimg-${i.file.slice(0, -5)}{object-position:${pct(i.focal.x)} ${pct(i.focal.y)}}`).join('');
+  const files = m.images.filter((i) => FILE.test(i.file));
+  // a portrait picture shown on a phone (<picture>, 2.63) keeps the <img>'s class: its own focal point under the same media query
+  return files.map((i) => `.kimg-${i.file.slice(0, -5)}{object-position:${pct(i.focal.x)} ${pct(i.focal.y)}}`).join('')
+    + `@media (max-width:699px){${files.filter((i) => i.variant === 'vertical').map((i) => `.kimg-m-${i.file.slice(0, -5)}{object-position:${pct(i.focal.x)} ${pct(i.focal.y)}}`).join('')}}`;
 }

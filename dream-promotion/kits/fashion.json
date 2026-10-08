@@ -3,75 +3,267 @@
   "name": "אופנה",
   "description": "לחנות בגדים ואקססוריז: חדש, נשים, גברים, מבצעים, טבלת מידות ואינסטגרם.",
   "order": 20,
-  "keywords": ["בגדים", "ביגוד", "אופנה", "הלבשה", "שמלות", "חולצות", "נעליים", "תכשיטים", "אקססוריז", "בוטיק", "fashion", "clothing", "apparel"],
+  "keywords": [
+    "בגדים",
+    "ביגוד",
+    "אופנה",
+    "הלבשה",
+    "שמלות",
+    "חולצות",
+    "נעליים",
+    "תכשיטים",
+    "אקססוריז",
+    "בוטיק",
+    "fashion",
+    "clothing",
+    "apparel"
+  ],
   "seoDescription": "{{name}} — אופנה לנשים ולגברים, עם קולקציות חדשות ומבצעים.",
   "theme": {
     "colors": {
-      "background": "#ffffff", "surface": "#ffffff", "text": "#111111", "muted": "#5c5c5c", "primary": "#111111",
-      "accent": "#b0413e", "accentSoft": "#f6eeee", "border": "#e6e6e6"
+      "background": "#ffffff",
+      "surface": "#ffffff",
+      "text": "#111111",
+      "muted": "#5c5c5c",
+      "primary": "#111111",
+      "accent": "#b0413e",
+      "accentSoft": "#f6eeee",
+      "border": "#e6e6e6"
     },
     "font": "assistant",
     "art": "plain",
     "radius": "small",
-    "announcement": { "enabled": true, "text": "הקולקציה החדשה כבר באתר", "href": "/collections/new" },
-    "product": { "related": true, "whatsapp": true },
+    "announcement": {
+      "enabled": true,
+      "text": "הקולקציה החדשה כבר באתר",
+      "href": "/collections/new"
+    },
+    "product": {
+      "related": true,
+      "whatsapp": true
+    },
     "sections": [
-      { "id": "hero", "type": "hero", "hidden": false, "settings": {
-        "eyebrow": "קולקציה חדשה",
-        "title": "הלוק הבא שלכם מתחיל כאן",
-        "subtitle": "פריטים חדשים, קלאסיקות שתמיד עובדות ואקססוריז שמשלימים את הלוק.",
-        "primaryLabel": "לחדשים", "primaryHref": "/collections/new",
-        "secondaryLabel": "למבצעים", "secondaryHref": "/collections/sale",
-        "image": ""
-      } },
-      { "id": "new", "type": "products", "hidden": false, "settings": { "title": "חדש באתר", "collection": "new", "limit": 8, "buttonLabel": "לכל החדשים" } },
-      { "id": "categories", "type": "collections", "hidden": false, "settings": { "title": "קנו לפי קטגוריה", "subtitle": "" } },
-      { "id": "story", "type": "imageText", "hidden": false, "settings": {
-        "title": "הסטייל שלנו",
-        "text": "כאן מספרים על הסגנון של החנות: מה אתם אוהבים, איך אתם בוחרים את הפריטים ולמי הם מתאימים.",
-        "image": "", "buttonLabel": "עוד עלינו", "buttonHref": "/pages/about", "imageSide": "end"
-      } },
-      { "id": "instagram", "type": "gallery", "hidden": false, "settings": {
-        "title": "עקבו אחרינו באינסטגרם",
-        "text": "השראה, לוקים ופריטים חדשים — קודם באינסטגרם.",
-        "items": [],
-        "buttonLabel": "לאינסטגרם שלנו", "buttonHref": ""
-      } },
-      { "id": "newsletter", "type": "newsletter", "hidden": true, "settings": { "title": "הראשונים לדעת", "text": "קולקציות חדשות ומבצעים — ישר למייל." } },
-      { "id": "contact", "type": "contact", "hidden": false, "settings": { "title": "צריכים עזרה במידה?", "text": "כתבו לנו לפני שאתם מזמינים — נשמח לעזור לבחור." } }
-    ]
+      {
+        "id": "hero",
+        "type": "hero",
+        "hidden": false,
+        "settings": {
+          "eyebrow": "קולקציה חדשה",
+          "title": "הלוק הבא שלכם מתחיל כאן",
+          "subtitle": "פריטים חדשים, קלאסיקות שתמיד עובדות ואקססוריז שמשלימים את הלוק.",
+          "primaryLabel": "לחדשים",
+          "primaryHref": "/collections/new",
+          "secondaryLabel": "למבצעים",
+          "secondaryHref": "/collections/sale",
+          "image": ""
+        },
+        "variant": "full-image"
+      },
+      {
+        "id": "new",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "חדש באתר",
+          "collection": "new",
+          "limit": 8,
+          "buttonLabel": "לכל החדשים"
+        },
+        "variant": "grid"
+      },
+      {
+        "id": "categories",
+        "type": "collections",
+        "hidden": false,
+        "settings": {
+          "title": "קנו לפי קטגוריה",
+          "subtitle": ""
+        },
+        "variant": "editorial"
+      },
+      {
+        "id": "story",
+        "type": "imageText",
+        "hidden": false,
+        "settings": {
+          "title": "הסטייל שלנו",
+          "text": "כאן מספרים על הסגנון של החנות: מה אתם אוהבים, איך אתם בוחרים את הפריטים ולמי הם מתאימים.",
+          "image": "",
+          "buttonLabel": "עוד עלינו",
+          "buttonHref": "/pages/about",
+          "imageSide": "end"
+        },
+        "variant": "full-bleed"
+      },
+      {
+        "id": "instagram",
+        "type": "gallery",
+        "hidden": false,
+        "settings": {
+          "title": "עקבו אחרינו באינסטגרם",
+          "text": "השראה, לוקים ופריטים חדשים — קודם באינסטגרם.",
+          "items": [],
+          "buttonLabel": "לאינסטגרם שלנו",
+          "buttonHref": ""
+        },
+        "variant": "masonry"
+      },
+      {
+        "id": "newsletter",
+        "type": "newsletter",
+        "hidden": true,
+        "settings": {
+          "title": "הראשונים לדעת",
+          "text": "קולקציות חדשות ומבצעים — ישר למייל."
+        },
+        "variant": "minimal"
+      },
+      {
+        "id": "contact",
+        "type": "contact",
+        "hidden": false,
+        "settings": {
+          "title": "צריכים עזרה במידה?",
+          "text": "כתבו לנו לפני שאתם מזמינים — נשמח לעזור לבחור."
+        },
+        "variant": "dark"
+      }
+    ],
+    "design": {
+      "spacing": "airy",
+      "headingScale": "display",
+      "buttonStyle": "underline",
+      "container": "wide",
+      "cardStyle": "flat"
+    },
+    "chrome": {
+      "headerVariant": "transparent-overlay",
+      "footerVariant": "minimal"
+    },
+    "commerceDesign": {
+      "productCardVariant": "editorial",
+      "collectionCardVariant": "editorial",
+      "productPageVariant": "gallery-left"
+    }
   },
   "menus": {
     "main": [
-      { "label": "חדש", "href": "/collections/new" },
-      { "label": "נשים", "href": "/collections/women" },
-      { "label": "גברים", "href": "/collections/men" },
-      { "label": "אקססוריז", "href": "/collections/accessories" },
-      { "label": "מבצעים", "href": "/collections/sale" }
+      {
+        "label": "חדש",
+        "href": "/collections/new"
+      },
+      {
+        "label": "נשים",
+        "href": "/collections/women"
+      },
+      {
+        "label": "גברים",
+        "href": "/collections/men"
+      },
+      {
+        "label": "אקססוריז",
+        "href": "/collections/accessories"
+      },
+      {
+        "label": "מבצעים",
+        "href": "/collections/sale"
+      }
     ],
     "footer": [
-      { "label": "אודות", "href": "/pages/about" },
-      { "label": "טבלת מידות", "href": "/pages/size-guide" },
-      { "label": "שאלות נפוצות", "href": "/pages/faq" },
-      { "label": "משלוחים", "href": "/policies/shipping" },
-      { "label": "החזרות והחלפות", "href": "/policies/returns" },
-      { "label": "צרו קשר", "href": "/pages/contact" }
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "טבלת מידות",
+        "href": "/pages/size-guide"
+      },
+      {
+        "label": "שאלות נפוצות",
+        "href": "/pages/faq"
+      },
+      {
+        "label": "משלוחים",
+        "href": "/policies/shipping"
+      },
+      {
+        "label": "החזרות והחלפות",
+        "href": "/policies/returns"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
     ]
   },
   "collections": [
-    { "slug": "new", "title": "חדש", "description": "הפריטים החדשים באתר.", "tags": ["חדש"] },
-    { "slug": "women", "title": "נשים", "description": "בגדים ופריטים לנשים.", "tags": ["נשים"] },
-    { "slug": "men", "title": "גברים", "description": "בגדים ופריטים לגברים.", "tags": ["גברים"] },
-    { "slug": "accessories", "title": "אקססוריז", "description": "תיקים, תכשיטים ועוד.", "tags": ["אקססוריז"] },
-    { "slug": "sale", "title": "מבצעים", "description": "פריטים במבצע.", "tags": ["מבצע"] }
+    {
+      "slug": "new",
+      "title": "חדש",
+      "description": "הפריטים החדשים באתר.",
+      "tags": [
+        "חדש"
+      ]
+    },
+    {
+      "slug": "women",
+      "title": "נשים",
+      "description": "בגדים ופריטים לנשים.",
+      "tags": [
+        "נשים"
+      ]
+    },
+    {
+      "slug": "men",
+      "title": "גברים",
+      "description": "בגדים ופריטים לגברים.",
+      "tags": [
+        "גברים"
+      ]
+    },
+    {
+      "slug": "accessories",
+      "title": "אקססוריז",
+      "description": "תיקים, תכשיטים ועוד.",
+      "tags": [
+        "אקססוריז"
+      ]
+    },
+    {
+      "slug": "sale",
+      "title": "מבצעים",
+      "description": "פריטים במבצע.",
+      "tags": [
+        "מבצע"
+      ]
+    }
   ],
   "pages": [
-    { "slug": "about", "title": "אודות", "body": "## הסיפור שלנו\n\n[איך {{name}} התחילה, ומה הסגנון שלכם.]\n\n## איך אנחנו בוחרים פריטים\n\n[מאיפה הבגדים, ומה חשוב לכם בבחירה.]" },
-    { "slug": "size-guide", "title": "טבלת מידות", "body": "## איך מודדים\n\n- חזה: סביב החלק הרחב של החזה.\n- מותניים: סביב החלק הצר של הגוף.\n- ירכיים: סביב החלק הרחב של הירכיים.\n\n## המידות שלנו\n\n- S: [חזה / מותניים / ירכיים בס\"מ]\n- M: [חזה / מותניים / ירכיים בס\"מ]\n- L: [חזה / מותניים / ירכיים בס\"מ]\n- XL: [חזה / מותניים / ירכיים בס\"מ]\n\nלא בטוחים במידה? כתבו לנו לפני שאתם מזמינים." },
-    { "slug": "contact", "title": "צרו קשר", "body": "## נשמח לעזור\n\nשאלה על מידה, על פריט או על הזמנה — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר." },
-    { "slug": "faq", "title": "שאלות נפוצות", "body": "## איך יודעים איזו מידה להזמין?\n\nבעמוד טבלת המידות יש הסבר איך מודדים. לא בטוחים — כתבו לנו.\n\n## אפשר להחליף מידה?\n\n[מדיניות ההחלפות — ראו גם את עמוד ההחזרות.]\n\n## מתי ההזמנה מגיעה?\n\n[זמני אספקה.]" }
+    {
+      "slug": "about",
+      "title": "אודות",
+      "body": "## הסיפור שלנו\n\n[איך {{name}} התחילה, ומה הסגנון שלכם.]\n\n## איך אנחנו בוחרים פריטים\n\n[מאיפה הבגדים, ומה חשוב לכם בבחירה.]"
+    },
+    {
+      "slug": "size-guide",
+      "title": "טבלת מידות",
+      "body": "## איך מודדים\n\n- חזה: סביב החלק הרחב של החזה.\n- מותניים: סביב החלק הצר של הגוף.\n- ירכיים: סביב החלק הרחב של הירכיים.\n\n## המידות שלנו\n\n- S: [חזה / מותניים / ירכיים בס\"מ]\n- M: [חזה / מותניים / ירכיים בס\"מ]\n- L: [חזה / מותניים / ירכיים בס\"מ]\n- XL: [חזה / מותניים / ירכיים בס\"מ]\n\nלא בטוחים במידה? כתבו לנו לפני שאתם מזמינים."
+    },
+    {
+      "slug": "contact",
+      "title": "צרו קשר",
+      "body": "## נשמח לעזור\n\nשאלה על מידה, על פריט או על הזמנה — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר."
+    },
+    {
+      "slug": "faq",
+      "title": "שאלות נפוצות",
+      "body": "## איך יודעים איזו מידה להזמין?\n\nבעמוד טבלת המידות יש הסבר איך מודדים. לא בטוחים — כתבו לנו.\n\n## אפשר להחליף מידה?\n\n[מדיניות ההחלפות — ראו גם את עמוד ההחזרות.]\n\n## מתי ההזמנה מגיעה?\n\n[זמני אספקה.]"
+    }
   ],
   "policies": {
-    "returns": { "append": "## החלפת מידה\n\n[האם ואיך מחליפים מידה, ובאיזה מצב הפריט צריך להיות.]" }
-  }
+    "returns": {
+      "append": "## החלפת מידה\n\n[האם ואיך מחליפים מידה, ובאיזה מצב הפריט צריך להיות.]"
+    }
+  },
+  "schemaVersion": 2
 }

@@ -62,10 +62,21 @@ export function Header({ site }: { site: Site & { store: Store } }) {
           <nav aria-label="תפריט ראשי" className="nav-wide">
             <ul role="list">{links.map((l, i) => <NavLink key={i} link={l} store={store} />)}</ul>
           </nav>
-          <a href="/search" className="icon-link" aria-label="חיפוש">
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" /><path d="m20 20-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-          </a>
-          {store.can_buy && <CartBadge />}
+          {/* 2.63, the header "search-heavy": a search field in the header itself (a plain form to the store's own search page) */}
+          {theme?.chrome.header === 'search-heavy' && (
+            <form action="/search" role="search" className="header-search">
+              <label htmlFor="header-q" className="sr-only">חיפוש באתר</label>
+              <input id="header-q" name="q" type="search" placeholder="מה מחפשים?" enterKeyHint="search" />
+              <button type="submit" className="btn btn-primary">חיפוש</button>
+            </form>
+          )}
+          {/* the search and the cart together (2.63: a header variant places them as one; the classic header ignores the box) */}
+          <div className="header-tools">
+            <a href="/search" className="icon-link" aria-label="חיפוש">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" /><path d="m20 20-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+            </a>
+            {store.can_buy && <CartBadge />}
+          </div>
         </div>
       </header>
     </>

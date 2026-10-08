@@ -13,7 +13,7 @@
       },
       "alt": "חדר טיפולים מואר עם מיטת טיפולים, מגבות ופרחים מיובשים",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 1
     },
     {
@@ -27,7 +27,7 @@
       },
       "alt": "בקבוקי וצנצנות טיפוח על משטח שיש עם פרחים מיובשים",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 2
     },
     {

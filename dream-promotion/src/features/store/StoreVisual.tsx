@@ -9,6 +9,7 @@ import { loadCatalog } from '@/features/catalog/data';
 import { previewLink, publishVersion, saveDraft, type StoreBundle } from './data';
 import { draftErrors, draftOf, SECTION_DEFS, settingsOf, type Draft, type SectionType } from './theme-fields';
 import type { ThemeVersion } from './store';
+import { SectionLayout } from './StoreVariants';
 import { kitPictureShown } from './kits';
 import { FieldInput, ListInput } from './StoreDesign';
 import { Notice, TextRow } from './ui';
@@ -166,6 +167,7 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
           </div>
           {section.hidden && <Notice tone="info">החלק מוסתר — הוא לא מופיע באתר.</Notice>}
           {SECTION_DEFS[section.type].soon && <Notice tone="info">{SECTION_DEFS[section.type].soon}</Notice>}
+          <SectionLayout d={d} section={section} change={change} />
           {SECTION_DEFS[section.type].fields.map((f) => (
             <div key={f.key} className={cx(sel && 'field' in sel && sel.field === f.key && 'rounded-md ring-2 ring-primary/50')} ref={(el) => { if (el && sel && 'field' in sel && sel.field === f.key) el.scrollIntoView({ block: 'nearest' }); }}>
               <FieldInput f={f} value={section.settings[f.key]} collections={bundle.collections} kitPicture={kitPictureShown(d.kit, section.type, f.key)} onChange={(v) => setSection({ settings: { ...section.settings, [f.key]: v } })} />

@@ -6,6 +6,7 @@ import { Button, PageHead, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
 import { publishVersion, saveDraft, type KitApplied, type StoreBundle } from './data';
+import { DesignChoices, SectionLayout } from './StoreVariants';
 import { kitById, kitPictureShown, kitSettings, type Kit } from './kits';
 import { currentKit, KitGallery, KitReady, useKitContext } from './StoreKits';
 import { contrast, draftErrors, draftOf, FONTS, SECTION_DEFS, settingsOf, TEMPLATES, type Draft, type FieldDef, type Section } from './theme-fields';
@@ -147,6 +148,10 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
         <button type="button" className="mt-3 text-sm font-semibold text-primary underline underline-offset-2" onClick={() => change({ ...d, colors: { ...origin.colors }, radius: origin.radius, font: origin.font, art: origin.art })}>{d.kit ? 'חזרה לצבעים של הערכה' : 'חזרה לצבעי התבנית'}</button>
       </Block>
 
+      <Block title="עיצוב האתר" sub="ראש האתר, תחתית, כרטיסי מוצר, ריווח וכפתורים. מה שתבחרו גובר על הערכה, ואפשר תמיד לחזור לברירת המחדל שלה.">
+        <DesignChoices d={d} change={change} />
+      </Block>
+
       <Block title="הודעה בראש האתר">
         <label className="mb-3 flex min-h-11 items-center justify-between gap-3">
           <span className="text-sm font-semibold">להציג הודעה</span>
@@ -177,6 +182,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
                 {isOpen && (
                   <div className="border-t border-line p-3">
                     {def.soon && <Notice tone="info">{def.soon}</Notice>}
+                    <SectionLayout d={d} section={s} change={change} />
                     {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections} kitPicture={kitPictureShown(d.kit, s.type, f.key)}
                       onChange={(v) => setSection(s.id, { settings: { ...s.settings, [f.key]: v } })} />)}
                     {def.list && <ListInput def={def.list} rows={(Array.isArray(s.settings.items) ? s.settings.items : []) as Record<string, unknown>[]}

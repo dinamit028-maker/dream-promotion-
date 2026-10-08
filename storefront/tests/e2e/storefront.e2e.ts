@@ -527,6 +527,91 @@ async function main() {
       assert.match((await raw('followme.test', '/')).body, /שקיות FollowMe/);
     });
 
+    await step('variants (2.63): FollowMe\'s own store and products in the fashion and the beauty kit — each one its header, hero, cards, footer and product page; the shoppers keep the published one', async () => {
+      const DRAFT = 'aaaaaaaa-0000-4000-8000-000000000142';
+      const before = psql(`select template || '|' || settings::text from public.store_theme_versions where id = '${DRAFT}'`);
+      const sqlq = (v: unknown) => JSON.stringify(v).replace(/'/g, "''");
+      // the kit as the dashboard writes it (kitSettings): its texts and sections — no design, no variants: those come from the kit
+      const asWritten = (id: string) => {
+        const kit = JSON.parse(readFileSync(path.resolve(ROOT, `../dream-promotion/kits/${id}.json`), 'utf8'));
+        const { design: _d, chrome: _c, commerceDesign: _m, ...theme } = kit.theme;
+        theme.sections = theme.sections.map(({ variant: _v, ...sec }: any) => sec);
+        return JSON.parse(JSON.stringify({ kit: kit.id, ...theme }).split('{{name}}').join('FollowMe').split('"booking"').join('"whatsapp"'));
+      };
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      const desktop = async () => {
+        const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: 'he-IL' });
+        await ctx.route('https://cdn.test/**', (r: any) => r.fulfill({ status: 200, contentType: 'image/png', body: picture }));
+        const page = await ctx.newPage();
+        page.on('pageerror', (e: Error) => errors.push(`${page.url()}: ${e.message}`));
+        return { ctx, page };
+      };
+      const product = psql(`select slug from public.catalog_items where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a' and publish_online order by name limit 1`);
+      try {
+        const seen = new Set<string>();
+        for (const [id, expect] of [
+          ['fashion', { body: ['v-h-transparent-overlay', 'v-f-minimal', 'v-pc-editorial', 'v-pp-gallery-left', 'v-sp-airy', 'v-btn-underline', 'v-hs-display'], hero: 'hero--full-image' }],
+          ['beauty', { body: ['v-h-centered-logo', 'v-f-centered', 'v-pc-minimal', 'v-pp-gallery-right', 'v-btn-soft', 'v-card-soft'], hero: 'hero--editorial' }],
+          ['furniture', { body: ['v-h-minimal', 'v-f-multi-column', 'v-pc-minimal', 'v-pp-wide', 'v-btn-outline'], hero: 'hero--editorial' }],
+          ['bags', { body: ['v-h-commerce-wide', 'v-f-multi-column', 'v-pc-classic', 'v-pp-classic'], hero: 'hero--split' }],
+          ['services', { body: ['v-h-centered-logo', 'v-f-multi-column', 'v-pc-horizontal', 'v-pp-compact', 'v-card-soft'], hero: 'hero--split' }],
+          ['retail', { body: ['v-h-search-heavy', 'v-f-dark', 'v-pc-compact', 'v-sp-compact', 'v-card-shadow'], hero: 'hero--slider' }],
+          ['general', { body: ['v-h-compact', 'v-f-minimal', 'v-pc-classic'], hero: 'hero--centered' }],
+        ] as const) {
+          psql(`update public.store_theme_versions set template = 'kit', settings = '${sqlq(asWritten(id))}' where id = '${DRAFT}'`);
+          for (const open of [phone, desktop]) {
+            const { ctx, page } = await open();
+            await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+            await page.locator(`section.${expect.hero}`).waitFor();
+            const cls = (await page.getAttribute('body', 'class')) ?? '';
+            for (const c of expect.body) assert.ok(cls.split(' ').includes(c), `${id}: <body> has ${c} (${cls})`);
+            seen.add(`${cls}|${expect.hero}`);
+            if (id === 'retail') {
+              assert.equal(await page.locator('.hero-slides img').count(), 2, 'retail: both wide pictures in the slider');
+              assert.equal(await page.locator('form.header-search input[name="q"]').count(), 1, 'retail: a search field in the header');
+            }
+            const hero = page.locator('.hero-media img').first();
+            assert.match((await hero.getAttribute('src')) ?? '', new RegExp(`^/kit-images/${id}/`), `${id}: the kit's hero picture`);
+            assert.ok(await hero.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), `${id}: it loads`);
+            await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+            await page.waitForTimeout(400);
+            const w = open === phone ? 'phone' : 'desktop';
+            await page.screenshot({ path: path.join(SHOTS, `variants-${id}-home-${w}.png`), fullPage: true });
+            if (product) {
+              await page.goto(url('followme.test', `/products/${encodeURIComponent(product)}`));
+              await page.locator('.product').waitFor();
+              await page.screenshot({ path: path.join(SHOTS, `variants-${id}-product-${w}.png`), fullPage: true });
+            }
+            await page.goto(url('followme.test', '/collections'));
+            await page.locator('.tiles').waitFor();
+            await page.screenshot({ path: path.join(SHOTS, `variants-${id}-collections-${w}.png`), fullPage: true });
+            const [sw, cw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+            assert.ok(sw <= cw, `${id} ${w}: nothing sideways (${sw} > ${cw})`);
+            await ctx.close();
+          }
+        }
+        assert.equal(seen.size, 7, 'seven kits, seven different sites');
+        // the business's own choice wins over the kit's: a saved header and hero layout, the rest from the kit
+        const own = asWritten('fashion');
+        own.chrome = { header: 'centered-logo' };
+        own.sections = own.sections.map((x: any) => (x.id === 'hero' ? { ...x, variant: 'split' } : x));
+        psql(`update public.store_theme_versions set settings = '${sqlq(own)}' where id = '${DRAFT}'`);
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        await page.locator('section.hero--split').waitFor();
+        const cls = (await page.getAttribute('body', 'class')) ?? '';
+        assert.ok(cls.includes('v-h-centered-logo') && cls.includes('v-f-minimal'), `the business's header, the kit's footer (${cls})`);
+        await ctx.close();
+      } finally {
+        const [tpl, ...rest] = before.split('|');
+        psql(`update public.store_theme_versions set template = '${tpl}', settings = '${rest.join('|').replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      }
+      // the shoppers: the published version, the look of 2.61 — no variant at all
+      const shopper = await raw('followme.test', '/');
+      assert.match(shopper.body, /class="v-sp-normal v-hs-normal v-btn-solid v-ct-normal v-card-border v-h-classic v-f-classic v-pc-classic v-cc-grid v-pp-classic"/);
+      assert.match(shopper.body, /class="hero hero--split/);
+    });
+
     await step('a domain is "active" in the dashboard only after the storefront served it', async () => {
       await new Promise((r) => setTimeout(r, 500));
       const rows = psql(`select domain || ':' || status || ':' || (last_seen_at is not null) from public.store_domains order by domain`);
