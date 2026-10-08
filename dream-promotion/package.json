@@ -1,6 +1,6 @@
 {
   "name": "dream-promotion",
-  "version": "2.64.0",
+  "version": "2.65.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,6 +16,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.1",
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
     "@fal-ai/client": "^1.10.1",
     "@pdf-lib/fontkit": "^1.1.1",
     "@phosphor-icons/react": "^2.1.7",

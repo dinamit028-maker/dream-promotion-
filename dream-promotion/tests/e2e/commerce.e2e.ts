@@ -174,8 +174,13 @@ async function main() {
       frameLoads.push(r.request().url());
       return r.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html dir="rtl"><body>
         <button id="title">הכותרת</button><button id="steps">איך זה עובד</button><button id="menu">התפריט</button><button id="go">לקולקציה</button>
+        <button id="drop">גרירה למעלה</button>
         <script>
           const send = (m) => parent.postMessage(m, ${JSON.stringify(BASE)});
+          // 2.65: what the dashboard tells the page (move / remove / rerender), kept for the test to read
+          window.got = [];
+          addEventListener('message', (e) => { if (e.origin === ${JSON.stringify(BASE)}) window.got.push(e.data); });
+          document.getElementById('drop').onclick = () => send({ type: 'drop', id: 'steps', to: 0 });
           send({ type: 'ready', path: location.pathname });
           document.getElementById('title').onclick = () => send({ type: 'text', section: 'hero', field: 'title', value: 'כותרת שנערכה באתר' });
           document.getElementById('steps').onclick = () => send({ type: 'section', id: 'steps' });
@@ -665,17 +670,44 @@ async function main() {
       for (let i = 0; i < 100 && heroTitle() !== 'כותרת שנערכה באתר'; i++) await st.waitForTimeout(100);
       assert.equal(heroTitle(), 'כותרת שנערכה באתר');
       assert.equal(versions().find((v) => v.status === 'published')!.version, 1, 'the site keeps the published version');
-      // a section: its panel; moved down — saved, and the frame shows it again
+      // a section: its panel; moved down — the page moves it at once (no new frame), the draft is saved behind it (2.65)
       const loads = frameLoads.length;
       const before = draft()!.settings.sections.map((x: any) => x.id);
+      const order = () => draft()!.settings.sections.map((x: any) => x.id).join(',');
+      const got = () => frame.locator('body').evaluate(() => (window as any).got as any[]);
+      const savedAs = async (want: (ids: string[]) => boolean) => { for (let i = 0; i < 100 && !want(order().split(',')); i++) await st.waitForTimeout(100); };
       await frame.locator('#steps').click();
       await st.getByRole('heading', { name: 'איך זה עובד' }).waitFor();
       await st.getByRole('button', { name: 'להזיז למטה' }).click();
-      await st.waitForFunction(() => document.querySelector('[role="status"]')?.textContent?.includes('נשמר כטיוטה'));
-      await st.waitForTimeout(300);
-      const ids = draft()!.settings.sections.map((x: any) => x.id);
+      await savedAs((ids) => ids.indexOf('steps') === before.indexOf('steps') + 1);
+      const ids = order().split(',');
       assert.equal(ids.indexOf('steps'), before.indexOf('steps') + 1, 'the steps moved one down');
-      assert.ok(frameLoads.length > loads, 'the frame shows the saved draft');
+      assert.ok((await got()).some((m: any) => m.type === 'move' && m.id === 'steps'), 'the page was told to move it');
+      assert.equal(frameLoads.length, loads, 'no new frame');
+      // dragged on the page to the top: the page says where, the dashboard moves it and tells the page
+      await frame.locator('#drop').click();
+      await savedAs((ids) => ids[0] === 'steps');
+      assert.equal(order().split(',')[0], 'steps', 'dropped first');
+      assert.ok((await got()).some((m: any) => m.type === 'move' && m.id === 'steps' && m.to === 0));
+      // undo / redo: back to where it was, and forward again — saved as the draft, the page's content swapped in place
+      await st.getByRole('button', { name: /ביטול הפעולה האחרונה/ }).click();
+      await savedAs((ids) => ids.indexOf('steps') === before.indexOf('steps') + 1);
+      assert.equal(order().split(',').indexOf('steps'), before.indexOf('steps') + 1, 'undo');
+      await st.keyboard.press('Control+Shift+Z');
+      await savedAs((ids) => ids[0] === 'steps');
+      assert.equal(order().split(',')[0], 'steps', 'redo (the keyboard)');
+      for (let i = 0; i < 50 && !(await got()).some((m: any) => m.type === 'rerender'); i++) await st.waitForTimeout(100);
+      assert.ok((await got()).some((m: any) => m.type === 'rerender'), 'the page swaps its content after the save');
+      assert.equal(frameLoads.length, loads, 'still no new frame');
+      // the panel's list: dragged with the keyboard (space, an arrow, space) — the hero to the second place
+      await st.getByRole('button', { name: 'סגירה' }).first().click();
+      const handle = st.getByRole('button', { name: 'גרירת "פתיח"' });
+      await handle.focus();
+      const heroAt = order().split(',').indexOf('hero');
+      await handle.scrollIntoViewIfNeeded();   // as a person sees it: the list in view while it moves
+      for (const key of ['Space', 'ArrowDown', 'Space']) { await st.keyboard.press(key); await st.waitForTimeout(400); }
+      await savedAs((ids) => ids.indexOf('hero') === heroAt + 1);
+      assert.equal(order().split(',').indexOf('hero'), heroAt + 1, 'moved one down by the keyboard');
       assert.equal(await st.getByRole('button', { name: 'שכפול' }).count(), 0, 'a closed template: no duplicating');
       await noSideScroll(st, 'the visual editor on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9b-visual-editor-phone.png'), fullPage: true });

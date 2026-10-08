@@ -513,6 +513,51 @@ async function main() {
       await frame.locator('footer .legal').click();
       await page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'open' && m.data.target === 'settings'));
       await page.screenshot({ path: path.join(SHOTS, 'edit-frame.png') });
+
+      // 2.65 (PR-3a): no reload — the dashboard's "move" / "remove" / "rerender", and a drag on the page that only says where
+      const post = (m: unknown) => page.evaluate((msg: unknown) => (document.getElementById('f') as HTMLIFrameElement).contentWindow!.postMessage(msg, '*'), m);
+      const order = () => frame.locator('main > [data-edit-section]').evaluateAll((els: Element[]) => els.map((e: Element) => (e as HTMLElement).dataset.editSection));
+      await frame.locator('body').evaluate(() => { (window as any).stayed = true; });   // gone if the page loads again
+      const stayed = () => frame.locator('body').evaluate(() => (window as any).stayed === true);
+      const first = await order();
+      const last = first[first.length - 1]!;
+      await post({ type: 'move', id: last, to: 0 });
+      await frame.locator(`main > [data-edit-section]:first-of-type[data-edit-section="${last}"]`).waitFor();
+      assert.deepEqual(await order(), [last, ...first.slice(0, -1)], 'moved at once');
+      assert.ok(await stayed(), 'the same page');
+      await post({ type: 'remove', id: last });
+      await frame.locator(`[data-edit-section="${last}"]`).waitFor({ state: 'detached' });
+      // a drag with the mouse: the handle of the chosen section, dropped at the top — the page names the place, moves nothing itself
+      await frame.locator('[data-edit-section="steps"] .band-title').click();
+      const handle = frame.locator('[data-edit-section="steps"] .edit-drag');
+      await handle.waitFor();
+      const box = (await handle.boundingBox())!;
+      const top = (await frame.locator('main > [data-edit-section]').first().boundingBox())!;
+      const before = await order();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 10, top.y + 5, { steps: 12 });
+      assert.equal(await frame.locator('.edit-drop-line').count(), 1, 'a line shows where it will land');
+      await page.mouse.up();
+      await page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'drop' && m.data.id === 'steps'));
+      const drop = (await msgs()).find((m) => m.data.type === 'drop')!.data;
+      assert.equal(drop.to, 0, 'dropped first');
+      assert.deepEqual(await order(), before, 'the page waits for the dashboard');
+      // the dashboard saved a draft: the page fetches itself and swaps its content — the new text, no new page
+      const DRAFT = 'aaaaaaaa-0000-4000-8000-000000000142';
+      const was = psql(`select settings::text from public.store_theme_versions where id = '${DRAFT}'`);
+      try {
+        psql(`update public.store_theme_versions set settings = jsonb_set(settings, '{sections,0,settings,title}', '"כותרת שנשמרה עכשיו"') where id = '${DRAFT}'`);
+        await post({ type: 'rerender', rev: 1 });
+        await frame.getByRole('heading', { level: 1, name: 'כותרת שנשמרה עכשיו' }).waitFor();
+        assert.ok(await stayed(), 'swapped in place, not loaded again');
+      } finally {
+        psql(`update public.store_theme_versions set settings = '${was.replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      }
+      // a message from anyone else: nothing
+      await frame.locator('body').evaluate(() => window.postMessage({ type: 'remove', id: 'hero' }, '*'));
+      await page.waitForTimeout(200);
+      assert.equal(await frame.locator('[data-edit-section="hero"]').count(), 1, 'only the dashboard is heard');
       await ctx.close();
     });
 
