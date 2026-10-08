@@ -14,20 +14,20 @@ export const DESIGN_OPTIONS: Record<'spacing' | 'headingScale' | 'buttonStyle' |
   cardStyle: { label: 'מסגרת לכרטיסים', options: [{ id: 'border', label: 'קו דק' }, { id: 'flat', label: 'בלי מסגרת' }, { id: 'soft', label: 'רקע רך' }, { id: 'shadow', label: 'צל' }] },
 };
 export const CHROME_OPTIONS: Record<'header' | 'footer', { label: string; options: Opt[] }> = {
-  header: { label: 'ראש האתר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'centered-logo', label: 'לוגו באמצע' }, { id: 'transparent-overlay', label: 'שקוף מעל התמונה' }] },
-  footer: { label: 'תחתית האתר', options: [{ id: 'classic', label: 'עמודות' }, { id: 'minimal', label: 'שורה אחת' }, { id: 'centered', label: 'באמצע' }] },
+  header: { label: 'ראש האתר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'centered-logo', label: 'לוגו באמצע' }, { id: 'transparent-overlay', label: 'שקוף מעל התמונה' }, { id: 'minimal', label: 'מינימלי (תפריט נפתח)' }, { id: 'commerce-wide', label: 'חנות — תפריט בשורה נפרדת' }, { id: 'search-heavy', label: 'חיפוש גדול' }, { id: 'compact', label: 'צר' }] },
+  footer: { label: 'תחתית האתר', options: [{ id: 'classic', label: 'עמודות' }, { id: 'minimal', label: 'שורה אחת' }, { id: 'centered', label: 'באמצע' }, { id: 'multi-column', label: 'עמודות על רקע צבעוני' }, { id: 'dark', label: 'כהה' }] },
 };
 export const COMMERCE_OPTIONS: Record<'productCard' | 'collectionCard' | 'productPage', { label: string; options: Opt[] }> = {
-  productCard: { label: 'כרטיס מוצר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'editorial', label: 'מגזיני' }, { id: 'minimal', label: 'מינימלי' }] },
-  collectionCard: { label: 'קטגוריות', options: [{ id: 'grid', label: 'ריבועים' }, { id: 'editorial', label: 'תמונות גדולות' }, { id: 'circles', label: 'עיגולים' }] },
-  productPage: { label: 'עמוד מוצר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'gallery-left', label: 'תמונות משמאל' }, { id: 'gallery-right', label: 'תמונות מימין' }] },
+  productCard: { label: 'כרטיס מוצר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'editorial', label: 'מגזיני' }, { id: 'minimal', label: 'מינימלי' }, { id: 'horizontal', label: 'לרוחב' }, { id: 'compact', label: 'קטן וצפוף' }] },
+  collectionCard: { label: 'קטגוריות', options: [{ id: 'grid', label: 'ריבועים' }, { id: 'editorial', label: 'תמונות גדולות' }, { id: 'circles', label: 'עיגולים' }, { id: 'carousel', label: 'שורה נגללת' }] },
+  productPage: { label: 'עמוד מוצר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'gallery-left', label: 'תמונות משמאל' }, { id: 'gallery-right', label: 'תמונות מימין' }, { id: 'wide', label: 'תמונות רחבות למעלה' }, { id: 'compact', label: 'קומפקטי' }] },
 };
 export const SECTION_VARIANT_OPTIONS: Record<string, Opt[]> = {
-  hero: [{ id: 'split', label: 'טקסט ותמונה זה לצד זה' }, { id: 'full-image', label: 'תמונה על כל הרוחב' }, { id: 'editorial', label: 'כותרת גדולה, תמונה רחבה מתחת' }],
-  collections: [{ id: 'grid', label: 'ריבועים' }, { id: 'editorial', label: 'תמונות גדולות' }, { id: 'circles', label: 'עיגולים' }],
-  products: [{ id: 'grid', label: 'רשת' }],
+  hero: [{ id: 'split', label: 'טקסט ותמונה זה לצד זה' }, { id: 'full-image', label: 'תמונה על כל הרוחב' }, { id: 'editorial', label: 'כותרת גדולה, תמונה רחבה מתחת' }, { id: 'centered', label: 'טקסט באמצע, על התמונה' }, { id: 'slider', label: 'כמה תמונות בגלילה' }],
+  collections: [{ id: 'grid', label: 'ריבועים' }, { id: 'editorial', label: 'תמונות גדולות' }, { id: 'circles', label: 'עיגולים' }, { id: 'carousel', label: 'שורה נגללת' }],
+  products: [{ id: 'grid', label: 'רשת' }, { id: 'carousel', label: 'שורה נגללת' }],
   imageText: [{ id: 'split', label: 'חצי-חצי' }, { id: 'full-bleed', label: 'תמונה עד הקצה' }, { id: 'overlap', label: 'טקסט בכרטיס על התמונה' }],
-  steps: [{ id: 'cards', label: 'כרטיסים' }],
+  steps: [{ id: 'cards', label: 'כרטיסים' }, { id: 'horizontal', label: 'בשורה, עם קו' }],
   faq: [{ id: 'accordion', label: 'נפתח בלחיצה' }],
   contact: [{ id: 'dark', label: 'רקע כהה' }, { id: 'centered', label: 'רקע בהיר' }],
   text: [{ id: 'plain', label: 'רגיל' }],

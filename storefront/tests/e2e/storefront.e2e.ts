@@ -548,9 +548,15 @@ async function main() {
       };
       const product = psql(`select slug from public.catalog_items where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a' and publish_online order by name limit 1`);
       try {
+        const seen = new Set<string>();
         for (const [id, expect] of [
           ['fashion', { body: ['v-h-transparent-overlay', 'v-f-minimal', 'v-pc-editorial', 'v-pp-gallery-left', 'v-sp-airy', 'v-btn-underline', 'v-hs-display'], hero: 'hero--full-image' }],
           ['beauty', { body: ['v-h-centered-logo', 'v-f-centered', 'v-pc-minimal', 'v-pp-gallery-right', 'v-btn-soft', 'v-card-soft'], hero: 'hero--editorial' }],
+          ['furniture', { body: ['v-h-minimal', 'v-f-multi-column', 'v-pc-minimal', 'v-pp-wide', 'v-btn-outline'], hero: 'hero--editorial' }],
+          ['bags', { body: ['v-h-commerce-wide', 'v-f-multi-column', 'v-pc-classic', 'v-pp-classic'], hero: 'hero--split' }],
+          ['services', { body: ['v-h-centered-logo', 'v-f-multi-column', 'v-pc-horizontal', 'v-pp-compact', 'v-card-soft'], hero: 'hero--split' }],
+          ['retail', { body: ['v-h-search-heavy', 'v-f-dark', 'v-pc-compact', 'v-sp-compact', 'v-card-shadow'], hero: 'hero--slider' }],
+          ['general', { body: ['v-h-compact', 'v-f-minimal', 'v-pc-classic'], hero: 'hero--centered' }],
         ] as const) {
           psql(`update public.store_theme_versions set template = 'kit', settings = '${sqlq(asWritten(id))}' where id = '${DRAFT}'`);
           for (const open of [phone, desktop]) {
@@ -559,7 +565,12 @@ async function main() {
             await page.locator(`section.${expect.hero}`).waitFor();
             const cls = (await page.getAttribute('body', 'class')) ?? '';
             for (const c of expect.body) assert.ok(cls.split(' ').includes(c), `${id}: <body> has ${c} (${cls})`);
-            const hero = page.locator('.hero-media img');
+            seen.add(`${cls}|${expect.hero}`);
+            if (id === 'retail') {
+              assert.equal(await page.locator('.hero-slides img').count(), 2, 'retail: both wide pictures in the slider');
+              assert.equal(await page.locator('form.header-search input[name="q"]').count(), 1, 'retail: a search field in the header');
+            }
+            const hero = page.locator('.hero-media img').first();
             assert.match((await hero.getAttribute('src')) ?? '', new RegExp(`^/kit-images/${id}/`), `${id}: the kit's hero picture`);
             assert.ok(await hero.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), `${id}: it loads`);
             await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -579,6 +590,7 @@ async function main() {
             await ctx.close();
           }
         }
+        assert.equal(seen.size, 7, 'seven kits, seven different sites');
         // the business's own choice wins over the kit's: a saved header and hero layout, the rest from the kit
         const own = asWritten('fashion');
         own.chrome = { header: 'centered-logo' };

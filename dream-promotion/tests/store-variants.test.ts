@@ -31,7 +31,7 @@ test('the kits\' defaults reach the storefront as a generated copy, equal to kit
   assert.equal(readFileSync(STOREFRONT_DESIGNS, 'utf8'), storefrontDesigns(), 'storefront/src/lib/kit-designs.json differs from kits/ — run `npm run kits`');
 });
 
-test('fashion and beauty: their defaults, every one from the lists; the other kits keep the look of 2.61', () => {
+test('the kits\' defaults follow the design matrix, every one from the lists', () => {
   const fashion = kitById('fashion')!, beauty = kitById('beauty')!;
   assert.deepEqual(fashion.variants.chrome, { header: 'transparent-overlay', footer: 'minimal' });
   assert.deepEqual(fashion.variants.commerce, { productCard: 'editorial', collectionCard: 'editorial', productPage: 'gallery-left' });
@@ -40,7 +40,19 @@ test('fashion and beauty: their defaults, every one from the lists; the other ki
   assert.deepEqual(beauty.variants.chrome, { header: 'centered-logo', footer: 'centered' });
   assert.equal(beauty.variants.sections.treatments, 'overlap');
   assert.equal(beauty.variants.commerce.collectionCard, 'circles');
-  for (const id of ['bags', 'general', 'furniture', 'retail', 'services']) assert.deepEqual(kitById(id)!.variants, { design: {}, chrome: {}, commerce: {}, sections: {} }, id);
+  // PHASE1_DESIGN_MATRIX.md: header, hero, product card, collections, footer, spacing, buttons — and no two kits alike
+  const matrix: Record<string, string[]> = {
+    fashion: ['transparent-overlay', 'full-image', 'editorial', 'editorial', 'minimal', 'airy', 'underline'],
+    furniture: ['minimal', 'editorial', 'minimal', 'editorial', 'multi-column', 'airy', 'outline'],
+    beauty: ['centered-logo', 'editorial', 'minimal', 'circles', 'centered', 'airy', 'soft'],
+    bags: ['commerce-wide', 'split', 'classic', 'grid', 'multi-column', 'normal', 'solid'],
+    services: ['centered-logo', 'split', 'horizontal', 'grid', 'multi-column', 'airy', 'solid'],
+    retail: ['search-heavy', 'slider', 'compact', 'carousel', 'dark', 'compact', 'solid'],
+    general: ['compact', 'centered', 'classic', 'grid', 'minimal', 'normal', 'solid'],
+  };
+  const row = (id: string) => { const v = kitById(id)!.variants; return [v.chrome.header, v.sections.hero, v.commerce.productCard, v.commerce.collectionCard, v.chrome.footer, v.design.spacing, v.design.buttonStyle]; };
+  for (const [id, want] of Object.entries(matrix)) assert.deepEqual(row(id), want, id);
+  assert.equal(new Set(Object.keys(matrix).map((id) => JSON.stringify(row(id)))).size, 7, 'seven different sites');
 });
 
 test('a kit that names a layout the renderer does not draw is refused, with the reason', () => {

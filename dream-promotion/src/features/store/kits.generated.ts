@@ -53,7 +53,8 @@ export const KIT_FILES: readonly unknown[] = [
             "secondaryLabel": "שאלה בוואטסאפ",
             "secondaryHref": "whatsapp",
             "image": ""
-          }
+          },
+          "variant": "split"
         },
         {
           "id": "collections",
@@ -62,7 +63,8 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "סוגי שקיות",
             "subtitle": ""
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "featured",
@@ -73,7 +75,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "",
             "limit": 8,
             "buttonLabel": "לכל השקיות"
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "about",
@@ -86,7 +89,8 @@ export const KIT_FILES: readonly unknown[] = [
             "buttonLabel": "איך מזמינים",
             "buttonHref": "/pages/how-to-order",
             "imageSide": "start"
-          }
+          },
+          "variant": "split"
         },
         {
           "id": "steps",
@@ -112,7 +116,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "text": "השקיות מגיעות מודפסות ומוכנות."
               }
             ]
-          }
+          },
+          "variant": "cards"
         },
         {
           "id": "faq",
@@ -130,7 +135,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "a": "הכי טוב קובץ וקטורי (PDF, AI או SVG). אם אין — שלחו מה שיש ונבדוק יחד."
               }
             ]
-          }
+          },
+          "variant": "accordion"
         },
         {
           "id": "contact",
@@ -139,9 +145,26 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "נדבר?",
             "text": "שאלה על דגם, כמויות או הדפסה — כתבו לנו ונחזור אליכם."
-          }
+          },
+          "variant": "centered"
         }
-      ]
+      ],
+      "design": {
+        "spacing": "normal",
+        "headingScale": "large",
+        "buttonStyle": "solid",
+        "container": "normal",
+        "cardStyle": "border"
+      },
+      "chrome": {
+        "headerVariant": "commerce-wide",
+        "footerVariant": "multi-column"
+      },
+      "commerceDesign": {
+        "productCardVariant": "classic",
+        "collectionCardVariant": "grid",
+        "productPageVariant": "classic"
+      }
     },
     "menus": {
       "main": [
@@ -246,7 +269,8 @@ export const KIT_FILES: readonly unknown[] = [
         "body": "## מה הכמות המינימלית?\n\n[הכמות המינימלית לכל דגם.]\n\n## באיזה קובץ לשלוח את הלוגו?\n\nהכי טוב קובץ וקטורי (PDF, AI או SVG).\n\n## מתי ההזמנה מגיעה?\n\n[זמני הכנה ומשלוח.]"
       }
     ],
-    "policies": {}
+    "policies": {},
+    "schemaVersion": 2
   },
   {
     "id": "beauty",
@@ -831,7 +855,8 @@ export const KIT_FILES: readonly unknown[] = [
             "secondaryLabel": "ייעוץ בוואטסאפ",
             "secondaryHref": "whatsapp",
             "image": ""
-          }
+          },
+          "variant": "editorial"
         },
         {
           "id": "rooms",
@@ -840,7 +865,8 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "לפי חדר",
             "subtitle": ""
-          }
+          },
+          "variant": "editorial"
         },
         {
           "id": "featured",
@@ -851,7 +877,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "",
             "limit": 8,
             "buttonLabel": "לכל הרהיטים"
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "delivery",
@@ -864,7 +891,8 @@ export const KIT_FILES: readonly unknown[] = [
             "buttonLabel": "לפרטים",
             "buttonHref": "/pages/delivery-assembly",
             "imageSide": "start"
-          }
+          },
+          "variant": "overlap"
         },
         {
           "id": "steps",
@@ -886,7 +914,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "text": "הרהיט מגיע הביתה."
               }
             ]
-          }
+          },
+          "variant": "cards"
         },
         {
           "id": "faq",
@@ -904,7 +933,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "a": "בכל מוצר כתובות המידות. כדאי למדוד גם את הדלתות ואת המעלית."
               }
             ]
-          }
+          },
+          "variant": "accordion"
         },
         {
           "id": "contact",
@@ -913,9 +943,26 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "צריכים עזרה בבחירה?",
             "text": "ספרו לנו על החדר, ונעזור למצוא את מה שמתאים."
-          }
+          },
+          "variant": "centered"
         }
-      ]
+      ],
+      "design": {
+        "spacing": "airy",
+        "headingScale": "large",
+        "buttonStyle": "outline",
+        "container": "wide",
+        "cardStyle": "flat"
+      },
+      "chrome": {
+        "headerVariant": "minimal",
+        "footerVariant": "multi-column"
+      },
+      "commerceDesign": {
+        "productCardVariant": "minimal",
+        "collectionCardVariant": "editorial",
+        "productPageVariant": "wide"
+      }
     },
     "menus": {
       "main": [
@@ -1031,7 +1078,8 @@ export const KIT_FILES: readonly unknown[] = [
       "shipping": {
         "append": "## הרכבה\n\n[האם ההרכבה כלולה, כמה היא עולה, ומתי מתאמים אותה.]"
       }
-    }
+    },
+    "schemaVersion": 2
   },
   {
     "id": "general",
@@ -1077,7 +1125,8 @@ export const KIT_FILES: readonly unknown[] = [
             "secondaryLabel": "שאלה בוואטסאפ",
             "secondaryHref": "whatsapp",
             "image": ""
-          }
+          },
+          "variant": "centered"
         },
         {
           "id": "featured",
@@ -1088,7 +1137,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "",
             "limit": 8,
             "buttonLabel": "לכל המוצרים"
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "collections",
@@ -1097,7 +1147,8 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "קטגוריות",
             "subtitle": ""
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "about",
@@ -1110,7 +1161,8 @@ export const KIT_FILES: readonly unknown[] = [
             "buttonLabel": "עוד עלינו",
             "buttonHref": "/pages/about",
             "imageSide": "start"
-          }
+          },
+          "variant": "split"
         },
         {
           "id": "faq",
@@ -1128,7 +1180,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "a": "בטח. כתבו לנו בוואטסאפ או במייל, ונחזור אליכם."
               }
             ]
-          }
+          },
+          "variant": "accordion"
         },
         {
           "id": "contact",
@@ -1137,9 +1190,26 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "נדבר?",
             "text": "שאלה על מוצר או על הזמנה — כתבו לנו ונחזור אליכם."
-          }
+          },
+          "variant": "centered"
         }
-      ]
+      ],
+      "design": {
+        "spacing": "normal",
+        "headingScale": "normal",
+        "buttonStyle": "solid",
+        "container": "normal",
+        "cardStyle": "border"
+      },
+      "chrome": {
+        "headerVariant": "compact",
+        "footerVariant": "minimal"
+      },
+      "commerceDesign": {
+        "productCardVariant": "classic",
+        "collectionCardVariant": "grid",
+        "productPageVariant": "classic"
+      }
     },
     "menus": {
       "main": [
@@ -1218,7 +1288,8 @@ export const KIT_FILES: readonly unknown[] = [
         "body": "## איך מזמינים?\n\nבוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה.\n\n## איך משלמים?\n\n[אמצעי התשלום]\n\n## מתי ההזמנה מגיעה?\n\n[זמני אספקה — ראו גם את עמוד המשלוחים]"
       }
     ],
-    "policies": {}
+    "policies": {},
+    "schemaVersion": 2
   },
   {
     "id": "retail",
@@ -1277,7 +1348,8 @@ export const KIT_FILES: readonly unknown[] = [
             "secondaryLabel": "למבצעים",
             "secondaryHref": "/collections/sale",
             "image": ""
-          }
+          },
+          "variant": "slider"
         },
         {
           "id": "categories",
@@ -1286,7 +1358,8 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "קטגוריות",
             "subtitle": ""
-          }
+          },
+          "variant": "carousel"
         },
         {
           "id": "new",
@@ -1297,7 +1370,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "new",
             "limit": 8,
             "buttonLabel": "לכל החדשים"
-          }
+          },
+          "variant": "carousel"
         },
         {
           "id": "sale",
@@ -1308,7 +1382,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "sale",
             "limit": 4,
             "buttonLabel": "לכל המבצעים"
-          }
+          },
+          "variant": "carousel"
         },
         {
           "id": "recommended",
@@ -1319,7 +1394,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "recommended",
             "limit": 4,
             "buttonLabel": "לכל המומלצים"
-          }
+          },
+          "variant": "carousel"
         },
         {
           "id": "faq",
@@ -1337,7 +1413,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "a": "בטח — כתבו לנו בוואטסאפ או במייל."
               }
             ]
-          }
+          },
+          "variant": "accordion"
         },
         {
           "id": "contact",
@@ -1346,9 +1423,26 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "יש שאלה?",
             "text": "כתבו לנו ונחזור אליכם."
-          }
+          },
+          "variant": "dark"
         }
-      ]
+      ],
+      "design": {
+        "spacing": "compact",
+        "headingScale": "large",
+        "buttonStyle": "solid",
+        "container": "normal",
+        "cardStyle": "shadow"
+      },
+      "chrome": {
+        "headerVariant": "search-heavy",
+        "footerVariant": "dark"
+      },
+      "commerceDesign": {
+        "productCardVariant": "compact",
+        "collectionCardVariant": "carousel",
+        "productPageVariant": "classic"
+      }
     },
     "menus": {
       "main": [
@@ -1435,7 +1529,8 @@ export const KIT_FILES: readonly unknown[] = [
         "body": "## איך מזמינים?\n\nבוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה.\n\n## איך משלמים?\n\n[אמצעי התשלום]\n\n## מתי ההזמנה מגיעה?\n\n[זמני אספקה — ראו גם את עמוד המשלוחים]"
       }
     ],
-    "policies": {}
+    "policies": {},
+    "schemaVersion": 2
   },
   {
     "id": "services",
@@ -1501,7 +1596,8 @@ export const KIT_FILES: readonly unknown[] = [
             "secondaryLabel": "השירותים שלנו",
             "secondaryHref": "/pages/services",
             "image": ""
-          }
+          },
+          "variant": "split"
         },
         {
           "id": "what",
@@ -1514,7 +1610,8 @@ export const KIT_FILES: readonly unknown[] = [
             "buttonLabel": "לפירוט השירותים",
             "buttonHref": "/pages/services",
             "imageSide": "start"
-          }
+          },
+          "variant": "split"
         },
         {
           "id": "steps",
@@ -1536,7 +1633,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "text": "אחרי האישור שלכם."
               }
             ]
-          }
+          },
+          "variant": "horizontal"
         },
         {
           "id": "packages",
@@ -1547,7 +1645,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "packages",
             "limit": 6,
             "buttonLabel": "לכל החבילות"
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "faq",
@@ -1565,7 +1664,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "a": "כתבו לנו, ונבדוק יחד את המועד הקרוב."
               }
             ]
-          }
+          },
+          "variant": "accordion"
         },
         {
           "id": "contact",
@@ -1574,9 +1674,26 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "בואו נדבר",
             "text": "שאלה, הצעת מחיר או תיאום — כתבו לנו ונחזור אליכם."
-          }
+          },
+          "variant": "centered"
         }
-      ]
+      ],
+      "design": {
+        "spacing": "airy",
+        "headingScale": "large",
+        "buttonStyle": "solid",
+        "container": "wide",
+        "cardStyle": "soft"
+      },
+      "chrome": {
+        "headerVariant": "centered-logo",
+        "footerVariant": "multi-column"
+      },
+      "commerceDesign": {
+        "productCardVariant": "horizontal",
+        "collectionCardVariant": "grid",
+        "productPageVariant": "compact"
+      }
     },
     "menus": {
       "main": [
@@ -1652,6 +1769,7 @@ export const KIT_FILES: readonly unknown[] = [
         "body": "## כמה זה עולה?\n\n[איך נקבע המחיר.]\n\n## תוך כמה זמן אפשר להתחיל?\n\n[זמני התחלה.]"
       }
     ],
-    "policies": {}
+    "policies": {},
+    "schemaVersion": 2
   }
 ];

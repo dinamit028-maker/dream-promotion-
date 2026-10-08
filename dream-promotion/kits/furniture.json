@@ -3,79 +3,281 @@
   "name": "רהיטים ובית",
   "description": "לחנות רהיטים ועיצוב הבית: סלון, חדר שינה, פינת אוכל, משרד ותאורה, עם עמוד משלוח והרכבה.",
   "order": 30,
-  "keywords": ["רהיטים", "ריהוט", "רהיט", "עיצוב הבית", "לבית", "מטבחים", "תאורה", "נגרות", "ספות", "מזרנים", "furniture", "home decor"],
+  "keywords": [
+    "רהיטים",
+    "ריהוט",
+    "רהיט",
+    "עיצוב הבית",
+    "לבית",
+    "מטבחים",
+    "תאורה",
+    "נגרות",
+    "ספות",
+    "מזרנים",
+    "furniture",
+    "home decor"
+  ],
   "seoDescription": "{{name}} — רהיטים ועיצוב לבית: סלון, חדר שינה, פינת אוכל, משרד ותאורה.",
   "theme": {
     "colors": {
-      "background": "#f7f4ef", "surface": "#ffffff", "text": "#2b2622", "muted": "#625a52", "primary": "#2b2622",
-      "accent": "#5f7353", "accentSoft": "#e9ede4", "border": "#e3ddd3"
+      "background": "#f7f4ef",
+      "surface": "#ffffff",
+      "text": "#2b2622",
+      "muted": "#625a52",
+      "primary": "#2b2622",
+      "accent": "#5f7353",
+      "accentSoft": "#e9ede4",
+      "border": "#e3ddd3"
     },
     "font": "rubik",
     "art": "plain",
     "radius": "small",
-    "announcement": { "enabled": true, "text": "משלוח והרכבה — כל הפרטים באתר", "href": "/pages/delivery-assembly" },
-    "product": { "related": true, "whatsapp": true },
+    "announcement": {
+      "enabled": true,
+      "text": "משלוח והרכבה — כל הפרטים באתר",
+      "href": "/pages/delivery-assembly"
+    },
+    "product": {
+      "related": true,
+      "whatsapp": true
+    },
     "sections": [
-      { "id": "hero", "type": "hero", "hidden": false, "settings": {
-        "eyebrow": "רהיטים ועיצוב לבית",
-        "title": "בית שנעים לחזור אליו",
-        "subtitle": "רהיטים לסלון, לחדר השינה, לפינת האוכל ולמשרד — ותאורה שמשלימה את הכל.",
-        "primaryLabel": "לכל הרהיטים", "primaryHref": "/collections/all",
-        "secondaryLabel": "ייעוץ בוואטסאפ", "secondaryHref": "whatsapp",
-        "image": ""
-      } },
-      { "id": "rooms", "type": "collections", "hidden": false, "settings": { "title": "לפי חדר", "subtitle": "" } },
-      { "id": "featured", "type": "products", "hidden": false, "settings": { "title": "מומלצים", "collection": "", "limit": 8, "buttonLabel": "לכל הרהיטים" } },
-      { "id": "delivery", "type": "imageText", "hidden": false, "settings": {
-        "title": "משלוח והרכבה",
-        "text": "כל מה שצריך לדעת על המשלוח, על ההרכבה ועל ההגעה לבית — בעמוד אחד.",
-        "image": "", "buttonLabel": "לפרטים", "buttonHref": "/pages/delivery-assembly", "imageSide": "start"
-      } },
-      { "id": "steps", "type": "steps", "hidden": false, "settings": {
-        "title": "איך זה עובד",
-        "items": [
-          { "title": "בוחרים", "text": "רהיט, מידה וצבע מהקטלוג." },
-          { "title": "מתאמים", "text": "קובעים יחד מועד למשלוח." },
-          { "title": "מקבלים", "text": "הרהיט מגיע הביתה." }
-        ]
-      } },
-      { "id": "faq", "type": "faq", "hidden": false, "settings": { "title": "שאלות נפוצות", "items": [
-        { "q": "אפשר לראות את הרהיט לפני שקונים?", "a": "כתבו לנו ונתאם — ונשלח גם תמונות ומידות." },
-        { "q": "איך יודעים שהרהיט ייכנס?", "a": "בכל מוצר כתובות המידות. כדאי למדוד גם את הדלתות ואת המעלית." }
-      ] } },
-      { "id": "contact", "type": "contact", "hidden": false, "settings": { "title": "צריכים עזרה בבחירה?", "text": "ספרו לנו על החדר, ונעזור למצוא את מה שמתאים." } }
-    ]
+      {
+        "id": "hero",
+        "type": "hero",
+        "hidden": false,
+        "settings": {
+          "eyebrow": "רהיטים ועיצוב לבית",
+          "title": "בית שנעים לחזור אליו",
+          "subtitle": "רהיטים לסלון, לחדר השינה, לפינת האוכל ולמשרד — ותאורה שמשלימה את הכל.",
+          "primaryLabel": "לכל הרהיטים",
+          "primaryHref": "/collections/all",
+          "secondaryLabel": "ייעוץ בוואטסאפ",
+          "secondaryHref": "whatsapp",
+          "image": ""
+        },
+        "variant": "editorial"
+      },
+      {
+        "id": "rooms",
+        "type": "collections",
+        "hidden": false,
+        "settings": {
+          "title": "לפי חדר",
+          "subtitle": ""
+        },
+        "variant": "editorial"
+      },
+      {
+        "id": "featured",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "מומלצים",
+          "collection": "",
+          "limit": 8,
+          "buttonLabel": "לכל הרהיטים"
+        },
+        "variant": "grid"
+      },
+      {
+        "id": "delivery",
+        "type": "imageText",
+        "hidden": false,
+        "settings": {
+          "title": "משלוח והרכבה",
+          "text": "כל מה שצריך לדעת על המשלוח, על ההרכבה ועל ההגעה לבית — בעמוד אחד.",
+          "image": "",
+          "buttonLabel": "לפרטים",
+          "buttonHref": "/pages/delivery-assembly",
+          "imageSide": "start"
+        },
+        "variant": "overlap"
+      },
+      {
+        "id": "steps",
+        "type": "steps",
+        "hidden": false,
+        "settings": {
+          "title": "איך זה עובד",
+          "items": [
+            {
+              "title": "בוחרים",
+              "text": "רהיט, מידה וצבע מהקטלוג."
+            },
+            {
+              "title": "מתאמים",
+              "text": "קובעים יחד מועד למשלוח."
+            },
+            {
+              "title": "מקבלים",
+              "text": "הרהיט מגיע הביתה."
+            }
+          ]
+        },
+        "variant": "cards"
+      },
+      {
+        "id": "faq",
+        "type": "faq",
+        "hidden": false,
+        "settings": {
+          "title": "שאלות נפוצות",
+          "items": [
+            {
+              "q": "אפשר לראות את הרהיט לפני שקונים?",
+              "a": "כתבו לנו ונתאם — ונשלח גם תמונות ומידות."
+            },
+            {
+              "q": "איך יודעים שהרהיט ייכנס?",
+              "a": "בכל מוצר כתובות המידות. כדאי למדוד גם את הדלתות ואת המעלית."
+            }
+          ]
+        },
+        "variant": "accordion"
+      },
+      {
+        "id": "contact",
+        "type": "contact",
+        "hidden": false,
+        "settings": {
+          "title": "צריכים עזרה בבחירה?",
+          "text": "ספרו לנו על החדר, ונעזור למצוא את מה שמתאים."
+        },
+        "variant": "centered"
+      }
+    ],
+    "design": {
+      "spacing": "airy",
+      "headingScale": "large",
+      "buttonStyle": "outline",
+      "container": "wide",
+      "cardStyle": "flat"
+    },
+    "chrome": {
+      "headerVariant": "minimal",
+      "footerVariant": "multi-column"
+    },
+    "commerceDesign": {
+      "productCardVariant": "minimal",
+      "collectionCardVariant": "editorial",
+      "productPageVariant": "wide"
+    }
   },
   "menus": {
     "main": [
-      { "label": "סלון", "href": "/collections/living-room" },
-      { "label": "חדר שינה", "href": "/collections/bedroom" },
-      { "label": "פינת אוכל", "href": "/collections/dining" },
-      { "label": "משרד", "href": "/collections/office" },
-      { "label": "תאורה", "href": "/collections/lighting" }
+      {
+        "label": "סלון",
+        "href": "/collections/living-room"
+      },
+      {
+        "label": "חדר שינה",
+        "href": "/collections/bedroom"
+      },
+      {
+        "label": "פינת אוכל",
+        "href": "/collections/dining"
+      },
+      {
+        "label": "משרד",
+        "href": "/collections/office"
+      },
+      {
+        "label": "תאורה",
+        "href": "/collections/lighting"
+      }
     ],
     "footer": [
-      { "label": "אודות", "href": "/pages/about" },
-      { "label": "משלוח והרכבה", "href": "/pages/delivery-assembly" },
-      { "label": "שאלות נפוצות", "href": "/pages/faq" },
-      { "label": "משלוחים", "href": "/policies/shipping" },
-      { "label": "צרו קשר", "href": "/pages/contact" }
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "משלוח והרכבה",
+        "href": "/pages/delivery-assembly"
+      },
+      {
+        "label": "שאלות נפוצות",
+        "href": "/pages/faq"
+      },
+      {
+        "label": "משלוחים",
+        "href": "/policies/shipping"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
     ]
   },
   "collections": [
-    { "slug": "living-room", "title": "סלון", "description": "ספות, שולחנות ועוד לסלון.", "tags": ["סלון"] },
-    { "slug": "bedroom", "title": "חדר שינה", "description": "מיטות, שידות וארונות.", "tags": ["חדר שינה"] },
-    { "slug": "dining", "title": "פינת אוכל", "description": "שולחנות וכיסאות לפינת האוכל.", "tags": ["פינת אוכל"] },
-    { "slug": "office", "title": "משרד", "description": "שולחנות עבודה, כיסאות ואחסון.", "tags": ["משרד"] },
-    { "slug": "lighting", "title": "תאורה", "description": "מנורות וגופי תאורה.", "tags": ["תאורה"] }
+    {
+      "slug": "living-room",
+      "title": "סלון",
+      "description": "ספות, שולחנות ועוד לסלון.",
+      "tags": [
+        "סלון"
+      ]
+    },
+    {
+      "slug": "bedroom",
+      "title": "חדר שינה",
+      "description": "מיטות, שידות וארונות.",
+      "tags": [
+        "חדר שינה"
+      ]
+    },
+    {
+      "slug": "dining",
+      "title": "פינת אוכל",
+      "description": "שולחנות וכיסאות לפינת האוכל.",
+      "tags": [
+        "פינת אוכל"
+      ]
+    },
+    {
+      "slug": "office",
+      "title": "משרד",
+      "description": "שולחנות עבודה, כיסאות ואחסון.",
+      "tags": [
+        "משרד"
+      ]
+    },
+    {
+      "slug": "lighting",
+      "title": "תאורה",
+      "description": "מנורות וגופי תאורה.",
+      "tags": [
+        "תאורה"
+      ]
+    }
   ],
   "pages": [
-    { "slug": "about", "title": "אודות", "body": "## מי אנחנו\n\n[איך {{name}} התחילה, ומה מיוחד ברהיטים שלכם.]" },
-    { "slug": "delivery-assembly", "title": "משלוח והרכבה", "body": "## משלוח\n\n[לאילו אזורים, כמה זמן לוקח, ואיך מתאמים מועד.]\n\n## הרכבה\n\n[האם ההרכבה כלולה, כמה היא עולה, ומי מרכיב.]\n\n## לפני שהמשלוח מגיע\n\n- למדוד את הדלתות, המעלית והמדרגות.\n- לפנות את המקום שבו הרהיט יעמוד." },
-    { "slug": "contact", "title": "צרו קשר", "body": "## נשמח לעזור\n\nשאלה על רהיט, על מידות או על משלוח — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר." },
-    { "slug": "faq", "title": "שאלות נפוצות", "body": "## איך יודעים שהרהיט ייכנס?\n\nבכל מוצר כתובות המידות. כדאי למדוד גם את הדלתות ואת המעלית.\n\n## ההרכבה כלולה?\n\n[פרטי ההרכבה — ראו גם את עמוד המשלוח וההרכבה.]" }
+    {
+      "slug": "about",
+      "title": "אודות",
+      "body": "## מי אנחנו\n\n[איך {{name}} התחילה, ומה מיוחד ברהיטים שלכם.]"
+    },
+    {
+      "slug": "delivery-assembly",
+      "title": "משלוח והרכבה",
+      "body": "## משלוח\n\n[לאילו אזורים, כמה זמן לוקח, ואיך מתאמים מועד.]\n\n## הרכבה\n\n[האם ההרכבה כלולה, כמה היא עולה, ומי מרכיב.]\n\n## לפני שהמשלוח מגיע\n\n- למדוד את הדלתות, המעלית והמדרגות.\n- לפנות את המקום שבו הרהיט יעמוד."
+    },
+    {
+      "slug": "contact",
+      "title": "צרו קשר",
+      "body": "## נשמח לעזור\n\nשאלה על רהיט, על מידות או על משלוח — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר."
+    },
+    {
+      "slug": "faq",
+      "title": "שאלות נפוצות",
+      "body": "## איך יודעים שהרהיט ייכנס?\n\nבכל מוצר כתובות המידות. כדאי למדוד גם את הדלתות ואת המעלית.\n\n## ההרכבה כלולה?\n\n[פרטי ההרכבה — ראו גם את עמוד המשלוח וההרכבה.]"
+    }
   ],
   "policies": {
-    "shipping": { "append": "## הרכבה\n\n[האם ההרכבה כלולה, כמה היא עולה, ומתי מתאמים אותה.]" }
-  }
+    "shipping": {
+      "append": "## הרכבה\n\n[האם ההרכבה כלולה, כמה היא עולה, ומתי מתאמים אותה.]"
+    }
+  },
+  "schemaVersion": 2
 }

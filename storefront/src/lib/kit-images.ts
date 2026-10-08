@@ -41,13 +41,14 @@ export function kitImage(kit: string | null, slot: 'hero' | 'imageText'): KitPic
  * The hero's pictures (2.63): the first wide one, its portrait one for phones, and the side that is free for text
  * ('start' / 'end', logical — the delivered JSON's "right" is start). The second wide one is for a slider or as a choice.
  */
-export function kitHero(kit: string | null): { wide: KitPicture; mobile: KitPicture | null; textSafe: 'start' | 'end' | '' } | null {
+export function kitHero(kit: string | null): { wide: KitPicture; second: KitPicture | null; mobile: KitPicture | null; textSafe: 'start' | 'end' | '' } | null {
   const m = kit ? KIT_MANIFESTS[kit] : undefined;
   if (!m) return null;
   const wideImg = first(m.images.filter((i) => i.slot === 'hero' && i.variant === 'wide'));
   const wide = picture(m.kit, wideImg);
   if (!wide) return null;
-  return { wide, mobile: picture(m.kit, first(m.images.filter((i) => i.slot === 'hero' && i.variant === 'vertical'))), textSafe: wideImg?.textSafe ?? '' };
+  const second = picture(m.kit, m.images.filter((i) => i.slot === 'hero' && i.variant === 'wide').sort((a, b) => a.order - b.order)[1]);
+  return { wide, second, mobile: picture(m.kit, first(m.images.filter((i) => i.slot === 'hero' && i.variant === 'vertical'))), textSafe: wideImg?.textSafe ?? '' };
 }
 /** the kit's picture for a collection, by its address (slug) */
 export function kitCollectionImage(kit: string | null, slug: string): KitPicture | null {

@@ -49,7 +49,9 @@ function Hero({ s, site, first, variant }: { s: S; site: Live; first: boolean; v
   const Title = first ? 'h1' : 'h2';
   const v = img || kit ? variant || 'split' : 'split';
   const side = hero?.textSafe || 'start';
-  const mobile = v !== 'split' ? hero?.mobile : null;
+  const mobile = v !== 'split' && v !== 'slider' ? hero?.mobile : null;
+  // a slider (2.63): the kit's two wide pictures, side by side in one row that scrolls (no script); the business's picture is one
+  const slides = v === 'slider' && kit && hero?.second ? [kit, hero.second] : null;
   return (
     <section className={`hero hero--${v} hero-safe-${side}`} aria-labelledby="hero-title">
       <div className="wrap hero-grid">
@@ -66,6 +68,7 @@ function Hero({ s, site, first, variant }: { s: S; site: Live; first: boolean; v
           {img
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={img} alt="" className="hero-img" loading="eager" fetchPriority="high" decoding="async" />
+            : slides ? <div className="hero-slides" role="group" aria-label="תמונות">{slides.map((p, i) => <KitImg key={p.src} pic={p} className="hero-img" eager={i === 0} />)}</div>
             : kit ? <KitImg pic={kit} className="hero-img" eager mobile={mobile} /> : <Art />}
         </div>
       </div>
@@ -106,7 +109,7 @@ export function CollectionArt({ kit, slug }: { kit: string | null; slug: string 
   return pic ? <KitImg pic={pic} /> : <Art className="tile-art" />;
 }
 
-async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }) {
+async function ProductsSection({ s, site, id, variant }: { s: S; site: Live; id: string; variant: string }) {
   const collection = str(s, 'collection');
   const limit = typeof s.limit === 'number' ? s.limit : 8;
   const list = await data.products(site.storeId, { collection: collection || undefined, limit, sort: collection ? undefined : 'newest' }, site.preview);
@@ -117,7 +120,7 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
       <section className="band" id={id} aria-labelledby={`${id}-t`}>
         <div className="wrap">
           <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'מוצרים'}</h2>
-          <PlaceholderGrid count={Math.min(limit, 4)} />
+          <PlaceholderGrid count={Math.min(limit, 4)} layout={variant} />
         </div>
       </section>
     );
@@ -130,7 +133,7 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
           <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'מוצרים'}</h2>
           {list.total > list.items.length && <a href={more} className="more">{str(s, 'buttonLabel') || 'לכל המוצרים'}</a>}
         </div>
-        <ProductGrid items={list.items} currency={site.store.currency} />
+        <ProductGrid items={list.items} currency={site.store.currency} layout={variant} />
       </div>
     </section>
   );
@@ -157,14 +160,14 @@ function ImageText({ s, site, id, variant }: { s: S; site: Live; id: string; var
   );
 }
 
-function Steps({ s, id, e }: { s: S; id: string; e: boolean }) {
+function Steps({ s, id, e, variant }: { s: S; id: string; e: boolean; variant: string }) {
   const items = (Array.isArray(s.items) ? s.items : []) as { title: string; text: string }[];
   if (!items.length) return null;
   return (
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
         <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>
-        <ol className="steps" {...F(e, 'items', false)}>
+        <ol className={`steps steps--${variant || 'cards'}`} {...F(e, 'items', false)}>
           {items.map((it, i) => (
             <li key={i} className="step"><span className="step-n" aria-hidden="true">{i + 1}</span><h3>{it.title}</h3>{it.text && <p>{it.text}</p>}</li>
           ))}
@@ -268,9 +271,9 @@ export function SectionView({ section, site, first }: { section: Section; site: 
   switch (section.type) {
     case 'hero': return <Hero s={s} site={site} first={first} variant={variant} />;
     case 'collections': return <CollectionsSection s={s} site={site} id={id} variant={variant} />;
-    case 'products': return <ProductsSection s={s} site={site} id={id} />;
+    case 'products': return <ProductsSection s={s} site={site} id={id} variant={variant} />;
     case 'imageText': return <ImageText s={s} site={site} id={id} variant={variant} />;
-    case 'steps': return <Steps s={s} id={id} e={Boolean(site.edit)} />;
+    case 'steps': return <Steps s={s} id={id} e={Boolean(site.edit)} variant={variant} />;
     case 'faq': return <Faq s={s} id={id} e={Boolean(site.edit)} />;
     case 'contact': return <Contact s={s} site={site} id={id} variant={variant} />;
     case 'text': return <TextSection s={s} id={id} e={Boolean(site.edit)} />;

@@ -9,7 +9,7 @@ import { layered, DESIGN, sectionVariant } from '../../src/lib/variants';
 import { kitHero, kitImageCss } from '../../src/lib/kit-images';
 
 test('a site that never picked anything: the look of 2.61, one class per choice', () => {
-  for (const t of [resolveTheme('bags', {}), resolveTheme('kit', {}), resolveTheme('kit', { kit: 'general' })]) {
+  for (const t of [resolveTheme('bags', {}), resolveTheme('kit', {}), resolveTheme('kit', { kit: 'no-such-kit' })]) {
     assert.equal(themeClasses(t), 'v-sp-normal v-hs-normal v-btn-solid v-ct-normal v-card-border v-h-classic v-f-classic v-pc-classic v-cc-grid v-pp-classic');
     assert.ok(t.sections.every((s) => s.variant === { hero: 'split', products: 'grid', collections: 'grid', contact: 'dark', imageText: 'split', steps: 'cards', faq: 'accordion', text: 'plain', gallery: 'grid', newsletter: 'minimal' }[s.type]));
   }

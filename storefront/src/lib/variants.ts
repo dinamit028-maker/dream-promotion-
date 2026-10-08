@@ -13,21 +13,21 @@ export const DESIGN = {
   cardStyle: ['border', 'flat', 'soft', 'shadow'],
 } as const;
 export const CHROME = {
-  header: ['classic', 'centered-logo', 'transparent-overlay'],
-  footer: ['classic', 'minimal', 'centered'],
+  header: ['classic', 'centered-logo', 'transparent-overlay', 'minimal', 'commerce-wide', 'search-heavy', 'compact'],
+  footer: ['classic', 'minimal', 'centered', 'multi-column', 'dark'],
 } as const;
 export const COMMERCE = {
-  productCard: ['classic', 'editorial', 'minimal'],
-  collectionCard: ['grid', 'editorial', 'circles'],
-  productPage: ['classic', 'gallery-left', 'gallery-right'],
+  productCard: ['classic', 'editorial', 'minimal', 'horizontal', 'compact'],
+  collectionCard: ['grid', 'editorial', 'circles', 'carousel'],
+  productPage: ['classic', 'gallery-left', 'gallery-right', 'wide', 'compact'],
 } as const;
 /** a section's layout, by its type; '' for a type with one look */
 export const SECTION_VARIANTS = {
-  hero: ['split', 'full-image', 'editorial'],
-  collections: ['grid', 'editorial', 'circles'],
-  products: ['grid'],
+  hero: ['split', 'full-image', 'editorial', 'centered', 'slider'],
+  collections: ['grid', 'editorial', 'circles', 'carousel'],
+  products: ['grid', 'carousel'],
   imageText: ['split', 'full-bleed', 'overlap'],
-  steps: ['cards'],
+  steps: ['cards', 'horizontal'],
   faq: ['accordion'],
   contact: ['dark', 'centered'],
   text: ['plain'],

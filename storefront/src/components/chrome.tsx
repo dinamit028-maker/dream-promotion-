@@ -62,6 +62,14 @@ export function Header({ site }: { site: Site & { store: Store } }) {
           <nav aria-label="תפריט ראשי" className="nav-wide">
             <ul role="list">{links.map((l, i) => <NavLink key={i} link={l} store={store} />)}</ul>
           </nav>
+          {/* 2.63, the header "search-heavy": a search field in the header itself (a plain form to the store's own search page) */}
+          {theme?.chrome.header === 'search-heavy' && (
+            <form action="/search" role="search" className="header-search">
+              <label htmlFor="header-q" className="sr-only">חיפוש באתר</label>
+              <input id="header-q" name="q" type="search" placeholder="מה מחפשים?" enterKeyHint="search" />
+              <button type="submit" className="btn btn-primary">חיפוש</button>
+            </form>
+          )}
           {/* the search and the cart together (2.63: a header variant places them as one; the classic header ignores the box) */}
           <div className="header-tools">
             <a href="/search" className="icon-link" aria-label="חיפוש">
