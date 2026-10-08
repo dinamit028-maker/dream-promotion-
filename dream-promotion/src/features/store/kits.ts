@@ -16,7 +16,7 @@ import {
   POLICY_LABEL, policyDraft, policySlug, STORE_LIMITS, linkOk,
   type CollectionRow, type MenuLink, type PageRow, type PolicyKind, type StoreRow, type ThemeVersion,
 } from './store';
-import { contrast, fieldError, FONTS, SECTION_DEFS, type Art, type Colors, type Font, type Radius, type Section, type SectionType } from './theme-fields';
+import { contrast, draftOf, fieldError, FONTS, SECTION_DEFS, settingsOf, type Art, type Colors, type Font, type Radius, type Section, type SectionType } from './theme-fields';
 import { CHROME_OPTIONS, COMMERCE_OPTIONS, DESIGN_OPTIONS, sectionVariantOk, type KitVariants } from './variants';
 
 export interface KitCollection { slug: string; title: string; description: string; tags: string[] }
@@ -280,8 +280,15 @@ export interface KitPageRow { kind: 'page' | 'policy'; policy: PolicyKind | null
 export interface KitCollectionRow { title: string; slug: string; description: string; image_url: string; kind: 'auto'; rules: { tags: string[] };
   sort: 'newest'; publish_online: boolean; seo_title: string; seo_description: string; position: number }
 export type MenuAction = 'create' | 'same' | 'conflict';
+/**
+ * 2.64 (PR-2): how a kit is applied — "full" (ערכה מלאה, as in 2.58: the look, the home page, collections, pages, policies
+ * and menus that are missing) or "design" (החלפת עיצוב: the look only — the kit's colours, font, header, footer, cards and
+ * layouts on the store's own home page; no page, menu, collection or policy is touched). One plan, one applyKit.
+ */
+export type ApplyMode = 'full' | 'design';
 export interface KitPlan {
   kit: Kit;
+  mode: ApplyMode;
   settings: Record<string, unknown>;
   /** the one draft of the theme: a new one, or the existing one — "edited" = it holds changes that were never published */
   draft: { id: string | null; edited: boolean };
@@ -300,6 +307,21 @@ export interface KitState {
   menus: { main: MenuLink[]; footer: MenuLink[] }; collections: Pick<CollectionRow, 'slug'>[];
 }
 
+/**
+ * "החלפת עיצוב": the store's own home page — every section of its template, its texts, pictures, order and what it hid —
+ * with the kit's look. The business's own design choices and section layouts go (the new kit's take their place); its
+ * announcement and product-page settings stay. The same rule as the storefront's preview of "design" (lib/kit-preview.ts).
+ */
+export function designSwitch(kit: Kit, template: string, settings: Record<string, unknown>): Record<string, unknown> {
+  const d = draftOf(template, settings);
+  const t = kit.theme;
+  return settingsOf({
+    ...d, kit: kit.id, colors: { ...t.colors }, font: t.font, art: t.art, radius: t.radius,
+    overrides: { design: {}, chrome: {}, commerce: {} },
+    sections: d.sections.map(({ variant: _v, ...s }) => s),
+  });
+}
+
 /** a stable form of a value (keys sorted), to tell whether two settings are the same */
 export function canonical(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
@@ -309,10 +331,19 @@ export function canonical(v: unknown): string {
 const sameLinks = (a: MenuLink[], b: MenuLink[]) => a.length === b.length && a.every((l, i) => l.label === b[i].label && l.href === b[i].href);
 
 /** what applying a kit to this store would do — nothing is written here */
-export function planKit(kit: Kit, state: KitState, ctx: KitContext): KitPlan {
+export function planKit(kit: Kit, state: KitState, ctx: KitContext, mode: ApplyMode = 'full'): KitPlan {
   const draftRow = state.versions.find((v) => v.status === 'draft') ?? null;
   const published = state.versions.find((v) => v.status === 'published') ?? null;
   const edited = Boolean(draftRow && (published ? canonical(draftRow.settings) !== canonical(published.settings) : Object.keys(draftRow.settings).length > 0));
+  if (mode === 'design') {
+    // the look only: the current draft (or what is on the site) with the kit's design — the same draft protection as "full"
+    const base = draftRow ?? published;
+    const keep = (kind: 'main' | 'footer') => ({ items: state.menus[kind], current: state.menus[kind], action: 'same' as MenuAction });
+    return {
+      kit, mode, settings: designSwitch(kit, base?.template ?? 'kit', base?.settings ?? {}), draft: { id: draftRow?.id ?? null, edited }, publishTheme: !published,
+      collections: [], keptCollections: [], pages: [], pageConflicts: [], keptPolicies: [], menus: { main: keep('main'), footer: keep('footer') },
+    };
+  }
 
   const haveCollections = new Set(state.collections.map((c) => c.slug));
   const collections = kit.collections.filter((c) => !haveCollections.has(c.slug)).map((c): KitCollectionRow => ({
@@ -341,7 +372,7 @@ export function planKit(kit: Kit, state: KitState, ctx: KitContext): KitPlan {
     return { items, current, action };
   };
   return {
-    kit, settings: kitSettings(kit, ctx), draft: { id: draftRow?.id ?? null, edited }, publishTheme: !published,
+    kit, mode, settings: kitSettings(kit, ctx), draft: { id: draftRow?.id ?? null, edited }, publishTheme: !published,
     collections, keptCollections: kit.collections.filter((c) => haveCollections.has(c.slug)).map((c) => c.slug),
     pages, pageConflicts, keptPolicies, menus: { main: menu('main'), footer: menu('footer') },
   };

@@ -201,21 +201,31 @@ function Publish({ store, check, busy, onStatus }: { store: StoreRow; check: { r
 }
 
 /** "תצוגה מקדימה": the window opens on the tap itself (phones block one opened after a request), then gets the link */
-export function PreviewButton({ label = 'תצוגה מקדימה' }: { label?: string }) {
+/** kit (2.64): the store in a kit it has not applied — "design" (its own content) or "full" (the kit's); nothing is saved */
+export function PreviewButton({ label = 'תצוגה מקדימה', kit, size, variant = 'ghost' }: { label?: string; kit?: { id: string; mode: 'design' | 'full' }; size?: 'sm'; variant?: 'ghost' | 'soft' }) {
   const [error, setError] = useState('');
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button variant="ghost" onClick={async () => {
+      <Button variant={variant} size={size} onClick={async () => {
         setError('');
         const w = window.open('', '_blank');
         const r = await previewLink();
         if (!r.ok) { w?.close(); setError(r.error); return; }
         // the store's page gets no handle back to the dashboard
-        if (w) { w.opener = null; w.location.href = r.data.url; } else window.location.href = r.data.url;
+        const url = kit ? withKit(r.data.url, kit) : r.data.url;
+        if (w) { w.opener = null; w.location.href = url; } else window.location.href = url;
       }}>{label}</Button>
       {error && <p role="alert" className="max-w-xs text-xs text-red-700">{error}</p>}
     </div>
   );
+}
+
+/** the preview link with a kit's choice: the storefront keeps it only with the token in the same link (lib/kit-choice.ts) */
+export function withKit(url: string, kit: { id: string; mode: 'design' | 'full' }): string {
+  const u = new URL(url);
+  u.searchParams.set('kit', kit.id);
+  u.searchParams.set('kitmode', kit.mode);
+  return u.toString();
 }
 
 function Domains({ domains, onChange, reload }: { domains: DomainRow[]; onChange: (d: DomainRow[]) => void; reload: () => Promise<unknown> }) {

@@ -7,6 +7,7 @@ import { isPlatformHost, subdomainOf } from './host';
 import { dashboardOrigin, EDIT_HEADER, PREVIEW_COOKIE, verifyPreviewToken } from './preview';
 import { PLATFORM_STORE_COOKIE } from './host';
 import { resolveTheme, type Theme } from './theme';
+import { KIT_COOKIE, previewTheme, readKitChoice, type KitChoice } from './kit-preview';
 import { isFullStore, type Store, type StoreAny } from './types';
 
 /**
@@ -29,6 +30,8 @@ export interface Site {
   live: boolean;             // may be shown: on the air, previewed, or opened with the password
   locked: boolean;           // not open to everyone (before publishing, or locked): never indexed
   passwordPage: boolean;     // "בקרוב" offers the password
+  /** a kit's preview (2.64): the owner sees the store in a kit it has not applied — only with the preview token, never saved */
+  kitPreview: KitChoice | null;
   /** the dashboard's visual editor (2.61): its origin, when this page was opened with a valid edit token — else null */
   edit: { origin: string; token: string } | null;
 }
@@ -71,14 +74,20 @@ export const getSite = cache(async (host: string): Promise<Site | null> => {
     : store.primary_domain ?? resolved?.primary_domain ?? null;
   const proto = h.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const origin = primaryDomain && !platform ? `https://${primaryDomain}` : `${proto}://${h.get('host') ?? host}`;
+  const editing = Boolean(token && editPv && editOrigin && editPv === pv);
+  // the kit's preview: the owner's token only (a shopper's cookie means nothing), and not inside the visual editor
+  const kitPreview = token && !editing && isFullStore(store) ? readKitChoice(jar.get(KIT_COOKIE)?.value) : null;
   return {
     host, storeId, preview: token || (unlocked && store.status !== 'published'), via: token ? 'token' : unlocked ? 'password' : 'public',
     platform, subdomain: slug, platformSlug: platformResolved ? platformSlug : null, isPrimary, primaryDomain, origin, store,
-    theme: isFullStore(store) ? resolveTheme(store.template, store.theme.settings) : null,
+    theme: !isFullStore(store) ? null
+      : kitPreview ? previewTheme(store.template, store.theme.settings, kitPreview, store.name)
+      : resolveTheme(store.template, store.theme.settings),
+    kitPreview,
     live: access.mode === 'public' || token || unlocked,
     locked: access.mode !== 'public',
     passwordPage: access.mode === 'password' && (!platform || Boolean(platformResolved)),
-    edit: token && editPv && editOrigin && editPv === pv ? { origin: editOrigin, token: editToken! } : null,
+    edit: editing ? { origin: editOrigin!, token: editToken! } : null,
   };
 });
 

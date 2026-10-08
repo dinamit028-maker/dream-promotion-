@@ -1,0 +1,828 @@
+{
+  "bags": {
+    "name": "שקיות ממותגות",
+    "theme": {
+      "colors": {
+        "background": "#fbf8f3",
+        "surface": "#ffffff",
+        "text": "#1f1b16",
+        "muted": "#5f574e",
+        "primary": "#1f1b16",
+        "accent": "#8a5a2b",
+        "accentSoft": "#f1e6d6",
+        "border": "#e7ddcf"
+      },
+      "font": "heebo",
+      "art": "bag",
+      "radius": "medium",
+      "announcement": {
+        "enabled": true,
+        "text": "שקיות ממותגות לעסקים — עם הלוגו שלכם",
+        "href": "/collections/all"
+      },
+      "product": {
+        "related": true,
+        "whatsapp": true
+      },
+      "sections": [
+        {
+          "id": "hero",
+          "type": "hero",
+          "hidden": false,
+          "settings": {
+            "eyebrow": "שקיות ממותגות",
+            "title": "הלוגו שלכם, על כל שקית",
+            "subtitle": "שקיות לעסקים בהדפסה לפי המידה שלכם. בוחרים דגם, שולחים לוגו — ומקבלים שקיות מוכנות.",
+            "primaryLabel": "לכל השקיות",
+            "primaryHref": "/collections/all",
+            "secondaryLabel": "שאלה בוואטסאפ",
+            "secondaryHref": "whatsapp",
+            "image": ""
+          }
+        },
+        {
+          "id": "collections",
+          "type": "collections",
+          "hidden": false,
+          "settings": {
+            "title": "סוגי שקיות",
+            "subtitle": ""
+          }
+        },
+        {
+          "id": "featured",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "הכי מבוקשות",
+            "collection": "",
+            "limit": 8,
+            "buttonLabel": "לכל השקיות"
+          }
+        },
+        {
+          "id": "about",
+          "type": "imageText",
+          "hidden": false,
+          "settings": {
+            "title": "למה שקית ממותגת?",
+            "text": "שקית עם הלוגו ממשיכה ללכת עם הלקוח גם אחרי הקנייה. היא חלק מהחוויה, והיא מזכירה את העסק בכל מקום שהיא מגיעה אליו.",
+            "image": "",
+            "buttonLabel": "איך מזמינים",
+            "buttonHref": "/pages/how-to-order",
+            "imageSide": "start"
+          }
+        },
+        {
+          "id": "steps",
+          "type": "steps",
+          "hidden": false,
+          "settings": {
+            "title": "איך זה עובד",
+            "items": [
+              {
+                "title": "בוחרים שקית",
+                "text": "דגם, מידה וצבע מהקטלוג."
+              },
+              {
+                "title": "שולחים לוגו",
+                "text": "קובץ של הלוגו, ואם יש — גם הנחיות להדפסה."
+              },
+              {
+                "title": "מאשרים",
+                "text": "מקבלים את כל הפרטים ומאשרים לפני ההדפסה."
+              },
+              {
+                "title": "מקבלים",
+                "text": "השקיות מגיעות מודפסות ומוכנות."
+              }
+            ]
+          }
+        },
+        {
+          "id": "faq",
+          "type": "faq",
+          "hidden": false,
+          "settings": {
+            "title": "שאלות נפוצות",
+            "items": [
+              {
+                "q": "מה הכמות המינימלית להזמנה?",
+                "a": "זה תלוי בדגם ובסוג ההדפסה. כתבו לנו מה אתם צריכים ונחזור עם הפרטים."
+              },
+              {
+                "q": "באיזה קובץ לשלוח את הלוגו?",
+                "a": "הכי טוב קובץ וקטורי (PDF, AI או SVG). אם אין — שלחו מה שיש ונבדוק יחד."
+              }
+            ]
+          }
+        },
+        {
+          "id": "contact",
+          "type": "contact",
+          "hidden": false,
+          "settings": {
+            "title": "נדבר?",
+            "text": "שאלה על דגם, כמויות או הדפסה — כתבו לנו ונחזור אליכם."
+          }
+        }
+      ]
+    }
+  },
+  "beauty": {
+    "name": "ביוטי וקליניקה",
+    "theme": {
+      "colors": {
+        "background": "#fdf9f8",
+        "surface": "#ffffff",
+        "text": "#2a2224",
+        "muted": "#6b5b5f",
+        "primary": "#2a2224",
+        "accent": "#9c5f6b",
+        "accentSoft": "#f6e9eb",
+        "border": "#eedfe1"
+      },
+      "font": "frank",
+      "art": "plain",
+      "radius": "large",
+      "announcement": {
+        "enabled": true,
+        "text": "קובעים תור אונליין — בכמה לחיצות",
+        "href": "booking"
+      },
+      "product": {
+        "related": true,
+        "whatsapp": true
+      },
+      "sections": [
+        {
+          "id": "hero",
+          "type": "hero",
+          "hidden": false,
+          "settings": {
+            "eyebrow": "{{name}}",
+            "title": "הזמן שלך לטפח את עצמך",
+            "subtitle": "טיפולים מקצועיים באווירה נעימה. בוחרים טיפול, קובעים תור — ואנחנו כבר מחכים.",
+            "primaryLabel": "לקביעת תור",
+            "primaryHref": "booking",
+            "secondaryLabel": "שאלה בוואטסאפ",
+            "secondaryHref": "whatsapp",
+            "image": ""
+          }
+        },
+        {
+          "id": "treatments",
+          "type": "imageText",
+          "hidden": false,
+          "settings": {
+            "title": "הטיפולים שלנו",
+            "text": "כאן כותבים על הטיפולים: מה עושים, למי זה מתאים, וכמה זמן לוקח כל טיפול.",
+            "image": "",
+            "buttonLabel": "לכל הטיפולים",
+            "buttonHref": "/pages/treatments",
+            "imageSide": "start"
+          }
+        },
+        {
+          "id": "before-after",
+          "type": "gallery",
+          "hidden": false,
+          "settings": {
+            "title": "לפני ואחרי",
+            "text": "תוצאות אמיתיות של לקוחות שלנו, שפורסמו באישורן.",
+            "items": [],
+            "buttonLabel": "לקביעת תור",
+            "buttonHref": "booking"
+          }
+        },
+        {
+          "id": "care",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "מוצרי טיפוח",
+            "collection": "care",
+            "limit": 4,
+            "buttonLabel": "לכל המוצרים"
+          }
+        },
+        {
+          "id": "steps",
+          "type": "steps",
+          "hidden": false,
+          "settings": {
+            "title": "איך מגיעים לטיפול",
+            "items": [
+              {
+                "title": "בוחרים טיפול",
+                "text": "מתוך רשימת הטיפולים."
+              },
+              {
+                "title": "קובעים תור",
+                "text": "ביומן באתר, או בוואטסאפ."
+              },
+              {
+                "title": "מגיעים",
+                "text": "ואנחנו כבר מחכים לך."
+              }
+            ]
+          }
+        },
+        {
+          "id": "faq",
+          "type": "faq",
+          "hidden": false,
+          "settings": {
+            "title": "שאלות נפוצות",
+            "items": [
+              {
+                "q": "כמה זמן לוקח טיפול?",
+                "a": "זה תלוי בטיפול. בעמוד הטיפולים כתוב כמה זמן לוקח כל אחד."
+              },
+              {
+                "q": "אפשר לבטל או להזיז תור?",
+                "a": "כן — כתבו לנו מראש ונתאם מועד אחר."
+              }
+            ]
+          }
+        },
+        {
+          "id": "contact",
+          "type": "contact",
+          "hidden": false,
+          "settings": {
+            "title": "נשמח לראות אותך",
+            "text": "שאלה על טיפול או על תור — כתבי לנו ונחזור אלייך."
+          }
+        }
+      ]
+    }
+  },
+  "fashion": {
+    "name": "אופנה",
+    "theme": {
+      "colors": {
+        "background": "#ffffff",
+        "surface": "#ffffff",
+        "text": "#111111",
+        "muted": "#5c5c5c",
+        "primary": "#111111",
+        "accent": "#b0413e",
+        "accentSoft": "#f6eeee",
+        "border": "#e6e6e6"
+      },
+      "font": "assistant",
+      "art": "plain",
+      "radius": "small",
+      "announcement": {
+        "enabled": true,
+        "text": "הקולקציה החדשה כבר באתר",
+        "href": "/collections/new"
+      },
+      "product": {
+        "related": true,
+        "whatsapp": true
+      },
+      "sections": [
+        {
+          "id": "hero",
+          "type": "hero",
+          "hidden": false,
+          "settings": {
+            "eyebrow": "קולקציה חדשה",
+            "title": "הלוק הבא שלכם מתחיל כאן",
+            "subtitle": "פריטים חדשים, קלאסיקות שתמיד עובדות ואקססוריז שמשלימים את הלוק.",
+            "primaryLabel": "לחדשים",
+            "primaryHref": "/collections/new",
+            "secondaryLabel": "למבצעים",
+            "secondaryHref": "/collections/sale",
+            "image": ""
+          }
+        },
+        {
+          "id": "new",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "חדש באתר",
+            "collection": "new",
+            "limit": 8,
+            "buttonLabel": "לכל החדשים"
+          }
+        },
+        {
+          "id": "categories",
+          "type": "collections",
+          "hidden": false,
+          "settings": {
+            "title": "קנו לפי קטגוריה",
+            "subtitle": ""
+          }
+        },
+        {
+          "id": "story",
+          "type": "imageText",
+          "hidden": false,
+          "settings": {
+            "title": "הסטייל שלנו",
+            "text": "כאן מספרים על הסגנון של החנות: מה אתם אוהבים, איך אתם בוחרים את הפריטים ולמי הם מתאימים.",
+            "image": "",
+            "buttonLabel": "עוד עלינו",
+            "buttonHref": "/pages/about",
+            "imageSide": "end"
+          }
+        },
+        {
+          "id": "instagram",
+          "type": "gallery",
+          "hidden": false,
+          "settings": {
+            "title": "עקבו אחרינו באינסטגרם",
+            "text": "השראה, לוקים ופריטים חדשים — קודם באינסטגרם.",
+            "items": [],
+            "buttonLabel": "לאינסטגרם שלנו",
+            "buttonHref": ""
+          }
+        },
+        {
+          "id": "newsletter",
+          "type": "newsletter",
+          "hidden": true,
+          "settings": {
+            "title": "הראשונים לדעת",
+            "text": "קולקציות חדשות ומבצעים — ישר למייל."
+          }
+        },
+        {
+          "id": "contact",
+          "type": "contact",
+          "hidden": false,
+          "settings": {
+            "title": "צריכים עזרה במידה?",
+            "text": "כתבו לנו לפני שאתם מזמינים — נשמח לעזור לבחור."
+          }
+        }
+      ]
+    }
+  },
+  "furniture": {
+    "name": "רהיטים ובית",
+    "theme": {
+      "colors": {
+        "background": "#f7f4ef",
+        "surface": "#ffffff",
+        "text": "#2b2622",
+        "muted": "#625a52",
+        "primary": "#2b2622",
+        "accent": "#5f7353",
+        "accentSoft": "#e9ede4",
+        "border": "#e3ddd3"
+      },
+      "font": "rubik",
+      "art": "plain",
+      "radius": "small",
+      "announcement": {
+        "enabled": true,
+        "text": "משלוח והרכבה — כל הפרטים באתר",
+        "href": "/pages/delivery-assembly"
+      },
+      "product": {
+        "related": true,
+        "whatsapp": true
+      },
+      "sections": [
+        {
+          "id": "hero",
+          "type": "hero",
+          "hidden": false,
+          "settings": {
+            "eyebrow": "רהיטים ועיצוב לבית",
+            "title": "בית שנעים לחזור אליו",
+            "subtitle": "רהיטים לסלון, לחדר השינה, לפינת האוכל ולמשרד — ותאורה שמשלימה את הכל.",
+            "primaryLabel": "לכל הרהיטים",
+            "primaryHref": "/collections/all",
+            "secondaryLabel": "ייעוץ בוואטסאפ",
+            "secondaryHref": "whatsapp",
+            "image": ""
+          }
+        },
+        {
+          "id": "rooms",
+          "type": "collections",
+          "hidden": false,
+          "settings": {
+            "title": "לפי חדר",
+            "subtitle": ""
+          }
+        },
+        {
+          "id": "featured",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "מומלצים",
+            "collection": "",
+            "limit": 8,
+            "buttonLabel": "לכל הרהיטים"
+          }
+        },
+        {
+          "id": "delivery",
+          "type": "imageText",
+          "hidden": false,
+          "settings": {
+            "title": "משלוח והרכבה",
+            "text": "כל מה שצריך לדעת על המשלוח, על ההרכבה ועל ההגעה לבית — בעמוד אחד.",
+            "image": "",
+            "buttonLabel": "לפרטים",
+            "buttonHref": "/pages/delivery-assembly",
+            "imageSide": "start"
+          }
+        },
+        {
+          "id": "steps",
+          "type": "steps",
+          "hidden": false,
+          "settings": {
+            "title": "איך זה עובד",
+            "items": [
+              {
+                "title": "בוחרים",
+                "text": "רהיט, מידה וצבע מהקטלוג."
+              },
+              {
+                "title": "מתאמים",
+                "text": "קובעים יחד מועד למשלוח."
+              },
+              {
+                "title": "מקבלים",
+                "text": "הרהיט מגיע הביתה."
+              }
+            ]
+          }
+        },
+        {
+          "id": "faq",
+          "type": "faq",
+          "hidden": false,
+          "settings": {
+            "title": "שאלות נפוצות",
+            "items": [
+              {
+                "q": "אפשר לראות את הרהיט לפני שקונים?",
+                "a": "כתבו לנו ונתאם — ונשלח גם תמונות ומידות."
+              },
+              {
+                "q": "איך יודעים שהרהיט ייכנס?",
+                "a": "בכל מוצר כתובות המידות. כדאי למדוד גם את הדלתות ואת המעלית."
+              }
+            ]
+          }
+        },
+        {
+          "id": "contact",
+          "type": "contact",
+          "hidden": false,
+          "settings": {
+            "title": "צריכים עזרה בבחירה?",
+            "text": "ספרו לנו על החדר, ונעזור למצוא את מה שמתאים."
+          }
+        }
+      ]
+    }
+  },
+  "general": {
+    "name": "כללי",
+    "theme": {
+      "colors": {
+        "background": "#fafafa",
+        "surface": "#ffffff",
+        "text": "#1a1a1a",
+        "muted": "#595959",
+        "primary": "#1a1a1a",
+        "accent": "#2f5d8a",
+        "accentSoft": "#e8eef5",
+        "border": "#e2e2e2"
+      },
+      "font": "heebo",
+      "art": "plain",
+      "radius": "medium",
+      "announcement": {
+        "enabled": true,
+        "text": "ברוכים הבאים ל-{{name}}",
+        "href": "/collections/all"
+      },
+      "product": {
+        "related": true,
+        "whatsapp": true
+      },
+      "sections": [
+        {
+          "id": "hero",
+          "type": "hero",
+          "hidden": false,
+          "settings": {
+            "eyebrow": "{{name}}",
+            "title": "כל מה שחיפשתם, במקום אחד",
+            "subtitle": "בחרו מוצר, הוסיפו לסל — ואם יש שאלה, אנחנו כאן.",
+            "primaryLabel": "לכל המוצרים",
+            "primaryHref": "/collections/all",
+            "secondaryLabel": "שאלה בוואטסאפ",
+            "secondaryHref": "whatsapp",
+            "image": ""
+          }
+        },
+        {
+          "id": "featured",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "חדש באתר",
+            "collection": "",
+            "limit": 8,
+            "buttonLabel": "לכל המוצרים"
+          }
+        },
+        {
+          "id": "collections",
+          "type": "collections",
+          "hidden": false,
+          "settings": {
+            "title": "קטגוריות",
+            "subtitle": ""
+          }
+        },
+        {
+          "id": "about",
+          "type": "imageText",
+          "hidden": false,
+          "settings": {
+            "title": "נעים להכיר",
+            "text": "כאן כותבים כמה מילים על העסק: מי אתם, מה אתם מוכרים, ולמה כדאי לקנות דווקא אצלכם.",
+            "image": "",
+            "buttonLabel": "עוד עלינו",
+            "buttonHref": "/pages/about",
+            "imageSide": "start"
+          }
+        },
+        {
+          "id": "faq",
+          "type": "faq",
+          "hidden": false,
+          "settings": {
+            "title": "שאלות נפוצות",
+            "items": [
+              {
+                "q": "איך מזמינים?",
+                "a": "בוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה. אפשר גם לכתוב לנו בוואטסאפ."
+              },
+              {
+                "q": "אפשר לשאול לפני שמזמינים?",
+                "a": "בטח. כתבו לנו בוואטסאפ או במייל, ונחזור אליכם."
+              }
+            ]
+          }
+        },
+        {
+          "id": "contact",
+          "type": "contact",
+          "hidden": false,
+          "settings": {
+            "title": "נדבר?",
+            "text": "שאלה על מוצר או על הזמנה — כתבו לנו ונחזור אליכם."
+          }
+        }
+      ]
+    }
+  },
+  "retail": {
+    "name": "קמעונאות כללית",
+    "theme": {
+      "colors": {
+        "background": "#ffffff",
+        "surface": "#ffffff",
+        "text": "#1b1b1b",
+        "muted": "#585858",
+        "primary": "#1b1b1b",
+        "accent": "#b3420d",
+        "accentSoft": "#fdf0e8",
+        "border": "#e5e5e5"
+      },
+      "font": "heebo",
+      "art": "plain",
+      "radius": "small",
+      "announcement": {
+        "enabled": true,
+        "text": "חדש באתר — כל המוצרים במקום אחד",
+        "href": "/collections/new"
+      },
+      "product": {
+        "related": true,
+        "whatsapp": true
+      },
+      "sections": [
+        {
+          "id": "hero",
+          "type": "hero",
+          "hidden": false,
+          "settings": {
+            "eyebrow": "{{name}}",
+            "title": "כל מה שצריך, במקום אחד",
+            "subtitle": "מוצרים חדשים, מבצעים ומומלצים — מזמינים בקלות, באתר או בוואטסאפ.",
+            "primaryLabel": "לכל המוצרים",
+            "primaryHref": "/collections/all",
+            "secondaryLabel": "למבצעים",
+            "secondaryHref": "/collections/sale",
+            "image": ""
+          }
+        },
+        {
+          "id": "categories",
+          "type": "collections",
+          "hidden": false,
+          "settings": {
+            "title": "קטגוריות",
+            "subtitle": ""
+          }
+        },
+        {
+          "id": "new",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "חדש באתר",
+            "collection": "new",
+            "limit": 8,
+            "buttonLabel": "לכל החדשים"
+          }
+        },
+        {
+          "id": "sale",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "מבצעים",
+            "collection": "sale",
+            "limit": 4,
+            "buttonLabel": "לכל המבצעים"
+          }
+        },
+        {
+          "id": "recommended",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "מומלצים",
+            "collection": "recommended",
+            "limit": 4,
+            "buttonLabel": "לכל המומלצים"
+          }
+        },
+        {
+          "id": "faq",
+          "type": "faq",
+          "hidden": false,
+          "settings": {
+            "title": "שאלות נפוצות",
+            "items": [
+              {
+                "q": "איך מזמינים?",
+                "a": "בוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה."
+              },
+              {
+                "q": "אפשר לשאול לפני שמזמינים?",
+                "a": "בטח — כתבו לנו בוואטסאפ או במייל."
+              }
+            ]
+          }
+        },
+        {
+          "id": "contact",
+          "type": "contact",
+          "hidden": false,
+          "settings": {
+            "title": "יש שאלה?",
+            "text": "כתבו לנו ונחזור אליכם."
+          }
+        }
+      ]
+    }
+  },
+  "services": {
+    "name": "שירותים",
+    "theme": {
+      "colors": {
+        "background": "#f8fafc",
+        "surface": "#ffffff",
+        "text": "#0f172a",
+        "muted": "#475569",
+        "primary": "#0f3b66",
+        "accent": "#0f766e",
+        "accentSoft": "#e6f4f2",
+        "border": "#e2e8f0"
+      },
+      "font": "rubik",
+      "art": "plain",
+      "radius": "medium",
+      "announcement": {
+        "enabled": false,
+        "text": "",
+        "href": ""
+      },
+      "product": {
+        "related": true,
+        "whatsapp": true
+      },
+      "sections": [
+        {
+          "id": "hero",
+          "type": "hero",
+          "hidden": false,
+          "settings": {
+            "eyebrow": "{{name}}",
+            "title": "עושים את זה נכון, מהפעם הראשונה",
+            "subtitle": "ספרו לנו מה אתם צריכים, ונחזור אליכם עם הצעה ברורה.",
+            "primaryLabel": "לתיאום שיחה",
+            "primaryHref": "whatsapp",
+            "secondaryLabel": "השירותים שלנו",
+            "secondaryHref": "/pages/services",
+            "image": ""
+          }
+        },
+        {
+          "id": "what",
+          "type": "imageText",
+          "hidden": false,
+          "settings": {
+            "title": "מה אנחנו עושים",
+            "text": "כאן מתארים את השירות: מה אתם עושים, למי, ומה הלקוח מקבל בסוף.",
+            "image": "",
+            "buttonLabel": "לפירוט השירותים",
+            "buttonHref": "/pages/services",
+            "imageSide": "start"
+          }
+        },
+        {
+          "id": "steps",
+          "type": "steps",
+          "hidden": false,
+          "settings": {
+            "title": "איך זה עובד",
+            "items": [
+              {
+                "title": "פונים אלינו",
+                "text": "בוואטסאפ, בטלפון או במייל."
+              },
+              {
+                "title": "מתאמים",
+                "text": "מבינים יחד מה צריך, ומקבלים הצעה."
+              },
+              {
+                "title": "מתחילים",
+                "text": "אחרי האישור שלכם."
+              }
+            ]
+          }
+        },
+        {
+          "id": "packages",
+          "type": "products",
+          "hidden": false,
+          "settings": {
+            "title": "חבילות ושירותים",
+            "collection": "packages",
+            "limit": 6,
+            "buttonLabel": "לכל החבילות"
+          }
+        },
+        {
+          "id": "faq",
+          "type": "faq",
+          "hidden": false,
+          "settings": {
+            "title": "שאלות נפוצות",
+            "items": [
+              {
+                "q": "כמה זה עולה?",
+                "a": "זה תלוי במה שצריך. ספרו לנו, ונחזור עם הצעה."
+              },
+              {
+                "q": "תוך כמה זמן אפשר להתחיל?",
+                "a": "כתבו לנו, ונבדוק יחד את המועד הקרוב."
+              }
+            ]
+          }
+        },
+        {
+          "id": "contact",
+          "type": "contact",
+          "hidden": false,
+          "settings": {
+            "title": "בואו נדבר",
+            "text": "שאלה, הצעת מחיר או תיאום — כתבו לנו ונחזור אליכם."
+          }
+        }
+      ]
+    }
+  }
+}

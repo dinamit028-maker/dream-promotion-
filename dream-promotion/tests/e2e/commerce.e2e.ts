@@ -693,7 +693,7 @@ async function main() {
     await step('starter kits (2.58): the gallery; a kit is applied as a draft — it creates what is missing and asks before replacing', async () => {
       await st.goto(`${BASE}/store/design?kits=1`, { waitUntil: 'domcontentloaded' });
       await st.getByRole('heading', { name: 'ערכות הקמה' }).waitFor({ timeout: 60_000 });
-      await st.locator('li', { has: st.getByText('ביוטי וקליניקה', { exact: true }) }).getByRole('button', { name: 'בחירה' }).click();
+      await st.locator('li', { has: st.getByText('ביוטי וקליניקה', { exact: true }) }).getByRole('button', { name: 'ערכה מלאה' }).click();
       await st.getByRole('heading', { name: 'ערכת "ביוטי וקליניקה"' }).waitFor();
       const menu = () => fake.tables.store_menus.find((m) => m.kind === 'main')!.items;
       const mainBefore = structuredClone(menu());
@@ -735,6 +735,27 @@ async function main() {
       assert.equal(saved().chrome, undefined, 'back to the kit\'s: nothing saved');
       // a section's layout: the hero, the kit's "editorial"
       assert.equal(await st.getByLabel('פריסה').first().inputValue(), 'editorial');
+      // 2.64 (PR-2): a kit's preview opens the store in that kit (nothing saved); "החלפת עיצוב" writes the look only
+      await st.goto(`${BASE}/store/design?kits=1`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('heading', { name: 'ערכות הקמה' }).waitFor({ timeout: 60_000 });
+      const fashionCard = st.locator('li').filter({ hasText: /^אופנה/ });   // its name first (a badge may follow it)
+      const versionsBefore = fake.tables.store_theme_versions.length;
+      const [pop] = await Promise.all([st.waitForEvent('popup'), fashionCard.getByRole('button', { name: 'תצוגה מקדימה' }).click()]);
+      await pop.waitForURL(/^https:\/\/storefront\.test\/\?preview=.*&kit=fashion&kitmode=design$/);
+      await pop.close();
+      assert.equal(fake.tables.store_theme_versions.length, versionsBefore, 'a preview saves nothing');
+      const counts = () => JSON.stringify([fake.tables.store_pages.length, fake.tables.catalog_collections?.length ?? 0, fake.tables.store_menus.map((m) => m.items)]);
+      const before = counts();
+      await fashionCard.getByRole('button', { name: 'החלפת עיצוב' }).click();
+      await st.getByRole('heading', { name: 'החלפת עיצוב: "אופנה"' }).waitFor();
+      await st.getByText('מה נשאר כמו שהוא').waitFor();
+      await st.getByText('להחליף את טיוטת העיצוב').click();
+      await st.getByRole('button', { name: 'החלפת העיצוב (כטיוטה)' }).click();
+      await st.getByText('האתר מוכן — עכשיו מוסיפים מוצרים.').waitFor();
+      const drafted = fake.tables.store_theme_versions.find((v) => v.status === 'draft')!;
+      assert.deepEqual([drafted.template, drafted.settings.kit, drafted.note], ['kit', 'fashion', 'עיצוב: אופנה']);
+      assert.equal(drafted.settings.sections.find((x: any) => x.id === 'treatments')?.type, 'imageText', 'the home page stays the store\'s (the beauty sections)');
+      assert.equal(counts(), before, 'no page, collection or menu written');
       // the menus screen names a link to what is not on the site
       await st.goto(`${BASE}/store/navigation`, { waitUntil: 'domcontentloaded' });
       await st.getByRole('heading', { name: 'תפריטים', exact: true }).waitFor({ timeout: 60_000 });

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { buildCsp } from '@/lib/csp';
 import { normalizeHost } from '@/lib/host';
 import { dashboardOrigin, EDIT_HEADER, EDIT_PARAM, PREVIEW_COOKIE, verifyPreviewToken } from '@/lib/preview';
+import { KIT_COOKIE, KIT_COOKIE_SECONDS, KIT_MODE_PARAM, KIT_PARAM, kitCookieValue } from '@/lib/kit-choice';
 
 /**
  * Every request of every store: the Host chooses the store (the pages ask the database which), so the request is rewritten
@@ -26,6 +27,7 @@ export function proxy(request: NextRequest) {
     res.headers.set('Cache-Control', 'no-store');
     if (token === 'off') {
       res.cookies.delete(PREVIEW_COOKIE);
+      res.cookies.delete(KIT_COOKIE);
     } else {
       const ok = verifyPreviewToken(token, process.env.STOREFRONT_PREVIEW_SECRET);
       if (ok) {
@@ -34,6 +36,20 @@ export function proxy(request: NextRequest) {
         });
       }
     }
+    return res;
+  }
+
+  // a kit's preview (2.64): the choice becomes a cookie of this address and the address loses it — it counts only with the
+  // preview token (getSite checks), so a link with ?kit= alone shows a shopper nothing different
+  const kit = url.searchParams.get(KIT_PARAM);
+  if (kit !== null) {
+    const clean = new URL(url.pathname, origin);
+    url.searchParams.forEach((v, k) => { if (k !== KIT_PARAM && k !== KIT_MODE_PARAM) clean.searchParams.append(k, v); });
+    const res = NextResponse.redirect(clean, 302);
+    res.headers.set('Cache-Control', 'no-store');
+    const value = kit === 'off' ? null : kitCookieValue(kit, url.searchParams.get(KIT_MODE_PARAM) ?? 'design');
+    if (value) res.cookies.set(KIT_COOKIE, value, { httpOnly: true, secure: https, sameSite: 'lax', path: '/', maxAge: KIT_COOKIE_SECONDS });
+    else res.cookies.delete(KIT_COOKIE);
     return res;
   }
 
