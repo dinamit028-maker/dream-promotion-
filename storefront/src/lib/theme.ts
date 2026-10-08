@@ -1,6 +1,7 @@
 import { BAGS } from '@/templates/bags';
 import { KIT } from '@/templates/kit';
 import { kitImageCss } from './kit-images';
+import { cleanColumns, type Column } from './builder-registry';
 import { contrast, tokenVars } from './theme-tokens';
 import KIT_DESIGNS from './kit-designs.json';
 import { bodyClasses, CHROME, COMMERCE, DESIGN, layered, sectionVariant, type Chrome, type Commerce, type Design } from './variants';
@@ -13,7 +14,7 @@ import { bodyClasses, CHROME, COMMERCE, DESIGN, layered, sectionVariant, type Ch
  * 2.58 (starter kits): the template "kit" is open — a kit's own sections come with their type in the settings (each one
  * checked against the schema of its type), so a new kit is data in the dashboard and never code here.
  */
-export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter';
+export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter' | 'custom';
 export type Radius = 'none' | 'small' | 'medium' | 'large';
 export type Font = 'heebo' | 'rubik' | 'assistant' | 'frank';
 /** the drawing shown where the business has no picture yet: the template's bag, or a plain shape */
@@ -21,7 +22,7 @@ export type Art = 'bag' | 'plain';
 export const FONTS: readonly Font[] = ['heebo', 'rubik', 'assistant', 'frank'];
 export interface Colors { background: string; surface: string; text: string; muted: string; primary: string; accent: string; accentSoft: string; border: string }
 /** variant (2.63): the section's layout — the business's, else the kit's, else the type's first (lib/variants.ts) */
-export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[] }
+export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[]; columns?: Column[] }
 /** 2.66: a screen — a phone (base, up to 699px), a tablet (md, 700–1023px), a computer (lg, from 1024px) */
 export type Device = 'base' | 'md' | 'lg';
 export const DEVICES: readonly Device[] = ['base', 'md', 'lg'];
@@ -74,6 +75,8 @@ export const SCHEMA: Record<SectionType, Record<string, Field>> = {
   // 2.58: pictures with a caption (before / after, Instagram, a lookbook) and a button; the newsletter only shows from stage 5
   gallery: { title: T(80), text: L(300), items: { kind: 'list', max: 8, item: { image: { kind: 'image' }, caption: T(80) } }, buttonLabel: T(30), buttonHref: { kind: 'href' } },
   newsletter: { title: T(80), text: L(300) },
+  // 2.67: a free section — columns and blocks (builder-registry.ts, checked by cleanColumns), no fields of its own
+  custom: {},
 };
 
 export const TEMPLATES: Record<string, Template> = { bags: BAGS, kit: KIT };
@@ -151,7 +154,8 @@ function mergeSections(base: Section[], raw: unknown, open = false, kit: KitDesi
       if (c !== undefined) settings[k] = c;
     }
     const hiddenOn = hiddenOnOf(r.hiddenOn);
-    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings, variant: sectionVariant(def.type, r.variant, kit?.sections[def.id]), ...(hiddenOn.length ? { hiddenOn } : {}) });
+    const columns = def.type === 'custom' ? cleanColumns(r.columns) : undefined;
+    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings, variant: sectionVariant(def.type, r.variant, kit?.sections[def.id]), ...(hiddenOn.length ? { hiddenOn } : {}), ...(columns ? { columns } : {}) });
   }
   // an open template with sections of its own shows exactly those; otherwise the template's missing ones are added
   if (!(open && out.length)) for (const s of base) if (!seen.has(s.id)) out.push({ ...s, variant: sectionVariant(s.type, undefined, kit?.sections[s.id]) });

@@ -12,12 +12,14 @@ export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'sid
 export interface FieldDef { key: string; label: string; kind: FieldKind; max?: number; hint?: string }
 export interface ListDef { key: 'items'; label: string; max: number; fields: FieldDef[]; add: string }
 import { CHROME_OPTIONS, cleanGroup, COMMERCE_OPTIONS, DESIGN_OPTIONS, sectionVariantOk, type Overrides } from './variants';
+import { cleanColumns, type Column } from './builder-registry';
 
-export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter';
+export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter' | 'custom';
 /** soon: the storefront does not show it yet (the newsletter waits for the consent to marketing of stage 5) */
 export interface SectionDef { type: SectionType; label: string; fields: FieldDef[]; list?: ListDef; soon?: string }
 /** variant (2.63): the layout the business picked for this section — absent = the kit's (variants.ts) */
-export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[] }
+/** columns (2.67): only a free section ("custom") — its columns and their blocks (builder-registry.ts) */
+export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[]; columns?: Column[] }
 /** 2.66: a screen — the same names as the storefront (lib/theme.ts): a phone, a tablet, a computer */
 export type Device = 'base' | 'md' | 'lg';
 export const DEVICES: { id: Device; label: string; width: number }[] = [
@@ -89,6 +91,8 @@ export const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { key: 'buttonLabel', label: 'כפתור', kind: 'text', max: 30 },
     { key: 'buttonHref', label: 'לאן הכפתור מוביל (למשל הקישור לאינסטגרם)', kind: 'link', hint: LINK_HINT },
   ], list: { key: 'items', label: 'תמונות', max: 8, add: '+ תמונה', fields: [{ key: 'image', label: 'תמונה', kind: 'image' }, { key: 'caption', label: 'כיתוב', kind: 'text', max: 80 }] } },
+  // 2.67: columns and blocks (builder-registry.ts) — its content is not fields but `columns`
+  custom: { type: 'custom', label: 'חלק חופשי (עמודות)', fields: [] },
   newsletter: { type: 'newsletter', label: 'הרשמה לדיוור', soon: 'יוצג באתר רק כשההרשמה לדיוור תיבנה, עם הסכמה לקבלת דיוור (שלב 5).', fields: [
     { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
     { key: 'text', label: 'טקסט', kind: 'longtext', max: 300 },
@@ -203,7 +207,8 @@ export function draftOf(templateId: string, saved: unknown): Draft {
     const def = known && (!t.open || r.type === undefined || r.type === known.type) ? known : t.open && !known ? ownSection(r) : undefined;
     if (!def || sections.some((s) => s.id === def.id)) continue;
     const own: Section = { ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings: { ...def.settings, ...obj(r.settings) } };
-    delete own.variant; delete own.hiddenOn;
+    delete own.variant; delete own.hiddenOn; delete own.columns;
+    if (def.type === 'custom') own.columns = cleanColumns(r.columns);
     if (sectionVariantOk(def.type, r.variant)) own.variant = r.variant;
     const hiddenOn = hiddenOnOf(r.hiddenOn);
     if (hiddenOn.length) own.hiddenOn = hiddenOn;
@@ -235,7 +240,7 @@ export const settingsOf = (d: Draft) => ({
   ...(d.kit ? { kit: d.kit } : {}),
   colors: d.colors, font: d.font, art: d.art, radius: d.radius, announcement: d.announcement, product: d.product,
   sections: d.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings, ...(s.variant ? { variant: s.variant } : {}),
-    ...(s.hiddenOn?.length ? { hiddenOn: s.hiddenOn } : {}) })),
+    ...(s.hiddenOn?.length ? { hiddenOn: s.hiddenOn } : {}), ...(s.type === 'custom' ? { columns: s.columns ?? [] } : {}) })),
   // only what the business picked: a choice that is not here is the kit's
   ...(Object.keys(d.overrides.design).length ? { design: d.overrides.design } : {}),
   ...(Object.keys(d.overrides.chrome).length ? { chrome: d.overrides.chrome } : {}),

@@ -174,12 +174,14 @@ async function main() {
       frameLoads.push(r.request().url());
       return r.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html dir="rtl"><body>
         <button id="title">הכותרת</button><button id="steps">איך זה עובד</button><button id="menu">התפריט</button><button id="go">לקולקציה</button>
-        <button id="drop">גרירה למעלה</button>
+        <button id="drop">גרירה למעלה</button><button id="block">בלוק</button>
         <script>
           const send = (m) => parent.postMessage(m, ${JSON.stringify(BASE)});
           // 2.65: what the dashboard tells the page (move / remove / rerender), kept for the test to read
           window.got = [];
           addEventListener('message', (e) => { if (e.origin === ${JSON.stringify(BASE)}) window.got.push(e.data); });
+          // 2.67: a block of the free section added in the test below (its id: the first free one of "custom")
+          document.getElementById('block').onclick = () => send({ type: 'block', section: 'custom-2', id: 'b2' });
           document.getElementById('drop').onclick = () => send({ type: 'drop', id: 'steps', to: 0 });
           send({ type: 'ready', path: location.pathname });
           document.getElementById('title').onclick = () => send({ type: 'text', section: 'hero', field: 'title', value: 'כותרת שנערכה באתר' });
@@ -812,6 +814,57 @@ async function main() {
       // the kit's footer was created (the business had none): its pages are drafts, so their links are named
       await block(st, 'קישורים שלא מופיעים באתר').getByText('הטיפולים', { exact: false }).first().waitFor();
       // back to the published version for the steps below: the draft of the kit is replaced by a new edit later, or stays
+    });
+
+    await step('a free section (2.67): added in the visual editor with columns; a block clicked on the page opens its fields; blocks move between columns', async () => {
+      await st.goto(`${BASE}/store/design`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('button', { name: '✏️ עריכה על האתר' }).click();
+      await st.getByRole('heading', { name: 'עריכה על האתר' }).waitFor({ timeout: 60_000 });
+      const frame = st.frameLocator('iframe[title^="האתר"]');
+      await frame.locator('#block').waitFor();
+      const draft = () => fake.tables.store_theme_versions.find((v) => v.status === 'draft');
+      const free = () => draft()?.settings.sections.find((x: any) => x.id === 'custom-2');
+      const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await st.waitForTimeout(100); assert.ok(ok()); };
+      await st.getByLabel('חלק חדש').locator('visible=true').selectOption('custom');
+      await st.getByRole('button', { name: '+ הוספה' }).locator('visible=true').click();
+      await st.getByRole('heading', { name: 'חלק חופשי (עמודות)' }).waitFor();
+      await until(() => Boolean(free()));
+      assert.deepEqual(free().columns.map((c: any) => [c.id, c.span, c.blocks.map((b: any) => b.type)]),
+        [['c1', 6, ['heading', 'paragraph', 'button']], ['c2', 6, ['image']]], 'words and a button beside a picture');
+      // a block clicked on the page: its fields here; a text typed is saved as the draft
+      await frame.locator('#block').click();
+      await st.getByRole('heading', { name: 'בלוק: פסקה' }).waitFor();
+      await st.getByLabel('הטקסט').fill('מה שחשוב לדעת עלינו.');
+      await until(() => free()?.columns[0].blocks[1].settings.text === 'מה שחשוב לדעת עלינו.');
+      // a link that is not right: said here, never saved as is (the storefront's check)
+      await st.getByRole('button', { name: '← לעמודות' }).click();
+      await st.getByRole('button', { name: /^כפתור/ }).click();
+      await st.getByLabel('לאן הוא מוביל').fill('javascript:alert(1)');
+      await st.getByText('הקישור לא תקין — הכפתור לא יופיע עד שיתוקן.').waitFor();
+      await st.getByLabel('לאן הוא מוביל').fill('/collections/all');
+      await st.getByRole('button', { name: '← לעמודות' }).click();
+      // a third column, a third of the row; the picture dragged into it with the keyboard (space, an arrow, space)
+      await st.getByRole('button', { name: '+ עמודה' }).click();
+      await until(() => free()?.columns.length === 3);
+      await st.getByLabel('הרוחב של עמודה 1').selectOption('8');
+      await until(() => free()?.columns[0].span === 8);
+      const handle = st.getByRole('button', { name: 'גרירת "תמונה"' });
+      await handle.scrollIntoViewIfNeeded();
+      await handle.focus();
+      for (const key of ['Space', 'ArrowDown', 'Space']) { await st.keyboard.press(key); await st.waitForTimeout(400); }
+      await until(() => free()?.columns[2].blocks.some((b: any) => b.type === 'image'));
+      assert.deepEqual(free().columns.map((c: any) => c.blocks.length), [3, 0, 1], 'from its column into the empty one');
+      // a new block at the end of a column, then undo: one step back
+      await st.getByLabel('בלוק חדש בעמודה 2').selectOption('badge');
+      await st.getByRole('button', { name: 'הוספת בלוק לעמודה 2' }).click();
+      await st.getByRole('heading', { name: 'בלוק: תגית' }).waitFor();
+      await until(() => free()?.columns[1].blocks[0]?.type === 'badge');
+      await st.getByRole('button', { name: /ביטול הפעולה האחרונה/ }).click();
+      await until(() => free()?.columns[1].blocks.length === 0);
+      const got = await frame.locator('body').evaluate(() => (window as any).got as any[]);
+      assert.ok(got.some((m: any) => m.type === 'select' && m.id === 'custom-2' && m.block), 'the page is told which block is open');
+      await noSideScroll(st, 'the free section\'s panel on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c9c-blocks-phone.png'), fullPage: true });
     });
 
     await step('on the air: only with the checklist complete — the domain counts once the storefront served it', async () => {

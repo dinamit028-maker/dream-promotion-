@@ -19,6 +19,8 @@ import {
 } from './visual-edit';
 import { emptyHistory, record, redo as redoStep, undo as undoStep, type History } from './history';
 import { SectionList } from './SectionList';
+import { ColumnsEditor } from './BlockEditor';
+import { withColumns } from './blocks';
 
 /**
  * 2.65 (Dream Builder PR-3a): how the page shows a change without loading again — "move" / "remove" at once (the draft is
@@ -35,7 +37,7 @@ type Live = 'rerender' | 'reload' | 'none' | { move: string } | { remove: string
  * site stays right on every screen. Every change is saved as the draft by itself; "פרסום באתר" puts it on the air, and the
  * versions (the classic editor) bring an older one back.
  */
-type Sel = { id: string; field?: string } | { announcement: true } | null;
+type Sel = { id: string; field?: string; block?: string } | { announcement: true } | null;
 const SAVE_AFTER = 700;
 
 export function VisualEditor({ bundle, template, versions, reload, onClassic }: {
@@ -153,8 +155,9 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
       if (e.origin !== link.base || e.source !== frame.current?.contentWindow) return;
       const m = readMessage(e.data);
       if (!m) return;
-      if (m.type === 'ready') { setPath(m.path); if (sel && 'id' in sel) post({ type: 'select', id: sel.id }); return; }
+      if (m.type === 'ready') { setPath(m.path); if (sel && 'id' in sel) post({ type: 'select', id: sel.id, block: sel.block }); return; }
       if (m.type === 'section') { setSel({ id: m.id }); return; }
+      if (m.type === 'block') { setSel({ id: m.section, block: m.id }); return; }
       if (m.type === 'field' || m.type === 'image') { setSel({ id: m.section, field: m.field }); return; }
       if (m.type === 'text') {
         const next = applyText(latest.current, m);
@@ -250,6 +253,9 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
                 onChange={(v) => setSection({ settings: { ...section.settings, [f.key]: v } }, 'rerender', `field:${section.id}:${f.key}`)} />
             </div>
           ))}
+          {section.type === 'custom' && <ColumnsEditor columns={section.columns ?? []} block={sel && 'id' in sel ? sel.block ?? null : null}
+            onChange={(cols, key = null) => change(withColumns(d, section.id, cols), 'rerender', key ? `${section.id}:${key}` : null)}
+            onBlock={(block) => { setSel({ id: section.id, ...(block ? { block } : {}) }); post({ type: 'select', id: section.id, block }); }} />}
           {SECTION_DEFS[section.type].list && <ListInput def={SECTION_DEFS[section.type].list!} rows={(Array.isArray(section.settings.items) ? section.settings.items : []) as Record<string, unknown>[]}
             onChange={(rows) => setSection({ settings: { ...section.settings, items: rows } })} />}
         </>

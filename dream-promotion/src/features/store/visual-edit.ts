@@ -4,6 +4,7 @@
  * a message may change in the draft, and where something edited elsewhere opens. Every change is a draft: the shoppers see
  * nothing until "פרסום באתר" (the theme's versions, as in the classic editor).
  */
+import { defaultColumns } from './blocks';
 import { SECTION_DEFS, type Draft, type Section, type SectionType } from './theme-fields';
 
 /** what the storefront's page sends (storefront/src/lib/edit.ts — the same shapes; anything else is ignored) */
@@ -16,7 +17,9 @@ export type EditMessage =
   | { type: 'open'; target: string }
   | { type: 'navigate'; path: string }
   /** 2.65: a section dragged on the page to a place (its index among the sections shown) — the dashboard decides */
-  | { type: 'drop'; id: string; to: number };
+  | { type: 'drop'; id: string; to: number }
+  /** 2.67: a block of a free section clicked — it opens in the panel */
+  | { type: 'block'; section: string; id: string };
 
 const str = (v: unknown, max = 300): v is string => typeof v === 'string' && v.length <= max;
 /** a message from the frame, checked field by field — or null */
@@ -30,6 +33,7 @@ export function readMessage(raw: unknown): EditMessage | null {
     case 'field': case 'image': return str(m.section, 40) && str(m.field, 40) ? { type: m.type, section: m.section, field: m.field } : null;
     case 'open': return str(m.target, 200) ? { type: 'open', target: m.target } : null;
     case 'drop': return str(m.id, 40) && Number.isInteger(m.to) && (m.to as number) >= 0 && (m.to as number) < 100 ? { type: 'drop', id: m.id, to: m.to as number } : null;
+    case 'block': return str(m.section, 40) && typeof m.id === 'string' && /^[a-z][a-z0-9-]{0,30}$/.test(m.id) ? { type: 'block', section: m.section, id: m.id } : null;
     default: return null;
   }
 }
@@ -51,7 +55,7 @@ export function applyText(d: Draft, m: { section: string; field: string; value: 
 /** a template whose sections the owner may add, duplicate and remove: only the open one ("kit"); a closed one keeps its own */
 export const canGrow = (template: string) => template === 'kit';
 /** the kinds of section one may add (the newsletter waits for stage 5's consent) */
-export const ADDABLE: SectionType[] = ['hero', 'text', 'imageText', 'gallery', 'products', 'collections', 'steps', 'faq', 'contact'];
+export const ADDABLE: SectionType[] = ['hero', 'text', 'imageText', 'gallery', 'products', 'collections', 'steps', 'faq', 'contact', 'custom'];
 
 function freeId(d: Draft, type: SectionType): string {
   const base = type.toLowerCase();
@@ -67,7 +71,7 @@ export function addSection(d: Draft, type: SectionType, after: string | null = n
   const settings: Record<string, unknown> = Object.fromEntries(def.fields.map((f) => [f.key, f.kind === 'number' ? 8 : f.kind === 'side' ? 'start' : '']));
   if ('title' in settings) settings.title = def.label;
   if (def.list) settings.items = [];
-  const s: Section = { id: freeId(d, type), type, hidden: false, settings };
+  const s: Section = { id: freeId(d, type), type, hidden: false, settings, ...(type === 'custom' ? { columns: defaultColumns() } : {}) };
   const at = after ? d.sections.findIndex((x) => x.id === after) + 1 : d.sections.length;
   const sections = d.sections.slice(); sections.splice(at > 0 ? at : sections.length, 0, s);
   return { draft: { ...d, sections }, id: s.id };
@@ -77,7 +81,8 @@ export function duplicateSection(d: Draft, id: string): { draft: Draft; id: stri
   const i = d.sections.findIndex((x) => x.id === id);
   if (i < 0 || d.sections.length >= MAX_SECTIONS) return null;
   const src = d.sections[i];
-  const copy: Section = { ...src, id: freeId(d, src.type), settings: JSON.parse(JSON.stringify(src.settings)) };
+  const copy: Section = { ...src, id: freeId(d, src.type), settings: JSON.parse(JSON.stringify(src.settings)),
+    ...(src.columns ? { columns: JSON.parse(JSON.stringify(src.columns)) } : {}) };
   const sections = d.sections.slice(); sections.splice(i + 1, 0, copy);
   return { draft: { ...d, sections }, id: copy.id };
 }

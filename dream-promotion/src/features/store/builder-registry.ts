@@ -1,0 +1,93 @@
+/**
+ * The builder's registry (Dream Builder PR-3c, 2.67) — ONE FILE, TWO IDENTICAL COPIES: dream-promotion/src/features/store/
+ * builder-registry.ts and storefront/src/lib/builder-registry.ts (tests/store-blocks.test.ts fails if they differ). No
+ * imports, data and pure checks only, so each app keeps its independence (the storefront never imports the dashboard).
+ *
+ * The free section ("custom"): up to 4 columns, each a width of 12 from a fixed list (on a phone they stack), each up to 12
+ * blocks of a known type. Depth is 3 at most — section → column → block; never a column in a block, never pixels. Every
+ * value is checked by cleanColumns, in the editor before a save and on the storefront before a render: anything unknown
+ * is dropped quietly, a text is cut to its length, a link is a path of the store / https / whatsapp, a picture is https.
+ */
+export type BlockType = 'heading' | 'paragraph' | 'button' | 'image' | 'badge' | 'spacer';
+export type Span = 3 | 4 | 6 | 8 | 9 | 12;
+export const SPANS: readonly Span[] = [3, 4, 6, 8, 9, 12];
+export interface Block { id: string; type: BlockType; settings: Record<string, string> }
+export interface Column { id: string; span: Span; blocks: Block[] }
+
+export type BlockFieldKind = 'text' | 'longtext' | 'link' | 'image' | 'choice';
+export interface BlockField { key: string; label: string; kind: BlockFieldKind; max?: number; options?: { value: string; label: string }[] }
+export interface BlockDef { type: BlockType; label: string; fields: BlockField[]; defaults: Record<string, string> }
+
+export const BLOCKS: Record<BlockType, BlockDef> = {
+  heading: { type: 'heading', label: 'כותרת', defaults: { text: 'כותרת', size: 'l' }, fields: [
+    { key: 'text', label: 'הכותרת', kind: 'text', max: 120 },
+    { key: 'size', label: 'גודל', kind: 'choice', options: [{ value: 'm', label: 'רגילה' }, { value: 'l', label: 'גדולה' }, { value: 'xl', label: 'גדולה מאוד' }] },
+  ] },
+  paragraph: { type: 'paragraph', label: 'פסקה', defaults: { text: 'כאן כותבים כמה מילים — מה חשוב שהלקוחות יידעו.' }, fields: [
+    { key: 'text', label: 'הטקסט', kind: 'longtext', max: 1200 },
+  ] },
+  button: { type: 'button', label: 'כפתור', defaults: { label: 'לכל המוצרים', href: '/collections/all', style: 'primary' }, fields: [
+    { key: 'label', label: 'מה כתוב עליו', kind: 'text', max: 30 },
+    { key: 'href', label: 'לאן הוא מוביל', kind: 'link' },
+    { key: 'style', label: 'סגנון', kind: 'choice', options: [{ value: 'primary', label: 'מלא' }, { value: 'ghost', label: 'מסגרת' }] },
+  ] },
+  image: { type: 'image', label: 'תמונה', defaults: { image: '', alt: '' }, fields: [
+    { key: 'image', label: 'התמונה', kind: 'image' },
+    { key: 'alt', label: 'מה רואים בתמונה (לקוראי מסך)', kind: 'text', max: 120 },
+  ] },
+  badge: { type: 'badge', label: 'תגית', defaults: { text: 'חדש' }, fields: [
+    { key: 'text', label: 'הטקסט', kind: 'text', max: 30 },
+  ] },
+  spacer: { type: 'spacer', label: 'רווח', defaults: { size: 'm' }, fields: [
+    { key: 'size', label: 'גובה', kind: 'choice', options: [{ value: 's', label: 'קטן' }, { value: 'm', label: 'בינוני' }, { value: 'l', label: 'גדול' }] },
+  ] },
+};
+export const BLOCK_TYPES = Object.keys(BLOCKS) as BlockType[];
+export const MAX_COLUMNS = 4;
+export const MAX_BLOCKS = 12;
+const ID = /^[a-z][a-z0-9-]{0,30}$/;
+
+/** a link the storefront may render: a path of the store, an https address, the store's WhatsApp or its contact section */
+export function blockLinkOk(v: string): boolean {
+  if (v === '' || v === 'whatsapp' || v === '#contact') return true;
+  return v.length <= 300 && (/^\/(?!\/)[^\s<>"'\\]*$/.test(v) || /^https:\/\/[^\s<>"'\\]+$/.test(v));
+}
+export const blockImageOk = (v: string) => v === '' || (v.length <= 500 && /^https:\/\/[^\s<>"'\\]+$/.test(v));
+
+/** one value of a block's field, as it may be saved and shown — else undefined (the default stays) */
+export function cleanField(f: BlockField, v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  switch (f.kind) {
+    case 'text': return v.replace(/\s+/g, ' ').trim().slice(0, f.max ?? 120);
+    case 'longtext': return v.replace(/\r\n/g, '\n').trim().slice(0, f.max ?? 1200);
+    case 'link': { const s = v.trim(); return blockLinkOk(s) ? s : undefined; }
+    case 'image': { const s = v.trim(); return blockImageOk(s) ? s : undefined; }
+    case 'choice': return f.options?.some((o) => o.value === v) ? v : undefined;
+  }
+}
+
+const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+/** the columns of a free section, every value checked; unknown types, bad ids, repeats and extra rows dropped */
+export function cleanColumns(raw: unknown): Column[] {
+  const out: Column[] = [];
+  const seen = new Set<string>();
+  for (const c of Array.isArray(raw) ? raw.slice(0, MAX_COLUMNS) : []) {
+    const o = obj(c);
+    if (typeof o.id !== 'string' || !ID.test(o.id) || seen.has(o.id)) continue;
+    seen.add(o.id);
+    const span = SPANS.includes(o.span as Span) ? (o.span as Span) : 12;
+    const blocks: Block[] = [];
+    for (const b of Array.isArray(o.blocks) ? o.blocks.slice(0, MAX_BLOCKS) : []) {
+      const r = obj(b);
+      const def = typeof r.type === 'string' && Object.hasOwn(BLOCKS, r.type) ? BLOCKS[r.type as BlockType] : null;
+      if (!def || typeof r.id !== 'string' || !ID.test(r.id) || seen.has(r.id)) continue;
+      seen.add(r.id);
+      const s = obj(r.settings);
+      const settings: Record<string, string> = { ...def.defaults };
+      for (const f of def.fields) { const v = cleanField(f, s[f.key]); if (v !== undefined) settings[f.key] = v; }
+      blocks.push({ id: r.id, type: def.type, settings });
+    }
+    out.push({ id: o.id, span, blocks });
+  }
+  return out;
+}

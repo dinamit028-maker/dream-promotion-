@@ -15,6 +15,7 @@ import { PreviewButton } from './StoreSettings';
 import { AreaRow, Block, NeedsStore, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
 import { VisualEditor } from './StoreVisual';
+import { ColumnsField } from './BlockEditor';
 
 /**
  * "עיצוב" (2.55, the basic editor of stage 2): the template "שקיות ממותגות", its colours and corners, the bar at the top,
@@ -185,6 +186,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
                     <SectionLayout d={d} section={s} change={change} />
                     {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections} kitPicture={kitPictureShown(d.kit, s.type, f.key) && !(f.kind === 'kitpick' && s.settings.image)}
                       onChange={(v) => setSection(s.id, { settings: { ...s.settings, [f.key]: v } })} />)}
+                    {s.type === 'custom' && <ColumnsField columns={s.columns ?? []} onChange={(columns) => setSection(s.id, { columns })} />}
                     {def.list && <ListInput def={def.list} rows={(Array.isArray(s.settings.items) ? s.settings.items : []) as Record<string, unknown>[]}
                       onChange={(rows) => setSection(s.id, { settings: { ...s.settings, items: rows } })} />}
                     <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2"
