@@ -1,7 +1,7 @@
 import { BAGS } from '@/templates/bags';
 import { KIT } from '@/templates/kit';
 import { kitImageCss } from './kit-images';
-import { cleanColumns, type Column } from './builder-registry';
+import { cleanColumns, cleanResponsive, cleanStyle, type Column, type Responsive, type StyleValues } from './builder-registry';
 import { contrast, tokenVars } from './theme-tokens';
 import KIT_DESIGNS from './kit-designs.json';
 import { bodyClasses, CHROME, COMMERCE, DESIGN, layered, sectionVariant, type Chrome, type Commerce, type Design } from './variants';
@@ -22,7 +22,7 @@ export type Art = 'bag' | 'plain';
 export const FONTS: readonly Font[] = ['heebo', 'rubik', 'assistant', 'frank'];
 export interface Colors { background: string; surface: string; text: string; muted: string; primary: string; accent: string; accentSoft: string; border: string }
 /** variant (2.63): the section's layout — the business's, else the kit's, else the type's first (lib/variants.ts) */
-export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[]; columns?: Column[] }
+export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[]; columns?: Column[]; style?: StyleValues; responsive?: Responsive }
 /** 2.66: a screen — a phone (base, up to 699px), a tablet (md, 700–1023px), a computer (lg, from 1024px) */
 export type Device = 'base' | 'md' | 'lg';
 export const DEVICES: readonly Device[] = ['base', 'md', 'lg'];
@@ -154,8 +154,11 @@ function mergeSections(base: Section[], raw: unknown, open = false, kit: KitDesi
       if (c !== undefined) settings[k] = c;
     }
     const hiddenOn = hiddenOnOf(r.hiddenOn);
+    // 2.68: the section's own design — steps of the scales only (builder-registry.ts)
+    const style = cleanStyle(r.style), responsive = cleanResponsive(r.responsive);
     const columns = def.type === 'custom' ? cleanColumns(r.columns) : undefined;
-    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings, variant: sectionVariant(def.type, r.variant, kit?.sections[def.id]), ...(hiddenOn.length ? { hiddenOn } : {}), ...(columns ? { columns } : {}) });
+    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings, variant: sectionVariant(def.type, r.variant, kit?.sections[def.id]), ...(hiddenOn.length ? { hiddenOn } : {}), ...(columns ? { columns } : {}),
+      ...(Object.keys(style).length ? { style } : {}), ...(Object.keys(responsive).length ? { responsive } : {}) });
   }
   // an open template with sections of its own shows exactly those; otherwise the template's missing ones are added
   if (!(open && out.length)) for (const s of base) if (!seen.has(s.id)) out.push({ ...s, variant: sectionVariant(s.type, undefined, kit?.sections[s.id]) });

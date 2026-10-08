@@ -21,6 +21,8 @@ import { emptyHistory, record, redo as redoStep, undo as undoStep, type History 
 import { SectionList } from './SectionList';
 import { ColumnsEditor } from './BlockEditor';
 import { withColumns } from './blocks';
+import { SectionStyle } from './SectionStyle';
+import { sectionStyleClasses } from './section-style';
 
 /**
  * 2.65 (Dream Builder PR-3a): how the page shows a change without loading again — "move" / "remove" at once (the draft is
@@ -247,6 +249,12 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
           )}
           {SECTION_DEFS[section.type].soon && <Notice tone="info">{SECTION_DEFS[section.type].soon}</Notice>}
           <SectionLayout d={d} section={section} change={change} />
+          <SectionStyle d={d} section={section} device={device} onDevice={setDevice} change={(next, key) => {
+            // at once on the page (its classes, checked there), the saved draft behind it
+            const s = next.sections.find((x) => x.id === section.id);
+            change(next, 'none', key);
+            if (s) post({ type: 'sectionStyle', id: s.id, classes: sectionStyleClasses(s) });
+          }} />
           {SECTION_DEFS[section.type].fields.map((f) => (
             <div key={f.key} className={cx(sel && 'field' in sel && sel.field === f.key && 'rounded-md ring-2 ring-primary/50')} ref={(el) => { if (el && sel && 'field' in sel && sel.field === f.key) el.scrollIntoView({ block: 'nearest' }); }}>
               <FieldInput f={f} value={section.settings[f.key]} collections={bundle.collections} kitPicture={kitPictureShown(d.kit, section.type, f.key) && !(f.kind === 'kitpick' && section.settings.image)}

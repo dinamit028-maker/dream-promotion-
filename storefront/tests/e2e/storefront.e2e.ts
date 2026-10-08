@@ -667,6 +667,58 @@ async function main() {
       }
     });
 
+    await step('a section\'s own design (2.68): spacing and a background on a phone, other ones on a computer; at once in the editor, only valid classes', async () => {
+      const DRAFT = 'aaaaaaaa-0000-4000-8000-000000000142';
+      const was = psql(`select template || '|' || settings::text from public.store_theme_versions where id = '${DRAFT}'`);
+      const settings = { sections: [
+        { id: 'hero', type: 'hero', settings: { title: 'FollowMe' } },
+        { id: 'about', type: 'text', settings: { title: 'עלינו', text: 'כמה מילים.' },
+          style: { padY: 'none', surface: 'dark', align: 'center' }, responsive: { lg: { padY: 'xl', surface: 'accentSoft', width: 'narrow' }, md: { padY: '99px' } } },
+      ] };
+      psql(`update public.store_theme_versions set template = 'kit', settings = '${JSON.stringify(settings).replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      try {
+        const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+        const look = (p: any) => p.locator('main > div:has(> .band)').first().evaluate((w: Element) => {
+          const b = w.firstElementChild as HTMLElement, cs = getComputedStyle(b);
+          const root = getComputedStyle(document.documentElement);
+          return { cls: w.className, pad: cs.paddingTop, bg: cs.backgroundColor, align: cs.textAlign, text: root.getPropertyValue('--c-text').trim(),
+            wrap: getComputedStyle(b.querySelector('.wrap')!).maxWidth };
+        });
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        const ph = await look(page);
+        assert.equal(ph.cls, 'sx-py-none sx-sf-dark sx-al-center sx-lg-py-xl sx-lg-sf-accent-soft sx-lg-w-narrow', 'a value off the scale is not there');
+        assert.deepEqual([ph.pad, ph.align], ['0px', 'center']);
+        assert.notEqual(ph.bg, 'rgba(0, 0, 0, 0)', 'a dark background');
+        await ctx.close();
+        const desk = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+        const dp = await desk.newPage();
+        await dp.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        const dk = await look(dp);
+        assert.deepEqual([dk.pad, dk.align, dk.wrap], ['112px', 'center', '760px'], 'a computer: its own spacing and width; the alignment from the phone');
+        assert.notEqual(dk.bg, ph.bg, 'its own background');
+        await desk.close();
+        // the visual editor: "sectionStyle" — the classes at once, and only of the scales' shape
+        const edit = await phone(800);
+        await edit.page.goto(`http://127.0.0.1:${DASH_PORT}/frame?src=${encodeURIComponent(url('followme.test', `/?edit=${encodeURIComponent(token)}`))}`);
+        const frame = edit.page.frameLocator('#f');
+        await frame.locator('[data-edit-section="about"]').waitFor();
+        await edit.page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'ready'));
+        const post = (m: unknown) => edit.page.evaluate((msg: unknown) => (document.getElementById('f') as HTMLIFrameElement).contentWindow!.postMessage(msg, '*'), m);
+        await post({ type: 'sectionStyle', id: 'about', classes: ['sx-py-xl', 'sx-sf-primary'] });
+        await frame.locator('[data-edit-section="about"].sx-py-xl.sx-sf-primary').waitFor();
+        const cls = await frame.locator('[data-edit-section="about"]').getAttribute('class');
+        assert.ok(!/sx-sf-dark|sx-lg-/.test(cls!), 'the old ones are gone');
+        await post({ type: 'sectionStyle', id: 'about', classes: ['sx-py-l', 'evil'] });
+        await edit.page.waitForTimeout(300);
+        assert.equal(await frame.locator('[data-edit-section="about"].sx-py-xl').count(), 1, 'a class off the shape: nothing changes');
+        await edit.ctx.close();
+      } finally {
+        const [tpl, ...rest] = was.split('|');
+        psql(`update public.store_theme_versions set template = '${tpl}', settings = '${rest.join('|').replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      }
+    });
+
     await step('the owner previews the draft theme of a store on the air; the shoppers keep the published one', async () => {
       const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
       const { ctx, page } = await phone();

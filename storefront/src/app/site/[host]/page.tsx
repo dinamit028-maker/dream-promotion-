@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { SectionView } from '@/components/sections';
 import { JsonLd } from '@/components/ui';
 import { editSection } from '@/lib/edit';
+import { styleClasses } from '@/lib/builder-registry';
 import { og, orgJsonLd } from '@/lib/seo';
 import { getSite, hostOf, liveSite } from '@/lib/site';
 import { isFullStore } from '@/lib/types';
@@ -29,7 +30,8 @@ export default async function Home({ params }: Props) {
       {sections[0]?.type !== 'hero' && <h1 className="sr-only">{site.store.name}</h1>}
       {sections.map((s, i) => {
         // 2.66: hidden on some screens — a class per device (a phone, a tablet, a computer), from the fixed list
-        const hide = (s.hiddenOn ?? []).map((d) => `hide-${d}`).join(' ') || undefined;
+        // 2.68: and its own design — a class per step of a scale, per device (builder-registry.ts, styleClasses)
+        const hide = [...(s.hiddenOn ?? []).map((d) => `hide-${d}`), ...styleClasses(s.style, s.responsive)].join(' ') || undefined;
         return site.edit
           // the visual editor (2.61): each section is one element the owner clicks to edit
           ? <div key={s.id} className={hide} {...editSection(true, s.id, s.type)}><SectionView section={s} site={site} first={i === 0} /></div>

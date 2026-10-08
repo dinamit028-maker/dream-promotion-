@@ -657,3 +657,88 @@ input, select, textarea {
 .edit-mode [data-edit-block].edit-block-selected { outline: 2px solid #ff7fa8; }
 .edit-mode .blk-col { min-height: 48px; outline: 1px dashed rgba(107, 59, 245, .35); outline-offset: 6px; }
 .edit-mode .blk-col-empty::after { content: "עמודה ריקה — מוסיפים בלוק מהחלונית"; color: #6b3bf5; font-size: .9rem; padding: 12px; }
+
+/* ---- 2.68 — a section's own design (builder-registry.ts, styleClasses): the phone is the base, a tablet and a computer
+   take it unless they have their own. Only theme tokens; on a dark or a primary background its words and buttons follow. */
+.sx-py-none > :is(.band, .hero:not(.hero--full-image)) { padding-block: 0; }
+.sx-py-s > :is(.band, .hero:not(.hero--full-image)) { padding-block: 20px; }
+.sx-py-m > :is(.band, .hero:not(.hero--full-image)) { padding-block: 40px; }
+.sx-py-l > :is(.band, .hero:not(.hero--full-image)) { padding-block: 72px; }
+.sx-py-xl > :is(.band, .hero:not(.hero--full-image)) { padding-block: 112px; }
+.sx-sf-background > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-bg); color: var(--c-text); }
+.sx-sf-background > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+.sx-sf-surface > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-surface); color: var(--c-text); }
+.sx-sf-surface > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+.sx-sf-accent-soft > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-accent-soft); color: var(--c-text); }
+.sx-sf-accent-soft > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+.sx-sf-primary > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-primary); color: var(--c-on-primary); }
+.sx-sf-primary > :is(.band, .hero:not(.hero--full-image)) :is(.band-title, .muted, .hero-sub, .hero-title, h2, h3) { color: inherit; }
+.sx-sf-primary > :is(.band, .hero:not(.hero--full-image)) .btn-primary { background: var(--c-on-primary); color: var(--c-primary); border-color: var(--c-on-primary); }
+.sx-sf-primary > :is(.band, .hero:not(.hero--full-image)) .btn-ghost { color: inherit; border-color: currentColor; }
+.sx-sf-dark > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-text); color: var(--c-bg); }
+.sx-sf-dark > :is(.band, .hero:not(.hero--full-image)) :is(.band-title, .muted, .hero-sub, .hero-title, h2, h3) { color: inherit; }
+.sx-sf-dark > :is(.band, .hero:not(.hero--full-image)) .btn-ghost { color: inherit; border-color: currentColor; }
+.sx-al-start > * { text-align: start; }
+.sx-al-start :is(.actions, .hero-actions) { justify-content: flex-start; }
+.sx-al-center > * { text-align: center; }
+.sx-al-center :is(.actions, .hero-actions) { justify-content: center; }
+.sx-w-narrow .wrap { max-width: 760px; }
+.sx-w-normal .wrap { max-width: 1200px; }
+.sx-w-wide .wrap { max-width: 1440px; }
+.sx-w-full .wrap { max-width: none; }
+@media (min-width: 700px) {
+  .sx-md-py-none > :is(.band, .hero:not(.hero--full-image)) { padding-block: 0; }
+  .sx-md-py-s > :is(.band, .hero:not(.hero--full-image)) { padding-block: 20px; }
+  .sx-md-py-m > :is(.band, .hero:not(.hero--full-image)) { padding-block: 40px; }
+  .sx-md-py-l > :is(.band, .hero:not(.hero--full-image)) { padding-block: 72px; }
+  .sx-md-py-xl > :is(.band, .hero:not(.hero--full-image)) { padding-block: 112px; }
+  .sx-md-sf-background > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-bg); color: var(--c-text); }
+  .sx-md-sf-background > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+  .sx-md-sf-surface > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-surface); color: var(--c-text); }
+  .sx-md-sf-surface > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+  .sx-md-sf-accent-soft > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-accent-soft); color: var(--c-text); }
+  .sx-md-sf-accent-soft > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+  .sx-md-sf-primary > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-primary); color: var(--c-on-primary); }
+  .sx-md-sf-primary > :is(.band, .hero:not(.hero--full-image)) :is(.band-title, .muted, .hero-sub, .hero-title, h2, h3) { color: inherit; }
+  .sx-md-sf-primary > :is(.band, .hero:not(.hero--full-image)) .btn-primary { background: var(--c-on-primary); color: var(--c-primary); border-color: var(--c-on-primary); }
+  .sx-md-sf-primary > :is(.band, .hero:not(.hero--full-image)) .btn-ghost { color: inherit; border-color: currentColor; }
+  .sx-md-sf-dark > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-text); color: var(--c-bg); }
+  .sx-md-sf-dark > :is(.band, .hero:not(.hero--full-image)) :is(.band-title, .muted, .hero-sub, .hero-title, h2, h3) { color: inherit; }
+  .sx-md-sf-dark > :is(.band, .hero:not(.hero--full-image)) .btn-ghost { color: inherit; border-color: currentColor; }
+  .sx-md-al-start > * { text-align: start; }
+  .sx-md-al-start :is(.actions, .hero-actions) { justify-content: flex-start; }
+  .sx-md-al-center > * { text-align: center; }
+  .sx-md-al-center :is(.actions, .hero-actions) { justify-content: center; }
+  .sx-md-w-narrow .wrap { max-width: 760px; }
+  .sx-md-w-normal .wrap { max-width: 1200px; }
+  .sx-md-w-wide .wrap { max-width: 1440px; }
+  .sx-md-w-full .wrap { max-width: none; }
+}
+@media (min-width: 1024px) {
+  .sx-lg-py-none > :is(.band, .hero:not(.hero--full-image)) { padding-block: 0; }
+  .sx-lg-py-s > :is(.band, .hero:not(.hero--full-image)) { padding-block: 20px; }
+  .sx-lg-py-m > :is(.band, .hero:not(.hero--full-image)) { padding-block: 40px; }
+  .sx-lg-py-l > :is(.band, .hero:not(.hero--full-image)) { padding-block: 72px; }
+  .sx-lg-py-xl > :is(.band, .hero:not(.hero--full-image)) { padding-block: 112px; }
+  .sx-lg-sf-background > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-bg); color: var(--c-text); }
+  .sx-lg-sf-background > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+  .sx-lg-sf-surface > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-surface); color: var(--c-text); }
+  .sx-lg-sf-surface > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+  .sx-lg-sf-accent-soft > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-accent-soft); color: var(--c-text); }
+  .sx-lg-sf-accent-soft > :is(.band, .hero:not(.hero--full-image)) :is(.muted, .hero-sub) { color: var(--c-muted); }
+  .sx-lg-sf-primary > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-primary); color: var(--c-on-primary); }
+  .sx-lg-sf-primary > :is(.band, .hero:not(.hero--full-image)) :is(.band-title, .muted, .hero-sub, .hero-title, h2, h3) { color: inherit; }
+  .sx-lg-sf-primary > :is(.band, .hero:not(.hero--full-image)) .btn-primary { background: var(--c-on-primary); color: var(--c-primary); border-color: var(--c-on-primary); }
+  .sx-lg-sf-primary > :is(.band, .hero:not(.hero--full-image)) .btn-ghost { color: inherit; border-color: currentColor; }
+  .sx-lg-sf-dark > :is(.band, .hero:not(.hero--full-image)) { background: var(--c-text); color: var(--c-bg); }
+  .sx-lg-sf-dark > :is(.band, .hero:not(.hero--full-image)) :is(.band-title, .muted, .hero-sub, .hero-title, h2, h3) { color: inherit; }
+  .sx-lg-sf-dark > :is(.band, .hero:not(.hero--full-image)) .btn-ghost { color: inherit; border-color: currentColor; }
+  .sx-lg-al-start > * { text-align: start; }
+  .sx-lg-al-start :is(.actions, .hero-actions) { justify-content: flex-start; }
+  .sx-lg-al-center > * { text-align: center; }
+  .sx-lg-al-center :is(.actions, .hero-actions) { justify-content: center; }
+  .sx-lg-w-narrow .wrap { max-width: 760px; }
+  .sx-lg-w-normal .wrap { max-width: 1200px; }
+  .sx-lg-w-wide .wrap { max-width: 1440px; }
+  .sx-lg-w-full .wrap { max-width: none; }
+}
