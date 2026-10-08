@@ -606,6 +606,67 @@ async function main() {
       }
     });
 
+    await step('a free section (2.67): columns side by side on a computer, one under the other on a phone; only checked values; a block click names the block', async () => {
+      const DRAFT = 'aaaaaaaa-0000-4000-8000-000000000142';
+      const was = psql(`select template || '|' || settings::text from public.store_theme_versions where id = '${DRAFT}'`);
+      const settings = { sections: [
+        { id: 'hero', type: 'hero', settings: { title: 'FollowMe' } },
+        { id: 'free', type: 'custom', settings: {}, columns: [
+          { id: 'c1', span: 8, blocks: [
+            { id: 'b1', type: 'badge', settings: { text: 'חדש בחנות' } },
+            { id: 'b2', type: 'heading', settings: { text: 'הסיפור שלנו', size: 'xl' } },
+            { id: 'b3', type: 'paragraph', settings: { text: 'פסקה ראשונה.\n\nפסקה שנייה.' } },
+            { id: 'b4', type: 'button', settings: { label: 'לכל המוצרים', href: '/collections/all', style: 'ghost' } },
+            { id: 'b5', type: 'button', settings: { label: 'רע', href: 'javascript:alert(1)' } },
+          ] },
+          { id: 'c2', span: 4, blocks: [{ id: 'b6', type: 'image', settings: { image: '', alt: '' } }, { id: 'b7', type: 'script', settings: {} }] },
+        ] },
+      ] };
+      psql(`update public.store_theme_versions set template = 'kit', settings = '${JSON.stringify(settings).replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      try {
+        const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+        const desk = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+        const dp = await desk.newPage();
+        await dp.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        const free = dp.locator('#free');
+        await free.getByRole('heading', { level: 2, name: 'הסיפור שלנו' }).waitFor();
+        assert.equal(await free.locator('.blk-p p').count(), 2, 'a paragraph per empty line');
+        assert.equal(await free.locator('.blk-tag').innerText(), 'חדש בחנות');
+        const hrefs = await free.locator('a').evaluateAll((as: Element[]) => as.map((a) => a.getAttribute('href')));
+        assert.deepEqual(hrefs, ['/collections/all', '/collections/all'], 'a bad link is the default — never javascript:');
+        assert.equal(await free.locator('a.btn-ghost').count(), 1);
+        assert.equal(await free.locator('.blk-img-empty').count(), 1, 'the owner sees where a picture will be');
+        assert.equal(await free.locator('script, [data-edit-block]').count(), 0, 'no unknown block, no edit marks in a preview');
+        const [a, b] = await Promise.all([free.locator('.blk-span-8').boundingBox(), free.locator('.blk-span-4').boundingBox()]);
+        assert.ok(Math.abs(a!.y - b!.y) < 2 && a!.width > b!.width * 1.7, 'side by side, 8 and 4 of 12');
+        assert.ok(a!.x > b!.x, 'the first column on the right (RTL)');
+        await desk.close();
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        const [m1, m2] = await Promise.all([page.locator('#free .blk-span-8').boundingBox(), page.locator('#free .blk-span-4').boundingBox()]);
+        assert.ok(m2!.y > m1!.y + m1!.height - 1 && Math.abs(m1!.width - m2!.width) < 2, 'one under the other on a phone');
+        await ctx.close();
+        // a shopper's page has no placeholder (the draft is not theirs anyway); the edit frame: a block names itself
+        const edit = await phone(800);
+        await edit.page.goto(`http://127.0.0.1:${DASH_PORT}/frame?src=${encodeURIComponent(url('followme.test', `/?edit=${encodeURIComponent(token)}`))}`);
+        const frame = edit.page.frameLocator('#f');
+        await frame.locator('[data-edit-block="b2"]').waitFor();
+        await edit.page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'ready'));
+        await frame.locator('[data-edit-block="b2"]').click();
+        await edit.page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'block'));
+        const got = ((await edit.page.evaluate(() => (window as any).msgs)) as { data: any }[]).find((m) => m.data.type === 'block')!.data;
+        assert.deepEqual(got, { type: 'block', section: 'free', id: 'b2' });
+        assert.equal(await frame.locator('.edit-block-selected').getAttribute('data-edit-block'), 'b2');
+        await edit.page.evaluate(() => (document.getElementById('f') as HTMLIFrameElement).contentWindow!.postMessage({ type: 'select', id: 'free', block: 'b4' }, '*'));
+        await frame.locator('[data-edit-block="b4"].edit-block-selected').waitFor();
+        await edit.page.screenshot({ path: path.join(SHOTS, 'edit-blocks.png') });
+        await edit.ctx.close();
+      } finally {
+        const [tpl, ...rest] = was.split('|');
+        psql(`update public.store_theme_versions set template = '${tpl}', settings = '${rest.join('|').replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      }
+    });
+
     await step('the owner previews the draft theme of a store on the air; the shoppers keep the published one', async () => {
       const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
       const { ctx, page } = await phone();

@@ -2,10 +2,11 @@ import { data } from '@/lib/data';
 import { whatsappHref } from '@/lib/format';
 import type { Site } from '@/lib/site';
 import { safeImage, type Section } from '@/lib/theme';
+import type { Block, Column } from '@/lib/builder-registry';
 import type { Store } from '@/lib/types';
 import { resolveHref } from '../chrome';
 import { Art, PlaceholderGrid, ProductGrid } from '../ui';
-import { editField as F, editImage as I } from '@/lib/edit';
+import { editBlock, editColumn, editField as F, editImage as I } from '@/lib/edit';
 import { kitCollectionImage, kitGallery, kitHero, kitImage, type KitPicture } from '@/lib/kit-images';
 
 type S = Record<string, unknown>;
@@ -265,6 +266,49 @@ function Gallery({ s, site, id, variant }: { s: S; site: Live; id: string; varia
   );
 }
 
+/**
+ * 2.67: a free section — up to 4 columns (a width of 12 each; on a phone they stack), each with its blocks: a heading, a
+ * paragraph, a button, a picture, a tag, a space. Every value was checked by cleanColumns (theme.ts). A block without
+ * content is left out for shoppers; the owner's preview shows where a picture will be.
+ */
+function BlockView({ b, site }: { b: Block; site: Live }) {
+  const e = Boolean(site.edit);
+  const t = b.settings;
+  const mark = editBlock(e, b.id);
+  switch (b.type) {
+    case 'heading': return t.text ? <h2 className={`blk blk-h blk-h-${t.size}`} {...mark}>{t.text}</h2> : null;
+    case 'paragraph': return t.text ? <div className="blk blk-p" {...mark}>{t.text.split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}</div> : null;
+    case 'button': {
+      const btn = <Button label={t.label} href={t.href} store={site.store} kind={t.style === 'ghost' ? 'ghost' : 'primary'} />;
+      return t.label && resolveHref(t.href, site.store) ? <div className="blk blk-btn" {...mark}>{btn}</div> : null;
+    }
+    case 'image': {
+      const src = safeImage(t.image);
+      // eslint-disable-next-line @next/next/no-img-element
+      if (src) return <div className="blk blk-img" {...mark}><img src={src} alt={t.alt} loading="lazy" decoding="async" /></div>;
+      return site.preview ? <div className="blk blk-img blk-img-empty" {...mark}><Art /><span className="muted">כאן תופיע תמונה</span></div> : null;
+    }
+    case 'badge': return t.text ? <div className="blk blk-badge" {...mark}><span className="blk-tag">{t.text}</span></div> : null;
+    case 'spacer': return <div className={`blk blk-space blk-space-${t.size}`} aria-hidden="true" {...mark} />;
+  }
+}
+
+function Custom({ columns, site, id }: { columns: Column[]; site: Live; id: string }) {
+  const e = Boolean(site.edit);
+  if (!columns.length && !site.preview) return null;
+  return (
+    <section className="band blk-section" id={id}>
+      <div className="wrap blk-grid">
+        {columns.map((c) => (
+          <div key={c.id} className={`blk-col blk-span-${c.span}${c.blocks.length ? '' : ' blk-col-empty'}`} {...editColumn(e, c.id)}>
+            {c.blocks.map((b) => <BlockView key={b.id} b={b} site={site} />)}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** one section of the template, by its type */
 export function SectionView({ section, site, first }: { section: Section; site: Live; first: boolean }) {
   const { settings: s, id } = section;
@@ -281,6 +325,7 @@ export function SectionView({ section, site, first }: { section: Section; site: 
     case 'gallery': return <Gallery s={s} site={site} id={id} variant={variant} />;
     // the newsletter collects e-mail addresses only with consent to marketing — that is stage 5; until then it shows nothing
     case 'newsletter': return null;
+    case 'custom': return <Custom columns={section.columns ?? []} site={site} id={id} />;
     default: return null;
   }
 }

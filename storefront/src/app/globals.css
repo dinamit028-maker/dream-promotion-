@@ -626,3 +626,34 @@ input, select, textarea {
 @media (max-width: 699px) { .hide-base { display: none; } }
 @media (min-width: 700px) and (max-width: 1023px) { .hide-md { display: none; } }
 @media (min-width: 1024px) { .hide-lg { display: none; } }
+
+/* ---- 2.67 — a free section: columns (a width of 12) and blocks; on a phone the columns stack ---------------------------- */
+.blk-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
+.blk-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.blk { min-width: 0; }
+.blk-h { font-weight: 800; letter-spacing: -.01em; line-height: 1.2; overflow-wrap: anywhere; }
+.blk-h-m { font-size: 1.3rem; }
+.blk-h-l { font-size: 1.65rem; }
+.blk-h-xl { font-size: clamp(1.9rem, 6vw, 2.8rem); }
+.blk-p p { margin: 0 0 .7em; overflow-wrap: anywhere; }
+.blk-p p:last-child { margin-bottom: 0; }
+.blk-img img, .blk-img svg { display: block; width: 100%; height: auto; border-radius: var(--radius); }
+.blk-img-empty { display: grid; gap: 6px; justify-items: center; text-align: center; }
+.blk-tag { display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--c-accent-soft); color: var(--c-text); font-size: .85rem; font-weight: 700; }
+.blk-space-s { height: 8px; }
+.blk-space-m { height: 24px; }
+.blk-space-l { height: 56px; }
+@media (min-width: 700px) {
+  .blk-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 32px; }
+  .blk-span-3 { grid-column: span 3; }
+  .blk-span-4 { grid-column: span 4; }
+  .blk-span-6 { grid-column: span 6; }
+  .blk-span-8 { grid-column: span 8; }
+  .blk-span-9 { grid-column: span 9; }
+  .blk-span-12 { grid-column: span 12; }
+}
+.edit-mode [data-edit-block] { cursor: pointer; outline: 2px dashed transparent; outline-offset: 3px; border-radius: 4px; }
+.edit-mode [data-edit-block]:hover { outline-color: #ff7fa8; }
+.edit-mode [data-edit-block].edit-block-selected { outline: 2px solid #ff7fa8; }
+.edit-mode .blk-col { min-height: 48px; outline: 1px dashed rgba(107, 59, 245, .35); outline-offset: 6px; }
+.edit-mode .blk-col-empty::after { content: "עמודה ריקה — מוסיפים בלוק מהחלונית"; color: #6b3bf5; font-size: .9rem; padding: 12px; }

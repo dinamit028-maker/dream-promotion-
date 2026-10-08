@@ -39,6 +39,13 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
       selected?.classList.remove('edit-selected'); selected = el; el?.classList.add('edit-selected');
       if (el) el.appendChild(handle); else handle.remove();
     };
+    // 2.67: the block of a free section open in the panel (its id survives a rerender)
+    let block: string | null = null;
+    const markBlock = (id: string | null) => {
+      block = id;
+      document.querySelectorAll('.edit-block-selected').forEach((x) => x.classList.remove('edit-block-selected'));
+      if (id) selected?.querySelector(`[data-edit-block="${CSS.escape(id)}"]`)?.classList.add('edit-block-selected');
+    };
 
     // ---- the dashboard's commands ---------------------------------------------------------------------------------------
     const moveTo = (id: string, to: number) => {
@@ -72,6 +79,7 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
         document.body.className = doc.body.className;
         const id = selected?.dataset.editSection;
         select(id ? byId(id) : null);
+        markBlock(block);
       } catch {
         if (r === rev) location.reload();
       }
@@ -107,6 +115,9 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
       const field = t.closest<HTMLElement>('[data-edit-field]');
       const image = t.closest<HTMLElement>('[data-edit-image]');
       const link = t.closest<HTMLElement>('[data-edit-link]');
+      const blockEl = t.closest<HTMLElement>('[data-edit-block]');
+      if (blockEl && section) { select(sectionEl!); markBlock(blockEl.dataset.editBlock!); send({ type: 'block', section, id: blockEl.dataset.editBlock! }); return; }
+      markBlock(null);
       if (field && section) {
         select(sectionEl!);
         if (field.hasAttribute('data-edit-inline')) {
@@ -203,7 +214,11 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
       if (e.origin !== dashboard || !e.data || typeof e.data !== 'object') return;
       const m = e.data as Record<string, unknown>;
       const id = typeof m.id === 'string' && m.id.length <= 40 ? m.id : null;
-      if (m.type === 'select' && id) { const el = byId(id); select(el); el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      if (m.type === 'select' && id) {
+        const el = byId(id); select(el);
+        markBlock(typeof m.block === 'string' && /^[a-z][a-z0-9-]{0,30}$/.test(m.block) ? m.block : null);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
       else if (m.type === 'move' && id && Number.isInteger(m.to) && (m.to as number) >= 0) { moveTo(id, m.to as number); if (lifted || selected?.dataset.editSection === id) handle.focus(); }
       else if (m.type === 'remove' && id) { const el = byId(id); if (el === selected) select(null); el?.remove(); }
       else if (m.type === 'rerender' && Number.isInteger(m.rev)) void rerender(m.rev as number);
