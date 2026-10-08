@@ -1,5 +1,6 @@
 import { BAGS } from '@/templates/bags';
 import { KIT } from '@/templates/kit';
+import { kitImageCss } from './kit-images';
 
 /**
  * A template is settings only (JSON), never code: colours, font, corners, the announcement bar, and the home page's sections
@@ -19,6 +20,8 @@ export interface Colors { background: string; surface: string; text: string; mut
 export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown> }
 export interface Theme {
   template: string;
+  /** the starter kit applied (2.58), its default pictures shown where the business has none (2.62); null = none */
+  kit: string | null;
   colors: Colors;
   font: Font;
   art: Art;
@@ -28,7 +31,7 @@ export interface Theme {
   sections: Section[];
 }
 /** open: the sections are the settings' own (a kit's), not only the template's by id */
-export interface Template extends Omit<Theme, 'template'> { id: string; name: string; open?: boolean }
+export interface Template extends Omit<Theme, 'template' | 'kit'> { id: string; name: string; open?: boolean }
 
 type Field =
   | { kind: 'text'; max: number }
@@ -154,6 +157,7 @@ export function resolveTheme(templateId: string, raw: unknown): Theme {
   const p = obj(o.product);
   return {
     template: t.id,
+    kit: typeof o.kit === 'string' && /^[a-z][a-z0-9-]{1,30}$/.test(o.kit) ? o.kit : null,
     colors,
     font: FONTS.includes(o.font as Font) ? (o.font as Font) : t.font,
     art: o.art === 'bag' || o.art === 'plain' ? o.art : t.art,
@@ -183,5 +187,5 @@ export function themeCss(t: Theme): string {
   return `:root{--c-bg:${c.background};--c-surface:${c.surface};--c-text:${c.text};--c-muted:${c.muted};--c-primary:${c.primary};`
     + `--c-on-primary:${onColor(c.primary)};--c-accent:${c.accent};--c-accent-soft:${c.accentSoft};--c-border:${c.border};`
     + `--radius:${card};--radius-btn:${button};--font:${FAMILY[t.font]},system-ui,-apple-system,'Segoe UI',Arial,sans-serif}`
-    + (t.art === 'bag' ? '.plain-art{display:none}' : '.bag-art{display:none}');
+    + (t.art === 'bag' ? '.plain-art{display:none}' : '.bag-art{display:none}') + kitImageCss(t.kit);
 }

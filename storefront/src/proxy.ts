@@ -61,5 +61,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // kit-images/: the starter kits' default pictures (2.62), files of this app — the same for every store
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|kit-images/).*)'],
 };

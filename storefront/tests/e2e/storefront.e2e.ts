@@ -423,7 +423,14 @@ async function main() {
       await page.goto(url('draft.test', `/?preview=${encodeURIComponent(token)}`));
       await page.getByRole('heading', { level: 1, name: 'הזמן שלך לטפח את עצמך' }).waitFor();
       assert.ok(await page.locator('#before-after').getByRole('heading', { name: 'לפני ואחרי' }).isVisible(), 'the kit\'s gallery, with its anchor');
-      assert.equal(await page.locator('#before-after .gallery-empty').count(), 4, 'no pictures yet: where they will be');
+      // no pictures of the business yet (2.62): the kit's own pictures — the hero, the image and text; the gallery in the preview only
+      const hero = page.locator('.hero-media img');
+      assert.equal(await hero.getAttribute('src'), '/kit-images/beauty/beauty-hero-wide.webp', 'the kit\'s hero picture');
+      assert.ok(await hero.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), 'the picture loads (the proxy lets kit-images/ through)');
+      assert.match(await hero.getAttribute('alt') ?? '', /\S/, 'with its alt text');
+      assert.equal(await page.locator('#treatments .split-media img').getAttribute('src'), '/kit-images/beauty/beauty-image-text.webp');
+      assert.equal(await page.locator('#before-after .gallery-item img').count(), 3, 'the owner\'s preview: the kit\'s gallery pictures, where the business\'s will be');
+      assert.equal(await page.locator('#before-after .gallery-empty').count(), 0);
       assert.ok((await page.locator('#care .card-placeholder').count()) > 0, 'no products yet: where they will be — never a made-up product');
       assert.equal(await page.locator('.card-placeholder .card-name').first().innerText(), 'כאן יופיע מוצר');
       const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
@@ -440,6 +447,8 @@ async function main() {
       // a shopper never sees the newsletter (stage 5), nor any of this before the store is on the air
       const soon = await raw('draft.test', '/');
       assert.match(soon.body, /בקרוב/);
+      // a store with no kit (FollowMe, the bags template): no kit picture, its drawing as before
+      assert.ok(!/kit-images/.test((await raw('followme.test', '/')).body), 'no kit, no kit picture');
     });
 
     await step('on the air: a menu link to a page that is not published is left out for shoppers; the owner\'s preview keeps it', async () => {

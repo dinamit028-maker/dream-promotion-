@@ -1,0 +1,134 @@
+{
+  "kit": "retail",
+  "version": 1,
+  "images": [
+    {
+      "file": "retail-hero-wide.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.25,
+        "y": 0.45
+      },
+      "alt": "מדפי חנות עם קרמיקה ונרות מול קיר כתום שרוף באור שמש חם",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 1
+    },
+    {
+      "file": "retail-hero-wide-2.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.28,
+        "y": 0.6
+      },
+      "alt": "שקיות קנייה בכתום ובשחור וקופסאות מתנה על משטח אבן",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 2
+    },
+    {
+      "file": "retail-hero-vertical.webp",
+      "slot": "hero",
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.45,
+        "y": 0.5
+      },
+      "alt": "מעבר בחנות עיצוב עם מדפים שחורים וקיר כתום",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "retail-image-text.webp",
+      "slot": "imageText",
+      "width": 1255,
+      "height": 941,
+      "focal": {
+        "x": 0.45,
+        "y": 0.6
+      },
+      "alt": "מתנה עטופה ושקית קנייה שחורה על דלפק קופה מעץ",
+      "order": 1
+    },
+    {
+      "file": "retail-cat-new.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסאות מתנה חדשות בכתום ובשחור על במות לבנות",
+      "collection": "new",
+      "order": 1
+    },
+    {
+      "file": "retail-cat-sale.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "ערימת שקיות קנייה בכתום ובשחור על כורסה",
+      "collection": "sale",
+      "order": 2
+    },
+    {
+      "file": "retail-cat-recommended.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.55,
+        "y": 0.5
+      },
+      "alt": "נר דולק בכלי קרמיקה שחור על בסיס אבן",
+      "collection": "recommended",
+      "order": 3
+    },
+    {
+      "file": "retail-gallery-1.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.55,
+        "y": 0.45
+      },
+      "alt": "ידיים עוטפות מתנה בנייר כתום וחוט פשתן",
+      "order": 1
+    },
+    {
+      "file": "retail-gallery-2.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מדף מתכת עם ספלים, כדים ונרות בכתום, שחור ושמנת",
+      "order": 2
+    },
+    {
+      "file": "retail-gallery-3.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.45,
+        "y": 0.5
+      },
+      "alt": "אישה מחזיקה שקיות קנייה בכניסה לחנות מוארת",
+      "order": 3
+    }
+  ]
+}

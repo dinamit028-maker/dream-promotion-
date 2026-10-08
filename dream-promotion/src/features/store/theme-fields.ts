@@ -39,7 +39,7 @@ export const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { key: 'primaryHref', label: 'לאן הכפתור הראשי מוביל', kind: 'link', hint: LINK_HINT },
     { key: 'secondaryLabel', label: 'כפתור שני', kind: 'text', max: 30 },
     { key: 'secondaryHref', label: 'לאן הכפתור השני מוביל', kind: 'link', hint: LINK_HINT },
-    { key: 'image', label: 'תמונה (בלי תמונה מוצגת שקית מצוירת)', kind: 'image' },
+    { key: 'image', label: 'תמונה (בלי תמונה מוצגת התמונה של הערכה, או ציור)', kind: 'image' },
   ] },
   collections: { type: 'collections', label: 'סוגי מוצרים (קולקציות)', fields: [
     { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
