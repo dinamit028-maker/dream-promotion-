@@ -28,4 +28,6 @@ export type EditMessage =
   /** 2.65: a section dragged to a place among those shown — the dashboard decides, and answers "move" */
   | { type: 'drop'; id: string; to: number }
   /** 2.67: a block of a free section clicked — the dashboard opens it in the panel */
-  | { type: 'block'; section: string; id: string };
+  | { type: 'block'; section: string; id: string }
+  /** 2.69: "+ חלק חדש כאן" on a section — the dashboard opens its library, to add after it */
+  | { type: 'add'; after: string };

@@ -55,6 +55,12 @@ export function kitCollectionImage(kit: string | null, slug: string): KitPicture
   const m = kit ? KIT_MANIFESTS[kit] : undefined;
   return m ? picture(m.kit, m.images.find((i) => i.slot === 'collection' && i.collection === slug)) : null;
 }
+/** 2.69: the kit's collection pictures (the owner's preview of a store with no collections yet — see kitGallery) */
+export function kitCollectionPictures(kit: string | null): KitPicture[] {
+  const m = kit ? KIT_MANIFESTS[kit] : undefined;
+  if (!m) return [];
+  return m.images.filter((i) => i.slot === 'collection').sort((a, b) => a.order - b.order).flatMap((i) => picture(m.kit, i) ?? []).slice(0, 4);
+}
 /** the kit's gallery pictures, in order (the owner's preview only — see above) */
 export function kitGallery(kit: string | null): KitPicture[] {
   const m = kit ? KIT_MANIFESTS[kit] : undefined;

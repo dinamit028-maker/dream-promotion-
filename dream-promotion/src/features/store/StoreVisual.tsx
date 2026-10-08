@@ -2,19 +2,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { cx } from '@/lib/utils';
-import { Button, PageHead, Select } from '@/components/ui/primitives';
+import { Button, PageHead } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
 import { loadCatalog } from '@/features/catalog/data';
 import { previewLink, publishVersion, saveDraft, type StoreBundle } from './data';
-import { DEVICES, draftErrors, draftOf, SECTION_DEFS, settingsOf, type Device, type Draft, type SectionType } from './theme-fields';
+import { DEVICES, draftErrors, draftOf, SECTION_DEFS, settingsOf, type Device, type Draft } from './theme-fields';
 import type { ThemeVersion } from './store';
 import { GlobalDesign, liveClasses, SectionLayout } from './StoreVariants';
 import { kitPictureShown } from './kits';
 import { FieldInput, ListInput } from './StoreDesign';
 import { Notice, TextRow } from './ui';
 import {
-  ADDABLE, addSection, applyText, canGrow, duplicateSection, editFrameUrl, editRoute, moveSection, moveSectionAt, moveSectionTo, readMessage,
+  addSection, applyText, canGrow, duplicateSection, editFrameUrl, editRoute, moveSection, moveSectionAt, moveSectionTo, readMessage,
   removeSection, shownIndex,
 } from './visual-edit';
 import { emptyHistory, record, redo as redoStep, undo as undoStep, type History } from './history';
@@ -22,6 +22,7 @@ import { SectionList } from './SectionList';
 import { ColumnsEditor } from './BlockEditor';
 import { withColumns } from './blocks';
 import { SectionStyle } from './SectionStyle';
+import { AddGallery } from './AddGallery';
 import { sectionStyleClasses } from './section-style';
 
 /**
@@ -39,7 +40,7 @@ type Live = 'rerender' | 'reload' | 'none' | { move: string } | { remove: string
  * site stays right on every screen. Every change is saved as the draft by itself; "פרסום באתר" puts it on the air, and the
  * versions (the classic editor) bring an older one back.
  */
-type Sel = { id: string; field?: string; block?: string } | { announcement: true } | null;
+type Sel = { id: string; field?: string; block?: string } | { add: true; after: string | null } | { announcement: true } | null;
 const SAVE_AFTER = 700;
 
 export function VisualEditor({ bundle, template, versions, reload, onClassic }: {
@@ -157,9 +158,10 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
       if (e.origin !== link.base || e.source !== frame.current?.contentWindow) return;
       const m = readMessage(e.data);
       if (!m) return;
-      if (m.type === 'ready') { setPath(m.path); if (sel && 'id' in sel) post({ type: 'select', id: sel.id, block: sel.block }); return; }
+      if (m.type === 'ready') { setPath(m.path); post({ type: 'config', add: grow && m.path === '/' }); if (sel && 'id' in sel) post({ type: 'select', id: sel.id, block: sel.block }); return; }
       if (m.type === 'section') { setSel({ id: m.id }); return; }
       if (m.type === 'block') { setSel({ id: m.section, block: m.id }); return; }
+      if (m.type === 'add') { if (grow && latest.current.sections.some((s) => s.id === m.after)) setSel({ add: true, after: m.after }); return; }
       if (m.type === 'field' || m.type === 'image') { setSel({ id: m.section, field: m.field }); return; }
       if (m.type === 'text') {
         const next = applyText(latest.current, m);
@@ -210,7 +212,13 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
 
   const panel = (
     <div className="space-y-3">
-      {sel && 'announcement' in sel ? (
+      {sel && 'add' in sel ? (
+        <AddGallery where={sel.after ? `אחרי "${SECTION_DEFS[d.sections.find((s) => s.id === sel.after)?.type ?? 'text'].label}"` : 'בסוף עמוד הבית'}
+          onBack={() => setSel(null)} onPick={(type) => {
+            const r = addSection(d, type, sel.after, bundle.store!.name);
+            if (r) { change(r.draft); choose(r.id); } else setMsg({ tone: 'warn', text: 'אפשר עד 20 חלקים בעמוד הבית.' });
+          }} />
+      ) : sel && 'announcement' in sel ? (
         <>
           <PanelHead title="הודעה בראש האתר" onBack={() => setSel(null)} />
           <label className="flex min-h-11 items-center justify-between gap-3">
@@ -274,7 +282,7 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
             const id = d.sections[from]?.id; const next = moveSectionAt(d, from, to);
             if (id) change(next, next.sections.find((x) => x.id === id)?.hidden ? 'none' : { move: id });
           }} />
-          {grow && <AddSection onAdd={(type) => { const r = addSection(d, type); if (r) { change(r.draft); choose(r.id); } }} />}
+          {grow && <Button variant="soft" className="w-full" onClick={() => setSel({ add: true, after: null })}>+ חלק חדש</Button>}
           <details className="rounded-md border border-line p-2">
             <summary className="cursor-pointer text-sm font-semibold">עיצוב כללי — צבעים, גופן, ראש ותחתית, ריווח וכפתורים</summary>
             <div className="mt-3"><GlobalDesign d={d} change={changeGlobal} /></div>
@@ -328,21 +336,6 @@ function PanelHead({ title, onBack }: { title: string; onBack: () => void }) {
     <div className="flex items-center justify-between gap-2">
       <h2 className="text-base font-bold">{title}</h2>
       <Button size="sm" variant="ghost" onClick={onBack}>סגירה</Button>
-    </div>
-  );
-}
-
-function AddSection({ onAdd }: { onAdd: (type: SectionType) => void }) {
-  const [type, setType] = useState<SectionType>('text');
-  return (
-    <div className="flex items-end gap-2">
-      <label className="block flex-1">
-        <span className="mb-1 block text-sm font-semibold text-ink-2">חלק חדש</span>
-        <Select value={type} onChange={(e) => setType(e.target.value as SectionType)}>
-          {ADDABLE.map((t) => <option key={t} value={t}>{SECTION_DEFS[t].label}</option>)}
-        </Select>
-      </label>
-      <Button variant="soft" onClick={() => onAdd(type)}>+ הוספה</Button>
     </div>
   );
 }

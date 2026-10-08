@@ -41,7 +41,7 @@ test('sections: added, duplicated, removed on the open template only; moved on a
   const added = addSection(d, 'imageText', 'hero')!;
   assert.equal(added.id, 'imagetext-2');
   assert.equal(added.draft.sections[1].id, 'imagetext-2', 'right after the one chosen');
-  assert.equal(added.draft.sections[1].settings.title, 'תמונה וטקסט');
+  assert.equal(added.draft.sections[1].settings.title, 'הסיפור שלנו', 'with the library\'s starting words (2.69)');
   assert.equal(addSection(d, 'newsletter'), null, 'the newsletter waits for stage 5');
   const dup = duplicateSection(added.draft, 'hero')!;
   assert.equal(dup.draft.sections[1].id, 'hero-2');

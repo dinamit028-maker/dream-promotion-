@@ -34,3 +34,14 @@ test('cleanColumns: limits, ids, repeats', () => {
   assert.deepEqual(cleanColumns([{ id: 'c', span: 4, blocks: [{ id: 'p', type: 'paragraph', settings: { text: 'א'.repeat(2000) } }, { id: 'h', type: 'heading', settings: { size: 'huge' } }] }])[0].blocks.map((b) => [b.settings.text?.length, b.settings.size]),
     [[1200, undefined], [5, 'l']]);
 });
+
+test('the library (2.69): every kind\'s starting words pass the storefront\'s theme as they are', async () => {
+  const { LIBRARY } = await import('../../src/lib/builder-registry');
+  const t = resolveTheme('kit', { sections: LIBRARY.map((x) => ({ id: `t-${x.type.toLowerCase()}`, type: x.type, settings: x.starter, ...(x.columns ? { columns: x.columns } : {}) })) });
+  assert.deepEqual(t.sections.map((s) => s.type), LIBRARY.map((x) => x.type));
+  for (const x of LIBRARY) {
+    const s = t.sections.find((y) => y.type === x.type)!;
+    for (const [k, v] of Object.entries(x.starter)) if (typeof v === 'string') assert.equal(s.settings[k], v, `${x.type}.${k}`);
+    if (x.columns) assert.deepEqual(s.columns, x.columns);
+  }
+});
