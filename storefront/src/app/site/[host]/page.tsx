@@ -27,10 +27,15 @@ export default async function Home({ params }: Props) {
     <>
       <JsonLd data={orgJsonLd(site)} nonce={nonce} />
       {sections[0]?.type !== 'hero' && <h1 className="sr-only">{site.store.name}</h1>}
-      {sections.map((s, i) => site.edit
-        // the visual editor (2.61): each section is one element the owner clicks to edit
-        ? <div key={s.id} {...editSection(true, s.id, s.type)}><SectionView section={s} site={site} first={i === 0} /></div>
-        : <SectionView key={s.id} section={s} site={site} first={i === 0} />)}
+      {sections.map((s, i) => {
+        // 2.66: hidden on some screens — a class per device (a phone, a tablet, a computer), from the fixed list
+        const hide = (s.hiddenOn ?? []).map((d) => `hide-${d}`).join(' ') || undefined;
+        return site.edit
+          // the visual editor (2.61): each section is one element the owner clicks to edit
+          ? <div key={s.id} className={hide} {...editSection(true, s.id, s.type)}><SectionView section={s} site={site} first={i === 0} /></div>
+          : hide ? <div key={s.id} className={hide}><SectionView section={s} site={site} first={i === 0} /></div>
+          : <SectionView key={s.id} section={s} site={site} first={i === 0} />;
+      })}
     </>
   );
 }

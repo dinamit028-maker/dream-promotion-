@@ -621,3 +621,8 @@ input, select, textarea {
 .edit-mode .edit-drag:focus-visible { outline: 3px solid #ff7fa8; outline-offset: 2px; }
 .edit-mode .edit-dragging { opacity: .45; }
 .edit-drop-line { position: fixed; inset-inline: 12px; top: var(--edit-line-y, -10px); z-index: 9999; height: 4px; margin-top: -2px; border-radius: 4px; background: #6b3bf5; pointer-events: none; }
+
+/* ---- 2.66 — a section hidden on some screens: a phone (up to 699px), a tablet (700–1023px), a computer (from 1024px) --- */
+@media (max-width: 699px) { .hide-base { display: none; } }
+@media (min-width: 700px) and (max-width: 1023px) { .hide-md { display: none; } }
+@media (min-width: 1024px) { .hide-lg { display: none; } }

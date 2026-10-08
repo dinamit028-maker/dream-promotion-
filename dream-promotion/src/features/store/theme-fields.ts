@@ -7,7 +7,8 @@
  * 2.58 (starter kits): the template "kit" is open — a kit's sections, with their types, are in the saved settings; the
  * editor works on them the same way. Gallery and newsletter are new kinds of sections; font and art are new settings.
  */
-export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection';
+/** kitpick (2.66): which of the kit's two wide hero pictures shows while there is no picture of the business — 1 or 2 */
+export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection' | 'kitpick';
 export interface FieldDef { key: string; label: string; kind: FieldKind; max?: number; hint?: string }
 export interface ListDef { key: 'items'; label: string; max: number; fields: FieldDef[]; add: string }
 import { CHROME_OPTIONS, cleanGroup, COMMERCE_OPTIONS, DESIGN_OPTIONS, sectionVariantOk, type Overrides } from './variants';
@@ -16,7 +17,17 @@ export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 's
 /** soon: the storefront does not show it yet (the newsletter waits for the consent to marketing of stage 5) */
 export interface SectionDef { type: SectionType; label: string; fields: FieldDef[]; list?: ListDef; soon?: string }
 /** variant (2.63): the layout the business picked for this section — absent = the kit's (variants.ts) */
-export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string }
+export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[] }
+/** 2.66: a screen — the same names as the storefront (lib/theme.ts): a phone, a tablet, a computer */
+export type Device = 'base' | 'md' | 'lg';
+export const DEVICES: { id: Device; label: string; width: number }[] = [
+  { id: 'base', label: 'טלפון', width: 390 }, { id: 'md', label: 'טאבלט', width: 820 }, { id: 'lg', label: 'מחשב', width: 1280 },
+];
+/** the devices a section is hidden on: known ones, once each, in order — never all three (that is "hidden") */
+export function hiddenOnOf(v: unknown): Device[] {
+  const on = Array.isArray(v) ? DEVICES.map((d) => d.id).filter((d) => v.includes(d)) : [];
+  return on.length === DEVICES.length ? [] : on;
+}
 export interface Colors { background: string; surface: string; text: string; muted: string; primary: string; accent: string; accentSoft: string; border: string }
 export type Radius = 'none' | 'small' | 'medium' | 'large';
 export type Font = 'heebo' | 'rubik' | 'assistant' | 'frank';
@@ -43,6 +54,7 @@ export const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { key: 'secondaryLabel', label: 'כפתור שני', kind: 'text', max: 30 },
     { key: 'secondaryHref', label: 'לאן הכפתור השני מוביל', kind: 'link', hint: LINK_HINT },
     { key: 'image', label: 'תמונה (בלי תמונה מוצגת התמונה של הערכה, או ציור)', kind: 'image' },
+    { key: 'kitImage', label: 'איזו תמונה של הערכה', kind: 'kitpick' },
   ] },
   collections: { type: 'collections', label: 'סוגי מוצרים (קולקציות)', fields: [
     { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
@@ -191,8 +203,10 @@ export function draftOf(templateId: string, saved: unknown): Draft {
     const def = known && (!t.open || r.type === undefined || r.type === known.type) ? known : t.open && !known ? ownSection(r) : undefined;
     if (!def || sections.some((s) => s.id === def.id)) continue;
     const own: Section = { ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings: { ...def.settings, ...obj(r.settings) } };
-    delete own.variant;
+    delete own.variant; delete own.hiddenOn;
     if (sectionVariantOk(def.type, r.variant)) own.variant = r.variant;
+    const hiddenOn = hiddenOnOf(r.hiddenOn);
+    if (hiddenOn.length) own.hiddenOn = hiddenOn;
     sections.push(own);
   }
   if (!(t.open && sections.length)) for (const s of t.sections) if (!sections.some((x) => x.id === s.id)) sections.push({ ...s, settings: { ...s.settings } });
@@ -220,7 +234,8 @@ export function draftOf(templateId: string, saved: unknown): Draft {
 export const settingsOf = (d: Draft) => ({
   ...(d.kit ? { kit: d.kit } : {}),
   colors: d.colors, font: d.font, art: d.art, radius: d.radius, announcement: d.announcement, product: d.product,
-  sections: d.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings, ...(s.variant ? { variant: s.variant } : {}) })),
+  sections: d.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings, ...(s.variant ? { variant: s.variant } : {}),
+    ...(s.hiddenOn?.length ? { hiddenOn: s.hiddenOn } : {}) })),
   // only what the business picked: a choice that is not here is the kit's
   ...(Object.keys(d.overrides.design).length ? { design: d.overrides.design } : {}),
   ...(Object.keys(d.overrides.chrome).length ? { chrome: d.overrides.chrome } : {}),
@@ -247,6 +262,7 @@ export function fieldError(f: FieldDef, v: unknown): string | null {
   }
   if (f.kind === 'image') { const s = String(v ?? '').trim(); return !s || /^https:\/\/[^\s<>"'\\]+$/.test(s) ? null : `"${f.label}": תמונה צריכה להיות קישור https.`; }
   if (f.kind === 'number') { const n = Number(v); return Number.isInteger(n) && n >= 2 && n <= 12 ? null : `"${f.label}": מספר בין 2 ל-12.`; }
+  if (f.kind === 'kitpick') return v === undefined || v === '' || v === 1 || v === 2 ? null : `"${f.label}": הראשונה או השנייה.`;
   if ((f.kind === 'text' || f.kind === 'longtext') && f.max && String(v ?? '').length > f.max) return `"${f.label}": עד ${f.max} תווים.`;
   return null;
 }

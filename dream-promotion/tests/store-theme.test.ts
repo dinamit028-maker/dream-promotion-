@@ -35,7 +35,7 @@ test('every field the editor offers is one the storefront accepts — same kind,
   const kindOf: Record<string, (f: any) => boolean> = {
     text: (f) => f.kind === 'text', longtext: (f) => f.kind === 'longtext', link: (f) => f.kind === 'href', image: (f) => f.kind === 'image',
     number: (f) => f.kind === 'int' && f.min === 2 && f.max === 12, side: (f) => f.kind === 'choice' && f.values.join() === 'start,end',
-    collection: (f) => f.kind === 'slug',
+    collection: (f) => f.kind === 'slug', kitpick: (f) => f.kind === 'int' && f.min === 1 && f.max === 2,
   };
   assert.deepEqual(Object.keys(SECTION_DEFS).sort(), Object.keys(schema).sort(), 'the same kinds of sections');
   for (const [type, def] of Object.entries(SECTION_DEFS)) {

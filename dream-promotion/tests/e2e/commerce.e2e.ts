@@ -708,6 +708,24 @@ async function main() {
       for (const key of ['Space', 'ArrowDown', 'Space']) { await st.keyboard.press(key); await st.waitForTimeout(400); }
       await savedAs((ids) => ids.indexOf('hero') === heroAt + 1);
       assert.equal(order().split(',').indexOf('hero'), heroAt + 1, 'moved one down by the keyboard');
+      // 2.66 (PR-3b): a tablet's width; a section hidden on a phone; "עיצוב כללי" — on the page at once ("style"), then saved
+      await st.getByRole('button', { name: 'טאבלט' }).click();
+      assert.match((await st.locator('iframe[title^="האתר"]').getAttribute('class')) ?? '', /w-\[820px\]/);
+      await frame.locator('#steps').click();
+      await st.getByRole('heading', { name: 'איך זה עובד' }).waitFor();
+      await st.getByRole('button', { name: '✓ טלפון' }).click();
+      const stepsHidden = () => draft()!.settings.sections.find((x: any) => x.id === 'steps')?.hiddenOn;
+      for (let i = 0; i < 100 && !stepsHidden(); i++) await st.waitForTimeout(100);
+      assert.deepEqual(stepsHidden(), ['base'], 'hidden on a phone only');
+      await st.getByRole('button', { name: 'סגירה' }).first().click();
+      // on a phone the panel is below the site (its other copy, beside it, is hidden): the visible one
+      await st.locator('summary:visible', { hasText: 'עיצוב כללי' }).click();
+      await st.getByLabel('ראש האתר').locator('visible=true').selectOption('compact');
+      for (let i = 0; i < 50 && !(await got()).some((m: any) => m.type === 'style'); i++) await st.waitForTimeout(100);
+      const style = (await got()).find((m: any) => m.type === 'style');
+      assert.match(style.classes, /\bv-h-compact\b/, 'the page gets the header class at once');
+      for (let i = 0; i < 100 && draft()!.settings.chrome?.header !== 'compact'; i++) await st.waitForTimeout(100);
+      assert.deepEqual(draft()!.settings.chrome, { header: 'compact' }, 'saved as the business\'s choice');
       assert.equal(await st.getByRole('button', { name: 'שכפול' }).count(), 0, 'a closed template: no duplicating');
       await noSideScroll(st, 'the visual editor on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9b-visual-editor-phone.png'), fullPage: true });

@@ -1,6 +1,7 @@
 import { BAGS } from '@/templates/bags';
 import { KIT } from '@/templates/kit';
 import { kitImageCss } from './kit-images';
+import { contrast, tokenVars } from './theme-tokens';
 import KIT_DESIGNS from './kit-designs.json';
 import { bodyClasses, CHROME, COMMERCE, DESIGN, layered, sectionVariant, type Chrome, type Commerce, type Design } from './variants';
 
@@ -20,7 +21,15 @@ export type Art = 'bag' | 'plain';
 export const FONTS: readonly Font[] = ['heebo', 'rubik', 'assistant', 'frank'];
 export interface Colors { background: string; surface: string; text: string; muted: string; primary: string; accent: string; accentSoft: string; border: string }
 /** variant (2.63): the section's layout — the business's, else the kit's, else the type's first (lib/variants.ts) */
-export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string }
+export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string; hiddenOn?: Device[] }
+/** 2.66: a screen — a phone (base, up to 699px), a tablet (md, 700–1023px), a computer (lg, from 1024px) */
+export type Device = 'base' | 'md' | 'lg';
+export const DEVICES: readonly Device[] = ['base', 'md', 'lg'];
+/** the devices a section is hidden on: known ones, once each, in order — never all three (that is "hidden") */
+export function hiddenOnOf(v: unknown): Device[] {
+  const on = Array.isArray(v) ? DEVICES.filter((d) => v.includes(d)) : [];
+  return on.length === DEVICES.length ? [] : on;
+}
 export interface Theme {
   template: string;
   /** the starter kit applied (2.58), its default pictures shown where the business has none (2.62); null = none */
@@ -53,7 +62,8 @@ type Field =
 const T = (max: number): Field => ({ kind: 'text', max });
 const L = (max: number): Field => ({ kind: 'longtext', max });
 export const SCHEMA: Record<SectionType, Record<string, Field>> = {
-  hero: { eyebrow: T(60), title: T(90), subtitle: L(300), primaryLabel: T(30), primaryHref: { kind: 'href' }, secondaryLabel: T(30), secondaryHref: { kind: 'href' }, image: { kind: 'image' } },
+  // kitImage (2.66): which of the kit's two wide pictures the hero shows while the business has none (CORRECTIONS_HE.md §4)
+  hero: { eyebrow: T(60), title: T(90), subtitle: L(300), primaryLabel: T(30), primaryHref: { kind: 'href' }, secondaryLabel: T(30), secondaryHref: { kind: 'href' }, image: { kind: 'image' }, kitImage: { kind: 'int', min: 1, max: 2 } },
   collections: { title: T(80), subtitle: L(200) },
   products: { title: T(80), collection: { kind: 'slug' }, limit: { kind: 'int', min: 2, max: 12 }, buttonLabel: T(30) },
   imageText: { title: T(90), text: L(800), image: { kind: 'image' }, buttonLabel: T(30), buttonHref: { kind: 'href' }, imageSide: { kind: 'choice', values: ['start', 'end'] } },
@@ -140,21 +150,15 @@ function mergeSections(base: Section[], raw: unknown, open = false, kit: KitDesi
       const c = clean(f, v);
       if (c !== undefined) settings[k] = c;
     }
-    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings, variant: sectionVariant(def.type, r.variant, kit?.sections[def.id]) });
+    const hiddenOn = hiddenOnOf(r.hiddenOn);
+    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings, variant: sectionVariant(def.type, r.variant, kit?.sections[def.id]), ...(hiddenOn.length ? { hiddenOn } : {}) });
   }
   // an open template with sections of its own shows exactly those; otherwise the template's missing ones are added
   if (!(open && out.length)) for (const s of base) if (!seen.has(s.id)) out.push({ ...s, variant: sectionVariant(s.type, undefined, kit?.sections[s.id]) });
   return out;
 }
 
-/** relative luminance and contrast (WCAG 2) */
-function lum(hex: string): number {
-  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-}
-export const contrast = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
-/** the text colour on a button of this colour: whichever of white / ink reads better */
-export const onColor = (hex: string) => (contrast(hex, '#ffffff') >= contrast(hex, '#14110e') ? '#ffffff' : '#14110e');
+export { contrast, onColor } from './theme-tokens';
 
 export function resolveTheme(templateId: string, raw: unknown): Theme {
   const t = TEMPLATES[templateId] ?? TEMPLATES.bags;
@@ -191,20 +195,12 @@ export function resolveTheme(templateId: string, raw: unknown): Theme {
   };
 }
 
-const RADIUS: Record<Radius, [string, string]> = { none: ['0', '0'], small: ['6px', '8px'], medium: ['12px', '999px'], large: ['20px', '999px'] };
-const FAMILY: Record<Font, string> = {
-  heebo: "'Heebo Variable','Heebo'", rubik: "'Rubik Variable','Rubik'", assistant: "'Assistant Variable','Assistant'",
-  frank: "'Frank Ruhl Libre Variable','Frank Ruhl Libre'",
-};
 /** the <body>'s classes: one per design choice (lib/variants.ts) */
 export const themeClasses = (t: Theme) => bodyClasses(t.design, t.chrome, t.commerce);
 
 /** the theme as CSS variables (every value checked above: hex colours, fixed sizes, a font from a fixed list) */
 export function themeCss(t: Theme): string {
-  const c = t.colors;
-  const [card, button] = RADIUS[t.radius];
-  return `:root{--c-bg:${c.background};--c-surface:${c.surface};--c-text:${c.text};--c-muted:${c.muted};--c-primary:${c.primary};`
-    + `--c-on-primary:${onColor(c.primary)};--c-accent:${c.accent};--c-accent-soft:${c.accentSoft};--c-border:${c.border};`
-    + `--radius:${card};--radius-btn:${button};--font:${FAMILY[t.font]},system-ui,-apple-system,'Segoe UI',Arial,sans-serif}`
+  const vars = tokenVars(t.colors, t.font, t.radius) ?? [];
+  return `:root{${vars.map(([k, v]) => `${k}:${v}`).join(';')}}`
     + (t.art === 'bag' ? '.plain-art{display:none}' : '.bag-art{display:none}') + kitImageCss(t.kit);
 }

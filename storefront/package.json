@@ -1,6 +1,6 @@
 {
   "name": "dream-storefront",
-  "version": "2.65.0",
+  "version": "2.66.0",
   "private": true,
   "description": "The public storefront of Dream Commerce: one app for every business, chosen by the domain. Reads the database only through sf_* functions.",
   "engines": {
@@ -12,7 +12,8 @@
     "start": "next start -p 3230",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/unit/*.test.ts",
-    "test:e2e": "tsx tests/e2e/storefront.e2e.ts"
+    "test:e2e": "tsx tests/e2e/storefront.e2e.ts",
+    "kit-shots": "KIT_SHOTS=1 tsx tests/e2e/storefront.e2e.ts"
   },
   "dependencies": {
     "@fontsource-variable/assistant": "5.3.0",

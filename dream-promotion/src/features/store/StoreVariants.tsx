@@ -1,7 +1,7 @@
 'use client';
 import { Select } from '@/components/ui/primitives';
 import { kitById } from './kits';
-import type { Draft, Section } from './theme-fields';
+import { FONTS, type Draft, type Section } from './theme-fields';
 import {
   CHROME_OPTIONS, COMMERCE_OPTIONS, DESIGN_OPTIONS, effective, NO_VARIANTS, SECTION_VARIANT_OPTIONS,
   type ChromeKey, type CommerceKey, type DesignKey, type KitVariants, type Overrides,
@@ -84,5 +84,53 @@ export function SectionLayout({ d, section, change }: { d: Draft; section: Secti
   return (
     <Choice label="פריסה" options={options} own={section.variant} kit={kitVariants(d).sections[section.id]} hasKit={Boolean(kitById(d.kit))}
       onPick={(v) => change(withSectionVariant(d, section.id, v))} />
+  );
+}
+
+/**
+ * 2.66: the <body>'s classes the storefront gives this draft (storefront lib/variants.ts → bodyClasses, the same order) —
+ * sent to the page with the colours so a design choice shows at once, before the save. A test compares the two.
+ */
+export function liveClasses(d: Draft): string {
+  const kit = kitVariants(d);
+  const pick = <G extends 'design' | 'chrome' | 'commerce'>(group: G, key: string) => {
+    const def = (LISTS[group] as Record<string, { options: { id: string }[] }>)[key];
+    return effective(def.options as { id: string; label: string }[], (d.overrides[group] as Record<string, string>)[key], (kit[group] as Record<string, string>)[key]);
+  };
+  return [
+    `v-sp-${pick('design', 'spacing')}`, `v-hs-${pick('design', 'headingScale')}`, `v-btn-${pick('design', 'buttonStyle')}`, `v-ct-${pick('design', 'container')}`,
+    `v-card-${pick('design', 'cardStyle')}`, `v-h-${pick('chrome', 'header')}`, `v-f-${pick('chrome', 'footer')}`, `v-pc-${pick('commerce', 'productCard')}`,
+    `v-cc-${pick('commerce', 'collectionCard')}`, `v-pp-${pick('commerce', 'productPage')}`,
+  ].join(' ');
+}
+
+/** "עיצוב כללי" in the visual editor (2.66): the main colours, the corners, the font — and the design choices */
+export function GlobalDesign({ d, change }: { d: Draft; change: (next: Draft) => void }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        {([['primary', 'כפתורים'], ['accent', 'צבע הדגשה'], ['background', 'רקע'], ['text', 'טקסט']] as const).map(([k, label]) => (
+          <label key={k} className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-2">
+            <span className="text-sm font-semibold">{label}</span>
+            <input type="color" aria-label={label} value={d.colors[k]} onChange={(e) => change({ ...d, colors: { ...d.colors, [k]: e.target.value } })} className="h-9 w-11 cursor-pointer rounded border border-line bg-transparent" />
+          </label>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="mb-1 block text-sm font-semibold text-ink-2">פינות</span>
+          <Select value={d.radius} onChange={(e) => change({ ...d, radius: e.target.value as Draft['radius'] })}>
+            <option value="none">ישרות</option><option value="small">מעט עגולות</option><option value="medium">עגולות</option><option value="large">עגולות מאוד</option>
+          </Select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm font-semibold text-ink-2">גופן</span>
+          <Select value={d.font} onChange={(e) => change({ ...d, font: e.target.value as Draft['font'] })}>
+            {FONTS.map((f) => <option key={f.id} value={f.id}>{f.label.split(' — ')[0]}</option>)}
+          </Select>
+        </label>
+      </div>
+      <DesignChoices d={d} change={change} />
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import type { EditMessage } from '@/lib/edit';
+import { tokenVars } from '@/lib/theme-tokens';
 
 /**
  * "לחץ לעריכה" (2.61): inside the dashboard's visual editor only (site.edit). Every click is the owner choosing what to
@@ -73,6 +74,19 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
         select(id ? byId(id) : null);
       } catch {
         if (r === rev) location.reload();
+      }
+    };
+
+    // 2.66: "עיצוב כללי" at once — the theme's variables (checked here: hex colours, a corner and a font from the lists) set
+    // through CSSOM, and the body's design classes (only names of the lists' shape); the saved draft follows
+    const CLASS = /^v-(sp|hs|btn|ct|card|h|f|pc|cc|pp)-[a-z][a-z-]{1,30}$/;
+    const applyStyle = (m: Record<string, unknown>) => {
+      const vars = m.colors && typeof m.colors === 'object' ? tokenVars(m.colors, m.font, m.radius) : null;
+      if (vars) for (const [k, v] of vars) document.documentElement.style.setProperty(k, v);
+      const classes = typeof m.classes === 'string' ? m.classes.split(' ') : [];
+      if (classes.length === 10 && classes.every((c) => CLASS.test(c))) {
+        const keep = Array.from(document.body.classList).filter((c) => !CLASS.test(c));
+        document.body.className = [...keep, ...classes].join(' ');
       }
     };
 
@@ -193,6 +207,7 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
       else if (m.type === 'move' && id && Number.isInteger(m.to) && (m.to as number) >= 0) { moveTo(id, m.to as number); if (lifted || selected?.dataset.editSection === id) handle.focus(); }
       else if (m.type === 'remove' && id) { const el = byId(id); if (el === selected) select(null); el?.remove(); }
       else if (m.type === 'rerender' && Number.isInteger(m.rev)) void rerender(m.rev as number);
+      else if (m.type === 'style') applyStyle(m);
     };
     document.addEventListener('click', onClick, true);
     document.addEventListener('keydown', onKey, true);

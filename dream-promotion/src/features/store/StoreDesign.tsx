@@ -183,7 +183,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
                   <div className="border-t border-line p-3">
                     {def.soon && <Notice tone="info">{def.soon}</Notice>}
                     <SectionLayout d={d} section={s} change={change} />
-                    {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections} kitPicture={kitPictureShown(d.kit, s.type, f.key)}
+                    {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections} kitPicture={kitPictureShown(d.kit, s.type, f.key) && !(f.kind === 'kitpick' && s.settings.image)}
                       onChange={(v) => setSection(s.id, { settings: { ...s.settings, [f.key]: v } })} />)}
                     {def.list && <ListInput def={def.list} rows={(Array.isArray(s.settings.items) ? s.settings.items : []) as Record<string, unknown>[]}
                       onChange={(rows) => setSection(s.id, { settings: { ...s.settings, items: rows } })} />}
@@ -226,6 +226,18 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
 export function FieldInput({ f, value, onChange, collections, kitPicture }: { f: FieldDef; value: unknown; onChange: (v: unknown) => void; collections: CollectionRow[]; kitPicture?: boolean }) {
   const v = typeof value === 'string' ? value : value == null ? '' : String(value);
   if (f.kind === 'image') return <PicturePicker label={f.label} value={v} onChange={onChange} kitPicture={kitPicture} />;
+  // 2.66: the kit's two wide pictures — only while the business has no picture of its own (kitPicture), else nothing to choose
+  if (f.kind === 'kitpick') {
+    if (!kitPicture) return null;
+    return (
+      <label className="mb-4 block max-w-[16rem]">
+        <span className="mb-2 block text-sm font-semibold text-ink-2">{f.label}</span>
+        <Select value={value === 2 ? '2' : '1'} onChange={(e) => onChange(e.target.value === '2' ? 2 : '')}>
+          <option value="1">הראשונה</option><option value="2">השנייה</option>
+        </Select>
+      </label>
+    );
+  }
   if (f.kind === 'longtext') return <AreaRow label={f.label} value={v} onChange={onChange} max={f.max} />;
   if (f.kind === 'number') {
     return (
