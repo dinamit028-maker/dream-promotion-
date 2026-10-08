@@ -418,3 +418,21 @@ export function hiddenLinks(menus: { main: MenuLink[]; footer: MenuLink[] }, pag
   }
   return out;
 }
+
+/**
+ * 2.73: a plan as one call to the database (migration 3900, store_apply_kit) — the same writes as the step-by-step
+ * applyKit, in the same order, so one transaction: the collections and pages to create, the pages the owner chose to
+ * replace, the menus that were empty or that the owner chose to replace, the theme draft and the first publish.
+ */
+export function kitPayload(plan: KitPlan, choices: KitChoices) {
+  return {
+    collections: plan.collections,
+    pages: plan.pages,
+    replace: plan.pageConflicts.filter((x) => choices.replacePages.includes(x.id)).map((x) => ({ id: x.id, row: x.row })),
+    menus: (['main', 'footer'] as const)
+      .filter((kind) => plan.menus[kind].action === 'create' || (plan.menus[kind].action === 'conflict' && choices.replaceMenus.includes(kind)))
+      .map((kind) => ({ kind, items: plan.menus[kind].items })),
+    draft: { id: plan.draft.id, template: 'kit', settings: plan.settings, note: plan.mode === 'design' ? `עיצוב: ${plan.kit.name}` : `ערכה: ${plan.kit.name}` },
+    publish: plan.publishTheme,
+  };
+}

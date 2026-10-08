@@ -92,6 +92,7 @@
     - מ-2.70.0 (PR-3f): רוחב עמודה לכל מסך — `span` / `spanBase` / `spanLg`, ה-classes רק מ-`columnClasses`. החלון בעורך ברוחב האמיתי של המסך, מוקטן ב-`frameFit`. בבדיקות e2e — לחיצה בחלון רק דרך `tapFrame`.
     - מ-2.71.0: ערכה חדשה = `kits/<id>.json` + תמונות (`scripts/kit-images.mjs`) + `npm run kits`. אין לכתוב שם של ערכה בקוד המנוע (`store-kit-readiness.test.ts` נכשל). החזית קוראת manifests רק מ-`kit-manifests.json` שנוצר.
     - מ-2.72.0: בדיקת מראה (`tests/e2e/visual/`, 35 צילומים) רצה ב-`test:e2e` של החזית. שינוי מראה מכוון — `npm run visual:update` (בחזית), ולצרף את התמונות ל-PR. שינוי לא מכוון — לתקן, לא לעדכן את התמונות.
+    - מ-2.73.0: החלת ערכה = `store_apply_kit` (מיגרציה 3900, טרנזקציה אחת, בשם המשתמש), עם `kitPayload`. כתיבה חדשה של ערכה — גם בפונקציה במסד, גם ב-`applyKitSteps` (הדרך כשהפונקציה עוד לא במסד), וגם בפונקציה המדומה ב-`fake-supabase.ts`. `store-apply-kit.test.ts` משווה את המפתחות.
   - תמונות ברירת מחדל לערכות (מ-2.62.0, `storefront/src/lib/kit-images.ts`):
     - קבצים של החזית: `public/kit-images/<kit>/`, ו-manifest ב-`src/lib/kit-images/<kit>.json`. ערכה חדשה — דרך `scripts/kit-images.mjs`, לא ביד. לכל ערכה ב-`kits/` חייב להיות manifest, ותמונה לכל קולקציה שלה (`store-kits.test.ts`).
     - מוצגות רק כשאין לעסק תמונה משלו. אף פעם לא נכנסות לקטלוג או להגדרות השמורות.

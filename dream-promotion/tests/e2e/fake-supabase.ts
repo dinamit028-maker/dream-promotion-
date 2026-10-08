@@ -58,6 +58,9 @@ export class FakeSupabase {
   calls: { method: string; path: string; body?: any }[] = [];
   /** the money screens' view of the caller (finance_access_state): a member by default */
   finance = { superAdmin: false, member: true, grantUntil: null as string | null, lockedUntil: null as string | null };
+  /** 2.73: store_apply_kit is on the database (migration 3900) — false: as before it, the steps of 2.58 */
+  applyKitRpc = true;
+  applyKitCalls = 0;
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string }) {}
   private today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
   private log(action: string, entityId: string, details: Row) {
@@ -345,6 +348,57 @@ export class FakeSupabase {
       if (!st) return { status: 400, body: { code: '42501', message: 'not allowed' } };
       const missing = this.storeMissing(st);
       return { status: 200, body: { ready: missing.length === 0, missing } };
+    }
+    // 2.73 (migration 3900): a kit's writes in one call — all of them or none (the tables come back as they were)
+    if (fn === 'store_apply_kit') {
+      if (!this.applyKitRpc) return { status: 404, body: { code: 'PGRST202', message: 'Could not find the function public.store_apply_kit(p_plan, p_store) in the schema cache' } };
+      const before = structuredClone(this.tables);
+      const plan = args.p_plan ?? {};
+      let step = 'החנות';
+      const n = { collections: 0, pages: 0, replacedPages: 0, menus: 0, version: 0, published: false };
+      const failWith = (msg: string, code = '23514') => { this.tables = before; return { status: 400, body: { code, message: `${step} — ${msg}` } }; };
+      if (!this.t('stores').some((x) => x.id === args.p_store)) return failWith('store not found', '42501');
+      for (const c of plan.collections ?? []) {
+        step = `הקולקציה "${c.title}"`;
+        const r: Row = { ...c, position: Math.max(-1, ...this.t('catalog_collections').map((x) => Number(x.position ?? 0))) + 1 };
+        const e = this.beforeInsert('catalog_collections', r); if (e) return failWith(e);
+        this.t('catalog_collections').push(r); this.afterInsert('catalog_collections', r); n.collections++;
+      }
+      for (const pg of plan.pages ?? []) {
+        step = `העמוד "${pg.title}"`;
+        const r: Row = { ...pg, store_id: args.p_store };
+        const e = this.beforeInsert('store_pages', r); if (e) return failWith(e);
+        this.t('store_pages').push(r); this.afterInsert('store_pages', r); n.pages++;
+      }
+      for (const x of plan.replace ?? []) {
+        step = `העמוד "${x.row.title}"`;
+        const r = this.t('store_pages').find((g) => g.id === x.id && g.store_id === args.p_store);
+        if (!r) return failWith('page not found', '42501');
+        const e = this.beforeUpdate('store_pages', r, x.row); if (e) return failWith(e);
+        const old = { ...r }; Object.assign(r, x.row); this.afterUpdate('store_pages', old, r); n.replacedPages++;
+      }
+      for (const m of plan.menus ?? []) {
+        step = 'התפריט';
+        const r = this.t('store_menus').find((x) => x.store_id === args.p_store && x.kind === m.kind);
+        if (r) r.items = m.items; else { const row: Row = { store_id: args.p_store, kind: m.kind, items: m.items }; const e = this.beforeInsert('store_menus', row); if (e) return failWith(e); this.t('store_menus').push(row); }
+        n.menus++;
+      }
+      step = 'העיצוב';
+      const d = plan.draft ?? {};
+      let v: Row | undefined;
+      if (d.id) {
+        v = this.t('store_theme_versions').find((x) => x.id === d.id && x.store_id === args.p_store && x.status === 'draft');
+        if (!v) return failWith('draft not found', '42501');
+        Object.assign(v, { settings: d.settings, template: d.template, note: d.note ?? v.note });
+      } else {
+        v = { store_id: args.p_store, template: d.template, settings: d.settings, note: d.note ?? '' };
+        const e = this.beforeInsert('store_theme_versions', v); if (e) return failWith(e);
+        this.t('store_theme_versions').push(v); this.afterInsert('store_theme_versions', v);
+      }
+      n.version = Number(v.version);
+      if (plan.publish) { const r = this.rpc('store_publish_theme', { p_version: v.id }); if (r.status !== 200) return failWith(r.body.message); n.published = true; }
+      this.applyKitCalls++;
+      return { status: 200, body: n };
     }
     if (fn === 'store_publish_theme') {
       const v = this.t('store_theme_versions').find((x) => x.id === args.p_version);

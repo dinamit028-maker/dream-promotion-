@@ -4,7 +4,7 @@ import {
   checkoutError, couponError, toCoupon, toOrder, toOrderEvent, toOrderLine,
   type CheckoutPatch, type Coupon, type CouponRow, type OrderEvent, type OrderLine, type OrderRow, type TerminalInfo,
 } from './checkout';
-import { planBlocked, type KitChoices, type KitPlan } from './kits';
+import { kitPayload, planBlocked, type KitChoices, type KitPlan } from './kits';
 import {
   missingFromError, toCollection, toDomain, toPage, toStore, toVersion,
   type CollectionRow, type DomainRow, type MenuLink, type Missing, type PageRow, type PolicyKind, type StoreRow, type ThemeVersion,
@@ -178,13 +178,31 @@ export async function bookingUrl(origin: string): Promise<string> {
 export interface KitApplied { collections: number; pages: number; replacedPages: number; menus: number; version: number; published: boolean }
 /**
  * A kit's plan, written: the missing collections and pages (drafts), the menus that were empty or that the owner chose to
- * replace, and the theme as the one draft (published only for a store that never published a theme). Each step through the
- * existing tables and row-level security; it stops at the first failure and says what was already done (a second run
- * creates only what is still missing).
+ * replace, and the theme as the one draft (published only for a store that never published a theme). 2.73: in one call to
+ * the database (store_apply_kit, migration 3900) — one transaction, through the same tables and row-level security: a
+ * failure anywhere writes nothing, and says at which step. While that function is not on the database, the steps of 2.58
+ * (each through the existing tables; it stops at the first failure and says what was already done — a second run creates
+ * only what is still missing).
  */
 export async function applyKit(storeId: string, plan: KitPlan, choices: KitChoices): Promise<Result<KitApplied> & { done?: Partial<KitApplied> }> {
   const blocked = planBlocked(plan, choices);
   if (blocked) return { ok: false, error: blocked };
+  const { data, error } = await supabase().rpc('store_apply_kit', { p_store: storeId, p_plan: kitPayload(plan, choices) });
+  if (!error) return { ok: true, data: data as KitApplied };
+  if (applyKitMissing(error)) return applyKitSteps(storeId, plan, choices);
+  return { ok: false, error: applyKitError(error) };
+}
+/** the database has no store_apply_kit yet (migration 3900): the steps of 2.58 */
+export const applyKitMissing = (e: { code?: string; message?: string }) =>
+  e.code === 'PGRST202' || (/store_apply_kit/.test(e.message ?? '') && /does not exist|could not find/i.test(e.message ?? ''));
+/** "<the step> — <the database's reason>" → the step, the reason in Hebrew, and that nothing was written */
+export function applyKitError(e: { code?: string; message?: string }): string {
+  const m = /^(.+?) — ([\s\S]*)$/.exec(e.message ?? '');
+  const why = storeError(m ? { ...e, message: m[2] } : e, 'לא נשמר.');
+  return `${m ? `${m[1]}: ` : ''}${why} שום דבר מהערכה לא נכתב — אפשר לתקן ולנסות שוב.`;
+}
+/** the steps of 2.58 (before migration 3900) */
+async function applyKitSteps(storeId: string, plan: KitPlan, choices: KitChoices): Promise<Result<KitApplied> & { done?: Partial<KitApplied> }> {
   const done: KitApplied = { collections: 0, pages: 0, replacedPages: 0, menus: 0, version: 0, published: false };
   const stop = (error: string) => ({ ok: false as const, error, done });
   for (const c of plan.collections) {
