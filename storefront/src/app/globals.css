@@ -458,7 +458,8 @@ input, select, textarea {
 .v-h-centered-logo .menu { grid-area: menu; }
 .v-h-centered-logo .brand { grid-area: brand; margin: 0; justify-self: center; }
 .v-h-centered-logo .header-tools { grid-area: tools; display: flex; justify-content: flex-end; align-items: center; }
-.v-h-centered-logo .brand-name { font-size: 1.45rem; letter-spacing: .02em; }
+.v-h-centered-logo .brand-name { font-size: 1.15rem; letter-spacing: .02em; text-align: center; }
+@media (min-width: 900px) { .v-h-centered-logo .brand-name { font-size: 1.45rem; } }
 @media (min-width: 900px) {
   .v-h-centered-logo .header-row { grid-template-areas: ". brand tools" "nav nav nav"; padding-top: 10px; }
   .v-h-centered-logo .brand { margin: 0; }

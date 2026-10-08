@@ -210,7 +210,7 @@ export async function applyKit(storeId: string, plan: KitPlan, choices: KitChoic
       done.menus++;
     }
   }
-  const v = await saveDraft(storeId, 'kit', plan.settings, plan.draft.id ? { id: plan.draft.id } : null, `ערכה: ${plan.kit.name}`);
+  const v = await saveDraft(storeId, 'kit', plan.settings, plan.draft.id ? { id: plan.draft.id } : null, plan.mode === 'design' ? `עיצוב: ${plan.kit.name}` : `ערכה: ${plan.kit.name}`);
   if (!v.ok) return stop(`העיצוב: ${v.error}`);
   done.version = v.data.version;
   if (plan.publishTheme) {

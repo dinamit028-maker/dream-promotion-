@@ -6,7 +6,8 @@ import { cx } from '@/lib/utils';
 import { Button, Pill } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { applyKit, bookingUrl, loadStore, type KitApplied, type StoreBundle } from './data';
-import { KITS, kitById, kitFor, planKit, type Kit, type KitChoices, type KitContext, type KitPlan } from './kits';
+import { KITS, kitById, kitFor, planKit, type ApplyMode, type Kit, type KitChoices, type KitContext, type KitPlan } from './kits';
+import { PreviewButton } from './StoreSettings';
 import { POLICY_LABEL, type StoreRow } from './store';
 import { Block, Notice } from './ui';
 import { storeHref } from './routes';
@@ -49,10 +50,10 @@ export function KitGallery({ bundle, onApplied, onClose }: { bundle: StoreBundle
   const { ctx, industry } = useKitContext(store);
   const current = currentKit(bundle);
   const suggested = useMemo(() => kitFor(industry), [industry]);
-  const [chosen, setChosen] = useState<Kit | null>(null);
-  if (chosen && ctx) return <KitPlanView kit={chosen} bundle={bundle} ctx={ctx} onBack={() => setChosen(null)} onApplied={onApplied} />;
+  const [chosen, setChosen] = useState<{ kit: Kit; mode: ApplyMode } | null>(null);
+  if (chosen && ctx) return <KitPlanView kit={chosen.kit} mode={chosen.mode} bundle={bundle} ctx={ctx} onBack={() => setChosen(null)} onApplied={onApplied} />;
   return (
-    <Block title="ערכות הקמה" sub="אתר מוכן בלחיצה: עיצוב, עמוד בית, תפריטים, קולקציות, עמודים ומדיניות. המוצרים שלכם לא משתנים."
+    <Block title="ערכות הקמה" sub="תצוגה מקדימה מראה את החנות שלכם בערכה, בלי לשמור כלום. החלפת עיצוב משנה רק את המראה; ערכה מלאה מוסיפה גם עמודים, תפריטים וקולקציות. המוצרים שלכם לא משתנים."
       action={<Button variant="ghost" size="sm" onClick={onClose}>סגירה</Button>}>
       {!ctx && <p className="flex items-center gap-2 text-sm text-muted"><Spinner /> טוען…</p>}
       <ul className="grid gap-3 sm:grid-cols-2">
@@ -69,9 +70,13 @@ export function KitGallery({ bundle, onApplied, onClose }: { bundle: StoreBundle
               {k.id === suggested.id && k.id !== current?.id && <Pill tone="default">מתאימה לתחום שלכם</Pill>}
             </span>
             <span className="mb-3 mt-1 flex-1 text-sm text-muted">{k.description}</span>
-            <Button variant={k.id === current?.id ? 'ghost' : 'soft'} size="sm" disabled={!ctx} onClick={() => setChosen(k)}>
-              {k.id === current?.id ? 'להחיל שוב (רק מה שחסר)' : 'בחירה'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <PreviewButton label="תצוגה מקדימה" kit={{ id: k.id, mode: 'design' }} size="sm" variant="soft" />
+              {k.id !== current?.id && <Button variant="soft" size="sm" disabled={!ctx} onClick={() => setChosen({ kit: k, mode: 'design' })}>החלפת עיצוב</Button>}
+              <Button variant="ghost" size="sm" disabled={!ctx} onClick={() => setChosen({ kit: k, mode: 'full' })}>
+                {k.id === current?.id ? 'להחיל שוב (רק מה שחסר)' : 'ערכה מלאה'}
+              </Button>
+            </div>
           </li>
         ))}
       </ul>
@@ -79,9 +84,9 @@ export function KitGallery({ bundle, onApplied, onClose }: { bundle: StoreBundle
   );
 }
 
-function KitPlanView({ kit, bundle, ctx, onBack, onApplied }: { kit: Kit; bundle: StoreBundle; ctx: KitContext; onBack: () => void;
+function KitPlanView({ kit, mode, bundle, ctx, onBack, onApplied }: { kit: Kit; mode: ApplyMode; bundle: StoreBundle; ctx: KitContext; onBack: () => void;
   onApplied: (kit: Kit, done: KitApplied) => Promise<void> | void }) {
-  const plan: KitPlan = useMemo(() => planKit(kit, bundle, ctx), [kit, bundle, ctx]);
+  const plan: KitPlan = useMemo(() => planKit(kit, bundle, ctx, mode), [kit, bundle, ctx, mode]);
   const [choices, setChoices] = useState<KitChoices>({ replacePages: [], replaceMenus: [], replaceDraft: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -101,8 +106,25 @@ function KitPlanView({ kit, bundle, ctx, onBack, onApplied }: { kit: Kit; bundle
   };
 
   return (
-    <Block title={`ערכת "${kit.name}"`} sub={kit.description} action={<Button variant="ghost" size="sm" onClick={onBack}>חזרה לערכות</Button>}>
+    <Block title={mode === 'design' ? `החלפת עיצוב: "${kit.name}"` : `ערכת "${kit.name}"`} sub={kit.description} action={<Button variant="ghost" size="sm" onClick={onBack}>חזרה לערכות</Button>}>
       {error && <Notice tone="error">{error}</Notice>}
+      <div className="mb-3 flex justify-start"><PreviewButton label="תצוגה מקדימה (בלי לשמור)" kit={{ id: kit.id, mode }} size="sm" variant="soft" /></div>
+      {mode === 'design' ? <>
+        <Notice tone="info">
+          העיצוב החדש נשמר כטיוטה, והאתר משתנה רק אחרי "פרסום". אפשר לחזור לגרסה קודמת בכל רגע.
+          {plan.publishTheme && ' החנות עוד לא פרסמה עיצוב, ולכן זה יהיה העיצוב הראשון שלה (האתר עצמו עדיין סגור).'}
+        </Notice>
+        <h4 className="mb-2 font-semibold">מה משתנה</h4>
+        <ul className="mb-4 list-disc space-y-1 ps-5 text-sm">
+          <li>המראה בלבד: הצבעים, הגופן, ראש האתר והתחתית, כרטיסי המוצר, הריווח והכפתורים — של הערכה.</li>
+          <li>בחירות עיצוב שעשיתם (פריסה, כפתורים וכו׳) מתחלפות בשל הערכה. אפשר לשנות אותן שוב אחר כך.</li>
+        </ul>
+        <h4 className="mb-2 font-semibold">מה נשאר כמו שהוא</h4>
+        <ul className="mb-4 list-disc space-y-1 ps-5 text-sm text-muted">
+          <li>עמוד הבית שלכם: הטקסטים, התמונות, הסדר ומה שהסתרתם.</li>
+          <li>העמודים, המדיניות, התפריטים, הקולקציות, המוצרים וההודעה העליונה.</li>
+        </ul>
+      </> : <>
       <Notice tone="info">
         הערכה נשמרת כטיוטה: העיצוב, העמודים והמדיניות לא עולים לאתר עד שמפרסמים. אפשר לראות הכל ב"תצוגה מקדימה", ולחזור לגרסה קודמת בכל רגע.
         {plan.publishTheme && ' החנות עוד לא פרסמה עיצוב, ולכן העיצוב של הערכה יהיה הגרסה הראשונה שלה (האתר עצמו עדיין סגור).'}
@@ -124,6 +146,7 @@ function KitPlanView({ kit, bundle, ctx, onBack, onApplied }: { kit: Kit; bundle
           {plan.keptCollections.length > 0 && <li>קולקציות שכבר קיימות: {plan.keptCollections.join(', ')}.</li>}
           {plan.keptPolicies.length > 0 && <li>המדיניות שכבר כתבתם: {plan.keptPolicies.map((k) => POLICY_LABEL[k]).join(', ')} — לא מוחלפת.</li>}
         </ul>
+      </>}
       </>}
 
       {(conflicts > 0 || plan.draft.edited) && <>
@@ -147,7 +170,7 @@ function KitPlanView({ kit, bundle, ctx, onBack, onApplied }: { kit: Kit; bundle
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="ghost" disabled={busy} onClick={onBack}>ביטול</Button>
         <Button variant="primary" disabled={busy || (plan.draft.edited && !choices.replaceDraft)} onClick={() => void apply()}>
-          {busy ? <><Spinner /> מחיל…</> : 'החלת הערכה (כטיוטה)'}
+          {busy ? <><Spinner /> מחיל…</> : mode === 'design' ? 'החלפת העיצוב (כטיוטה)' : 'החלת הערכה (כטיוטה)'}
         </Button>
       </div>
       {plan.draft.edited && !choices.replaceDraft && <p className="mt-2 text-end text-xs text-muted">כדי להחיל, צריך לאשר את החלפת טיוטת העיצוב.</p>}

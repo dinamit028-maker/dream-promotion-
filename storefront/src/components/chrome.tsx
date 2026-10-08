@@ -137,6 +137,19 @@ export function Footer({ site }: { site: Site & { store: Store } }) {
 
 /** a draft seen through a preview token: the owner always knows the shoppers do not see this yet */
 function PreviewBar({ site }: { site: Site }) {
+  const k = site.kitPreview;
+  if (k) {
+    // a kit's preview (2.64): nothing was saved — the owner switches between its two modes, or goes back to the store's draft
+    return (
+      <div className="preview-bar" role="status">
+        <strong>תצוגה מקדימה של ערכת &quot;{k.name}&quot;</strong> — {k.mode === 'design' ? 'התוכן שלכם בעיצוב של הערכה' : 'הערכה המלאה, עם הטקסטים שלה'}. שום דבר לא נשמר.
+        {' '}{k.mode === 'design'
+          ? <a href={`?kit=${k.kit}&kitmode=full`}>לראות את הערכה המלאה</a>
+          : <a href={`?kit=${k.kit}&kitmode=design`}>לראות עם התוכן שלכם</a>}
+        {' · '}<a href="/?kit=off">חזרה לטיוטה שלכם</a>
+      </div>
+    );
+  }
   return (
     <div className="preview-bar" role="status">
       <strong>תצוגה מקדימה</strong> — {site.store.status === 'published' ? 'כך ייראה האתר אחרי הפרסום. הלקוחות רואים עדיין את הגרסה שפורסמה.' : 'החנות עוד לא באוויר. רק מי שקיבל את הקישור רואה את זה.'}

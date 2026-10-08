@@ -612,6 +612,47 @@ async function main() {
       assert.match(shopper.body, /class="hero hero--split/);
     });
 
+    await step('a kit\'s preview (2.64): FollowMe — its products, prices and details — on three kits and in full, with the token only; nothing in the database changes', async () => {
+      const snapshot = () => psql(`select md5(string_agg(t, '|' order by t)) from (
+          select 'v' || id || status || template || settings::text as t from public.store_theme_versions where store_id = '${FOLLOWME_STORE}'
+          union all select 'p' || id || title || body || published::text from public.store_pages where store_id = '${FOLLOWME_STORE}'
+          union all select 'm' || kind || items::text from public.store_menus where store_id = '${FOLLOWME_STORE}'
+          union all select 'c' || id || title || slug from public.catalog_collections where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a'
+          union all select 'i' || id || name || price::text from public.catalog_items where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a') x`);
+      const before = snapshot();
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      const { ctx, page } = await phone();
+      const looks = new Set<string>();
+      for (const [kit, header] of [['fashion', 'v-h-transparent-overlay'], ['beauty', 'v-h-centered-logo'], ['retail', 'v-h-search-heavy']] as const) {
+        await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}&kit=${kit}&kitmode=design`));
+        await page.locator('.preview-bar', { hasText: 'שום דבר לא נשמר' }).waitFor();
+        assert.equal(new URL(page.url()).search, '', 'the address loses the token and the kit');
+        const cls = (await page.getAttribute('body', 'class')) ?? '';
+        assert.ok(cls.includes(header), `${kit}: its header (${cls})`);
+        looks.add(cls);
+        assert.match(await text(page), /טיוטה חדשה/, `${kit}: the store's own hero text (the draft's)`);
+        // another page of the store: still the kit, with the store's own product and price
+        await page.goto(url('followme.test', '/collections/all'));
+        assert.ok(((await page.getAttribute('body', 'class')) ?? '').includes(header), `${kit}: the choice stays from page to page`);
+        assert.match(await text(page), /שקית בד/);
+        await page.screenshot({ path: path.join(SHOTS, `kit-preview-${kit}-phone.png`), fullPage: true });
+      }
+      assert.equal(looks.size, 3, 'three different looks');
+      // the full kit: its own home page, with the store's name; then back to the store's own draft
+      await page.goto(url('followme.test', '/?kit=beauty&kitmode=full'));
+      await page.locator('.preview-bar', { hasText: 'הערכה המלאה' }).waitFor();
+      assert.ok(await page.locator('#before-after').count() === 1, 'the beauty kit\'s own sections');
+      await page.getByRole('link', { name: 'חזרה לטיוטה שלכם' }).click();
+      await page.getByRole('heading', { level: 1, name: 'טיוטה חדשה' }).waitFor();
+      assert.ok(!((await page.getAttribute('body', 'class')) ?? '').includes('v-h-centered-logo'));
+      await ctx.close();
+      // a shopper who brings the cookie (no token): nothing different
+      const shopper = await raw('followme.test', '/', { cookie: 'sf_kit=fashion:design' });
+      assert.match(shopper.body, /class="v-sp-normal v-hs-normal v-btn-solid v-ct-normal v-card-border v-h-classic/);
+      assert.ok(!/שום דבר לא נשמר/.test(shopper.body));
+      assert.equal(snapshot(), before, 'the database is exactly as it was');
+    });
+
     await step('a domain is "active" in the dashboard only after the storefront served it', async () => {
       await new Promise((r) => setTimeout(r, 500));
       const rows = psql(`select domain || ':' || status || ':' || (last_seen_at is not null) from public.store_domains order by domain`);

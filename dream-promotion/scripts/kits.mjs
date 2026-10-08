@@ -41,8 +41,28 @@ export function storefrontDesigns() {
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 export const STOREFRONT_DESIGNS = `${root}../storefront/src/lib/kit-designs.json`;
+/**
+ * 2.63 (PR-2, a kit's preview without a write): each kit's own theme — its colours, font and home page with their texts —
+ * as the storefront needs it to show a store in a kit it has not applied ("{{name}}" stays: the storefront fills it in).
+ */
+export function storefrontThemes() {
+  const out = {};
+  for (const k of kitFiles()) {
+    const t = o(k.theme);
+    out[k.id] = {
+      name: k.name,
+      theme: {
+        colors: t.colors, font: t.font, art: t.art, radius: t.radius, announcement: t.announcement, product: t.product,
+        sections: (Array.isArray(t.sections) ? t.sections : []).map((s) => ({ id: s.id, type: s.type, hidden: s.hidden === true, settings: s.settings })),
+      },
+    };
+  }
+  return `${JSON.stringify(out, null, 2)}\n`;
+}
+export const STOREFRONT_THEMES = `${root}../storefront/src/lib/kit-themes.json`;
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   writeFileSync(`${root}src/features/store/kits.generated.ts`, generated());
   writeFileSync(STOREFRONT_DESIGNS, storefrontDesigns());
-  console.log('kits: src/features/store/kits.generated.ts and storefront/src/lib/kit-designs.json written');
+  writeFileSync(STOREFRONT_THEMES, storefrontThemes());
+  console.log('kits: src/features/store/kits.generated.ts, storefront/src/lib/kit-designs.json and kit-themes.json written');
 }
