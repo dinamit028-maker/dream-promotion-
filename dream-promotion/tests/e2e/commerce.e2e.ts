@@ -79,6 +79,32 @@ async function waitForServer(dev: ChildProcess) {
   });
 }
 
+/**
+ * 2.70: a tap on the editor's frame where the person sees it — the frame is scaled to fit (CSS transform), so the point is
+ * the frame's place + the element's place × the scale (Playwright's own click inside a transformed frame misses it).
+ */
+async function tapFrame(page: any, sel: string) {
+  const f = page.locator('iframe[title^="האתר"]');
+  const el = page.frameLocator('iframe[title^="האתר"]').locator(sel);
+  await el.waitFor();
+  const k = Number(await f.getAttribute('data-scale')) || 1;
+  const point = async () => {
+    const fb = (await f.boundingBox())!;
+    const b = await el.evaluate((e: Element) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    return { x: fb.x + b.x * k, y: fb.y + b.y * k };
+  };
+  // near the top of the screen: below the dashboard's sticky header, above the panel that opens from the bottom on a phone
+  let p = await point();
+  await f.evaluate((frameEl: Element, dy: number) => {   // the dashboard's own scroller; at once (the page scrolls smoothly)
+    let n: Element | null = frameEl.parentElement;
+    while (n && !(n.scrollHeight > n.clientHeight && /auto|scroll/.test(getComputedStyle(n).overflowY))) n = n.parentElement;
+    const t = n ?? document.scrollingElement!;
+    t.scrollTo({ top: t.scrollTop + dy, behavior: 'instant' });
+  }, p.y - 160);
+  p = await point();
+  await page.mouse.click(p.x, p.y);
+}
+
 async function main() {
   mkdirSync(SHOTS, { recursive: true });
   const pw: any = await import(process.env.PLAYWRIGHT_PATH ?? 'playwright').catch(() => import('/opt/node-tools/node_modules/playwright/index.js' as string));
@@ -666,7 +692,7 @@ async function main() {
       const draft = () => versions().find((v) => v.status === 'draft');
       // a message from anywhere but the frame changes nothing
       await st.evaluate(() => window.postMessage({ type: 'text', section: 'hero', field: 'title', value: 'זיוף' }, '*'));
-      await frame.locator('#title').click();
+      await tapFrame(st, '#title');
       await st.getByText('נשמר כטיוטה ✓').waitFor();
       // "נשמר כטיוטה ✓" is also the state before any change: wait for the save itself (half a second after the edit)
       const heroTitle = () => draft()?.settings.sections.find((x: any) => x.id === 'hero')?.settings.title;
@@ -679,7 +705,7 @@ async function main() {
       const order = () => draft()!.settings.sections.map((x: any) => x.id).join(',');
       const got = () => frame.locator('body').evaluate(() => (window as any).got as any[]);
       const savedAs = async (want: (ids: string[]) => boolean) => { for (let i = 0; i < 100 && !want(order().split(',')); i++) await st.waitForTimeout(100); };
-      await frame.locator('#steps').click();
+      await tapFrame(st, '#steps');
       await st.getByRole('heading', { name: 'איך זה עובד' }).waitFor();
       await st.getByRole('button', { name: 'להזיז למטה' }).click();
       await savedAs((ids) => ids.indexOf('steps') === before.indexOf('steps') + 1);
@@ -688,7 +714,7 @@ async function main() {
       assert.ok((await got()).some((m: any) => m.type === 'move' && m.id === 'steps'), 'the page was told to move it');
       assert.equal(frameLoads.length, loads, 'no new frame');
       // dragged on the page to the top: the page says where, the dashboard moves it and tells the page
-      await frame.locator('#drop').click();
+      await tapFrame(st, '#drop');
       await savedAs((ids) => ids[0] === 'steps');
       assert.equal(order().split(',')[0], 'steps', 'dropped first');
       assert.ok((await got()).some((m: any) => m.type === 'move' && m.id === 'steps' && m.to === 0));
@@ -713,8 +739,12 @@ async function main() {
       assert.equal(order().split(',').indexOf('hero'), heroAt + 1, 'moved one down by the keyboard');
       // 2.66 (PR-3b): a tablet's width; a section hidden on a phone; "עיצוב כללי" — on the page at once ("style"), then saved
       await st.getByRole('button', { name: 'טאבלט' }).click();
-      assert.match((await st.locator('iframe[title^="האתר"]').getAttribute('class')) ?? '', /w-\[820px\]/);
-      await frame.locator('#steps').click();
+      // 2.70: a tablet's real width (820), scaled down to the phone's space — the whole page, smaller
+      const tab = st.locator('iframe[title^="האתר"]');
+      assert.equal(await tab.evaluate((f: HTMLIFrameElement) => f.style.width), '820px');
+      assert.ok(Number(await tab.getAttribute('data-scale')) < 0.5, 'scaled down on a phone');
+      assert.equal(await frame.locator('body').evaluate(() => window.innerWidth), 820, 'the page sees a tablet');
+      await tapFrame(st, '#steps');   // a finger on the smaller page: where the button is seen
       await st.getByRole('heading', { name: 'איך זה עובד' }).waitFor();
       await st.getByRole('button', { name: '✓ טלפון' }).click();
       const stepsHidden = () => draft()!.settings.sections.find((x: any) => x.id === 'steps')?.hiddenOn;
@@ -733,13 +763,13 @@ async function main() {
       await noSideScroll(st, 'the visual editor on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9b-visual-editor-phone.png'), fullPage: true });
       // another page of the store; then the menus open their own editor
-      await frame.locator('#go').click();
+      await tapFrame(st, '#go');
       await st.waitForFunction(() => (document.querySelector('iframe[title^="האתר"]') as HTMLIFrameElement | null)?.src.includes('/collections/all?edit='));
       // "פרסום באתר": the draft goes on the air (a version, as in the classic editor)
       await st.getByRole('button', { name: 'פרסום באתר' }).click();
       await st.getByText(/גרסה \d+ פורסמה באתר\./).waitFor();
       assert.equal(draft(), undefined, 'no draft left');
-      await frame.locator('#menu').click();
+      await tapFrame(st, '#menu');
       await st.waitForURL(/\/store\/navigation$/);
     });
 
@@ -837,7 +867,7 @@ async function main() {
       assert.deepEqual(free().columns.map((c: any) => [c.id, c.span, c.blocks.map((b: any) => b.type)]),
         [['c1', 6, ['heading', 'paragraph', 'button']], ['c2', 6, ['image']]], 'words and a button beside a picture');
       // a block clicked on the page: its fields here; a text typed is saved as the draft
-      await frame.locator('#block').click();
+      await tapFrame(st, '#block');
       await st.getByRole('heading', { name: 'בלוק: פסקה' }).waitFor();
       await st.getByLabel('הטקסט').fill('מה שחשוב לדעת עלינו.');
       await until(() => free()?.columns[0].blocks[1].settings.text === 'מה שחשוב לדעת עלינו.');
@@ -851,8 +881,14 @@ async function main() {
       // a third column, a third of the row; the picture dragged into it with the keyboard (space, an arrow, space)
       await st.getByRole('button', { name: '+ עמודה' }).click();
       await until(() => free()?.columns.length === 3);
-      await st.getByLabel('הרוחב של עמודה 1').selectOption('8');
+      // 2.70: a width per screen — half on a phone (side by side), two thirds on a tablet
+      await st.getByLabel('הרוחב של עמודה 1 (טלפון)').selectOption('6');
+      await until(() => free()?.columns[0].spanBase === 6);
+      await st.getByRole('button', { name: 'עיצוב לטאבלט' }).click();
+      await st.getByLabel('הרוחב של עמודה 1 (טאבלט)').selectOption('8');
       await until(() => free()?.columns[0].span === 8);
+      assert.equal(free().columns[0].spanBase, 6, 'the phone\'s stays');
+      await st.getByRole('button', { name: 'עיצוב לטלפון' }).click();
       const handle = st.getByRole('button', { name: 'גרירת "תמונה"' });
       await handle.scrollIntoViewIfNeeded();
       await handle.focus();
@@ -874,7 +910,7 @@ async function main() {
       const sx = async () => ((await frame.locator('body').evaluate(() => (window as any).got as any[])).filter((m: any) => m.type === 'sectionStyle').at(-1));
       assert.deepEqual(await sx(), { type: 'sectionStyle', id: 'custom-2', classes: ['sx-py-l'] });
       await st.getByRole('button', { name: 'עיצוב לטאבלט' }).click();
-      assert.match((await st.locator('iframe[title^="האתר"]').getAttribute('class')) ?? '', /w-\[820px\]/, 'the site in a tablet\'s width');
+      assert.equal(await st.locator('iframe[title^="האתר"]').evaluate((f: HTMLIFrameElement) => f.style.width), '820px', 'the site in a tablet\'s width');
       await st.getByLabel('רקע (טאבלט)').selectOption('dark');
       await until(() => free()?.responsive?.md?.surface === 'dark');
       assert.deepEqual((await sx()).classes, ['sx-py-l', 'sx-md-sf-dark']);
@@ -886,7 +922,7 @@ async function main() {
       // "+ חלק חדש כאן" on the page (after the hero): the library, then the section right there, with its starting words
       const gotNow = await frame.locator('body').evaluate(() => (window as any).got as any[]);
       assert.ok(gotNow.some((m: any) => m.type === 'config' && m.add === true), 'the page was told sections may be added');
-      await frame.locator('#add').click();
+      await tapFrame(st, '#add');
       await st.getByText('אחרי "פתיח"', { exact: false }).waitFor();
       await st.getByRole('button', { name: 'הוספת שאלות נפוצות' }).click();
       await st.getByRole('heading', { name: 'שאלות נפוצות' }).waitFor();
