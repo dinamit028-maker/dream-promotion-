@@ -90,6 +90,7 @@
     - מ-2.68.0 (PR-3d): עיצוב לכל חלק — רק צעדים מ-`STYLE_SCALES` (ב-Registry), בלי צבע חופשי ובלי פיקסלים. טלפון = `style`, טאבלט/מחשב = `responsive.md/lg`, יורשים מלמטה. ה-classes רק מ-`styleClasses`, ולכל class חייב להיות כלל ב-`globals.css` (`section-style.test.ts`). שינוי בדשבורד — `section-style.ts`, ומשם `change` + הודעת `sectionStyle`.
     - מ-2.69.0 (PR-3e): סוג חלק שאפשר להוסיף (`ADDABLE`) — חייב פריט ב-`LIBRARY` (ב-Registry) עם מילים להתחלה בעברית (לא lorem, לא מוצרי דמה), ותמונה ב-`public/section-previews/<type>.jpg` מ-`npm run kit-shots` (`store-add-gallery.test.ts`). ה-"+" בדף רק אחרי `config` מהדשבורד.
     - מ-2.70.0 (PR-3f): רוחב עמודה לכל מסך — `span` / `spanBase` / `spanLg`, ה-classes רק מ-`columnClasses`. החלון בעורך ברוחב האמיתי של המסך, מוקטן ב-`frameFit`. בבדיקות e2e — לחיצה בחלון רק דרך `tapFrame`.
+    - מ-2.71.0: ערכה חדשה = `kits/<id>.json` + תמונות (`scripts/kit-images.mjs`) + `npm run kits`. אין לכתוב שם של ערכה בקוד המנוע (`store-kit-readiness.test.ts` נכשל). החזית קוראת manifests רק מ-`kit-manifests.json` שנוצר.
   - תמונות ברירת מחדל לערכות (מ-2.62.0, `storefront/src/lib/kit-images.ts`):
     - קבצים של החזית: `public/kit-images/<kit>/`, ו-manifest ב-`src/lib/kit-images/<kit>.json`. ערכה חדשה — דרך `scripts/kit-images.mjs`, לא ביד. לכל ערכה ב-`kits/` חייב להיות manifest, ותמונה לכל קולקציה שלה (`store-kits.test.ts`).
     - מוצגות רק כשאין לעסק תמונה משלו. אף פעם לא נכנסות לקטלוג או להגדרות השמורות.

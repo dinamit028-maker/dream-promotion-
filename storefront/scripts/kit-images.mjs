@@ -80,4 +80,6 @@ function importFolder(dir) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (process.argv.length < 3) { console.error('usage: node scripts/kit-images.mjs <folder> [<folder> …]'); process.exit(1); }
   for (const dir of process.argv.slice(2)) importFolder(dir);
+  // 2.71: the storefront reads every manifest from one generated file
+  console.log('next: `npm run kits` in dream-promotion/ (writes storefront/src/lib/kit-manifests.json)');
 }

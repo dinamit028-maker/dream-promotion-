@@ -1,0 +1,927 @@
+{
+  "bags": {
+    "kit": "bags",
+    "version": 1,
+    "images": [
+      {
+        "file": "bags-hero-wide.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.3,
+          "y": 0.6
+        },
+        "alt": "מגוון שקיות נייר קרפט ולבנות ושקיות בד בגדלים שונים",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 1
+      },
+      {
+        "file": "bags-hero-wide-2.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.3,
+          "y": 0.6
+        },
+        "alt": "שולחן עבודה עם שקיות נייר ובד, ערימות שקיות מקופלות",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 2
+      },
+      {
+        "file": "bags-hero-vertical.webp",
+        "slot": "hero",
+        "width": 1024,
+        "height": 1536,
+        "focal": {
+          "x": 0.5,
+          "y": 0.45
+        },
+        "alt": "יד מחזיקה שקית נייר קרפט עם ידיות חבל",
+        "variant": "vertical",
+        "order": 1
+      },
+      {
+        "file": "bags-image-text.webp",
+        "slot": "imageText",
+        "width": 1255,
+        "height": 941,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "חומרי גלם: נייר קרפט, ידיות חבל, בד כותנה, חוט יוטה וסרט",
+        "order": 1
+      },
+      {
+        "file": "bags-cat-fabric.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שקיות בד כותנה בצבע טבעי, אחת עומדת ושתיים מקופלות",
+        "collection": "fabric",
+        "order": 1
+      },
+      {
+        "file": "bags-cat-gift.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "קופסאות מתנה מקרטון קרפט ושקיות מתנה עם סרט שמנת",
+        "collection": "gift",
+        "order": 2
+      },
+      {
+        "file": "bags-cat-paper.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שלוש שקיות נייר קרפט בגדלים שונים עם ידיות מסובבות",
+        "collection": "paper",
+        "order": 3
+      },
+      {
+        "file": "bags-gallery-1.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "ערימת שקיות נייר קרפט שטוחות עם גליל חוט יוטה",
+        "order": 1
+      },
+      {
+        "file": "bags-gallery-2.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שקית בד כותנה תלויה על וו עץ עם צל עלים על הקיר",
+        "order": 2
+      },
+      {
+        "file": "bags-gallery-3.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שקיות מתנה מקרפט ושחור עם סרטים ונייר טישו",
+        "order": 3
+      }
+    ]
+  },
+  "beauty": {
+    "kit": "beauty",
+    "version": 1,
+    "images": [
+      {
+        "file": "beauty-hero-wide.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.25,
+          "y": 0.6
+        },
+        "alt": "חדר טיפולים מואר עם מיטת טיפולים, מגבות ופרחים מיובשים",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 1
+      },
+      {
+        "file": "beauty-hero-wide-2.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.25,
+          "y": 0.6
+        },
+        "alt": "בקבוקי וצנצנות טיפוח על משטח שיש עם פרחים מיובשים",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 2
+      },
+      {
+        "file": "beauty-hero-vertical.webp",
+        "slot": "hero",
+        "width": 1024,
+        "height": 1536,
+        "focal": {
+          "x": 0.5,
+          "y": 0.4
+        },
+        "alt": "אישה בחלוק לבן יושבת על מיטת טיפולים, מצולמת מאחור",
+        "variant": "vertical",
+        "order": 1
+      },
+      {
+        "file": "beauty-image-text.webp",
+        "slot": "imageText",
+        "width": 1255,
+        "height": 941,
+        "focal": {
+          "x": 0.5,
+          "y": 0.55
+        },
+        "alt": "בקבוק סרום וצנצנת קרם פתוחה על שיש עם פרחים מיובשים",
+        "order": 1
+      },
+      {
+        "file": "beauty-cat-care.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "מגש שיש עם בקבוקי טיפוח, טפטפות וצנצנות קרם",
+        "collection": "care",
+        "order": 1
+      },
+      {
+        "file": "beauty-gallery-1.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "מדפים עם מגבות לבנות מגולגלות, נרות ופרחים מיובשים",
+        "order": 1
+      },
+      {
+        "file": "beauty-gallery-2.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "רולר ומגרד פנים מאבן ורודה ליד מגבות לבנות",
+        "order": 2
+      },
+      {
+        "file": "beauty-gallery-3.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "כורסה מרופדת בוורוד עתיק ושולחן צד משיש בפינת המתנה",
+        "order": 3
+      }
+    ]
+  },
+  "fashion": {
+    "kit": "fashion",
+    "version": 1,
+    "images": [
+      {
+        "file": "fashion-hero-wide.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.22,
+          "y": 0.5
+        },
+        "alt": "מתלה בגדים באדום, שחור ושמנת בבוטיק מואר באור שמש",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 1
+      },
+      {
+        "file": "fashion-hero-wide-2.webp",
+        "slot": "hero",
+        "width": 1670,
+        "height": 941,
+        "focal": {
+          "x": 0.28,
+          "y": 0.55
+        },
+        "alt": "כובע לבד אדום על ערימת סריגים, צעיף ואקססוריז על שיש",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 2
+      },
+      {
+        "file": "fashion-hero-vertical.webp",
+        "slot": "hero",
+        "width": 1024,
+        "height": 1536,
+        "focal": {
+          "x": 0.5,
+          "y": 0.4
+        },
+        "alt": "אישה בשמלת סאטן אדומה ארוכה עם תיק עור שחור",
+        "variant": "vertical",
+        "order": 1
+      },
+      {
+        "file": "fashion-image-text.webp",
+        "slot": "imageText",
+        "width": 1365,
+        "height": 1024,
+        "focal": {
+          "x": 0.45,
+          "y": 0.55
+        },
+        "alt": "סריגים מקופלים בשמנת, אדום ושחור עם כובע וצעיף",
+        "order": 1
+      },
+      {
+        "file": "fashion-cat-accessories.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "תיק עור שחור, צעיף משי אדום ומשקפי שמש",
+        "collection": "accessories",
+        "order": 1
+      },
+      {
+        "file": "fashion-cat-men.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "גבר בחולצה שחורה ומכנסיים בהירים",
+        "collection": "men",
+        "order": 2
+      },
+      {
+        "file": "fashion-cat-new.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "מתלה בגדים חדשים באדום, שחור ולבן",
+        "collection": "new",
+        "order": 3
+      },
+      {
+        "file": "fashion-cat-sale.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שקיות קניות אדומות ושחורות וקופסאות מתנה",
+        "collection": "sale",
+        "order": 4
+      },
+      {
+        "file": "fashion-cat-women.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "אישה בחליפה אדומה וגופייה שחורה",
+        "collection": "women",
+        "order": 5
+      },
+      {
+        "file": "fashion-gallery-1.webp",
+        "slot": "gallery",
+        "width": 1003,
+        "height": 1254,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "אישה בחליפה אדומה יושבת על ספה בהירה",
+        "order": 1
+      },
+      {
+        "file": "fashion-gallery-2.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שמלת סאטן אדומה על מצעים לבנים עם תכשיטי זהב",
+        "order": 2
+      },
+      {
+        "file": "fashion-gallery-3.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "סנדלי עקב אדומים על שיש עם ענף פירות יער",
+        "order": 3
+      }
+    ]
+  },
+  "furniture": {
+    "kit": "furniture",
+    "version": 1,
+    "images": [
+      {
+        "file": "furniture-hero-wide.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.27,
+          "y": 0.6
+        },
+        "alt": "סלון בהיר עם ספה מבד, שולחן קפה מעץ אלון וענפי זית",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 1
+      },
+      {
+        "file": "furniture-hero-wide-2.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.3,
+          "y": 0.55
+        },
+        "alt": "פינת אוכל עם שולחן עץ ארוך וכיסאות מרופדים בירוק זית",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 2
+      },
+      {
+        "file": "furniture-hero-vertical.webp",
+        "slot": "hero",
+        "width": 1024,
+        "height": 1536,
+        "focal": {
+          "x": 0.55,
+          "y": 0.5
+        },
+        "alt": "כניסה לבית עם קונסולת עץ, מראה עגולה וענפי זית",
+        "variant": "vertical",
+        "order": 1
+      },
+      {
+        "file": "furniture-image-text.webp",
+        "slot": "imageText",
+        "width": 1255,
+        "height": 941,
+        "focal": {
+          "x": 0.5,
+          "y": 0.55
+        },
+        "alt": "כלי קרמיקה, בד פשתן וענף זית על משטח עץ אלון",
+        "order": 1
+      },
+      {
+        "file": "furniture-cat-bedroom.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "מיטה עם מצעי פשתן, כרית ירוק זית ומנורת לילה קרמית",
+        "collection": "bedroom",
+        "order": 1
+      },
+      {
+        "file": "furniture-cat-dining.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שולחן אוכל עגול מעץ אלון עם ארבעה כיסאות מרופדים",
+        "collection": "dining",
+        "order": 2
+      },
+      {
+        "file": "furniture-cat-lighting.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "מנורת רצפה ומנורת שולחן דלוקות בפינת סלון בערב",
+        "collection": "lighting",
+        "order": 3
+      },
+      {
+        "file": "furniture-cat-living-room.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "ספה וכורסה מבד בהיר עם שמיכה בירוק זית",
+        "collection": "living-room",
+        "order": 4
+      },
+      {
+        "file": "furniture-cat-office.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "פינת עבודה עם שולחן כתיבה מעץ אלון וכיסא מרופד",
+        "collection": "office",
+        "order": 5
+      },
+      {
+        "file": "furniture-gallery-1.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "כורסה מעוגלת מבד בהיר עם שמיכה בירוק זית ליד החלון",
+        "order": 1
+      },
+      {
+        "file": "furniture-gallery-2.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "מדפי עץ אלון עם אגרטלים וקערות קרמיקה",
+        "order": 2
+      },
+      {
+        "file": "furniture-gallery-3.webp",
+        "slot": "gallery",
+        "width": 753,
+        "height": 941,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "אגרטל קרמיקה, בד פשתן וענף זית בתקריב",
+        "order": 3
+      }
+    ]
+  },
+  "general": {
+    "kit": "general",
+    "version": 1,
+    "images": [
+      {
+        "file": "general-hero-wide.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 940,
+        "focal": {
+          "x": 0.25,
+          "y": 0.6
+        },
+        "alt": "מטבח מודרני עם אי אבן אפור וקערה כחולה מלאה לימונים",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 1
+      },
+      {
+        "file": "general-hero-wide-2.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.25,
+          "y": 0.65
+        },
+        "alt": "ספסל עץ כחול על בסיסי בטון בחצר עם לבנדר ועשבים גבוהים",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 2
+      },
+      {
+        "file": "general-hero-vertical.webp",
+        "slot": "hero",
+        "width": 1024,
+        "height": 1536,
+        "focal": {
+          "x": 0.55,
+          "y": 0.6
+        },
+        "alt": "מיטה עם מצעי פשתן אפורים ושמיכה כחולה ליד חלון",
+        "variant": "vertical",
+        "order": 1
+      },
+      {
+        "file": "general-image-text.webp",
+        "slot": "imageText",
+        "width": 1255,
+        "height": 941,
+        "focal": {
+          "x": 0.45,
+          "y": 0.45
+        },
+        "alt": "מתלה בגדים שחור עם חולצות ומעילים בכחול, אפור ולבן",
+        "order": 1
+      },
+      {
+        "file": "general-cat-new.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "בקבוק מים כחול, כוס זכוכית, מברשת, סבון ומגבות מסודרים על רקע אפור",
+        "collection": "new",
+        "order": 1
+      },
+      {
+        "file": "general-cat-sale.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.45,
+          "y": 0.5
+        },
+        "alt": "ערימת סוודרים סרוגים בכחול, אפור ושמנת",
+        "collection": "sale",
+        "order": 2
+      },
+      {
+        "file": "general-gallery-1.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.55
+        },
+        "alt": "מים נמזגים מקנקן זכוכית לכוס כחולה",
+        "order": 1
+      },
+      {
+        "file": "general-gallery-2.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.4,
+          "y": 0.5
+        },
+        "alt": "שרך ירוק בעציץ קרמיקה כחול על בסיס בטון",
+        "order": 2
+      },
+      {
+        "file": "general-gallery-3.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.55,
+          "y": 0.6
+        },
+        "alt": "אופניים כחולים עם סל קש נשענים על קיר אבן",
+        "order": 3
+      }
+    ]
+  },
+  "retail": {
+    "kit": "retail",
+    "version": 1,
+    "images": [
+      {
+        "file": "retail-hero-wide.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.25,
+          "y": 0.45
+        },
+        "alt": "מדפי חנות עם קרמיקה ונרות מול קיר כתום שרוף באור שמש חם",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 1
+      },
+      {
+        "file": "retail-hero-wide-2.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.28,
+          "y": 0.6
+        },
+        "alt": "שקיות קנייה בכתום ובשחור וקופסאות מתנה על משטח אבן",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 2
+      },
+      {
+        "file": "retail-hero-vertical.webp",
+        "slot": "hero",
+        "width": 1024,
+        "height": 1536,
+        "focal": {
+          "x": 0.45,
+          "y": 0.5
+        },
+        "alt": "מעבר בחנות עיצוב עם מדפים שחורים וקיר כתום",
+        "variant": "vertical",
+        "order": 1
+      },
+      {
+        "file": "retail-image-text.webp",
+        "slot": "imageText",
+        "width": 1255,
+        "height": 941,
+        "focal": {
+          "x": 0.45,
+          "y": 0.6
+        },
+        "alt": "מתנה עטופה ושקית קנייה שחורה על דלפק קופה מעץ",
+        "order": 1
+      },
+      {
+        "file": "retail-cat-new.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "קופסאות מתנה חדשות בכתום ובשחור על במות לבנות",
+        "collection": "new",
+        "order": 1
+      },
+      {
+        "file": "retail-cat-sale.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "ערימת שקיות קנייה בכתום ובשחור על כורסה",
+        "collection": "sale",
+        "order": 2
+      },
+      {
+        "file": "retail-cat-recommended.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.55,
+          "y": 0.5
+        },
+        "alt": "נר דולק בכלי קרמיקה שחור על בסיס אבן",
+        "collection": "recommended",
+        "order": 3
+      },
+      {
+        "file": "retail-gallery-1.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.55,
+          "y": 0.45
+        },
+        "alt": "ידיים עוטפות מתנה בנייר כתום וחוט פשתן",
+        "order": 1
+      },
+      {
+        "file": "retail-gallery-2.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "מדף מתכת עם ספלים, כדים ונרות בכתום, שחור ושמנת",
+        "order": 2
+      },
+      {
+        "file": "retail-gallery-3.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.45,
+          "y": 0.5
+        },
+        "alt": "אישה מחזיקה שקיות קנייה בכניסה לחנות מוארת",
+        "order": 3
+      }
+    ]
+  },
+  "services": {
+    "kit": "services",
+    "version": 2,
+    "images": [
+      {
+        "file": "services-hero-wide.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.25,
+          "y": 0.55
+        },
+        "alt": "פינת ישיבה עם כורסאות קטיפה כחולות ושולחן עגול ליד חלון מואר",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 1
+      },
+      {
+        "file": "services-hero-wide-2.webp",
+        "slot": "hero",
+        "width": 1672,
+        "height": 941,
+        "focal": {
+          "x": 0.28,
+          "y": 0.6
+        },
+        "alt": "שולחן עבודה מעץ אלון עם מחשב נייד ומחברת כחולה במשרד מואר",
+        "variant": "wide",
+        "textSafe": "start",
+        "order": 2
+      },
+      {
+        "file": "services-hero-vertical.webp",
+        "slot": "hero",
+        "width": 1024,
+        "height": 1536,
+        "focal": {
+          "x": 0.6,
+          "y": 0.5
+        },
+        "alt": "דלפק קבלה מעץ על רקע קיר כחול כהה וצמחייה ירוקה",
+        "variant": "vertical",
+        "order": 1
+      },
+      {
+        "file": "services-image-text.webp",
+        "slot": "imageText",
+        "width": 1255,
+        "height": 941,
+        "focal": {
+          "x": 0.45,
+          "y": 0.6
+        },
+        "alt": "מחברת פתוחה, עט ומחשב נייד על שולחן עץ באור בוקר",
+        "order": 1
+      },
+      {
+        "file": "services-cat-packages.webp",
+        "slot": "collection",
+        "width": 1080,
+        "height": 1080,
+        "focal": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "alt": "שלוש מחברות בצבעים שונים לצד ספלי קפה על שולחן ישיבות עגול",
+        "collection": "packages",
+        "order": 1
+      },
+      {
+        "file": "services-gallery-1.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.6
+        },
+        "alt": "ספל קפה ומחברת כחולה על אדן חלון עם נוף עירוני",
+        "order": 1
+      },
+      {
+        "file": "services-gallery-2.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.55,
+          "y": 0.4
+        },
+        "alt": "איש מקצוע מביט מחלון משרד אל נוף העיר",
+        "order": 2
+      },
+      {
+        "file": "services-gallery-3.webp",
+        "slot": "gallery",
+        "width": 1024,
+        "height": 1280,
+        "focal": {
+          "x": 0.5,
+          "y": 0.48
+        },
+        "alt": "לחיצת ידיים מעל שולחן עץ במשרד מואר",
+        "order": 3
+      }
+    ]
+  }
+}

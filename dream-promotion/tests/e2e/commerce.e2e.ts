@@ -929,6 +929,19 @@ async function main() {
       await until(() => draft()!.settings.sections.findIndex((x: any) => x.id === 'faq-2') === draft()!.settings.sections.findIndex((x: any) => x.id === 'hero') + 1);
       const faq = draft()!.settings.sections.find((x: any) => x.id === 'faq-2');
       assert.ok(faq.settings.items.length > 0 && faq.settings.title, 'with words to start from (the kit\'s, or the library\'s)');
+      // 2.71 (the spec's 39–40): the footer's look in its own panel; the product card in a products section
+      await st.getByRole('button', { name: 'סגירה' }).first().click();
+      await st.getByRole('button', { name: 'עיצוב התחתית' }).locator('visible=true').click();
+      await st.getByRole('heading', { name: 'תחתית האתר' }).waitFor();
+      await st.getByRole('button', { name: 'עריכת הקישורים בתחתית' }).waitFor();
+      await st.getByLabel('תחתית האתר').selectOption('dark');
+      await until(() => draft()!.settings.chrome?.footer === 'dark');
+      await st.getByRole('button', { name: 'סגירה' }).first().click();
+      await st.getByRole('button', { name: /^מוצרים נבחרים/ }).locator('visible=true').first().click();
+      await st.getByLabel('כרטיס מוצר').selectOption('compact');
+      await until(() => draft()!.settings.commerce?.productCard === 'compact');
+      const styled = (await frame.locator('body').evaluate(() => (window as any).got as any[])).filter((m: any) => m.type === 'style').at(-1);
+      assert.match(styled.classes, /\bv-pc-compact\b/, 'the page is told at once');
       await noSideScroll(st, 'the free section\'s panel on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9c-blocks-phone.png'), fullPage: true });
     });
