@@ -59,11 +59,10 @@ export function KitGallery({ bundle, onApplied, onClose }: { bundle: StoreBundle
       <ul className="grid gap-3 sm:grid-cols-2">
         {KITS.map((k) => (
           <li key={k.id} className={cx('flex flex-col rounded-lg border p-3', k.id === current?.id ? 'border-primary' : 'border-line')}>
-            <div className="mb-2 flex h-12 overflow-hidden rounded-md border border-line" aria-hidden="true">
-              {(['background', 'accentSoft', 'accent', 'primary'] as const).map((c) => (
-                <span key={c} className="flex-1" style={{ background: k.theme.colors[c] }} />
-              ))}
-            </div>
+            {/* 2.66: a picture of the kit from the storefront's real renderer (storefront `npm run kit-shots`), on a store with no product */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/kit-previews/${k.id}.jpg`} alt={`האתר בערכת "${k.name}"`} width={640} height={430} loading="lazy"
+              className="mb-2 aspect-[640/430] w-full rounded-md border border-line object-cover object-top" />
             <span className="flex flex-wrap items-center gap-2 font-semibold">
               {k.name}
               {k.id === current?.id && <Pill tone="ok">הערכה הנוכחית</Pill>}

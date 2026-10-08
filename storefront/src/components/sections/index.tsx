@@ -44,7 +44,8 @@ function Button({ label, href, store, kind = 'primary' }: { label: string; href:
 function Hero({ s, site, first, variant }: { s: S; site: Live; first: boolean; variant: string }) {
   const img = safeImage(s.image);
   const hero = img ? null : kitHero(kitOf(site));
-  const kit = hero?.wide ?? null;
+  // the kit's second wide picture when the owner chose it (kitImage 2), else its first
+  const kit = (s.kitImage === 2 ? hero?.second : null) ?? hero?.wide ?? null;
   const e = Boolean(site.edit);
   const Title = first ? 'h1' : 'h2';
   const v = img || kit ? variant || 'split' : 'split';

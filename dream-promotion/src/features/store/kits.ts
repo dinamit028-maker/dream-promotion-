@@ -216,7 +216,7 @@ export const kitById = (id: string, kits: Kit[] = KITS) => kits.find((k) => k.id
  * (tests/store-kits.test.ts checks the storefront's manifests).
  */
 export const kitPictureShown = (kit: string, type: SectionType, key: string, kits: Kit[] = KITS) =>
-  key === 'image' && (type === 'hero' || type === 'imageText') && kitById(kit, kits) !== null;
+  ((key === 'image' && (type === 'hero' || type === 'imageText')) || (key === 'kitImage' && type === 'hero')) && kitById(kit, kits) !== null;
 
 /**
  * The kit for a field of business: the business's industry (free text, from its profile) against each kit's keywords —

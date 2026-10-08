@@ -7,9 +7,9 @@ import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
 import { loadCatalog } from '@/features/catalog/data';
 import { previewLink, publishVersion, saveDraft, type StoreBundle } from './data';
-import { draftErrors, draftOf, SECTION_DEFS, settingsOf, type Draft, type SectionType } from './theme-fields';
+import { DEVICES, draftErrors, draftOf, SECTION_DEFS, settingsOf, type Device, type Draft, type SectionType } from './theme-fields';
 import type { ThemeVersion } from './store';
-import { SectionLayout } from './StoreVariants';
+import { GlobalDesign, liveClasses, SectionLayout } from './StoreVariants';
 import { kitPictureShown } from './kits';
 import { FieldInput, ListInput } from './StoreDesign';
 import { Notice, TextRow } from './ui';
@@ -54,7 +54,7 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
   const [linkError, setLinkError] = useState('');
   const [path, setPath] = useState('/');
   const [frameRev, setFrameRev] = useState(0);
-  const [device, setDevice] = useState<'phone' | 'desktop'>('phone');
+  const [device, setDevice] = useState<Device>('base');
   const frame = useRef<HTMLIFrameElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rerenderAfter = useRef(false);
@@ -111,6 +111,17 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
     const before = latest.current;   // read now: the updater runs later, after apply() has moved latest on
     setHist((h) => record(h, before, key));
     apply(next, live);
+  };
+  /**
+   * "עיצוב כללי" (2.66): colours, corners, font and the design choices show on the page at once — the variables and the
+   * classes through the page's own checks (EditBridge "style"); a header / footer / card / product page that is drawn
+   * differently comes back from the server after the save.
+   */
+  const changeGlobal = (next: Draft) => {
+    const shape = (cls: string) => cls.split(' ').filter((c) => /^v-(h|f|pc|cc|pp)-/.test(c)).join(' ');
+    const classes = liveClasses(next);
+    change(next, shape(classes) === shape(liveClasses(latest.current)) ? 'none' : 'rerender');
+    post({ type: 'style', colors: next.colors, font: next.font, radius: next.radius, classes });
   };
   const undo = () => { const r = undoStep(hist, latest.current); if (r) { setHist(r.history); apply(r.value, 'rerender'); } };
   const redo = () => { const r = redoStep(hist, latest.current); if (r) { setHist(r.history); apply(r.value, 'rerender'); } };
@@ -218,11 +229,24 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
             }}>מחיקה</Button>}
           </div>
           {section.hidden && <Notice tone="info">החלק מוסתר — הוא לא מופיע באתר.</Notice>}
+          {!section.hidden && (
+            <fieldset className="flex flex-wrap items-center gap-2">
+              <legend className="mb-1 text-sm font-semibold text-ink-2">להציג ב:</legend>
+              {DEVICES.map((dv) => {
+                const off = section.hiddenOn?.includes(dv.id) ?? false;
+                return <Button key={dv.id} size="sm" variant={off ? 'ghost' : 'soft'} aria-pressed={!off} onClick={() => {
+                  const next = off ? (section.hiddenOn ?? []).filter((x) => x !== dv.id) : DEVICES.map((x) => x.id).filter((x) => x === dv.id || section.hiddenOn?.includes(x));
+                  if (next.length === DEVICES.length) { setMsg({ tone: 'warn', text: 'כדי להסתיר בכל המסכים — "להסתיר".' }); return; }
+                  setSection({ hiddenOn: next.length ? next : undefined });
+                }}>{off ? `✕ ${dv.label}` : `✓ ${dv.label}`}</Button>;
+              })}
+            </fieldset>
+          )}
           {SECTION_DEFS[section.type].soon && <Notice tone="info">{SECTION_DEFS[section.type].soon}</Notice>}
           <SectionLayout d={d} section={section} change={change} />
           {SECTION_DEFS[section.type].fields.map((f) => (
             <div key={f.key} className={cx(sel && 'field' in sel && sel.field === f.key && 'rounded-md ring-2 ring-primary/50')} ref={(el) => { if (el && sel && 'field' in sel && sel.field === f.key) el.scrollIntoView({ block: 'nearest' }); }}>
-              <FieldInput f={f} value={section.settings[f.key]} collections={bundle.collections} kitPicture={kitPictureShown(d.kit, section.type, f.key)}
+              <FieldInput f={f} value={section.settings[f.key]} collections={bundle.collections} kitPicture={kitPictureShown(d.kit, section.type, f.key) && !(f.kind === 'kitpick' && section.settings.image)}
                 onChange={(v) => setSection({ settings: { ...section.settings, [f.key]: v } }, 'rerender', `field:${section.id}:${f.key}`)} />
             </div>
           ))}
@@ -237,6 +261,10 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
             if (id) change(next, next.sections.find((x) => x.id === id)?.hidden ? 'none' : { move: id });
           }} />
           {grow && <AddSection onAdd={(type) => { const r = addSection(d, type); if (r) { change(r.draft); choose(r.id); } }} />}
+          <details className="rounded-md border border-line p-2">
+            <summary className="cursor-pointer text-sm font-semibold">עיצוב כללי — צבעים, גופן, ראש ותחתית, ריווח וכפתורים</summary>
+            <div className="mt-3"><GlobalDesign d={d} change={changeGlobal} /></div>
+          </details>
           <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2" onClick={() => setSel({ announcement: true })}>הודעה בראש האתר</button>
         </>
       )}
@@ -257,8 +285,7 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
           <Button size="sm" variant="ghost" disabled={!hist.future.length} onClick={redo} aria-label="חזרה על הפעולה (Ctrl+Shift+Z)" title="Ctrl+Shift+Z">↷ חזרה</Button>
         </span>
         <span className="ms-auto flex gap-1" role="group" aria-label="גודל המסך">
-          <Button size="sm" variant={device === 'phone' ? 'primary' : 'ghost'} aria-pressed={device === 'phone'} onClick={() => setDevice('phone')}>טלפון</Button>
-          <Button size="sm" variant={device === 'desktop' ? 'primary' : 'ghost'} aria-pressed={device === 'desktop'} onClick={() => setDevice('desktop')}>מחשב</Button>
+          {DEVICES.map((dv) => <Button key={dv.id} size="sm" variant={device === dv.id ? 'primary' : 'ghost'} aria-pressed={device === dv.id} onClick={() => setDevice(dv.id)}>{dv.label}</Button>)}
         </span>
         {path !== '/' && <Button size="sm" variant="ghost" onClick={() => { setPath('/'); setSel(null); setFrameRev((n) => n + 1); }}>לדף הבית</Button>}
       </div>
@@ -267,7 +294,7 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
           {link ? (
             <iframe key={`${frameRev}-${link.token}`} ref={frame} title="האתר — לחיצה על חלק פותחת את העריכה שלו"
               src={editFrameUrl(link.base, path, link.token)}
-              className={cx('h-[calc(100dvh-14rem)] min-h-[32rem] bg-white', device === 'phone' ? 'w-[390px] max-w-full' : 'w-full')} />
+              className={cx('h-[calc(100dvh-14rem)] min-h-[32rem] max-w-full bg-white', { base: 'w-[390px]', md: 'w-[820px]', lg: 'w-full' }[device])} />
           ) : !linkError && <p className="flex items-center gap-2 p-6 text-muted"><Spinner /> טוען את האתר…</p>}
         </div>
         {/* the panel: beside the site on a wide screen; a bottom sheet on a phone, when something is chosen */}

@@ -561,6 +561,51 @@ async function main() {
       await ctx.close();
     });
 
+    await step('devices and live design (2.66): "style" at once (checked by the page); a section hidden on a phone; the kit\'s second hero picture', async () => {
+      const DRAFT = 'aaaaaaaa-0000-4000-8000-000000000142';
+      const was = psql(`select template || '|' || settings::text from public.store_theme_versions where id = '${DRAFT}'`);
+      const kit = JSON.parse(readFileSync(path.resolve(ROOT, '../dream-promotion/kits/fashion.json'), 'utf8'));
+      const { design: _d, chrome: _c, commerceDesign: _m, ...theme } = kit.theme;
+      const settings = JSON.parse(JSON.stringify({ kit: 'fashion', ...theme }).split('{{name}}').join('FollowMe'));
+      settings.sections = settings.sections.map(({ variant: _v, ...x }: any) => (x.id === 'hero' ? { ...x, settings: { ...x.settings, kitImage: 2 } }
+        : x.id === 'story' ? { ...x, hiddenOn: ['base'] } : x));
+      psql(`update public.store_theme_versions set template = 'kit', settings = '${JSON.stringify(settings).replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      try {
+        const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        assert.equal(await page.locator('.hero-media img').first().getAttribute('src'), '/kit-images/fashion/fashion-hero-wide-2.webp', 'the kit\'s second wide picture');
+        assert.equal(await page.locator('#story').isVisible(), false, 'hidden on a phone');
+        await ctx.close();
+        const desk = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+        const dp = await desk.newPage();
+        await dp.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        assert.equal(await dp.locator('#story').isVisible(), true, 'shown on a computer');
+        await desk.close();
+        // the visual editor: "style" — the variables and the classes at once, and only valid ones
+        const edit = await phone(800);
+        await edit.page.goto(`http://127.0.0.1:${DASH_PORT}/frame?src=${encodeURIComponent(url('followme.test', `/?edit=${encodeURIComponent(token)}`))}`);
+        const frame = edit.page.frameLocator('#f');
+        await frame.locator('[data-edit-section="hero"]').waitFor();
+        await edit.page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'ready'));
+        const post = (m: unknown) => edit.page.evaluate((msg: unknown) => (document.getElementById('f') as HTMLIFrameElement).contentWindow!.postMessage(msg, '*'), m);
+        const colors = { background: '#ffffff', surface: '#ffffff', text: '#111111', muted: '#5c5c5c', primary: '#0a3d62', accent: '#b0413e', accentSoft: '#f6eeee', border: '#e6e6e6' };
+        const classes = 'v-sp-compact v-hs-normal v-btn-solid v-ct-normal v-card-border v-h-compact v-f-dark v-pc-classic v-cc-grid v-pp-classic';
+        await post({ type: 'style', colors, font: 'rubik', radius: 'none', classes });
+        await frame.locator('body.v-h-compact.v-f-dark').waitFor();
+        const vars = await frame.locator('html').evaluate((h: Element) => [getComputedStyle(h).getPropertyValue('--c-primary').trim(), getComputedStyle(h).getPropertyValue('--radius').trim()]);
+        assert.deepEqual(vars, ['#0a3d62', '0'], 'the colour and the corners at once');
+        await post({ type: 'style', colors: { ...colors, primary: 'red;}' }, font: 'rubik', radius: 'none', classes: 'evil v-h-<x>' });
+        await edit.page.waitForTimeout(300);
+        assert.equal(await frame.locator('html').evaluate((h: Element) => getComputedStyle(h).getPropertyValue('--c-primary').trim()), '#0a3d62', 'a bad value is not taken');
+        assert.ok(!((await frame.locator('body').getAttribute('class')) ?? '').includes('evil'));
+        await edit.ctx.close();
+      } finally {
+        const [tpl, ...rest] = was.split('|');
+        psql(`update public.store_theme_versions set template = '${tpl}', settings = '${rest.join('|').replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      }
+    });
+
     await step('the owner previews the draft theme of a store on the air; the shoppers keep the published one', async () => {
       const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
       const { ctx, page } = await phone();
@@ -696,6 +741,39 @@ async function main() {
       assert.match(shopper.body, /class="v-sp-normal v-hs-normal v-btn-solid v-ct-normal v-card-border v-h-classic/);
       assert.ok(!/שום דבר לא נשמר/.test(shopper.body));
       assert.equal(snapshot(), before, 'the database is exactly as it was');
+    });
+
+    // the kits' gallery pictures (2.66, `npm run kit-shots`): each kit in full, on a store named "החנות שלכם" with no product —
+    // the real renderer, the kit's own pictures, where products will be — saved small for the dashboard's gallery
+    if (process.env.KIT_SHOTS) await step('the kits\' gallery pictures, from the real renderer', async () => {
+      const name = psql(`select name from public.stores where id = '${DRAFT_STORE}'`);
+      const menus = psql(`select coalesce(json_agg(json_build_object('kind', kind, 'items', items)), '[]') from public.store_menus where store_id = '${DRAFT_STORE}'`);
+      const setMenus = (rows: { kind: string; items: unknown }[]) => psql(`delete from public.store_menus where store_id = '${DRAFT_STORE}';`
+        + rows.map((m) => `insert into public.store_menus (store_id, kind, items) values ('${DRAFT_STORE}', '${m.kind}', '${JSON.stringify(m.items).replace(/'/g, "''")}');`).join(''));
+      const out = path.resolve(ROOT, '../dream-promotion/public/kit-previews');
+      mkdirSync(out, { recursive: true });
+      psql(`update public.stores set name = 'החנות שלכם' where id = '${DRAFT_STORE}'`);
+      try {
+        const token = makePreviewToken(DRAFT_STORE, SECRET, Date.now() / 1000 + 3600);
+        const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 0.5, locale: 'he-IL' });
+        const page = await ctx.newPage();
+        await page.goto(url('draft.test', `/?preview=${encodeURIComponent(token)}`));
+        for (const kit of ['bags', 'beauty', 'fashion', 'furniture', 'general', 'retail', 'services']) {
+          // the kit's own menus (a booking link → the contact page, as a kit applied with no booking page)
+          const k = JSON.parse(readFileSync(path.resolve(ROOT, `../dream-promotion/kits/${kit}.json`), 'utf8'));
+          const fix = (items: { label: string; href: string }[]) => items.map((l) => ({ ...l, href: l.href === 'booking' ? '/pages/contact' : l.href }));
+          setMenus([{ kind: 'main', items: fix(k.menus.main) }, { kind: 'footer', items: fix(k.menus.footer) }]);
+          await page.goto(url('draft.test', `/?kit=${kit}&kitmode=full`));
+          await page.locator('.preview-bar').waitFor();
+          await page.evaluate(() => document.querySelector('.preview-bar')?.remove());   // the picture is of the site, not of the preview
+          await page.waitForFunction(() => Array.from(document.images).filter((i) => i.loading !== 'lazy').every((i) => i.complete));
+          await page.screenshot({ path: path.join(out, `${kit}.jpg`), type: 'jpeg', quality: 72 });
+        }
+        await ctx.close();
+      } finally {
+        psql(`update public.stores set name = '${name.replace(/'/g, "''")}' where id = '${DRAFT_STORE}'`);
+        setMenus(JSON.parse(menus));
+      }
     });
 
     await step('a domain is "active" in the dashboard only after the storefront served it', async () => {

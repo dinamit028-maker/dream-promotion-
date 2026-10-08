@@ -76,3 +76,12 @@ import { existsSync, readFileSync } from 'node:fs';
 test('the preview link carries the kit and the mode next to the token', () => {
   assert.equal(withKit('https://shop.example/?preview=abc.def', { id: 'beauty', mode: 'full' }), 'https://shop.example/?preview=abc.def&kit=beauty&kitmode=full');
 });
+
+test('every kit has its picture for the gallery — from the real renderer (storefront `npm run kit-shots`)', () => {
+  for (const id of ['bags', 'beauty', 'fashion', 'furniture', 'general', 'retail', 'services']) {
+    const file = fileURLToPath(new URL(`../public/kit-previews/${id}.jpg`, import.meta.url));
+    assert.ok(existsSync(file), `${id}: public/kit-previews/${id}.jpg`);
+    const head = readFileSync(file).subarray(0, 3);
+    assert.deepEqual([...head], [0xff, 0xd8, 0xff], `${id}: a JPEG`);
+  }
+});

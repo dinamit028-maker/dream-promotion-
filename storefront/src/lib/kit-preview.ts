@@ -41,6 +41,6 @@ export function previewTheme(template: string, saved: unknown, choice: KitChoice
   return resolveTheme('kit', {
     kit: choice.kit, colors: kit.colors, font: kit.font, art: kit.art, radius: kit.radius,
     announcement: own.announcement, product: own.product,
-    sections: own.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings })),
+    sections: own.sections.map((s) => ({ id: s.id, type: s.type, hidden: s.hidden, settings: s.settings, ...(s.hiddenOn ? { hiddenOn: s.hiddenOn } : {}) })),
   });
 }
