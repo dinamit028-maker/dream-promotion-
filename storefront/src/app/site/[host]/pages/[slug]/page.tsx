@@ -2,13 +2,13 @@ import { cache } from 'react';
 import { editLink } from '@/lib/edit';
 import type { Metadata } from 'next';
 import { RichText } from '@/components/ui';
-import { data } from '@/lib/data';
+import { shared } from '@/lib/shared-cache';
 import { excerpt } from '@/lib/format';
 import { og } from '@/lib/seo';
 import { decodeSlug, getSite, hostOf, liveSite, movedOr404 } from '@/lib/site';
 
 type Props = { params: Promise<{ host: string; slug: string }> };
-const page = cache((store: string, slug: string, preview: boolean) => data.page(store, 'page', slug, preview));
+const page = cache((store: string, slug: string, preview: boolean) => shared.page(store, 'page', slug, preview));
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { host, slug } = await params;

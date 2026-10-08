@@ -18,3 +18,13 @@ export function previewUrl(base: string, token: string): string {
   u.searchParams.set('preview', token);
   return u.toString();
 }
+
+/**
+ * 2.74: "drop what the storefront keeps of this store" — the same secret, another purpose (the signature covers
+ * "revalidate.<store>.<expiry>": never a preview). The storefront's copy: storefront/src/lib/preview.ts (one shared vector).
+ */
+export const REVALIDATE_SECONDS = 60;
+export function makeRevalidateToken(storeId: string, secret: string, expires: number): string {
+  const body = `${storeId}.${Math.floor(expires)}`;
+  return `${body}.${createHmac('sha256', secret).update(`revalidate.${body}`).digest('base64url')}`;
+}

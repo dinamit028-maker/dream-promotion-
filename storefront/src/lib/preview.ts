@@ -48,3 +48,26 @@ export function dashboardOrigin(url: string | undefined): string | null {
   } catch { /* not a URL */ }
   return null;
 }
+
+/**
+ * 2.74: "drop what is kept of this store" (shared-cache.ts) — the dashboard asks after a change the shoppers see. The same
+ * secret as a preview, another purpose: the signature covers "revalidate.<store>.<expiry>", so a preview token never
+ * passes here and this token never opens a preview. At most five minutes.
+ */
+export const REVALIDATE_MAX_SECONDS = 5 * 60;
+export function makeRevalidateToken(storeId: string, secret: string, expires: number): string {
+  const body = `${storeId}.${Math.floor(expires)}`;
+  return `${body}.${sign(secret, `revalidate.${body}`)}`;
+}
+export function verifyRevalidateToken(token: string | null | undefined, secret: string | undefined, now: number = Date.now() / 1000): string | null {
+  if (!token || !secret || secret.length < 16 || token.length > 200) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [store, exp, sig] = parts;
+  if (!UUID.test(store) || !/^\d{9,11}$/.test(exp)) return null;
+  const expires = Number(exp);
+  if (expires <= now || expires > now + REVALIDATE_MAX_SECONDS) return null;
+  const want = Buffer.from(sign(secret, `revalidate.${store}.${exp}`));
+  const got = Buffer.from(sig);
+  return want.length === got.length && timingSafeEqual(want, got) ? store : null;
+}

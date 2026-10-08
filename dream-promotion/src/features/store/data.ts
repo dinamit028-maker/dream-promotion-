@@ -86,10 +86,23 @@ export async function openStore(name: string): Promise<Result<StoreRow>> {
 export type StorePatch = Partial<{ name: string; description: string; logo_url: string; phone: string; whatsapp: string; email: string; address: string;
   ga4_id: string; gsc_code: string; show_stock_count: boolean; status: 'draft' | 'published' | 'paused' } & CheckoutPatch & { checkout_enabled: boolean }
   & { slug: string; storefront_password: string; password_lock: boolean }>;
+/**
+ * 2.74: after a change the shoppers see, the storefront drops what it keeps of this store (its shared cache, at most five
+ * minutes) — one request, shortly after the last of several writes (/api/store/revalidate signs it on the server). A request
+ * that fails changes nothing here: the site shows the change within those minutes anyway.
+ */
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+export function refreshSite(): void {
+  if (typeof window === 'undefined') return;
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { refreshTimer = null; void api('/api/store/revalidate', {}); }, 400);
+}
+const refreshed = <const R extends { ok: boolean }>(r: R): R => { if (r.ok) refreshSite(); return r; };
+
 export async function updateStore(id: string, patch: StorePatch): Promise<Result<StoreRow> & { missing?: Missing[] }> {
   const { data, error } = await supabase().from('stores').update(patch).eq('id', id).select('*').single();
   if (error) return { ...fail(error, 'לא נשמר — נסו שוב.'), missing: missingFromError(String(error.message ?? '')) };
-  return { ok: true, data: toStore(data) };
+  return refreshed({ ok: true, data: toStore(data) });
 }
 
 export async function checklist(id: string): Promise<Result<{ ready: boolean; missing: Missing[] }>> {
@@ -110,7 +123,7 @@ export async function saveDraft(storeId: string, template: string, settings: Rec
 }
 export async function publishVersion(id: string): Promise<Result<true>> {
   const { error } = await supabase().rpc('store_publish_theme', { p_version: id });
-  return error ? fail(error, 'הפרסום נכשל — נסו שוב.') : { ok: true, data: true };
+  return error ? fail(error, 'הפרסום נכשל — נסו שוב.') : refreshed({ ok: true, data: true });
 }
 
 // ---- pages, menus, collections -------------------------------------------------------------------------------------------
@@ -119,16 +132,16 @@ export async function savePage(storeId: string, id: string | null, row: PageInpu
   const sb = supabase();
   const q = id ? sb.from('store_pages').update(row).eq('id', id).select('*').single() : sb.from('store_pages').insert({ ...row, store_id: storeId }).select('*').single();
   const { data, error } = await q;
-  return error || !data ? fail(error, 'העמוד לא נשמר — נסו שוב.') : { ok: true, data: toPage(data) };
+  return error || !data ? fail(error, 'העמוד לא נשמר — נסו שוב.') : refreshed({ ok: true, data: toPage(data) });
 }
 export async function deletePage(id: string): Promise<Result<true>> {
   const { error } = await supabase().from('store_pages').delete().eq('id', id);
-  return error ? fail(error, 'העמוד לא נמחק — נסו שוב.') : { ok: true, data: true };
+  return error ? fail(error, 'העמוד לא נמחק — נסו שוב.') : refreshed({ ok: true, data: true });
 }
 
 export async function saveMenu(storeId: string, kind: 'main' | 'footer', items: MenuLink[]): Promise<Result<true>> {
   const { error } = await supabase().from('store_menus').upsert({ store_id: storeId, kind, items }, { onConflict: 'store_id,kind' });
-  return error ? fail(error, 'התפריט לא נשמר — נסו שוב.') : { ok: true, data: true };
+  return error ? fail(error, 'התפריט לא נשמר — נסו שוב.') : refreshed({ ok: true, data: true });
 }
 
 export type CollectionInput = { title: string; slug: string; description: string; image_url: string; kind: 'manual' | 'auto'; rules: { tags?: string[] };
@@ -152,7 +165,7 @@ export async function saveCollection(id: string | null, row: CollectionInput, it
     const ins = await sb.from('catalog_collection_items').insert(items.map((item_id, i) => ({ collection_id: cid, item_id, position: i })));
     if (ins.error) return fail(ins.error, 'רשימת המוצרים לא נשמרה — נסו שוב.');
   }
-  return { ok: true, data: toCollection(data, row.kind === 'manual' ? items.map((item_id, i) => ({ collection_id: cid, item_id, position: i })) : []) };
+  return refreshed({ ok: true, data: toCollection(data, row.kind === 'manual' ? items.map((item_id, i) => ({ collection_id: cid, item_id, position: i })) : []) });
 }
 /** the order of the collections on the site: 0…n-1 as on the screen (only the rows that moved are written) */
 export async function orderCollections(list: { id: string; position: number }[]): Promise<Result<true>> {
@@ -160,11 +173,11 @@ export async function orderCollections(list: { id: string; position: number }[])
   const moved = list.map((c, k) => ({ id: c.id, was: c.position, k })).filter((c) => c.was !== c.k);
   const results = await Promise.all(moved.map((c) => sb.from('catalog_collections').update({ position: c.k }).eq('id', c.id)));
   const bad = results.find((r) => r.error);
-  return bad ? fail(bad.error, 'הסדר לא נשמר — נסו שוב.') : { ok: true, data: true };
+  return bad ? fail(bad.error, 'הסדר לא נשמר — נסו שוב.') : refreshed({ ok: true, data: true });
 }
 export async function deleteCollection(id: string): Promise<Result<true>> {
   const { error } = await supabase().from('catalog_collections').delete().eq('id', id);
-  return error ? fail(error, 'הקולקציה לא נמחקה — נסו שוב.') : { ok: true, data: true };
+  return error ? fail(error, 'הקולקציה לא נמחקה — נסו שוב.') : refreshed({ ok: true, data: true });
 }
 
 // ---- starter kits (2.58) -------------------------------------------------------------------------------------------------------
@@ -188,7 +201,7 @@ export async function applyKit(storeId: string, plan: KitPlan, choices: KitChoic
   const blocked = planBlocked(plan, choices);
   if (blocked) return { ok: false, error: blocked };
   const { data, error } = await supabase().rpc('store_apply_kit', { p_store: storeId, p_plan: kitPayload(plan, choices) });
-  if (!error) return { ok: true, data: data as KitApplied };
+  if (!error) return refreshed({ ok: true as const, data: data as KitApplied });
   if (applyKitMissing(error)) return applyKitSteps(storeId, plan, choices);
   return { ok: false, error: applyKitError(error) };
 }
@@ -236,7 +249,7 @@ async function applyKitSteps(storeId: string, plan: KitPlan, choices: KitChoices
     if (!r.ok) return stop(`העיצוב: ${r.error}`);
     done.published = true;
   }
-  return { ok: true, data: done };
+  return refreshed({ ok: true as const, data: done });
 }
 
 // ---- the server: domains, a preview link, store pictures ------------------------------------------------------------------

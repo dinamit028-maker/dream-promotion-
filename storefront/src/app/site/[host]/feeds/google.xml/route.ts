@@ -1,4 +1,5 @@
 import { data } from '@/lib/data';
+import { shared } from '@/lib/shared-cache';
 import { feedItems, feedXml } from '@/lib/feed';
 import { getSite, hostOf } from '@/lib/site';
 import type { Product } from '@/lib/types';
@@ -17,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ host: s
   if ((await data.rateHit(`feed:${site.storeId}`, 600, 30).catch(() => true)) === false) {
     return new Response('Too many requests', { status: 429, headers: { 'Retry-After': '600' } });
   }
-  const map = await data.sitemap(site.storeId);
+  const map = await shared.sitemap(site.storeId);
   if (!map) return notFound();
   const store = site.store as { name?: string; currency?: string; description?: string };
   const o = { origin: site.origin, currency: store.currency || 'ILS', storeName: store.name ?? '', description: store.description ?? '' };
