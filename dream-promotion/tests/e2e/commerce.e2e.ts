@@ -660,7 +660,10 @@ async function main() {
       await st.evaluate(() => window.postMessage({ type: 'text', section: 'hero', field: 'title', value: 'זיוף' }, '*'));
       await frame.locator('#title').click();
       await st.getByText('נשמר כטיוטה ✓').waitFor();
-      assert.equal(draft()!.settings.sections.find((x: any) => x.id === 'hero').settings.title, 'כותרת שנערכה באתר');
+      // "נשמר כטיוטה ✓" is also the state before any change: wait for the save itself (half a second after the edit)
+      const heroTitle = () => draft()?.settings.sections.find((x: any) => x.id === 'hero')?.settings.title;
+      for (let i = 0; i < 100 && heroTitle() !== 'כותרת שנערכה באתר'; i++) await st.waitForTimeout(100);
+      assert.equal(heroTitle(), 'כותרת שנערכה באתר');
       assert.equal(versions().find((v) => v.status === 'published')!.version, 1, 'the site keeps the published version');
       // a section: its panel; moved down — saved, and the frame shows it again
       const loads = frameLoads.length;
@@ -709,6 +712,11 @@ async function main() {
       assert.equal(fake.tables.store_pages.find((g) => g.slug === 'treatments')?.published, false, 'its pages are drafts');
       assert.equal(fake.tables.catalog_items.length, items, 'no product');
       await st.getByText(/ערכה: ביוטי וקליניקה/).first().waitFor();
+      // 2.62: the hero has no picture of the business — the editor says the kit's picture is on the site, not "אין"
+      await st.goto(`${BASE}/store/design`, { waitUntil: 'domcontentloaded' });
+      // (the hero is the section the editor opens with)
+      await st.getByText('באתר מוצגת עכשיו תמונה של הערכה. תמונה שתעלו תחליף אותה.').waitFor({ timeout: 60_000 });
+      await st.getByText('של הערכה', { exact: true }).waitFor();
       // the menus screen names a link to what is not on the site
       await st.goto(`${BASE}/store/navigation`, { waitUntil: 'domcontentloaded' });
       await st.getByRole('heading', { name: 'תפריטים', exact: true }).waitFor({ timeout: 60_000 });

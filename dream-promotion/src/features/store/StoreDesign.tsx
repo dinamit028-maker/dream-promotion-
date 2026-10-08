@@ -6,7 +6,7 @@ import { Button, PageHead, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
 import { publishVersion, saveDraft, type KitApplied, type StoreBundle } from './data';
-import { kitById, kitSettings, type Kit } from './kits';
+import { kitById, kitPictureShown, kitSettings, type Kit } from './kits';
 import { currentKit, KitGallery, KitReady, useKitContext } from './StoreKits';
 import { contrast, draftErrors, draftOf, FONTS, SECTION_DEFS, settingsOf, TEMPLATES, type Draft, type FieldDef, type Section } from './theme-fields';
 import type { CollectionRow, ThemeVersion } from './store';
@@ -177,7 +177,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
                 {isOpen && (
                   <div className="border-t border-line p-3">
                     {def.soon && <Notice tone="info">{def.soon}</Notice>}
-                    {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections}
+                    {def.fields.map((f) => <FieldInput key={f.key} f={f} value={s.settings[f.key]} collections={collections} kitPicture={kitPictureShown(d.kit, s.type, f.key)}
                       onChange={(v) => setSection(s.id, { settings: { ...s.settings, [f.key]: v } })} />)}
                     {def.list && <ListInput def={def.list} rows={(Array.isArray(s.settings.items) ? s.settings.items : []) as Record<string, unknown>[]}
                       onChange={(rows) => setSection(s.id, { settings: { ...s.settings, items: rows } })} />}
@@ -217,9 +217,9 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
   );
 }
 
-export function FieldInput({ f, value, onChange, collections }: { f: FieldDef; value: unknown; onChange: (v: unknown) => void; collections: CollectionRow[] }) {
+export function FieldInput({ f, value, onChange, collections, kitPicture }: { f: FieldDef; value: unknown; onChange: (v: unknown) => void; collections: CollectionRow[]; kitPicture?: boolean }) {
   const v = typeof value === 'string' ? value : value == null ? '' : String(value);
-  if (f.kind === 'image') return <PicturePicker label={f.label} value={v} onChange={onChange} />;
+  if (f.kind === 'image') return <PicturePicker label={f.label} value={v} onChange={onChange} kitPicture={kitPicture} />;
   if (f.kind === 'longtext') return <AreaRow label={f.label} value={v} onChange={onChange} max={f.max} />;
   if (f.kind === 'number') {
     return (
