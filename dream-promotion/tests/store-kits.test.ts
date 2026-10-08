@@ -12,7 +12,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { KIT_FILES } from '../src/features/store/kits.generated';
 import {
-  BOOKING, canonical, DEFAULT_KIT, hiddenLinks, kitById, kitFor, kitLinkOk, kitMenu, kitSettings, KITS, planBlocked, planKit, validateKit,
+  BOOKING, canonical, DEFAULT_KIT, hiddenLinks, kitById, kitFor, kitLinkOk, kitMenu, kitPictureShown, kitSettings, KITS, planBlocked, planKit, validateKit,
   type Kit, type KitContext, type KitState,
 } from '../src/features/store/kits';
 import { linkOk, menuProblem, pageProblem, policyAckProblem, type PageRow, type ThemeVersion } from '../src/features/store/store';
@@ -188,7 +188,19 @@ test('every kit has its default pictures in the storefront, and each collection 
     assert.equal(m.kit, kit.id);
     const pictured = m.images.filter((i: any) => i.slot === 'collection').map((i: any) => i.collection).sort();
     assert.deepEqual(pictured, kit.collections.map((c) => c.slug).sort(), `${kit.id}: a picture for each collection, and none for a collection the kit does not create`);
+    // the editor says "the kit's picture is on the site" for these two places (kitPictureShown) — so every kit must have them
+    assert.ok(m.images.some((i: any) => i.slot === 'hero' && i.variant === 'wide'), `${kit.id}: a hero picture`);
+    assert.ok(m.images.some((i: any) => i.slot === 'imageText'), `${kit.id}: an image-and-text picture`);
   }
+});
+
+test('the editor names the kit\'s picture only where the storefront shows it (2.62)', () => {
+  assert.equal(kitPictureShown('beauty', 'hero', 'image'), true);
+  assert.equal(kitPictureShown('beauty', 'imageText', 'image'), true);
+  assert.equal(kitPictureShown('beauty', 'gallery', 'image'), false, 'gallery pictures: the owner\'s preview only');
+  assert.equal(kitPictureShown('beauty', 'hero', 'title'), false);
+  assert.equal(kitPictureShown('', 'hero', 'image'), false, 'no kit (FollowMe on the air): "אין" as before');
+  assert.equal(kitPictureShown('nope', 'hero', 'image'), false);
 });
 
 test('the storefront\'s template "kit" is the dashboard\'s copy', async () => {

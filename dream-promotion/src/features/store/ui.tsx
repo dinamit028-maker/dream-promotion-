@@ -44,7 +44,8 @@ export function NeedsStore() {
 }
 
 /** a picture of the store (logo, home page): upload from the device (sizes made in the browser) or remove */
-export function PicturePicker({ label, value, onChange, square }: { label: string; value: string; onChange: (url: string) => void; square?: boolean }) {
+/** kitPicture: with no picture, the site shows the starter kit's (2.62) — said here, so "אין" does not mislead */
+export function PicturePicker({ label, value, onChange, square, kitPicture }: { label: string; value: string; onChange: (url: string) => void; square?: boolean; kitPicture?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -64,11 +65,12 @@ export function PicturePicker({ label, value, onChange, square }: { label: strin
         {value
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={value} alt="" className={cx('rounded-md border border-line object-cover', square ? 'h-16 w-16' : 'h-16 w-28')} />
-          : <span className={cx('grid place-items-center rounded-md border border-dashed border-line text-xs text-muted', square ? 'h-16 w-16' : 'h-16 w-28')}>אין</span>}
+          : <span className={cx('grid place-items-center rounded-md border border-dashed border-line text-xs text-muted', square ? 'h-16 w-16' : 'h-16 w-28')}>{kitPicture ? 'של הערכה' : 'אין'}</span>}
         <input ref={input} type="file" accept="image/*" className="sr-only" aria-label={label} onChange={(e) => void pick(e.target.files)} />
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => input.current?.click()}>{busy ? <><Spinner /> מעלה…</> : value ? 'החלפה' : 'העלאה'}</Button>
         {value && <Button type="button" variant="soft" size="sm" onClick={() => onChange('')}>הסרה</Button>}
       </div>
+      {!value && kitPicture && <p className="mt-2 text-xs text-muted">באתר מוצגת עכשיו תמונה של הערכה. תמונה שתעלו תחליף אותה.</p>}
       {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
     </div>
   );

@@ -188,6 +188,14 @@ export const KITS: Kit[] = KIT_FILES.flatMap((f) => { const v = validateKit(f); 
 export const kitById = (id: string, kits: Kit[] = KITS) => kits.find((k) => k.id === id) ?? null;
 
 /**
+ * Where the storefront shows the kit's own picture while the field is empty (2.62, storefront/src/lib/kit-images.ts): the
+ * hero and the image-and-text section — so the editor says so instead of "אין". Every kit has both pictures
+ * (tests/store-kits.test.ts checks the storefront's manifests).
+ */
+export const kitPictureShown = (kit: string, type: SectionType, key: string, kits: Kit[] = KITS) =>
+  key === 'image' && (type === 'hero' || type === 'imageText') && kitById(kit, kits) !== null;
+
+/**
  * The kit for a field of business: the business's industry (free text, from its profile) against each kit's keywords —
  * the kit with the most matches; none → "כללי". A store is never left empty.
  */
