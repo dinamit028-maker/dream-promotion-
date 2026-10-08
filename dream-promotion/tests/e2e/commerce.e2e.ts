@@ -786,8 +786,10 @@ async function main() {
       await st.getByText('להחליף את התפריט הראשי').waitFor();
       await noSideScroll(st, 'a kit\'s plan on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9b-store-kit-plan-phone.png'), fullPage: true });
+      const calls = fake.applyKitCalls;
       await st.getByRole('button', { name: 'החלת הערכה (כטיוטה)' }).click();
       await st.getByText('האתר מוכן — עכשיו מוסיפים מוצרים.').waitFor();
+      assert.equal(fake.applyKitCalls, calls + 1, '2.73: the whole kit in one call (store_apply_kit — one transaction)');
       assert.deepEqual(menu(), mainBefore, 'not ticked: the business\'s menu stays');
       const draft = fake.tables.store_theme_versions.find((v) => v.status === 'draft')!;
       assert.deepEqual([draft.template, draft.settings.kit, draft.note], ['kit', 'beauty', 'ערכה: ביוטי וקליניקה'], 'the kit is a draft');
@@ -833,8 +835,13 @@ async function main() {
       await st.getByRole('heading', { name: 'החלפת עיצוב: "אופנה"' }).waitFor();
       await st.getByText('מה נשאר כמו שהוא').waitFor();
       await st.getByText('להחליף את טיוטת העיצוב').click();
+      // a database before migration 3900 (no store_apply_kit): the steps of 2.58, the same result
+      fake.applyKitRpc = false;
+      const callsBefore = fake.applyKitCalls;
       await st.getByRole('button', { name: 'החלפת העיצוב (כטיוטה)' }).click();
       await st.getByText('האתר מוכן — עכשיו מוסיפים מוצרים.').waitFor();
+      assert.equal(fake.applyKitCalls, callsBefore, 'written step by step');
+      fake.applyKitRpc = true;
       const drafted = fake.tables.store_theme_versions.find((v) => v.status === 'draft')!;
       assert.deepEqual([drafted.template, drafted.settings.kit, drafted.note], ['kit', 'fashion', 'עיצוב: אופנה']);
       assert.equal(drafted.settings.sections.find((x: any) => x.id === 'treatments')?.type, 'imageText', 'the home page stays the store\'s (the beauty sections)');
