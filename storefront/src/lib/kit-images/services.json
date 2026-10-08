@@ -13,7 +13,7 @@
       },
       "alt": "פינת ישיבה עם כורסאות קטיפה כחולות ושולחן עגול ליד חלון מואר",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 1
     },
     {
@@ -27,7 +27,7 @@
       },
       "alt": "שולחן עבודה מעץ אלון עם מחשב נייד ומחברת כחולה במשרד מואר",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 2
     },
     {

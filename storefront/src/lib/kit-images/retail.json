@@ -13,7 +13,7 @@
       },
       "alt": "מדפי חנות עם קרמיקה ונרות מול קיר כתום שרוף באור שמש חם",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 1
     },
     {
@@ -27,7 +27,7 @@
       },
       "alt": "שקיות קנייה בכתום ובשחור וקופסאות מתנה על משטח אבן",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 2
     },
     {

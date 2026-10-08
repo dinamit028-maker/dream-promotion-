@@ -1,0 +1,214 @@
+{
+  "id": "general",
+  "name": "כללי",
+  "description": "אתר נקי שמתאים לכל עסק: פתיח, מוצרים, קטגוריות, אודות ושאלות נפוצות.",
+  "order": 99,
+  "keywords": [],
+  "seoDescription": "{{name}} — כל המוצרים במקום אחד, עם דרך קלה ליצור קשר.",
+  "theme": {
+    "colors": {
+      "background": "#fafafa",
+      "surface": "#ffffff",
+      "text": "#1a1a1a",
+      "muted": "#595959",
+      "primary": "#1a1a1a",
+      "accent": "#2f5d8a",
+      "accentSoft": "#e8eef5",
+      "border": "#e2e2e2"
+    },
+    "font": "heebo",
+    "art": "plain",
+    "radius": "medium",
+    "announcement": {
+      "enabled": true,
+      "text": "ברוכים הבאים ל-{{name}}",
+      "href": "/collections/all"
+    },
+    "product": {
+      "related": true,
+      "whatsapp": true
+    },
+    "sections": [
+      {
+        "id": "hero",
+        "type": "hero",
+        "hidden": false,
+        "settings": {
+          "eyebrow": "{{name}}",
+          "title": "כל מה שחיפשתם, במקום אחד",
+          "subtitle": "בחרו מוצר, הוסיפו לסל — ואם יש שאלה, אנחנו כאן.",
+          "primaryLabel": "לכל המוצרים",
+          "primaryHref": "/collections/all",
+          "secondaryLabel": "שאלה בוואטסאפ",
+          "secondaryHref": "whatsapp",
+          "image": ""
+        },
+        "variant": "centered"
+      },
+      {
+        "id": "featured",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "חדש באתר",
+          "collection": "",
+          "limit": 8,
+          "buttonLabel": "לכל המוצרים"
+        },
+        "variant": "grid"
+      },
+      {
+        "id": "collections",
+        "type": "collections",
+        "hidden": false,
+        "settings": {
+          "title": "קטגוריות",
+          "subtitle": ""
+        },
+        "variant": "grid"
+      },
+      {
+        "id": "about",
+        "type": "imageText",
+        "hidden": false,
+        "settings": {
+          "title": "נעים להכיר",
+          "text": "כאן כותבים כמה מילים על העסק: מי אתם, מה אתם מוכרים, ולמה כדאי לקנות דווקא אצלכם.",
+          "image": "",
+          "buttonLabel": "עוד עלינו",
+          "buttonHref": "/pages/about",
+          "imageSide": "start"
+        },
+        "variant": "split"
+      },
+      {
+        "id": "faq",
+        "type": "faq",
+        "hidden": false,
+        "settings": {
+          "title": "שאלות נפוצות",
+          "items": [
+            {
+              "q": "איך מזמינים?",
+              "a": "בוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה. אפשר גם לכתוב לנו בוואטסאפ."
+            },
+            {
+              "q": "אפשר לשאול לפני שמזמינים?",
+              "a": "בטח. כתבו לנו בוואטסאפ או במייל, ונחזור אליכם."
+            }
+          ]
+        },
+        "variant": "accordion"
+      },
+      {
+        "id": "contact",
+        "type": "contact",
+        "hidden": false,
+        "settings": {
+          "title": "נדבר?",
+          "text": "שאלה על מוצר או על הזמנה — כתבו לנו ונחזור אליכם."
+        },
+        "variant": "centered"
+      }
+    ],
+    "design": {
+      "spacing": "normal",
+      "headingScale": "normal",
+      "buttonStyle": "solid",
+      "container": "normal",
+      "cardStyle": "border"
+    },
+    "chrome": {
+      "headerVariant": "compact",
+      "footerVariant": "minimal"
+    },
+    "commerceDesign": {
+      "productCardVariant": "classic",
+      "collectionCardVariant": "grid",
+      "productPageVariant": "classic"
+    }
+  },
+  "menus": {
+    "main": [
+      {
+        "label": "כל המוצרים",
+        "href": "/collections/all"
+      },
+      {
+        "label": "חדש",
+        "href": "/collections/new"
+      },
+      {
+        "label": "מבצעים",
+        "href": "/collections/sale"
+      },
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
+    ],
+    "footer": [
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "שאלות נפוצות",
+        "href": "/pages/faq"
+      },
+      {
+        "label": "משלוחים",
+        "href": "/policies/shipping"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
+    ]
+  },
+  "collections": [
+    {
+      "slug": "new",
+      "title": "חדש",
+      "description": "המוצרים החדשים באתר.",
+      "tags": [
+        "חדש"
+      ]
+    },
+    {
+      "slug": "sale",
+      "title": "מבצעים",
+      "description": "מוצרים במבצע.",
+      "tags": [
+        "מבצע"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "slug": "about",
+      "title": "אודות",
+      "body": "## מי אנחנו\n\nכאן מספרים על {{name}}: איך התחלתם, מה אתם עושים ולמי.\n\n## מה חשוב לנו\n\n- [דבר אחד שחשוב לכם]\n- [ועוד אחד]"
+    },
+    {
+      "slug": "contact",
+      "title": "צרו קשר",
+      "body": "## נשמח לשמוע מכם\n\nשאלה על מוצר, על הזמנה או על משהו אחר — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר.\n\n## שעות פעילות\n\n[ימים ושעות]"
+    },
+    {
+      "slug": "faq",
+      "title": "שאלות נפוצות",
+      "body": "## איך מזמינים?\n\nבוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה.\n\n## איך משלמים?\n\n[אמצעי התשלום]\n\n## מתי ההזמנה מגיעה?\n\n[זמני אספקה — ראו גם את עמוד המשלוחים]"
+    }
+  ],
+  "policies": {},
+  "schemaVersion": 2,
+  "preview": {
+    "image": "/kits/general/preview.webp",
+    "category": "general"
+  }
+}

@@ -1,0 +1,245 @@
+{
+  "id": "retail",
+  "name": "קמעונאות כללית",
+  "description": "לחנות עם הרבה סוגי מוצרים: חדש, מבצעים, מומלצים וקטגוריות.",
+  "order": 60,
+  "keywords": [
+    "חנות",
+    "קמעונאות",
+    "מתנות",
+    "צעצועים",
+    "אלקטרוניקה",
+    "כלי בית",
+    "מכולת",
+    "סיטונאות",
+    "מוצרי",
+    "retail",
+    "shop",
+    "store"
+  ],
+  "seoDescription": "{{name}} — חדש, מבצעים ומומלצים, הכל במקום אחד.",
+  "theme": {
+    "colors": {
+      "background": "#ffffff",
+      "surface": "#ffffff",
+      "text": "#1b1b1b",
+      "muted": "#585858",
+      "primary": "#1b1b1b",
+      "accent": "#b3420d",
+      "accentSoft": "#fdf0e8",
+      "border": "#e5e5e5"
+    },
+    "font": "heebo",
+    "art": "plain",
+    "radius": "small",
+    "announcement": {
+      "enabled": true,
+      "text": "חדש באתר — כל המוצרים במקום אחד",
+      "href": "/collections/new"
+    },
+    "product": {
+      "related": true,
+      "whatsapp": true
+    },
+    "sections": [
+      {
+        "id": "hero",
+        "type": "hero",
+        "hidden": false,
+        "settings": {
+          "eyebrow": "{{name}}",
+          "title": "כל מה שצריך, במקום אחד",
+          "subtitle": "מוצרים חדשים, מבצעים ומומלצים — מזמינים בקלות, באתר או בוואטסאפ.",
+          "primaryLabel": "לכל המוצרים",
+          "primaryHref": "/collections/all",
+          "secondaryLabel": "למבצעים",
+          "secondaryHref": "/collections/sale",
+          "image": ""
+        },
+        "variant": "slider"
+      },
+      {
+        "id": "categories",
+        "type": "collections",
+        "hidden": false,
+        "settings": {
+          "title": "קטגוריות",
+          "subtitle": ""
+        },
+        "variant": "carousel"
+      },
+      {
+        "id": "new",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "חדש באתר",
+          "collection": "new",
+          "limit": 8,
+          "buttonLabel": "לכל החדשים"
+        },
+        "variant": "carousel"
+      },
+      {
+        "id": "sale",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "מבצעים",
+          "collection": "sale",
+          "limit": 4,
+          "buttonLabel": "לכל המבצעים"
+        },
+        "variant": "carousel"
+      },
+      {
+        "id": "recommended",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "מומלצים",
+          "collection": "recommended",
+          "limit": 4,
+          "buttonLabel": "לכל המומלצים"
+        },
+        "variant": "carousel"
+      },
+      {
+        "id": "faq",
+        "type": "faq",
+        "hidden": false,
+        "settings": {
+          "title": "שאלות נפוצות",
+          "items": [
+            {
+              "q": "איך מזמינים?",
+              "a": "בוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה."
+            },
+            {
+              "q": "אפשר לשאול לפני שמזמינים?",
+              "a": "בטח — כתבו לנו בוואטסאפ או במייל."
+            }
+          ]
+        },
+        "variant": "accordion"
+      },
+      {
+        "id": "contact",
+        "type": "contact",
+        "hidden": false,
+        "settings": {
+          "title": "יש שאלה?",
+          "text": "כתבו לנו ונחזור אליכם."
+        },
+        "variant": "dark"
+      }
+    ],
+    "design": {
+      "spacing": "compact",
+      "headingScale": "large",
+      "buttonStyle": "solid",
+      "container": "normal",
+      "cardStyle": "shadow"
+    },
+    "chrome": {
+      "headerVariant": "search-heavy",
+      "footerVariant": "dark"
+    },
+    "commerceDesign": {
+      "productCardVariant": "compact",
+      "collectionCardVariant": "carousel",
+      "productPageVariant": "classic"
+    }
+  },
+  "menus": {
+    "main": [
+      {
+        "label": "כל המוצרים",
+        "href": "/collections/all"
+      },
+      {
+        "label": "חדש",
+        "href": "/collections/new"
+      },
+      {
+        "label": "מבצעים",
+        "href": "/collections/sale"
+      },
+      {
+        "label": "קטגוריות",
+        "href": "/collections"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
+    ],
+    "footer": [
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "שאלות נפוצות",
+        "href": "/pages/faq"
+      },
+      {
+        "label": "משלוחים",
+        "href": "/policies/shipping"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
+    ]
+  },
+  "collections": [
+    {
+      "slug": "new",
+      "title": "חדש",
+      "description": "המוצרים החדשים באתר.",
+      "tags": [
+        "חדש"
+      ]
+    },
+    {
+      "slug": "sale",
+      "title": "מבצעים",
+      "description": "מוצרים במבצע.",
+      "tags": [
+        "מבצע"
+      ]
+    },
+    {
+      "slug": "recommended",
+      "title": "מומלצים",
+      "description": "המוצרים שאנחנו הכי אוהבים.",
+      "tags": [
+        "מומלץ"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "slug": "about",
+      "title": "אודות",
+      "body": "## מי אנחנו\n\n[כמה מילים על {{name}}: ממתי, מה מוכרים, ולמה לקנות דווקא אצלכם.]"
+    },
+    {
+      "slug": "contact",
+      "title": "צרו קשר",
+      "body": "## נשמח לשמוע מכם\n\nשאלה על מוצר או על הזמנה — כתבו לנו בוואטסאפ, התקשרו או שלחו מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר.\n\n## שעות פעילות\n\n[ימים ושעות]"
+    },
+    {
+      "slug": "faq",
+      "title": "שאלות נפוצות",
+      "body": "## איך מזמינים?\n\nבוחרים מוצר, מוסיפים לסל ומשלימים את פרטי ההזמנה.\n\n## איך משלמים?\n\n[אמצעי התשלום]\n\n## מתי ההזמנה מגיעה?\n\n[זמני אספקה — ראו גם את עמוד המשלוחים]"
+    }
+  ],
+  "policies": {},
+  "schemaVersion": 2,
+  "preview": {
+    "image": "/kits/retail/preview.webp",
+    "category": "retail"
+  }
+}

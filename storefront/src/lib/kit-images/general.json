@@ -13,7 +13,7 @@
       },
       "alt": "מטבח מודרני עם אי אבן אפור וקערה כחולה מלאה לימונים",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 1
     },
     {
@@ -27,7 +27,7 @@
       },
       "alt": "ספסל עץ כחול על בסיסי בטון בחצר עם לבנדר ועשבים גבוהים",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 2
     },
     {

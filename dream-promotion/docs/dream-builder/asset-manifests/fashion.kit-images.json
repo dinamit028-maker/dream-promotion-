@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "kit": "fashion",
+  "source": "existing-kit-images-branch",
+  "verified": false,
+  "zip": "kit-images-fashion.zip",
+  "instruction": "Manifest לא אומת. צור אותו מתוך kit-images.json שבתוך ה-ZIP, באותו פורמט כמו services/retail/general, והמר textSafe לפי הכלל ב-CORRECTIONS_HE.md.",
+  "assets": []
+}

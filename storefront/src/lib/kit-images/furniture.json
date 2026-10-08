@@ -13,7 +13,7 @@
       },
       "alt": "סלון בהיר עם ספה מבד, שולחן קפה מעץ אלון וענפי זית",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 1
     },
     {
@@ -27,7 +27,7 @@
       },
       "alt": "פינת אוכל עם שולחן עץ ארוך וכיסאות מרופדים בירוק זית",
       "variant": "wide",
-      "textSafe": "right",
+      "textSafe": "start",
       "order": 2
     },
     {

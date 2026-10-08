@@ -3,79 +3,255 @@
   "name": "ביוטי וקליניקה",
   "description": "לקליניקה, לסלון ולמכון: הטיפולים, לפני ואחרי, קביעת תור ומוצרי טיפוח.",
   "order": 40,
-  "keywords": ["קליניקה", "ביוטי", "יופי", "קוסמטיקה", "קוסמטיקאית", "טיפוח", "טיפולי", "לייזר", "גבות", "ריסים", "ציפורניים", "מניקור", "מספרה", "איפור", "ספא", "beauty", "clinic", "salon", "spa"],
+  "keywords": [
+    "קליניקה",
+    "ביוטי",
+    "יופי",
+    "קוסמטיקה",
+    "קוסמטיקאית",
+    "טיפוח",
+    "טיפולי",
+    "לייזר",
+    "גבות",
+    "ריסים",
+    "ציפורניים",
+    "מניקור",
+    "מספרה",
+    "איפור",
+    "ספא",
+    "beauty",
+    "clinic",
+    "salon",
+    "spa"
+  ],
   "seoDescription": "{{name}} — טיפולים, לפני ואחרי, קביעת תור ומוצרי טיפוח.",
   "theme": {
     "colors": {
-      "background": "#fdf9f8", "surface": "#ffffff", "text": "#2a2224", "muted": "#6b5b5f", "primary": "#2a2224",
-      "accent": "#9c5f6b", "accentSoft": "#f6e9eb", "border": "#eedfe1"
+      "background": "#fdf9f8",
+      "surface": "#ffffff",
+      "text": "#2a2224",
+      "muted": "#6b5b5f",
+      "primary": "#2a2224",
+      "accent": "#9c5f6b",
+      "accentSoft": "#f6e9eb",
+      "border": "#eedfe1"
     },
     "font": "frank",
     "art": "plain",
     "radius": "large",
-    "announcement": { "enabled": true, "text": "קובעים תור אונליין — בכמה לחיצות", "href": "booking" },
-    "product": { "related": true, "whatsapp": true },
+    "announcement": {
+      "enabled": true,
+      "text": "קובעים תור אונליין — בכמה לחיצות",
+      "href": "booking"
+    },
+    "product": {
+      "related": true,
+      "whatsapp": true
+    },
     "sections": [
-      { "id": "hero", "type": "hero", "hidden": false, "settings": {
-        "eyebrow": "{{name}}",
-        "title": "הזמן שלך לטפח את עצמך",
-        "subtitle": "טיפולים מקצועיים באווירה נעימה. בוחרים טיפול, קובעים תור — ואנחנו כבר מחכים.",
-        "primaryLabel": "לקביעת תור", "primaryHref": "booking",
-        "secondaryLabel": "שאלה בוואטסאפ", "secondaryHref": "whatsapp",
-        "image": ""
-      } },
-      { "id": "treatments", "type": "imageText", "hidden": false, "settings": {
-        "title": "הטיפולים שלנו",
-        "text": "כאן כותבים על הטיפולים: מה עושים, למי זה מתאים, וכמה זמן לוקח כל טיפול.",
-        "image": "", "buttonLabel": "לכל הטיפולים", "buttonHref": "/pages/treatments", "imageSide": "start"
-      } },
-      { "id": "before-after", "type": "gallery", "hidden": false, "settings": {
-        "title": "לפני ואחרי",
-        "text": "תוצאות אמיתיות של לקוחות שלנו, שפורסמו באישורן.",
-        "items": [],
-        "buttonLabel": "לקביעת תור", "buttonHref": "booking"
-      } },
-      { "id": "care", "type": "products", "hidden": false, "settings": { "title": "מוצרי טיפוח", "collection": "care", "limit": 4, "buttonLabel": "לכל המוצרים" } },
-      { "id": "steps", "type": "steps", "hidden": false, "settings": {
-        "title": "איך מגיעים לטיפול",
-        "items": [
-          { "title": "בוחרים טיפול", "text": "מתוך רשימת הטיפולים." },
-          { "title": "קובעים תור", "text": "ביומן באתר, או בוואטסאפ." },
-          { "title": "מגיעים", "text": "ואנחנו כבר מחכים לך." }
-        ]
-      } },
-      { "id": "faq", "type": "faq", "hidden": false, "settings": { "title": "שאלות נפוצות", "items": [
-        { "q": "כמה זמן לוקח טיפול?", "a": "זה תלוי בטיפול. בעמוד הטיפולים כתוב כמה זמן לוקח כל אחד." },
-        { "q": "אפשר לבטל או להזיז תור?", "a": "כן — כתבו לנו מראש ונתאם מועד אחר." }
-      ] } },
-      { "id": "contact", "type": "contact", "hidden": false, "settings": { "title": "נשמח לראות אותך", "text": "שאלה על טיפול או על תור — כתבי לנו ונחזור אלייך." } }
-    ]
+      {
+        "id": "hero",
+        "type": "hero",
+        "hidden": false,
+        "settings": {
+          "eyebrow": "{{name}}",
+          "title": "הזמן שלך לטפח את עצמך",
+          "subtitle": "טיפולים מקצועיים באווירה נעימה. בוחרים טיפול, קובעים תור — ואנחנו כבר מחכים.",
+          "primaryLabel": "לקביעת תור",
+          "primaryHref": "booking",
+          "secondaryLabel": "שאלה בוואטסאפ",
+          "secondaryHref": "whatsapp",
+          "image": ""
+        },
+        "variant": "editorial"
+      },
+      {
+        "id": "treatments",
+        "type": "imageText",
+        "hidden": false,
+        "settings": {
+          "title": "הטיפולים שלנו",
+          "text": "כאן כותבים על הטיפולים: מה עושים, למי זה מתאים, וכמה זמן לוקח כל טיפול.",
+          "image": "",
+          "buttonLabel": "לכל הטיפולים",
+          "buttonHref": "/pages/treatments",
+          "imageSide": "start"
+        },
+        "variant": "overlap"
+      },
+      {
+        "id": "before-after",
+        "type": "gallery",
+        "hidden": false,
+        "settings": {
+          "title": "לפני ואחרי",
+          "text": "תוצאות אמיתיות של לקוחות שלנו, שפורסמו באישורן.",
+          "items": [],
+          "buttonLabel": "לקביעת תור",
+          "buttonHref": "booking"
+        },
+        "variant": "editorial"
+      },
+      {
+        "id": "care",
+        "type": "products",
+        "hidden": false,
+        "settings": {
+          "title": "מוצרי טיפוח",
+          "collection": "care",
+          "limit": 4,
+          "buttonLabel": "לכל המוצרים"
+        },
+        "variant": "grid"
+      },
+      {
+        "id": "steps",
+        "type": "steps",
+        "hidden": false,
+        "settings": {
+          "title": "איך מגיעים לטיפול",
+          "items": [
+            {
+              "title": "בוחרים טיפול",
+              "text": "מתוך רשימת הטיפולים."
+            },
+            {
+              "title": "קובעים תור",
+              "text": "ביומן באתר, או בוואטסאפ."
+            },
+            {
+              "title": "מגיעים",
+              "text": "ואנחנו כבר מחכים לך."
+            }
+          ]
+        },
+        "variant": "cards"
+      },
+      {
+        "id": "faq",
+        "type": "faq",
+        "hidden": false,
+        "settings": {
+          "title": "שאלות נפוצות",
+          "items": [
+            {
+              "q": "כמה זמן לוקח טיפול?",
+              "a": "זה תלוי בטיפול. בעמוד הטיפולים כתוב כמה זמן לוקח כל אחד."
+            },
+            {
+              "q": "אפשר לבטל או להזיז תור?",
+              "a": "כן — כתבו לנו מראש ונתאם מועד אחר."
+            }
+          ]
+        },
+        "variant": "accordion"
+      },
+      {
+        "id": "contact",
+        "type": "contact",
+        "hidden": false,
+        "settings": {
+          "title": "נשמח לראות אותך",
+          "text": "שאלה על טיפול או על תור — כתבי לנו ונחזור אלייך."
+        },
+        "variant": "centered"
+      }
+    ],
+    "design": {
+      "spacing": "airy",
+      "headingScale": "display",
+      "buttonStyle": "soft",
+      "container": "wide",
+      "cardStyle": "soft"
+    },
+    "chrome": {
+      "headerVariant": "centered-logo",
+      "footerVariant": "centered"
+    },
+    "commerceDesign": {
+      "productCardVariant": "minimal",
+      "collectionCardVariant": "circles",
+      "productPageVariant": "gallery-right"
+    }
   },
   "menus": {
     "main": [
-      { "label": "הטיפולים", "href": "/pages/treatments" },
-      { "label": "לפני ואחרי", "href": "/#before-after" },
-      { "label": "קביעת תור", "href": "booking" },
-      { "label": "מוצרי טיפוח", "href": "/collections/care" },
-      { "label": "צרו קשר", "href": "/pages/contact" }
+      {
+        "label": "הטיפולים",
+        "href": "/pages/treatments"
+      },
+      {
+        "label": "לפני ואחרי",
+        "href": "/#before-after"
+      },
+      {
+        "label": "קביעת תור",
+        "href": "booking"
+      },
+      {
+        "label": "מוצרי טיפוח",
+        "href": "/collections/care"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
     ],
     "footer": [
-      { "label": "אודות", "href": "/pages/about" },
-      { "label": "הטיפולים", "href": "/pages/treatments" },
-      { "label": "שאלות נפוצות", "href": "/pages/faq" },
-      { "label": "צרו קשר", "href": "/pages/contact" }
+      {
+        "label": "אודות",
+        "href": "/pages/about"
+      },
+      {
+        "label": "הטיפולים",
+        "href": "/pages/treatments"
+      },
+      {
+        "label": "שאלות נפוצות",
+        "href": "/pages/faq"
+      },
+      {
+        "label": "צרו קשר",
+        "href": "/pages/contact"
+      }
     ]
   },
   "collections": [
-    { "slug": "care", "title": "מוצרי טיפוח", "description": "מוצרים להמשך הטיפוח בבית.", "tags": ["טיפוח"] }
+    {
+      "slug": "care",
+      "title": "מוצרי טיפוח",
+      "description": "מוצרים להמשך הטיפוח בבית.",
+      "tags": [
+        "טיפוח"
+      ]
+    }
   ],
   "pages": [
-    { "slug": "about", "title": "אודות", "body": "## נעים להכיר\n\n[מי מטפלת, מה הניסיון וההכשרה, ומה חשוב לכם בטיפול.]" },
-    { "slug": "treatments", "title": "הטיפולים שלנו", "body": "## [שם הטיפול]\n\n[מה עושים בטיפול, למי הוא מתאים וכמה זמן הוא לוקח.]\n\n## [שם הטיפול]\n\n[מה עושים בטיפול, למי הוא מתאים וכמה זמן הוא לוקח.]\n\n## לפני הטיפול\n\n[הנחיות לפני ההגעה, אם יש.]" },
-    { "slug": "contact", "title": "צרו קשר", "body": "## נשמח לשמוע ממך\n\nשאלה על טיפול או על תור — כתבי לנו בוואטסאפ, התקשרי או שלחי מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר.\n\n## שעות הקבלה\n\n[ימים ושעות]" },
-    { "slug": "faq", "title": "שאלות נפוצות", "body": "## כמה זמן לוקח טיפול?\n\n[משך כל טיפול.]\n\n## אפשר לבטל או להזיז תור?\n\n[עד מתי אפשר לבטל, ואיך.]" }
+    {
+      "slug": "about",
+      "title": "אודות",
+      "body": "## נעים להכיר\n\n[מי מטפלת, מה הניסיון וההכשרה, ומה חשוב לכם בטיפול.]"
+    },
+    {
+      "slug": "treatments",
+      "title": "הטיפולים שלנו",
+      "body": "## [שם הטיפול]\n\n[מה עושים בטיפול, למי הוא מתאים וכמה זמן הוא לוקח.]\n\n## [שם הטיפול]\n\n[מה עושים בטיפול, למי הוא מתאים וכמה זמן הוא לוקח.]\n\n## לפני הטיפול\n\n[הנחיות לפני ההגעה, אם יש.]"
+    },
+    {
+      "slug": "contact",
+      "title": "צרו קשר",
+      "body": "## נשמח לשמוע ממך\n\nשאלה על טיפול או על תור — כתבי לנו בוואטסאפ, התקשרי או שלחי מייל. פרטי הקשר מופיעים בתחתית כל עמוד באתר.\n\n## שעות הקבלה\n\n[ימים ושעות]"
+    },
+    {
+      "slug": "faq",
+      "title": "שאלות נפוצות",
+      "body": "## כמה זמן לוקח טיפול?\n\n[משך כל טיפול.]\n\n## אפשר לבטל או להזיז תור?\n\n[עד מתי אפשר לבטל, ואיך.]"
+    }
   ],
   "policies": {
-    "returns": { "append": "## ביטול תור\n\n[עד מתי אפשר לבטל או להזיז תור, ומה קורה בביטול מאוחר.]" }
-  }
+    "returns": {
+      "append": "## ביטול תור\n\n[עד מתי אפשר לבטל או להזיז תור, ומה קורה בביטול מאוחר.]"
+    }
+  },
+  "schemaVersion": 2
 }

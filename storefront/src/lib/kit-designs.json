@@ -1,0 +1,86 @@
+{
+  "bags": {
+    "design": {},
+    "chrome": {},
+    "commerce": {},
+    "sections": {}
+  },
+  "beauty": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "display",
+      "buttonStyle": "soft",
+      "container": "wide",
+      "cardStyle": "soft"
+    },
+    "chrome": {
+      "header": "centered-logo",
+      "footer": "centered"
+    },
+    "commerce": {
+      "productCard": "minimal",
+      "collectionCard": "circles",
+      "productPage": "gallery-right"
+    },
+    "sections": {
+      "hero": "editorial",
+      "treatments": "overlap",
+      "before-after": "editorial",
+      "care": "grid",
+      "steps": "cards",
+      "faq": "accordion",
+      "contact": "centered"
+    }
+  },
+  "fashion": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "display",
+      "buttonStyle": "underline",
+      "container": "wide",
+      "cardStyle": "flat"
+    },
+    "chrome": {
+      "header": "transparent-overlay",
+      "footer": "minimal"
+    },
+    "commerce": {
+      "productCard": "editorial",
+      "collectionCard": "editorial",
+      "productPage": "gallery-left"
+    },
+    "sections": {
+      "hero": "full-image",
+      "new": "grid",
+      "categories": "editorial",
+      "story": "full-bleed",
+      "instagram": "masonry",
+      "newsletter": "minimal",
+      "contact": "dark"
+    }
+  },
+  "furniture": {
+    "design": {},
+    "chrome": {},
+    "commerce": {},
+    "sections": {}
+  },
+  "general": {
+    "design": {},
+    "chrome": {},
+    "commerce": {},
+    "sections": {}
+  },
+  "retail": {
+    "design": {},
+    "chrome": {},
+    "commerce": {},
+    "sections": {}
+  },
+  "services": {
+    "design": {},
+    "chrome": {},
+    "commerce": {},
+    "sections": {}
+  }
+}

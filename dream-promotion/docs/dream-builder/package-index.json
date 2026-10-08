@@ -1,0 +1,42 @@
+{
+  "package": "dream-builder-phase1-7-kits",
+  "snapshotAudited": "2.61.0",
+  "activeKits": [
+    "bags",
+    "beauty",
+    "fashion",
+    "furniture",
+    "general",
+    "retail",
+    "services"
+  ],
+  "activeKitCount": 7,
+  "futureKits": 13,
+  "futureKitsIncludedForImplementation": false,
+  "imageSource": "git branch kit-images",
+  "instructions": "CLAUDE_START_HERE_PHASE1.md",
+  "assetManifests": {
+    "verified": [
+      "services",
+      "retail",
+      "general"
+    ],
+    "generateFromZip": [
+      "fashion",
+      "furniture",
+      "beauty",
+      "bags"
+    ],
+    "sourceOfTruth": "kit-images.json inside each ZIP on branch kit-images"
+  },
+  "corrections": "CORRECTIONS_HE.md",
+  "delivery": [
+    "PR-1: assets + 7 distinct designs",
+    "PR-2: Preview + Design Switch",
+    "PR-3a: registry + live update + drag & drop + undo",
+    "PR-3b: presets + devices + global design + real thumbnails",
+    "PR-3c: columns + blocks"
+  ],
+  "builderSpec": "docs/VISUAL_BUILDER_ENGINEERING_HE.md",
+  "auditedAgainst": "main @ 13597f3 (2.61.0)"
+}

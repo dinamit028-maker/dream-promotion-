@@ -312,7 +312,8 @@ export const KIT_FILES: readonly unknown[] = [
             "secondaryLabel": "שאלה בוואטסאפ",
             "secondaryHref": "whatsapp",
             "image": ""
-          }
+          },
+          "variant": "editorial"
         },
         {
           "id": "treatments",
@@ -325,7 +326,8 @@ export const KIT_FILES: readonly unknown[] = [
             "buttonLabel": "לכל הטיפולים",
             "buttonHref": "/pages/treatments",
             "imageSide": "start"
-          }
+          },
+          "variant": "overlap"
         },
         {
           "id": "before-after",
@@ -337,7 +339,8 @@ export const KIT_FILES: readonly unknown[] = [
             "items": [],
             "buttonLabel": "לקביעת תור",
             "buttonHref": "booking"
-          }
+          },
+          "variant": "editorial"
         },
         {
           "id": "care",
@@ -348,7 +351,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "care",
             "limit": 4,
             "buttonLabel": "לכל המוצרים"
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "steps",
@@ -370,7 +374,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "text": "ואנחנו כבר מחכים לך."
               }
             ]
-          }
+          },
+          "variant": "cards"
         },
         {
           "id": "faq",
@@ -388,7 +393,8 @@ export const KIT_FILES: readonly unknown[] = [
                 "a": "כן — כתבו לנו מראש ונתאם מועד אחר."
               }
             ]
-          }
+          },
+          "variant": "accordion"
         },
         {
           "id": "contact",
@@ -397,9 +403,26 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "נשמח לראות אותך",
             "text": "שאלה על טיפול או על תור — כתבי לנו ונחזור אלייך."
-          }
+          },
+          "variant": "centered"
         }
-      ]
+      ],
+      "design": {
+        "spacing": "airy",
+        "headingScale": "display",
+        "buttonStyle": "soft",
+        "container": "wide",
+        "cardStyle": "soft"
+      },
+      "chrome": {
+        "headerVariant": "centered-logo",
+        "footerVariant": "centered"
+      },
+      "commerceDesign": {
+        "productCardVariant": "minimal",
+        "collectionCardVariant": "circles",
+        "productPageVariant": "gallery-right"
+      }
     },
     "menus": {
       "main": [
@@ -479,7 +502,8 @@ export const KIT_FILES: readonly unknown[] = [
       "returns": {
         "append": "## ביטול תור\n\n[עד מתי אפשר לבטל או להזיז תור, ומה קורה בביטול מאוחר.]"
       }
-    }
+    },
+    "schemaVersion": 2
   },
   {
     "id": "fashion",
@@ -539,7 +563,8 @@ export const KIT_FILES: readonly unknown[] = [
             "secondaryLabel": "למבצעים",
             "secondaryHref": "/collections/sale",
             "image": ""
-          }
+          },
+          "variant": "full-image"
         },
         {
           "id": "new",
@@ -550,7 +575,8 @@ export const KIT_FILES: readonly unknown[] = [
             "collection": "new",
             "limit": 8,
             "buttonLabel": "לכל החדשים"
-          }
+          },
+          "variant": "grid"
         },
         {
           "id": "categories",
@@ -559,7 +585,8 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "קנו לפי קטגוריה",
             "subtitle": ""
-          }
+          },
+          "variant": "editorial"
         },
         {
           "id": "story",
@@ -572,7 +599,8 @@ export const KIT_FILES: readonly unknown[] = [
             "buttonLabel": "עוד עלינו",
             "buttonHref": "/pages/about",
             "imageSide": "end"
-          }
+          },
+          "variant": "full-bleed"
         },
         {
           "id": "instagram",
@@ -584,7 +612,8 @@ export const KIT_FILES: readonly unknown[] = [
             "items": [],
             "buttonLabel": "לאינסטגרם שלנו",
             "buttonHref": ""
-          }
+          },
+          "variant": "masonry"
         },
         {
           "id": "newsletter",
@@ -593,7 +622,8 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "הראשונים לדעת",
             "text": "קולקציות חדשות ומבצעים — ישר למייל."
-          }
+          },
+          "variant": "minimal"
         },
         {
           "id": "contact",
@@ -602,9 +632,26 @@ export const KIT_FILES: readonly unknown[] = [
           "settings": {
             "title": "צריכים עזרה במידה?",
             "text": "כתבו לנו לפני שאתם מזמינים — נשמח לעזור לבחור."
-          }
+          },
+          "variant": "dark"
         }
-      ]
+      ],
+      "design": {
+        "spacing": "airy",
+        "headingScale": "display",
+        "buttonStyle": "underline",
+        "container": "wide",
+        "cardStyle": "flat"
+      },
+      "chrome": {
+        "headerVariant": "transparent-overlay",
+        "footerVariant": "minimal"
+      },
+      "commerceDesign": {
+        "productCardVariant": "editorial",
+        "collectionCardVariant": "editorial",
+        "productPageVariant": "gallery-left"
+      }
     },
     "menus": {
       "main": [
@@ -724,7 +771,8 @@ export const KIT_FILES: readonly unknown[] = [
       "returns": {
         "append": "## החלפת מידה\n\n[האם ואיך מחליפים מידה, ובאיזה מצב הפריט צריך להיות.]"
       }
-    }
+    },
+    "schemaVersion": 2
   },
   {
     "id": "furniture",

@@ -36,7 +36,9 @@ export function normalize(raw, kit, sizes) {
     if (!img.alt) notes.push(`${i.file}: no alt text`);
     if (i.slot === 'hero') {
       img.variant = i.variant === 'vertical' ? 'vertical' : 'wide';
-      if (i.textSafe === 'left' || i.textSafe === 'right') img.textSafe = i.textSafe;
+      // the delivered JSON names a physical side; the schema a logical one (the sites are RTL): right → start, left → end
+      const side = { right: 'start', left: 'end', start: 'start', end: 'end' }[i.textSafe];
+      if (side) img.textSafe = side;
     }
     if (i.slot === 'collection') {
       if (typeof i.collection !== 'string' || !i.collection) { notes.push(`${i.file}: a collection picture without a collection — left out`); continue; }

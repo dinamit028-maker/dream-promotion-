@@ -10,7 +10,7 @@ import { permanentRedirect } from 'next/navigation';
 import { after } from 'next/server';
 import { ComingSoon, StoreChrome } from '@/components/chrome';
 import { getSite, markSeen } from '@/lib/site';
-import { safeImage, themeCss } from '@/lib/theme';
+import { safeImage, themeClasses, themeCss } from '@/lib/theme';
 import { isFullStore } from '@/lib/types';
 
 export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
@@ -54,7 +54,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <head>
         {site?.theme && <style nonce={nonce} dangerouslySetInnerHTML={{ __html: themeCss(site.theme) }} />}
       </head>
-      <body>
+      {/* 2.63: the design choices as classes (every one from a fixed list — lib/variants.ts) */}
+      <body className={site?.theme ? themeClasses(site.theme) : undefined}>
         {!site ? (
           <main id="main" className="bare">{children}</main>
         ) : site.live && isFullStore(site.store) ? (

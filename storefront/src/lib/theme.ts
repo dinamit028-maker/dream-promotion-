@@ -1,6 +1,8 @@
 import { BAGS } from '@/templates/bags';
 import { KIT } from '@/templates/kit';
 import { kitImageCss } from './kit-images';
+import KIT_DESIGNS from './kit-designs.json';
+import { bodyClasses, CHROME, COMMERCE, DESIGN, layered, sectionVariant, type Chrome, type Commerce, type Design } from './variants';
 
 /**
  * A template is settings only (JSON), never code: colours, font, corners, the announcement bar, and the home page's sections
@@ -17,7 +19,8 @@ export type Font = 'heebo' | 'rubik' | 'assistant' | 'frank';
 export type Art = 'bag' | 'plain';
 export const FONTS: readonly Font[] = ['heebo', 'rubik', 'assistant', 'frank'];
 export interface Colors { background: string; surface: string; text: string; muted: string; primary: string; accent: string; accentSoft: string; border: string }
-export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown> }
+/** variant (2.63): the section's layout — the business's, else the kit's, else the type's first (lib/variants.ts) */
+export interface Section { id: string; type: SectionType; hidden: boolean; settings: Record<string, unknown>; variant?: string }
 export interface Theme {
   template: string;
   /** the starter kit applied (2.58), its default pictures shown where the business has none (2.62); null = none */
@@ -29,9 +32,13 @@ export interface Theme {
   announcement: { enabled: boolean; text: string; href: string };
   product: { related: boolean; whatsapp: boolean };
   sections: Section[];
+  /** 2.63: spacing, headings, buttons, width, cards — and the header, the footer, the cards and the product page */
+  design: Design;
+  chrome: Chrome;
+  commerce: Commerce;
 }
 /** open: the sections are the settings' own (a kit's), not only the template's by id */
-export interface Template extends Omit<Theme, 'template' | 'kit'> { id: string; name: string; open?: boolean }
+export interface Template extends Omit<Theme, 'template' | 'kit' | 'design' | 'chrome' | 'commerce'> { id: string; name: string; open?: boolean }
 
 type Field =
   | { kind: 'text'; max: number }
@@ -109,8 +116,12 @@ function ownSection(r: Record<string, unknown>): Section | undefined {
   return { id: r.id, type, hidden: false, settings };
 }
 
+/** a kit's design defaults (generated from the dashboard's kits/ by scripts/kits.mjs — data only, checked like the rest) */
+interface KitDesign { design: unknown; chrome: unknown; commerce: unknown; sections: Record<string, string> }
+const kitDesign = (kit: string | null): KitDesign | null => (kit && Object.hasOwn(KIT_DESIGNS, kit) ? (KIT_DESIGNS as Record<string, KitDesign>)[kit] : null);
+
 /** the template's sections, the business's order and visibility, every setting checked */
-function mergeSections(base: Section[], raw: unknown, open = false): Section[] {
+function mergeSections(base: Section[], raw: unknown, open = false, kit: KitDesign | null = null): Section[] {
   const byId = new Map(base.map((s) => [s.id, s]));
   const out: Section[] = [];
   const seen = new Set<string>();
@@ -129,10 +140,10 @@ function mergeSections(base: Section[], raw: unknown, open = false): Section[] {
       const c = clean(f, v);
       if (c !== undefined) settings[k] = c;
     }
-    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings });
+    out.push({ ...def, hidden: typeof r.hidden === 'boolean' ? r.hidden : def.hidden, settings, variant: sectionVariant(def.type, r.variant, kit?.sections[def.id]) });
   }
   // an open template with sections of its own shows exactly those; otherwise the template's missing ones are added
-  if (!(open && out.length)) for (const s of base) if (!seen.has(s.id)) out.push(s);
+  if (!(open && out.length)) for (const s of base) if (!seen.has(s.id)) out.push({ ...s, variant: sectionVariant(s.type, undefined, kit?.sections[s.id]) });
   return out;
 }
 
@@ -155,9 +166,14 @@ export function resolveTheme(templateId: string, raw: unknown): Theme {
   if (contrast(colors.muted, colors.background) < 4.5) colors.muted = contrast(t.colors.muted, colors.background) >= 4.5 ? t.colors.muted : colors.text;
   const a = obj(o.announcement);
   const p = obj(o.product);
+  const kit = typeof o.kit === 'string' && /^[a-z][a-z0-9-]{1,30}$/.test(o.kit) ? o.kit : null;
+  const kd = kitDesign(kit);
   return {
     template: t.id,
-    kit: typeof o.kit === 'string' && /^[a-z][a-z0-9-]{1,30}$/.test(o.kit) ? o.kit : null,
+    kit,
+    design: layered(DESIGN, o.design, kd?.design),
+    chrome: layered(CHROME, o.chrome, kd?.chrome),
+    commerce: layered(COMMERCE, o.commerce, kd?.commerce),
     colors,
     font: FONTS.includes(o.font as Font) ? (o.font as Font) : t.font,
     art: o.art === 'bag' || o.art === 'plain' ? o.art : t.art,
@@ -171,7 +187,7 @@ export function resolveTheme(templateId: string, raw: unknown): Theme {
       related: typeof p.related === 'boolean' ? p.related : t.product.related,
       whatsapp: typeof p.whatsapp === 'boolean' ? p.whatsapp : t.product.whatsapp,
     },
-    sections: mergeSections(t.sections, o.sections, t.open),
+    sections: mergeSections(t.sections, o.sections, t.open, kd),
   };
 }
 
@@ -180,6 +196,9 @@ const FAMILY: Record<Font, string> = {
   heebo: "'Heebo Variable','Heebo'", rubik: "'Rubik Variable','Rubik'", assistant: "'Assistant Variable','Assistant'",
   frank: "'Frank Ruhl Libre Variable','Frank Ruhl Libre'",
 };
+/** the <body>'s classes: one per design choice (lib/variants.ts) */
+export const themeClasses = (t: Theme) => bodyClasses(t.design, t.chrome, t.commerce);
+
 /** the theme as CSS variables (every value checked above: hex colours, fixed sizes, a font from a fixed list) */
 export function themeCss(t: Theme): string {
   const c = t.colors;
