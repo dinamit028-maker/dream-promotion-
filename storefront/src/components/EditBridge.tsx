@@ -36,9 +36,15 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
     const handle = document.createElement('button');
     handle.type = 'button'; handle.className = 'edit-drag'; handle.textContent = '⠿';
     handle.setAttribute('aria-label', 'גרירת החלק. במקלדת: רווח כדי להרים, חיצים כדי להזיז, רווח כדי להניח');
+    // 2.69: "+ חלק חדש כאן" at the bottom of the chosen section — only when the dashboard said sections may be added
+    let canAdd = false;
+    const add = document.createElement('button');
+    add.type = 'button'; add.className = 'edit-add'; add.textContent = '+ חלק חדש כאן';
+    add.setAttribute('aria-label', 'הוספת חלק חדש אחרי החלק הזה');
     const select = (el: HTMLElement | null) => {
       selected?.classList.remove('edit-selected'); selected = el; el?.classList.add('edit-selected');
       if (el) el.appendChild(handle); else handle.remove();
+      if (el && canAdd) el.appendChild(add); else add.remove();
     };
     // 2.67: the block of a free section open in the panel (its id survives a rerender)
     let block: string | null = null;
@@ -111,6 +117,7 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
       if (t.closest('[contenteditable]')) return;          // typing in a text being edited
       e.preventDefault(); e.stopPropagation();
       if (t.closest('.edit-drag')) return;                  // the handle drags, it does not choose
+      if (t.closest('.edit-add')) { const after = selected?.dataset.editSection; if (after) send({ type: 'add', after }); return; }
       const sectionEl = t.closest<HTMLElement>('[data-edit-section]');
       const section = sectionEl?.dataset.editSection;
       const field = t.closest<HTMLElement>('[data-edit-field]');
@@ -224,6 +231,7 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
       else if (m.type === 'remove' && id) { const el = byId(id); if (el === selected) select(null); el?.remove(); }
       else if (m.type === 'rerender' && Number.isInteger(m.rev)) void rerender(m.rev as number);
       else if (m.type === 'style') applyStyle(m);
+      else if (m.type === 'config') { canAdd = m.add === true; select(selected); }
       // 2.68: a section's own design at once — only classes of the scales' shape (STYLE_CLASS), the saved draft follows
       else if (m.type === 'sectionStyle' && id && Array.isArray(m.classes) && m.classes.length <= 12 && m.classes.every((c) => typeof c === 'string' && STYLE_CLASS.test(c))) {
         const el = byId(id);

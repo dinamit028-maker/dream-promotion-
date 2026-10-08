@@ -7,7 +7,7 @@ import type { Store } from '@/lib/types';
 import { resolveHref } from '../chrome';
 import { Art, PlaceholderGrid, ProductGrid } from '../ui';
 import { editBlock, editColumn, editField as F, editImage as I } from '@/lib/edit';
-import { kitCollectionImage, kitGallery, kitHero, kitImage, type KitPicture } from '@/lib/kit-images';
+import { kitCollectionImage, kitCollectionPictures, kitGallery, kitHero, kitImage, type KitPicture } from '@/lib/kit-images';
 
 type S = Record<string, unknown>;
 const str = (s: S, k: string) => (typeof s[k] === 'string' ? (s[k] as string) : '');
@@ -80,7 +80,27 @@ function Hero({ s, site, first, variant }: { s: S; site: Live; first: boolean; v
 
 async function CollectionsSection({ s, site, id, variant }: { s: S; site: Live; id: string; variant: string }) {
   const list = (await data.collections(site.storeId, site.preview)) ?? [];
-  if (!list.length) return null;
+  // 2.69: no collections yet — the owner's preview shows where they will be (the kit's pictures, else drawings); a shopper nothing
+  if (!list.length) {
+    if (!site.preview) return null;
+    const pics = kitCollectionPictures(kitOf(site));
+    return (
+      <section className="band" id={id} aria-labelledby={`${id}-t`}>
+        <div className="wrap">
+          <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'קולקציות'}</h2>
+          {str(s, 'subtitle') && <p className="muted" {...F(Boolean(site.edit), 'subtitle')}>{str(s, 'subtitle')}</p>}
+          <ul className={`tiles tiles--${variant || site.theme?.commerce.collectionCard || 'grid'}`} role="list" aria-label="מקום לסוגי המוצרים">
+            {(pics.length ? pics : [null, null, null]).map((pic, i) => (
+              <li key={pic?.src ?? i}><span className="tile">
+                <span className="tile-media">{pic ? <KitImg pic={pic} /> : <Art className="tile-art" />}</span>
+                <span className="tile-title muted">כאן יופיע סוג מוצרים</span>
+              </span></li>
+            ))}
+          </ul>
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
@@ -286,7 +306,10 @@ function BlockView({ b, site }: { b: Block; site: Live }) {
       const src = safeImage(t.image);
       // eslint-disable-next-line @next/next/no-img-element
       if (src) return <div className="blk blk-img" {...mark}><img src={src} alt={t.alt} loading="lazy" decoding="async" /></div>;
-      return site.preview ? <div className="blk blk-img blk-img-empty" {...mark}><Art /><span className="muted">כאן תופיע תמונה</span></div> : null;
+      // the owner's preview: where a picture will be — the kit's (as an image beside words), else the drawing
+      if (!site.preview) return null;
+      const kit = kitImage(kitOf(site), 'imageText');
+      return <div className="blk blk-img blk-img-empty" {...mark}>{kit ? <KitImg pic={kit} /> : <Art />}<span className="muted">כאן תופיע תמונה</span></div>;
     }
     case 'badge': return t.text ? <div className="blk blk-badge" {...mark}><span className="blk-tag">{t.text}</span></div> : null;
     case 'spacer': return <div className={`blk blk-space blk-space-${t.size}`} aria-hidden="true" {...mark} />;

@@ -5,6 +5,8 @@
  * nothing until "פרסום באתר" (the theme's versions, as in the classic editor).
  */
 import { defaultColumns } from './blocks';
+import { LIBRARY } from './builder-registry';
+import { kitById, kitSettings } from './kits';
 import { SECTION_DEFS, type Draft, type Section, type SectionType } from './theme-fields';
 
 /** what the storefront's page sends (storefront/src/lib/edit.ts — the same shapes; anything else is ignored) */
@@ -19,7 +21,9 @@ export type EditMessage =
   /** 2.65: a section dragged on the page to a place (its index among the sections shown) — the dashboard decides */
   | { type: 'drop'; id: string; to: number }
   /** 2.67: a block of a free section clicked — it opens in the panel */
-  | { type: 'block'; section: string; id: string };
+  | { type: 'block'; section: string; id: string }
+  /** 2.69: "+ חלק חדש כאן" on a section — the library opens, to add after it */
+  | { type: 'add'; after: string };
 
 const str = (v: unknown, max = 300): v is string => typeof v === 'string' && v.length <= max;
 /** a message from the frame, checked field by field — or null */
@@ -33,6 +37,7 @@ export function readMessage(raw: unknown): EditMessage | null {
     case 'field': case 'image': return str(m.section, 40) && str(m.field, 40) ? { type: m.type, section: m.section, field: m.field } : null;
     case 'open': return str(m.target, 200) ? { type: 'open', target: m.target } : null;
     case 'drop': return str(m.id, 40) && Number.isInteger(m.to) && (m.to as number) >= 0 && (m.to as number) < 100 ? { type: 'drop', id: m.id, to: m.to as number } : null;
+    case 'add': return str(m.after, 40) ? { type: 'add', after: m.after } : null;
     case 'block': return str(m.section, 40) && typeof m.id === 'string' && /^[a-z][a-z0-9-]{0,30}$/.test(m.id) ? { type: 'block', section: m.section, id: m.id } : null;
     default: return null;
   }
@@ -64,13 +69,27 @@ function freeId(d: Draft, type: SectionType): string {
 }
 const MAX_SECTIONS = 20;
 
-/** a new section of a kind, after `after` (or at the end): its fields empty, its title the kind's name */
-export function addSection(d: Draft, type: SectionType, after: string | null = null): { draft: Draft; id: string } | null {
-  if (d.sections.length >= MAX_SECTIONS || !ADDABLE.includes(type)) return null;
+/**
+ * 2.69: what a new section starts with — the words of the site's kit when it has a section of that kind (the store's
+ * name in them, a booking link → WhatsApp), else the library's (builder-registry.ts). Every field of the kind is there.
+ */
+export function starterSettings(d: Draft, type: SectionType, name = ''): Record<string, unknown> {
   const def = SECTION_DEFS[type];
-  const settings: Record<string, unknown> = Object.fromEntries(def.fields.map((f) => [f.key, f.kind === 'number' ? 8 : f.kind === 'side' ? 'start' : '']));
-  if ('title' in settings) settings.title = def.label;
-  if (def.list) settings.items = [];
+  const empty: Record<string, unknown> = Object.fromEntries(def.fields.map((f) => [f.key, f.kind === 'number' ? 8 : f.kind === 'side' ? 'start' : '']));
+  if (def.list) empty.items = [];
+  const kit = kitById(d.kit);
+  const fromKit = kit && kit.theme.sections.some((s) => s.type === type)
+    ? (kitSettings(kit, { name, booking: '', business: { name } }).sections as { type: string; settings: Record<string, unknown> }[]).find((s) => s.type === type)!.settings
+    : null;
+  const from = fromKit ?? LIBRARY.find((x) => x.type === type)?.starter ?? {};
+  const own = Object.fromEntries(Object.entries(from).filter(([k]) => k in empty || (k === 'items' && def.list)));
+  return JSON.parse(JSON.stringify({ ...empty, ...own }));
+}
+
+/** a new section of a kind, after `after` (or at the end), with its starting words (starterSettings) */
+export function addSection(d: Draft, type: SectionType, after: string | null = null, name = ''): { draft: Draft; id: string } | null {
+  if (d.sections.length >= MAX_SECTIONS || !ADDABLE.includes(type)) return null;
+  const settings = starterSettings(d, type, name);
   const s: Section = { id: freeId(d, type), type, hidden: false, settings, ...(type === 'custom' ? { columns: defaultColumns() } : {}) };
   const at = after ? d.sections.findIndex((x) => x.id === after) + 1 : d.sections.length;
   const sections = d.sections.slice(); sections.splice(at > 0 ? at : sections.length, 0, s);

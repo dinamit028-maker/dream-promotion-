@@ -618,6 +618,11 @@ input, select, textarea {
   position: absolute; top: 10px; inset-inline-start: 10px; z-index: 50; width: 44px; height: 44px; border: 0; border-radius: 12px;
   background: #6b3bf5; color: #ffffff; font-size: 22px; line-height: 1; cursor: grab; touch-action: none; box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
 }
+.edit-mode .edit-add {
+  position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); z-index: 50; min-height: 44px; padding: 0 18px; border: 0;
+  border-radius: 999px; background: #6b3bf5; color: #ffffff; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+}
+.edit-mode .edit-add:focus-visible { outline: 3px solid #ff7fa8; outline-offset: 2px; }
 .edit-mode .edit-drag:focus-visible { outline: 3px solid #ff7fa8; outline-offset: 2px; }
 .edit-mode .edit-dragging { opacity: .45; }
 .edit-drop-line { position: fixed; inset-inline: 12px; top: var(--edit-line-y, -10px); z-index: 9999; height: 4px; margin-top: -2px; border-radius: 4px; background: #6b3bf5; pointer-events: none; }
@@ -637,7 +642,8 @@ input, select, textarea {
 .blk-h-xl { font-size: clamp(1.9rem, 6vw, 2.8rem); }
 .blk-p p { margin: 0 0 .7em; overflow-wrap: anywhere; }
 .blk-p p:last-child { margin-bottom: 0; }
-.blk-img img, .blk-img svg { display: block; width: 100%; height: auto; border-radius: var(--radius); }
+.blk-img img { display: block; width: 100%; height: auto; border-radius: var(--radius); }
+.blk-img svg { width: 100%; max-width: 240px; height: auto; }   /* no display: the theme shows one of the two drawings */
 .blk-img-empty { display: grid; gap: 6px; justify-items: center; text-align: center; }
 .blk-tag { display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--c-accent-soft); color: var(--c-text); font-size: .85rem; font-weight: 700; }
 .blk-space-s { height: 8px; }

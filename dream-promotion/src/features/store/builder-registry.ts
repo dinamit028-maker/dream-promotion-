@@ -131,3 +131,51 @@ export function styleClasses(style: StyleValues | undefined, responsive: Respons
 }
 /** a class the page may take from the editor (the same shape as styleClasses) */
 export const STYLE_CLASS = /^sx-(md-|lg-)?(py|sf|al|w)-[a-z][a-z-]{0,14}$/;
+
+/**
+ * 2.69 (PR-3e): the library of "+ הוספה" — the kinds of section one may add, by category, each with a line about it and
+ * the content it starts with: Hebrew words that read as a site (never lorem ipsum, never a made-up product). When the
+ * site's kit has a section of that kind, the editor starts from the kit's words instead (kits.ts). Its picture is
+ * /section-previews/<type>.jpg of the dashboard, shot from the real renderer (`npm run kit-shots`).
+ */
+export type LibraryCategory = 'מבנה' | 'תוכן' | 'מדיה' | 'מסחר' | 'יצירת קשר';
+export const LIBRARY_CATEGORIES: LibraryCategory[] = ['מבנה', 'תוכן', 'מדיה', 'מסחר', 'יצירת קשר'];
+export interface LibraryItem { type: string; category: LibraryCategory; about: string; starter: Record<string, unknown>; columns?: Column[] }
+const cell = (type: BlockType, settings: Record<string, string>, id: string): Block => ({ id, type, settings: { ...BLOCKS[type].defaults, ...settings } });
+export const STARTER_COLUMNS: Column[] = [
+  { id: 'c1', span: 6, blocks: [
+    cell('heading', { text: 'כותרת לחלק' }, 'b1'),
+    cell('paragraph', {}, 'b2'),
+    cell('button', {}, 'b3'),
+  ] },
+  { id: 'c2', span: 6, blocks: [cell('image', {}, 'b4')] },
+];
+export const LIBRARY: LibraryItem[] = [
+  { type: 'hero', category: 'מבנה', about: 'כותרת גדולה, כמה מילים, כפתורים ותמונה — מה שרואים ראשון.', starter: {
+    eyebrow: 'ברוכים הבאים', title: 'מה שאתם מחפשים — במקום אחד', subtitle: 'כמה מילים על העסק: מה אתם מציעים, ולמי.',
+    primaryLabel: 'לכל המוצרים', primaryHref: '/collections/all', secondaryLabel: 'שאלה בוואטסאפ', secondaryHref: 'whatsapp' } },
+  { type: 'custom', category: 'מבנה', about: 'עמודות זו לצד זו, ובכל אחת כותרת, טקסט, כפתור או תמונה — כמו שתרצו.', starter: {}, columns: STARTER_COLUMNS },
+  { type: 'text', category: 'תוכן', about: 'כותרת וכמה פסקאות — על העסק, על איך עובדים, על מה שחשוב לכם.', starter: {
+    title: 'קצת עלינו', text: 'כאן מספרים מי אתם, ממתי, ומה מיוחד אצלכם.\n\nשתיים או שלוש פסקאות קצרות מספיקות.' } },
+  { type: 'imageText', category: 'תוכן', about: 'תמונה מצד אחד, ומהצד השני כותרת, טקסט וכפתור.', starter: {
+    title: 'הסיפור שלנו', text: 'איך התחלנו, מה אנחנו אוהבים לעשות, ולמה כדאי לבחור בנו.', buttonLabel: 'לכל המוצרים', buttonHref: '/collections/all', imageSide: 'start' } },
+  { type: 'steps', category: 'תוכן', about: 'שלבים ממוספרים — איך מזמינים, איך מגיעים, מה קורה אחר כך.', starter: {
+    title: 'איך זה עובד', items: [
+      { title: 'בוחרים', text: 'מסתכלים באתר ובוחרים מה מתאים לכם.' },
+      { title: 'מזמינים', text: 'משלמים באתר בתשלום מאובטח, או שואלים אותנו קודם בוואטסאפ.' },
+      { title: 'מקבלים', text: 'אנחנו מכינים ושולחים — ומעדכנים אתכם בדרך.' },
+    ] } },
+  { type: 'faq', category: 'תוכן', about: 'שאלות ותשובות שנפתחות בלחיצה.', starter: {
+    title: 'שאלות נפוצות', items: [
+      { q: 'תוך כמה זמן מגיע משלוח?', a: 'כתבו כאן כמה ימי עסקים לוקח משלוח, ולאן אתם שולחים.' },
+      { q: 'אפשר להחליף או להחזיר?', a: 'כתבו כאן בקצרה, והפנו למדיניות ההחזרות של האתר.' },
+      { q: 'איך משלמים?', a: 'כתבו כאן אילו אמצעי תשלום יש באתר.' },
+    ] } },
+  { type: 'gallery', category: 'מדיה', about: 'תמונות עם כיתוב — לפני ואחרי, אינסטגרם, לוקבוק.', starter: {
+    title: 'מהאינסטגרם שלנו', text: 'רגעים מהעסק ומהלקוחות.', buttonLabel: '', buttonHref: '', items: [] } },
+  { type: 'products', category: 'מסחר', about: 'מוצרים מהחנות — החדשים, או מקולקציה שתבחרו.', starter: {
+    title: 'החדשים באתר', collection: '', limit: 8, buttonLabel: 'לכל המוצרים' } },
+  { type: 'collections', category: 'מסחר', about: 'סוגי המוצרים שלכם, עם תמונה לכל אחד.', starter: { title: 'מה יש אצלנו', subtitle: '' } },
+  { type: 'contact', category: 'יצירת קשר', about: 'וואטסאפ, טלפון, כתובת ושעות — מפרטי העסק.', starter: {
+    title: 'דברו איתנו', text: 'שאלה על מוצר, הזמנה או משלוח — אנחנו כאן.' } },
+];

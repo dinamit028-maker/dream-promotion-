@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import { makePreviewToken } from '../../src/lib/preview';
 import { sealKeys } from '../../src/lib/seal';
 import { orderRef } from '../../src/lib/order-link';
+import { LIBRARY } from '../../src/lib/builder-registry';
 
 const ROOT = path.resolve(__dirname, '../..');
 const MIGRATIONS = path.resolve(ROOT, '../dream-promotion/supabase/migrations');
@@ -659,6 +660,12 @@ async function main() {
         assert.equal(await frame.locator('.edit-block-selected').getAttribute('data-edit-block'), 'b2');
         await edit.page.evaluate(() => (document.getElementById('f') as HTMLIFrameElement).contentWindow!.postMessage({ type: 'select', id: 'free', block: 'b4' }, '*'));
         await frame.locator('[data-edit-block="b4"].edit-block-selected').waitFor();
+        // 2.69: "+ חלק חדש כאן" — only after the dashboard said sections may be added; it names the section to add after
+        assert.equal(await frame.locator('.edit-add').count(), 0, 'not before the dashboard allows it');
+        await edit.page.evaluate(() => (document.getElementById('f') as HTMLIFrameElement).contentWindow!.postMessage({ type: 'config', add: true }, '*'));
+        await frame.locator('[data-edit-section="free"] .edit-add').click();
+        await edit.page.waitForFunction(() => (window as any).msgs.some((m: any) => m.data?.type === 'add'));
+        assert.deepEqual(((await edit.page.evaluate(() => (window as any).msgs)) as { data: any }[]).find((m) => m.data.type === 'add')!.data, { type: 'add', after: 'free' });
         await edit.page.screenshot({ path: path.join(SHOTS, 'edit-blocks.png') });
         await edit.ctx.close();
       } finally {
@@ -886,6 +893,38 @@ async function main() {
       } finally {
         psql(`update public.stores set name = '${name.replace(/'/g, "''")}' where id = '${DRAFT_STORE}'`);
         setMenus(JSON.parse(menus));
+      }
+    });
+
+    // 2.69: the pictures of "+ הוספה" — one per kind of section, with its starting words, on the neutral kit
+    if (process.env.KIT_SHOTS) await step('the section library\'s pictures, from the real renderer', async () => {
+      const rows = psql(`select coalesce(json_agg(json_build_object('id', id, 'template', template, 'settings', settings)), '[]') from public.store_theme_versions where store_id = '${DRAFT_STORE}'`);
+      const out = path.resolve(ROOT, '../dream-promotion/public/section-previews');
+      mkdirSync(out, { recursive: true });
+      const settings = { kit: 'general', sections: LIBRARY.map((x) => ({ id: `t-${x.type.toLowerCase()}`, type: x.type, settings: x.starter, ...(x.columns ? { columns: x.columns } : {}) })) };
+      psql(`update public.store_theme_versions set template = 'kit', settings = '${JSON.stringify(settings).replace(/'/g, "''")}' where store_id = '${DRAFT_STORE}'`);
+      try {
+        const token = makePreviewToken(DRAFT_STORE, SECRET, Date.now() / 1000 + 3600);
+        const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 0.5, locale: 'he-IL' });
+        const page = await ctx.newPage();
+        await page.goto(url('draft.test', `/?edit=${encodeURIComponent(token)}`));
+        await page.locator('[data-edit-section="t-hero"]').waitFor();
+        // the site, not the editor's marks; nor the header that stays at the top of the window
+        await page.evaluate(() => { document.documentElement.classList.remove('edit-mode'); document.querySelector('header.site-header')?.remove(); document.querySelector('.announcement')?.remove(); });
+        for (const x of LIBRARY) {
+          const el = page.locator(`[data-edit-section="t-${x.type.toLowerCase()}"]`);
+          await el.scrollIntoViewIfNeeded();
+          await page.waitForFunction(() => Array.from(document.images).every((i) => i.complete));
+          const box = (await el.boundingBox())!;
+          assert.ok(box.height > 40, `${x.type} is shown`);
+          await page.screenshot({ path: path.join(out, `${x.type}.jpg`), type: 'jpeg', quality: 70,
+            clip: { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 800) } });
+        }
+        await ctx.close();
+      } finally {
+        for (const r of JSON.parse(rows) as { id: string; template: string; settings: unknown }[]) {
+          psql(`update public.store_theme_versions set template = '${r.template}', settings = '${JSON.stringify(r.settings).replace(/'/g, "''")}' where id = '${r.id}'`);
+        }
       }
     });
 

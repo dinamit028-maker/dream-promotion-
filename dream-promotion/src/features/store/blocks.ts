@@ -4,7 +4,7 @@
  * the registry's (builder-registry.ts, the same file on the storefront): at most 4 columns of 12 blocks, a width from the
  * list, every value through cleanField.
  */
-import { BLOCKS, cleanField, MAX_BLOCKS, MAX_COLUMNS, SPANS, type Block, type BlockType, type Column, type Span } from './builder-registry';
+import { BLOCKS, cleanField, STARTER_COLUMNS, MAX_BLOCKS, MAX_COLUMNS, SPANS, type Block, type BlockType, type Column, type Span } from './builder-registry';
 import type { Draft } from './theme-fields';
 
 const ids = (cols: Column[]) => new Set(cols.flatMap((c) => [c.id, ...c.blocks.map((b) => b.id)]));
@@ -16,17 +16,8 @@ function freeId(cols: Column[], prefix: string): string {
 const block = (cols: Column[], type: BlockType, settings: Record<string, string> = {}): Block =>
   ({ id: freeId(cols, 'b'), type, settings: { ...BLOCKS[type].defaults, ...settings } });
 
-/** a new free section: words and a button beside a picture (on a phone, one under the other) */
-export function defaultColumns(): Column[] {
-  return [
-    { id: 'c1', span: 6, blocks: [
-      { id: 'b1', type: 'heading', settings: { ...BLOCKS.heading.defaults, text: 'כותרת לחלק' } },
-      { id: 'b2', type: 'paragraph', settings: { ...BLOCKS.paragraph.defaults } },
-      { id: 'b3', type: 'button', settings: { ...BLOCKS.button.defaults } },
-    ] },
-    { id: 'c2', span: 6, blocks: [{ id: 'b4', type: 'image', settings: { ...BLOCKS.image.defaults } }] },
-  ];
-}
+/** a new free section: words and a button beside a picture (on a phone, one under the other) — the registry's starter */
+export const defaultColumns = (): Column[] => structuredClone(STARTER_COLUMNS);
 
 /** where a block is: its column and place — or null */
 export function findBlock(cols: Column[], id: string): { column: Column; index: number; block: Block } | null {

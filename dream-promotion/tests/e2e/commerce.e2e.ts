@@ -174,7 +174,7 @@ async function main() {
       frameLoads.push(r.request().url());
       return r.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html dir="rtl"><body>
         <button id="title">הכותרת</button><button id="steps">איך זה עובד</button><button id="menu">התפריט</button><button id="go">לקולקציה</button>
-        <button id="drop">גרירה למעלה</button><button id="block">בלוק</button>
+        <button id="drop">גרירה למעלה</button><button id="block">בלוק</button><button id="add">הוספה כאן</button>
         <script>
           const send = (m) => parent.postMessage(m, ${JSON.stringify(BASE)});
           // 2.65: what the dashboard tells the page (move / remove / rerender), kept for the test to read
@@ -182,6 +182,7 @@ async function main() {
           addEventListener('message', (e) => { if (e.origin === ${JSON.stringify(BASE)}) window.got.push(e.data); });
           // 2.67: a block of the free section added in the test below (its id: the first free one of "custom")
           document.getElementById('block').onclick = () => send({ type: 'block', section: 'custom-2', id: 'b2' });
+          document.getElementById('add').onclick = () => send({ type: 'add', after: 'hero' });
           document.getElementById('drop').onclick = () => send({ type: 'drop', id: 'steps', to: 0 });
           send({ type: 'ready', path: location.pathname });
           document.getElementById('title').onclick = () => send({ type: 'text', section: 'hero', field: 'title', value: 'כותרת שנערכה באתר' });
@@ -825,8 +826,12 @@ async function main() {
       const draft = () => fake.tables.store_theme_versions.find((v) => v.status === 'draft');
       const free = () => draft()?.settings.sections.find((x: any) => x.id === 'custom-2');
       const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await st.waitForTimeout(100); assert.ok(ok()); };
-      await st.getByLabel('חלק חדש').locator('visible=true').selectOption('custom');
-      await st.getByRole('button', { name: '+ הוספה' }).locator('visible=true').click();
+      // 2.69 (PR-3e): "+ חלק חדש" opens the library — by category, a picture for each kind
+      await st.getByRole('button', { name: '+ חלק חדש' }).locator('visible=true').click();
+      await st.getByText('בסוף עמוד הבית', { exact: false }).locator('visible=true').waitFor();
+      assert.ok(await st.locator('img[src="/section-previews/custom.jpg"]').locator('visible=true').count() === 1);
+      await st.screenshot({ path: path.join(SHOTS, 'c9d-add-gallery-phone.png'), fullPage: true });
+      await st.getByRole('button', { name: 'הוספת חלק חופשי (עמודות)' }).locator('visible=true').click();
       await st.getByRole('heading', { name: 'חלק חופשי (עמודות)' }).waitFor();
       await until(() => Boolean(free()));
       assert.deepEqual(free().columns.map((c: any) => [c.id, c.span, c.blocks.map((b: any) => b.type)]),
@@ -878,6 +883,16 @@ async function main() {
       await until(() => free()?.responsive === undefined);
       assert.deepEqual(free().style, { padY: 'l' }, 'the phone\'s stays');
       await st.getByRole('button', { name: 'עיצוב לטלפון' }).click();
+      // "+ חלק חדש כאן" on the page (after the hero): the library, then the section right there, with its starting words
+      const gotNow = await frame.locator('body').evaluate(() => (window as any).got as any[]);
+      assert.ok(gotNow.some((m: any) => m.type === 'config' && m.add === true), 'the page was told sections may be added');
+      await frame.locator('#add').click();
+      await st.getByText('אחרי "פתיח"', { exact: false }).waitFor();
+      await st.getByRole('button', { name: 'הוספת שאלות נפוצות' }).click();
+      await st.getByRole('heading', { name: 'שאלות נפוצות' }).waitFor();
+      await until(() => draft()!.settings.sections.findIndex((x: any) => x.id === 'faq-2') === draft()!.settings.sections.findIndex((x: any) => x.id === 'hero') + 1);
+      const faq = draft()!.settings.sections.find((x: any) => x.id === 'faq-2');
+      assert.ok(faq.settings.items.length > 0 && faq.settings.title, 'with words to start from (the kit\'s, or the library\'s)');
       await noSideScroll(st, 'the free section\'s panel on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c9c-blocks-phone.png'), fullPage: true });
     });
