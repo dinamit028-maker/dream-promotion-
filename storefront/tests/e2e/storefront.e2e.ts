@@ -10,7 +10,7 @@
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHmac } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -33,6 +33,9 @@ const LINK = 'e2e-order-link-secret-0123456789';     // the signed order link of
 const DASH_PORT = PORT + 1;                           // a stand-in for the dashboard's server
 const MOCK_KEYS = { api_key: 'mock-api', secret_key: 'mock-secret' };
 const SHOTS = path.join(__dirname, 'shots');
+/** visual regression (2.72): the share of a picture's pixels that may change clearly before it fails */
+const VISUAL_MAX = 0.004;
+const visualRatios: [string, number][] = [];
 const DRAFT_STORE = 'cccccccc-0000-4000-8000-0000000000c1';
 const FOLLOWME_STORE = 'aaaaaaaa-0000-4000-8000-0000000000a1';
 const url = (host: string, p = '/') => `http://${host}:${PORT}${p}`;
@@ -878,6 +881,77 @@ async function main() {
       assert.match(shopper.body, /class="v-sp-normal v-hs-normal v-btn-solid v-ct-normal v-card-border v-h-classic/);
       assert.ok(!/שום דבר לא נשמר/.test(shopper.body));
       assert.equal(snapshot(), before, 'the database is exactly as it was');
+    });
+
+    // 2.72 (the spec's section 87): what every kit looks like, held against saved pictures — FollowMe's own data (its
+    // products, prices, collections and menus) in each kit in full: the home page on a computer and on a phone, a product,
+    // the collection, the footer. Pictures differ a little from run to run (fonts, image decoding): a picture fails only
+    // when more than VISUAL_MAX of its pixels changed clearly. `npm run visual:update` saves new ones after a change meant.
+    await step('visual regression: 7 kits — home (computer, phone), a product, the collection, the footer — against their saved pictures', async () => {
+      const dir = path.join(__dirname, 'visual');
+      const update = Boolean(process.env.VISUAL_UPDATE);
+      mkdirSync(dir, { recursive: true });
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      const product = psql(`select slug from public.catalog_items where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a' and publish_online order by name limit 1`);
+      const kits = readdirSync(path.resolve(ROOT, '../dream-promotion/kits')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
+      const desk = await browser.newContext({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 0.5, locale: 'he-IL' });
+      const mob = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, locale: 'he-IL' });
+      for (const c of [desk, mob]) await c.route('https://cdn.test/**', (r: any) => r.fulfill({ status: 200, contentType: 'image/png', body: picture }));
+      const [dp, mp] = [await desk.newPage(), await mob.newPage()];
+      const cmp = await (await browser.newContext()).newPage();   // compares two pictures in a canvas (no image library)
+      await cmp.evaluate('window.__name = (f) => f');   // tsx names the functions it hands the page with a helper of its own
+      const ready = async (p: any) => {
+        await p.evaluate(() => document.querySelectorAll('.preview-bar, .consent').forEach((e) => e.remove()));
+        await p.evaluate(() => document.fonts.ready);
+        await p.waitForFunction(() => Array.from(document.images).filter((i) => { const r = i.getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; }).every((i) => i.complete));
+      };
+      const failed: string[] = [];
+      const check = async (name: string, shot: Buffer) => {
+        const file = path.join(dir, `${name}.jpg`);
+        if (update) { writeFileSync(file, shot); return; }
+        if (!existsSync(file)) { failed.push(`${name}: no saved picture — npm run visual:update`); return; }
+        const r = await cmp.evaluate(async ([a, b]: string[]) => {
+          const load = (src: string) => new Promise<HTMLImageElement>((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+          const [x, y] = await Promise.all([load(a), load(b)]);
+          if (x.width !== y.width || x.height !== y.height) return { size: `${x.width}x${x.height} ≠ ${y.width}x${y.height}`, ratio: 1, diff: '' };
+          const px = (img: HTMLImageElement) => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d')!; g.drawImage(img, 0, 0); return g.getImageData(0, 0, c.width, c.height); };
+          const [p, q] = [px(x), px(y)];
+          const out = new ImageData(p.width, p.height);
+          let n = 0;
+          for (let i = 0; i < p.data.length; i += 4) {
+            const d = Math.max(Math.abs(p.data[i] - q.data[i]), Math.abs(p.data[i + 1] - q.data[i + 1]), Math.abs(p.data[i + 2] - q.data[i + 2]));
+            const bad = d > 48; if (bad) n++;
+            out.data[i] = bad ? 255 : p.data[i] / 3; out.data[i + 1] = bad ? 0 : p.data[i + 1] / 3; out.data[i + 2] = bad ? 0 : p.data[i + 2] / 3; out.data[i + 3] = 255;
+          }
+          const c = document.createElement('canvas'); c.width = p.width; c.height = p.height; c.getContext('2d')!.putImageData(out, 0, 0);
+          return { size: '', ratio: n / (p.width * p.height), diff: c.toDataURL('image/png') };
+        }, [`data:image/jpeg;base64,${readFileSync(file).toString('base64')}`, `data:image/jpeg;base64,${shot.toString('base64')}`]);
+        visualRatios.push([name, r.ratio]);
+        if (r.size || r.ratio > VISUAL_MAX) {
+          writeFileSync(path.join(SHOTS, `visual-${name}.actual.jpg`), shot);
+          if (r.diff) writeFileSync(path.join(SHOTS, `visual-${name}.diff.png`), Buffer.from(r.diff.split(',')[1], 'base64'));
+          failed.push(`${name}: ${r.size || `${(r.ratio * 100).toFixed(2)}% of the pixels changed`} (tests/e2e/shots/visual-${name}.diff.png)`);
+        }
+      };
+      const shoot = (p: any, opts: Record<string, unknown> = {}) => p.screenshot({ type: 'jpeg', quality: 80, animations: 'disabled', caret: 'hide', ...opts });
+      await dp.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+      await mp.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+      for (const kit of kits) {
+        for (const p of [dp, mp]) { await p.goto(url('followme.test', `/?kit=${kit}&kitmode=full`)); await p.locator('.preview-bar').waitFor(); await ready(p); }
+        await check(`${kit}-home-computer`, await shoot(dp));
+        await check(`${kit}-home-phone`, await shoot(mp));
+        await dp.goto(url('followme.test', `/products/${product}`)); await ready(dp);
+        await check(`${kit}-product-computer`, await shoot(dp));
+        await dp.goto(url('followme.test', '/collections/all')); await ready(dp);
+        await check(`${kit}-collection-computer`, await shoot(dp));
+        const footer = dp.locator('footer.site-footer');
+        await footer.scrollIntoViewIfNeeded(); await ready(dp);
+        await check(`${kit}-footer-computer`, await footer.screenshot({ type: 'jpeg', quality: 80, animations: 'disabled' }));
+      }
+      await desk.close(); await mob.close();
+      if (update) console.log(`# visual: ${kits.length * 5} pictures saved in tests/e2e/visual`);
+      else console.log(`# visual: the largest change ${(Math.max(...visualRatios.map((x) => x[1])) * 100).toFixed(3)}% (${visualRatios.sort((a, b) => b[1] - a[1])[0][0]})`);
+      assert.deepEqual(failed, [], failed.join('\n'));
     });
 
     // the kits' gallery pictures (2.66, `npm run kit-shots`): each kit in full, on a store named "החנות שלכם" with no product —
