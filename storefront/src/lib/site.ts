@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { data } from './data';
+import { shared } from './shared-cache';
 import { ACCESS_COOKIE, hasAccess } from './access';
 import { isPlatformHost, subdomainOf } from './host';
 import { dashboardOrigin, EDIT_HEADER, PREVIEW_COOKIE, verifyPreviewToken } from './preview';
@@ -63,12 +64,12 @@ export const getSite = cache(async (host: string): Promise<Site | null> => {
   } else {
     return null;
   }
-  let store = await data.store(storeId, token);
+  let store = await shared.store(storeId, token);   // 2.74: kept for shoppers (shared-cache.ts)
   if (!store) return null;
   // before migration 3700 there is no access: on the air = public, as before
   const access = store.access ?? { mode: store.status === 'published' ? 'public' : 'closed', key: null };
   const unlocked = !token && access.mode === 'password' && hasAccess(jar.get(ACCESS_COOKIE)?.value, storeId, access.key);
-  if (unlocked && store.status !== 'published') store = (await data.store(storeId, true)) ?? store;   // the draft, behind the password
+  if (unlocked && store.status !== 'published') store = (await shared.store(storeId, true)) ?? store;   // the draft, behind the password
   // the subdomain: its canonical address is the store's own domain only once that works (the database says which)
   const primaryDomain = slug ? resolved?.primary_domain ?? null : platformResolved ? platformResolved.primary_domain ?? null
     : store.primary_domain ?? resolved?.primary_domain ?? null;

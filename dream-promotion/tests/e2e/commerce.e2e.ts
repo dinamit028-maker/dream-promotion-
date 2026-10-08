@@ -430,6 +430,9 @@ async function main() {
   } finally { await reg.context().close(); current = null; }
 
   const { page: st } = await open({ access: 'full', userId: OWNER, viewport: PHONE, path: '/store/settings' });
+  // 2.74: after a change the shoppers see, the dashboard asks the storefront to drop what it keeps (its own route signs it)
+  let refreshes = 0;
+  st.on('request', (r: any) => { if (new URL(r.url()).pathname === '/api/store/revalidate' && r.method() === 'POST') refreshes++; });
   current = st;
   const store = () => fake.tables.stores?.[0];
   const block = (page: any, title: string) => page.locator('section', { has: page.getByRole('heading', { name: title, exact: true }) });
@@ -661,9 +664,12 @@ async function main() {
       assert.equal(saved.sections.find((x: any) => x.id === 'hero').settings.title, 'השקית שלכם, הלוגו שלכם');
       assert.equal(saved.sections.find((x: any) => x.id === 'about').hidden, true);
       assert.deepEqual(saved.sections.map((x: any) => x.id).slice(-2), ['contact', 'faq'], 'contact moved above the questions');
+      const refreshesBefore = refreshes;
       await st.getByRole('button', { name: 'פרסום באתר' }).click();
       await st.getByText('גרסה 1 פורסמה באתר.').waitFor();
       assert.deepEqual(versions().map((v) => [v.version, v.status]), [[1, 'published']]);
+      for (let i = 0; i < 30 && refreshes === refreshesBefore; i++) await st.waitForTimeout(100);
+      assert.equal(refreshes, refreshesBefore + 1, '2.74: the storefront is asked to refresh, once');
 
       await hero.getByLabel('כותרת', { exact: true }).fill('גרסה שנייה');
       await st.getByRole('button', { name: 'פרסום באתר' }).click();

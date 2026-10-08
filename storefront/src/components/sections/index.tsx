@@ -1,4 +1,5 @@
 import { data } from '@/lib/data';
+import { shared } from '@/lib/shared-cache';
 import { whatsappHref } from '@/lib/format';
 import type { Site } from '@/lib/site';
 import { safeImage, type Section } from '@/lib/theme';
@@ -79,7 +80,7 @@ function Hero({ s, site, first, variant }: { s: S; site: Live; first: boolean; v
 }
 
 async function CollectionsSection({ s, site, id, variant }: { s: S; site: Live; id: string; variant: string }) {
-  const list = (await data.collections(site.storeId, site.preview)) ?? [];
+  const list = (await shared.collections(site.storeId, site.preview)) ?? [];
   // 2.69: no collections yet — the owner's preview shows where they will be (the kit's pictures, else drawings); a shopper nothing
   if (!list.length) {
     if (!site.preview) return null;

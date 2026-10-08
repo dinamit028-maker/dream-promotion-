@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { CollectionArt } from '@/components/sections';
 import { Art } from '@/components/ui';
-import { data } from '@/lib/data';
+import { shared } from '@/lib/shared-cache';
 import { liveSite } from '@/lib/site';
 
 type Props = { params: Promise<{ host: string }> };
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'קולקציות', alternates: { can
 
 export default async function CollectionsPage({ params }: Props) {
   const site = await liveSite((await params).host);
-  const list = (await data.collections(site.storeId, site.preview)) ?? [];
+  const list = (await shared.collections(site.storeId, site.preview)) ?? [];
   return (
     <div className="wrap">
       <header className="page-head"><h1 className="page-title">קולקציות</h1></header>

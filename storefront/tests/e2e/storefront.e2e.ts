@@ -10,12 +10,13 @@
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHmac } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import assert from 'node:assert/strict';
-import { makePreviewToken } from '../../src/lib/preview';
+import { makePreviewToken, makeRevalidateToken } from '../../src/lib/preview';
+import { money } from '../../src/lib/format';
 import { sealKeys } from '../../src/lib/seal';
 import { orderRef } from '../../src/lib/order-link';
 import { LIBRARY } from '../../src/lib/builder-registry';
@@ -91,6 +92,17 @@ function raw(host: string, p: string, headers: Record<string, string> = {}): Pro
   });
 }
 
+/**
+ * 2.74: what the dashboard does after a change the shoppers see (its /api/store/revalidate) — the storefront drops what it
+ * keeps of every store (shared-cache.ts). The steps below that write to the database directly call it after each write.
+ */
+async function refreshAll() {
+  for (const id of psql(`select coalesce(string_agg(id::text, ','), '') from public.stores`).split(',').filter(Boolean)) {
+    const r = await rawPost('platform.test', '/api/revalidate', JSON.stringify({ token: makeRevalidateToken(id, SECRET, Date.now() / 1000 + 60) }));
+    assert.equal(r.status, 200, `refresh ${id}`);
+  }
+}
+
 /** a POST with any Host (the provider's notice, a form of another site, the cron) */
 function rawPost(host: string, p: string, body: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
@@ -154,6 +166,8 @@ async function main() {
     });
   });
   await new Promise<void>((r) => dashboard.listen(DASH_PORT, '127.0.0.1', r));
+  // 2.74: what the storefront keeps (shared-cache.ts) lives in .next/cache — never from an earlier run (the same ids)
+  rmSync(path.join(ROOT, '.next/cache/fetch-cache'), { recursive: true, force: true });
   const server = run('npx', ['next', 'start', '-p', String(PORT)], {
     SF_DATA: 'pg', SF_DATABASE_URL: `postgres://sf_e2e:sf_e2e@127.0.0.1:5432/${DB}`,
     STOREFRONT_PREVIEW_SECRET: SECRET, STOREFRONT_PLATFORM_HOSTS: 'platform.test',
@@ -459,6 +473,7 @@ async function main() {
       const before = psql(`select items::text from public.store_menus where store_id = '${FOLLOWME_STORE}' and kind = 'main'`);
       psql(`insert into public.store_pages (store_id, kind, slug, title, body, published) values ('${FOLLOWME_STORE}', 'page', 'how-to-order', 'איך מזמינים', 'בקרוב.', false);
         update public.store_menus set items = items || '[{"label": "איך מזמינים", "href": "/pages/how-to-order"}]' where store_id = '${FOLLOWME_STORE}' and kind = 'main';`);
+      await refreshAll();
       try {
         const shopper = await raw('followme.test', '/');
         assert.match(shopper.body, /אקולוגיות/, 'the links to what is on the site stay');
@@ -470,9 +485,11 @@ async function main() {
         await page.locator('.nav-wide').getByRole('link', { name: 'איך מזמינים', includeHidden: true }).waitFor({ state: 'attached' });
         await ctx.close();
         psql(`update public.store_pages set published = true where store_id = '${FOLLOWME_STORE}' and slug = 'how-to-order';`);
+        await refreshAll();
         assert.match((await raw('followme.test', '/')).body, /איך מזמינים/, 'published: the link is back');
       } finally {
         psql(`update public.store_menus set items = '${before.replace(/'/g, "''")}' where store_id = '${FOLLOWME_STORE}' and kind = 'main';`);
+        await refreshAll();
       }
     });
 
@@ -743,6 +760,39 @@ async function main() {
       } finally {
         const [tpl, ...rest] = was.split('|');
         psql(`update public.store_theme_versions set template = '${tpl}', settings = '${rest.join('|').replace(/'/g, "''")}' where id = '${DRAFT}'`);
+      }
+    });
+
+    // 2.74: what the storefront keeps for shoppers (shared-cache.ts) and what it never keeps
+    await step('the shared cache: a store\'s details stay until the dashboard\'s signed refresh; a preview, a price and stock are always read', async () => {
+      const name = psql(`select name from public.stores where id = '${FOLLOWME_STORE}'`);
+      const item = psql(`select id || '|' || slug || '|' || coalesce(online_price::text, 'null') || '|' || coalesce(online_price, price) from public.catalog_items where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a' and publish_online and not has_variants order by name limit 1`);
+      const [itemId, slug, online, price] = item.split('|');
+      const shopper = async (p = '/') => (await raw('followme.test', p)).body;
+      await refreshAll();
+      assert.match(await shopper(), new RegExp(name));   // read once: now kept
+      try {
+        psql(`update public.stores set name = 'שם חדש לבדיקה' where id = '${FOLLOWME_STORE}'`);
+        assert.match(await shopper(), new RegExp(name), 'kept: the old name until the refresh');
+        assert.doesNotMatch(await shopper(), /שם חדש לבדיקה/);
+        // the owner's preview reads the database
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', `/?preview=${encodeURIComponent(makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600))}`));
+        assert.match(await text(page), /שם חדש לבדיקה/, 'a preview: the database, at once');
+        await ctx.close();
+        // a refresh nobody signed, or signed as a preview: refused, nothing dropped
+        assert.equal((await rawPost('followme.test', '/api/revalidate', JSON.stringify({ token: makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 60) }))).status, 401);
+        assert.equal((await rawPost('followme.test', '/api/revalidate', JSON.stringify({ token: 'x' }))).status, 401);
+        assert.doesNotMatch(await shopper(), /שם חדש לבדיקה/);
+        await refreshAll();
+        assert.match(await shopper(), /שם חדש לבדיקה/, 'after the refresh: the new name');
+        // a price is never kept: changed at the register, shown at the next visit
+        psql(`update public.catalog_items set online_price = ${Number(price) + 7} where id = '${itemId}'`);
+        assert.ok((await shopper(`/products/${encodeURI(slug)}`)).includes(money(Number(price) + 7)), 'the new price at once, with no refresh');
+      } finally {
+        psql(`update public.stores set name = '${name.replace(/'/g, "''")}' where id = '${FOLLOWME_STORE}'`);
+        psql(`update public.catalog_items set online_price = ${online} where id = '${itemId}'`);
+        await refreshAll();
       }
     });
 
@@ -1293,6 +1343,7 @@ async function main() {
       // the draft's own domain was served earlier (so its subdomain would redirect there): here, before it works
       const draftDomains = psql(`select string_agg(domain || '=' || status, ',') from public.store_domains where store_id = '${DRAFT_STORE}'`);
       psql(`update public.store_domains set status = 'pending' where store_id = '${DRAFT_STORE}'`);
+      await refreshAll();
       try {
       const password = psql(`select storefront_password from public.stores where id = '${DRAFT_STORE}'`);
       assert.match(password, /^[0-9a-z]{10}$/, 'a new store gets a password');
@@ -1323,6 +1374,7 @@ async function main() {
       assert.equal(other.status, 200);
       // a new password signs everyone out
       psql(`update public.stores set storefront_password = 'brand-new-1' where id = '${DRAFT_STORE}'`);
+      await refreshAll();
       await page.reload();
       await page.getByRole('heading', { level: 1, name: 'בקרוב' }).waitFor();
       // ten wrong tries, then a pause (the database counts)
@@ -1335,12 +1387,15 @@ async function main() {
       await ctx.close();
       // no password: closed to everyone (the owner's preview link still opens it — the step of "בקרוב" above)
       psql(`update public.stores set storefront_password = '' where id = '${DRAFT_STORE}'`);
+      await refreshAll();
       const closed = await raw('draft.stores.test', '/');
       assert.match(closed.body, /בקרוב/);
       assert.doesNotMatch(closed.body, /יש לכם סיסמה/);
       psql(`update public.stores set storefront_password = 'brand-new-1' where id = '${DRAFT_STORE}'`);
+      await refreshAll();
       // a published store its owner locked: "בקרוב" and noindex at its own domain too, until the password
       psql(`update public.stores set password_lock = true where slug = 'shoes'`);
+      await refreshAll();
       try {
         const locked = await raw('shoes.test', '/');
         assert.match(locked.body, /בקרוב/);
@@ -1348,12 +1403,14 @@ async function main() {
         assert.match((await raw('shoes.test', '/robots.txt')).body, /Disallow: \/\n/);
       } finally {
         psql(`update public.stores set password_lock = false where slug = 'shoes'`);
+        await refreshAll();
       }
       assert.doesNotMatch((await raw('shoes.test', '/')).body, /noindex/, 'unlocked: open again');
       } finally {
         for (const x of (draftDomains || '').split(',').filter(Boolean)) {
           const [d, st] = x.split('=');
           psql(`update public.store_domains set status = '${st}' where domain = '${d}'`);
+          await refreshAll();
         }
       }
     });
@@ -1361,7 +1418,9 @@ async function main() {
     await step('no domain at all: the storefront\'s own address + /s/<slug> opens the store (password before publishing, 308 once its domain works)', async () => {
       // the draft (its own domain not working): "בקרוב" with the password, then the store — noindex, robots closed
       psql(`update public.store_domains set status = 'pending' where store_id = '${DRAFT_STORE}'`);
+      await refreshAll();
       psql(`update public.stores set storefront_password = 'platform-pass' where id = '${DRAFT_STORE}'`);
+      await refreshAll();
       psql(`delete from public.rate_limits where key like 'unlock:%'`);   // the step above used up this visitor's tries
       try {
         const { ctx, page } = await phone();
@@ -1383,6 +1442,7 @@ async function main() {
         await ctx.close();
       } finally {
         psql(`update public.store_domains set status = 'active' where store_id = '${DRAFT_STORE}'`);
+        await refreshAll();
       }
       // only the storefront's own address; an unknown address or a store's domain: 404
       assert.equal((await raw('platform.test', '/s/nobody-here')).status, 404);

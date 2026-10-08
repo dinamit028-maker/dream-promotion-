@@ -2,7 +2,7 @@ import { cache } from 'react';
 import { editLink } from '@/lib/edit';
 import type { Metadata } from 'next';
 import { RichText } from '@/components/ui';
-import { data } from '@/lib/data';
+import { shared } from '@/lib/shared-cache';
 import { excerpt } from '@/lib/format';
 import { og } from '@/lib/seo';
 import { getSite, hostOf, liveSite, movedOr404 } from '@/lib/site';
@@ -10,7 +10,7 @@ import { POLICY_KINDS, type PolicyKind } from '@/lib/types';
 
 /** a policy of the store (returns, privacy, accessibility…) — the business's own text, written in the dashboard */
 type Props = { params: Promise<{ host: string; kind: string }> };
-const policy = cache((store: string, kind: string, preview: boolean) => data.page(store, 'policy', kind, preview));
+const policy = cache((store: string, kind: string, preview: boolean) => shared.page(store, 'policy', kind, preview));
 const known = (k: string): k is PolicyKind => (POLICY_KINDS as readonly string[]).includes(k);
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
