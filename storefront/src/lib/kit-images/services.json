@@ -1,0 +1,108 @@
+{
+  "kit": "services",
+  "version": 2,
+  "images": [
+    {
+      "file": "services-hero-wide.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.25,
+        "y": 0.55
+      },
+      "alt": "פינת ישיבה עם כורסאות קטיפה כחולות ושולחן עגול ליד חלון מואר",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 1
+    },
+    {
+      "file": "services-hero-wide-2.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.28,
+        "y": 0.6
+      },
+      "alt": "שולחן עבודה מעץ אלון עם מחשב נייד ומחברת כחולה במשרד מואר",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 2
+    },
+    {
+      "file": "services-hero-vertical.webp",
+      "slot": "hero",
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.6,
+        "y": 0.5
+      },
+      "alt": "דלפק קבלה מעץ על רקע קיר כחול כהה וצמחייה ירוקה",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "services-image-text.webp",
+      "slot": "imageText",
+      "width": 1255,
+      "height": 941,
+      "focal": {
+        "x": 0.45,
+        "y": 0.6
+      },
+      "alt": "מחברת פתוחה, עט ומחשב נייד על שולחן עץ באור בוקר",
+      "order": 1
+    },
+    {
+      "file": "services-cat-packages.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שלוש מחברות בצבעים שונים לצד ספלי קפה על שולחן ישיבות עגול",
+      "collection": "packages",
+      "order": 1
+    },
+    {
+      "file": "services-gallery-1.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.6
+      },
+      "alt": "ספל קפה ומחברת כחולה על אדן חלון עם נוף עירוני",
+      "order": 1
+    },
+    {
+      "file": "services-gallery-2.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.55,
+        "y": 0.4
+      },
+      "alt": "איש מקצוע מביט מחלון משרד אל נוף העיר",
+      "order": 2
+    },
+    {
+      "file": "services-gallery-3.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.48
+      },
+      "alt": "לחיצת ידיים מעל שולחן עץ במשרד מואר",
+      "order": 3
+    }
+  ]
+}

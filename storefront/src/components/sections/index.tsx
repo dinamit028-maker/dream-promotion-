@@ -6,10 +6,20 @@ import type { Store } from '@/lib/types';
 import { resolveHref } from '../chrome';
 import { Art, PlaceholderGrid, ProductGrid } from '../ui';
 import { editField as F, editImage as I } from '@/lib/edit';
+import { kitCollectionImage, kitGallery, kitImage, type KitPicture } from '@/lib/kit-images';
 
 type S = Record<string, unknown>;
 const str = (s: S, k: string) => (typeof s[k] === 'string' ? (s[k] as string) : '');
 type Live = Site & { store: Store };
+const kitOf = (site: Live) => site.theme?.kit ?? null;
+
+/** a default picture of the starter kit (2.62), where the business has none of its own yet */
+function KitImg({ pic, className, eager = false }: { pic: KitPicture; className?: string; eager?: boolean }) {
+  // no width / height attributes: they would set a height the business's own pictures do not get (the CSS sizes both alike)
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={pic.src} alt={pic.alt} className={[className, pic.className].filter(Boolean).join(' ')}
+    loading={eager ? 'eager' : 'lazy'} {...(eager ? { fetchPriority: 'high' as const } : {})} decoding="async" />;
+}
 
 function Button({ label, href, store, kind = 'primary' }: { label: string; href: string; store: Store; kind?: 'primary' | 'ghost' }) {
   const to = label ? resolveHref(href, store) : null;
@@ -20,6 +30,7 @@ function Button({ label, href, store, kind = 'primary' }: { label: string; href:
 
 function Hero({ s, site, first }: { s: S; site: Live; first: boolean }) {
   const img = safeImage(s.image);
+  const kit = img ? null : kitImage(kitOf(site), 'hero');
   const e = Boolean(site.edit);
   const Title = first ? 'h1' : 'h2';
   return (
@@ -38,7 +49,7 @@ function Hero({ s, site, first }: { s: S; site: Live; first: boolean }) {
           {img
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={img} alt="" className="hero-img" loading="eager" fetchPriority="high" decoding="async" />
-            : <Art />}
+            : kit ? <KitImg pic={kit} className="hero-img" eager /> : <Art />}
         </div>
       </div>
     </section>
@@ -59,7 +70,7 @@ async function CollectionsSection({ s, site, id }: { s: S; site: Live; id: strin
               <a href={`/collections/${encodeURIComponent(c.slug)}`} className="tile">
                 <span className="tile-media">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {c.image_url ? <img src={c.image_url} alt="" loading="lazy" decoding="async" /> : <Art className="tile-art" />}
+                  {c.image_url ? <img src={c.image_url} alt="" loading="lazy" decoding="async" /> : <CollectionArt kit={kitOf(site)} slug={c.slug} />}
                 </span>
                 <span className="tile-title">{c.title}</span>
                 {c.count > 0 && <span className="tile-count">{c.count === 1 ? 'מוצר אחד' : `${c.count} מוצרים`}</span>}
@@ -70,6 +81,12 @@ async function CollectionsSection({ s, site, id }: { s: S; site: Live; id: strin
       </div>
     </section>
   );
+}
+
+/** a collection's tile without a picture of its own: the kit's picture for it, else the drawing */
+export function CollectionArt({ kit, slug }: { kit: string | null; slug: string }) {
+  const pic = kitCollectionImage(kit, slug);
+  return pic ? <KitImg pic={pic} /> : <Art className="tile-art" />;
 }
 
 async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }) {
@@ -104,13 +121,14 @@ async function ProductsSection({ s, site, id }: { s: S; site: Live; id: string }
 
 function ImageText({ s, site, id }: { s: S; site: Live; id: string }) {
   const img = safeImage(s.image);
+  const kit = img ? null : kitImage(kitOf(site), 'imageText');
   const e = Boolean(site.edit);
   return (
     <section className="band band-soft" id={id} aria-labelledby={`${id}-t`}>
       <div className={`wrap split${str(s, 'imageSide') === 'end' ? ' split-end' : ''}`}>
         <div className="split-media" {...I(e, 'image')}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {img ? <img src={img} alt="" loading="lazy" decoding="async" /> : <Art />}
+          {img ? <img src={img} alt="" loading="lazy" decoding="async" /> : kit ? <KitImg pic={kit} /> : <Art />}
         </div>
         <div className="split-text">
           <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>
@@ -187,12 +205,14 @@ function TextSection({ s, id, e }: { s: S; id: string; e: boolean }) {
 
 /**
  * 2.58: pictures with a caption — before / after, Instagram, a lookbook — and a button. With no picture yet, the owner's
- * preview shows where they will be; a shopper sees the title and the button only (or nothing, without a button either).
+ * preview shows where they will be — with the kit's pictures when it has some (2.62); a shopper sees the title and the button
+ * only (or nothing, without a button either): a gallery says "this is us", so a stock picture is never shown to a shopper.
  */
 function Gallery({ s, site, id }: { s: S; site: Live; id: string }) {
   const items = ((Array.isArray(s.items) ? s.items : []) as { image: string; caption: string }[]).filter((it) => safeImage(it.image));
   const button = str(s, 'buttonLabel') && resolveHref(str(s, 'buttonHref'), site.store) ? str(s, 'buttonLabel') : '';
   if (!items.length && !button && !site.preview) return null;
+  const samples = !items.length && site.preview ? kitGallery(kitOf(site)) : [];
   return (
     <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap">
@@ -207,6 +227,10 @@ function Gallery({ s, site, id }: { s: S; site: Live; id: string }) {
                 {it.caption && <span className="gallery-caption">{it.caption}</span>}
               </li>
             ))}
+          </ul>
+        ) : samples.length ? (
+          <ul className="gallery" role="list" aria-label="מקום לתמונות" {...F(Boolean(site.edit), 'items', false)}>
+            {samples.map((pic) => <li key={pic.src} className="gallery-item"><KitImg pic={pic} /><span className="gallery-caption muted">כאן תופיע תמונה שלכם</span></li>)}
           </ul>
         ) : site.preview ? (
           <ul className="gallery" role="list" aria-label="מקום לתמונות" {...F(Boolean(site.edit), 'items', false)}>

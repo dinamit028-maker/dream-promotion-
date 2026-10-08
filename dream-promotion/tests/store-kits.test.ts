@@ -174,8 +174,20 @@ test('what a kit writes comes back from the storefront\'s resolveTheme as it was
     assert.deepEqual(back.colors, s.colors, `${kit.id}: colours`);
     assert.equal(back.font, s.font); assert.equal(back.art, s.art); assert.equal(back.radius, s.radius);
     assert.deepEqual(back.announcement, s.announcement);
+    assert.equal(back.kit, kit.id, `${kit.id}: the storefront knows the kit (its default pictures, 2.62)`);
     // and the dashboard's editor opens and saves it unchanged
     assert.equal(canonical(settingsOf(draftOf('kit', settings))), canonical(settings), `${kit.id}: the editor round trip`);
+  }
+});
+
+test('every kit has its default pictures in the storefront, and each collection picture is a collection of the kit (2.62)', () => {
+  const dir = `${STOREFRONT}src/lib/kit-images/`;
+  assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort(), KITS.map((k) => k.id).sort(), 'a manifest for every kit, no more');
+  for (const kit of KITS) {
+    const m = JSON.parse(readFileSync(`${dir}${kit.id}.json`, 'utf8'));
+    assert.equal(m.kit, kit.id);
+    const pictured = m.images.filter((i: any) => i.slot === 'collection').map((i: any) => i.collection).sort();
+    assert.deepEqual(pictured, kit.collections.map((c) => c.slug).sort(), `${kit.id}: a picture for each collection, and none for a collection the kit does not create`);
   }
 });
 

@@ -1,0 +1,160 @@
+{
+  "kit": "fashion",
+  "version": 1,
+  "images": [
+    {
+      "file": "fashion-hero-wide.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.22,
+        "y": 0.5
+      },
+      "alt": "מתלה בגדים באדום, שחור ושמנת בבוטיק מואר באור שמש",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 1
+    },
+    {
+      "file": "fashion-hero-wide-2.webp",
+      "slot": "hero",
+      "width": 1670,
+      "height": 941,
+      "focal": {
+        "x": 0.28,
+        "y": 0.55
+      },
+      "alt": "כובע לבד אדום על ערימת סריגים, צעיף ואקססוריז על שיש",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 2
+    },
+    {
+      "file": "fashion-hero-vertical.webp",
+      "slot": "hero",
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.5,
+        "y": 0.4
+      },
+      "alt": "אישה בשמלת סאטן אדומה ארוכה עם תיק עור שחור",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "fashion-image-text.webp",
+      "slot": "imageText",
+      "width": 1365,
+      "height": 1024,
+      "focal": {
+        "x": 0.45,
+        "y": 0.55
+      },
+      "alt": "סריגים מקופלים בשמנת, אדום ושחור עם כובע וצעיף",
+      "order": 1
+    },
+    {
+      "file": "fashion-cat-accessories.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק עור שחור, צעיף משי אדום ומשקפי שמש",
+      "collection": "accessories",
+      "order": 1
+    },
+    {
+      "file": "fashion-cat-men.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "גבר בחולצה שחורה ומכנסיים בהירים",
+      "collection": "men",
+      "order": 2
+    },
+    {
+      "file": "fashion-cat-new.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מתלה בגדים חדשים באדום, שחור ולבן",
+      "collection": "new",
+      "order": 3
+    },
+    {
+      "file": "fashion-cat-sale.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיות קניות אדומות ושחורות וקופסאות מתנה",
+      "collection": "sale",
+      "order": 4
+    },
+    {
+      "file": "fashion-cat-women.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "אישה בחליפה אדומה וגופייה שחורה",
+      "collection": "women",
+      "order": 5
+    },
+    {
+      "file": "fashion-gallery-1.webp",
+      "slot": "gallery",
+      "width": 1003,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "אישה בחליפה אדומה יושבת על ספה בהירה",
+      "order": 1
+    },
+    {
+      "file": "fashion-gallery-2.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שמלת סאטן אדומה על מצעים לבנים עם תכשיטי זהב",
+      "order": 2
+    },
+    {
+      "file": "fashion-gallery-3.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "סנדלי עקב אדומים על שיש עם ענף פירות יער",
+      "order": 3
+    }
+  ]
+}

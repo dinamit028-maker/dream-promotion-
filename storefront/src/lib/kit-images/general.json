@@ -1,0 +1,121 @@
+{
+  "kit": "general",
+  "version": 1,
+  "images": [
+    {
+      "file": "general-hero-wide.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 940,
+      "focal": {
+        "x": 0.25,
+        "y": 0.6
+      },
+      "alt": "מטבח מודרני עם אי אבן אפור וקערה כחולה מלאה לימונים",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 1
+    },
+    {
+      "file": "general-hero-wide-2.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.25,
+        "y": 0.65
+      },
+      "alt": "ספסל עץ כחול על בסיסי בטון בחצר עם לבנדר ועשבים גבוהים",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 2
+    },
+    {
+      "file": "general-hero-vertical.webp",
+      "slot": "hero",
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.55,
+        "y": 0.6
+      },
+      "alt": "מיטה עם מצעי פשתן אפורים ושמיכה כחולה ליד חלון",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "general-image-text.webp",
+      "slot": "imageText",
+      "width": 1255,
+      "height": 941,
+      "focal": {
+        "x": 0.45,
+        "y": 0.45
+      },
+      "alt": "מתלה בגדים שחור עם חולצות ומעילים בכחול, אפור ולבן",
+      "order": 1
+    },
+    {
+      "file": "general-cat-new.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "בקבוק מים כחול, כוס זכוכית, מברשת, סבון ומגבות מסודרים על רקע אפור",
+      "collection": "new",
+      "order": 1
+    },
+    {
+      "file": "general-cat-sale.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.45,
+        "y": 0.5
+      },
+      "alt": "ערימת סוודרים סרוגים בכחול, אפור ושמנת",
+      "collection": "sale",
+      "order": 2
+    },
+    {
+      "file": "general-gallery-1.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "מים נמזגים מקנקן זכוכית לכוס כחולה",
+      "order": 1
+    },
+    {
+      "file": "general-gallery-2.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.4,
+        "y": 0.5
+      },
+      "alt": "שרך ירוק בעציץ קרמיקה כחול על בסיס בטון",
+      "order": 2
+    },
+    {
+      "file": "general-gallery-3.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.55,
+        "y": 0.6
+      },
+      "alt": "אופניים כחולים עם סל קש נשענים על קיר אבן",
+      "order": 3
+    }
+  ]
+}

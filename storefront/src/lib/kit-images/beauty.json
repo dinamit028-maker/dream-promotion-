@@ -1,0 +1,108 @@
+{
+  "kit": "beauty",
+  "version": 1,
+  "images": [
+    {
+      "file": "beauty-hero-wide.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.25,
+        "y": 0.6
+      },
+      "alt": "חדר טיפולים מואר עם מיטת טיפולים, מגבות ופרחים מיובשים",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 1
+    },
+    {
+      "file": "beauty-hero-wide-2.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.25,
+        "y": 0.6
+      },
+      "alt": "בקבוקי וצנצנות טיפוח על משטח שיש עם פרחים מיובשים",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 2
+    },
+    {
+      "file": "beauty-hero-vertical.webp",
+      "slot": "hero",
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.5,
+        "y": 0.4
+      },
+      "alt": "אישה בחלוק לבן יושבת על מיטת טיפולים, מצולמת מאחור",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "beauty-image-text.webp",
+      "slot": "imageText",
+      "width": 1255,
+      "height": 941,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "בקבוק סרום וצנצנת קרם פתוחה על שיש עם פרחים מיובשים",
+      "order": 1
+    },
+    {
+      "file": "beauty-cat-care.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מגש שיש עם בקבוקי טיפוח, טפטפות וצנצנות קרם",
+      "collection": "care",
+      "order": 1
+    },
+    {
+      "file": "beauty-gallery-1.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מדפים עם מגבות לבנות מגולגלות, נרות ופרחים מיובשים",
+      "order": 1
+    },
+    {
+      "file": "beauty-gallery-2.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "רולר ומגרד פנים מאבן ורודה ליד מגבות לבנות",
+      "order": 2
+    },
+    {
+      "file": "beauty-gallery-3.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "כורסה מרופדת בוורוד עתיק ושולחן צד משיש בפינת המתנה",
+      "order": 3
+    }
+  ]
+}

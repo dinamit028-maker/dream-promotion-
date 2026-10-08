@@ -1,0 +1,134 @@
+{
+  "kit": "bags",
+  "version": 1,
+  "images": [
+    {
+      "file": "bags-hero-wide.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.3,
+        "y": 0.6
+      },
+      "alt": "מגוון שקיות נייר קרפט ולבנות ושקיות בד בגדלים שונים",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 1
+    },
+    {
+      "file": "bags-hero-wide-2.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.3,
+        "y": 0.6
+      },
+      "alt": "שולחן עבודה עם שקיות נייר ובד, ערימות שקיות מקופלות",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 2
+    },
+    {
+      "file": "bags-hero-vertical.webp",
+      "slot": "hero",
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.5,
+        "y": 0.45
+      },
+      "alt": "יד מחזיקה שקית נייר קרפט עם ידיות חבל",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "bags-image-text.webp",
+      "slot": "imageText",
+      "width": 1255,
+      "height": 941,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "חומרי גלם: נייר קרפט, ידיות חבל, בד כותנה, חוט יוטה וסרט",
+      "order": 1
+    },
+    {
+      "file": "bags-cat-fabric.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיות בד כותנה בצבע טבעי, אחת עומדת ושתיים מקופלות",
+      "collection": "fabric",
+      "order": 1
+    },
+    {
+      "file": "bags-cat-gift.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסאות מתנה מקרטון קרפט ושקיות מתנה עם סרט שמנת",
+      "collection": "gift",
+      "order": 2
+    },
+    {
+      "file": "bags-cat-paper.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שלוש שקיות נייר קרפט בגדלים שונים עם ידיות מסובבות",
+      "collection": "paper",
+      "order": 3
+    },
+    {
+      "file": "bags-gallery-1.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "ערימת שקיות נייר קרפט שטוחות עם גליל חוט יוטה",
+      "order": 1
+    },
+    {
+      "file": "bags-gallery-2.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בד כותנה תלויה על וו עץ עם צל עלים על הקיר",
+      "order": 2
+    },
+    {
+      "file": "bags-gallery-3.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיות מתנה מקרפט ושחור עם סרטים ונייר טישו",
+      "order": 3
+    }
+  ]
+}

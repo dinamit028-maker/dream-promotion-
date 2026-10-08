@@ -1,0 +1,160 @@
+{
+  "kit": "furniture",
+  "version": 1,
+  "images": [
+    {
+      "file": "furniture-hero-wide.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.27,
+        "y": 0.6
+      },
+      "alt": "סלון בהיר עם ספה מבד, שולחן קפה מעץ אלון וענפי זית",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 1
+    },
+    {
+      "file": "furniture-hero-wide-2.webp",
+      "slot": "hero",
+      "width": 1672,
+      "height": 941,
+      "focal": {
+        "x": 0.3,
+        "y": 0.55
+      },
+      "alt": "פינת אוכל עם שולחן עץ ארוך וכיסאות מרופדים בירוק זית",
+      "variant": "wide",
+      "textSafe": "right",
+      "order": 2
+    },
+    {
+      "file": "furniture-hero-vertical.webp",
+      "slot": "hero",
+      "width": 1024,
+      "height": 1536,
+      "focal": {
+        "x": 0.55,
+        "y": 0.5
+      },
+      "alt": "כניסה לבית עם קונסולת עץ, מראה עגולה וענפי זית",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "furniture-image-text.webp",
+      "slot": "imageText",
+      "width": 1255,
+      "height": 941,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "כלי קרמיקה, בד פשתן וענף זית על משטח עץ אלון",
+      "order": 1
+    },
+    {
+      "file": "furniture-cat-bedroom.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מיטה עם מצעי פשתן, כרית ירוק זית ומנורת לילה קרמית",
+      "collection": "bedroom",
+      "order": 1
+    },
+    {
+      "file": "furniture-cat-dining.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שולחן אוכל עגול מעץ אלון עם ארבעה כיסאות מרופדים",
+      "collection": "dining",
+      "order": 2
+    },
+    {
+      "file": "furniture-cat-lighting.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מנורת רצפה ומנורת שולחן דלוקות בפינת סלון בערב",
+      "collection": "lighting",
+      "order": 3
+    },
+    {
+      "file": "furniture-cat-living-room.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "ספה וכורסה מבד בהיר עם שמיכה בירוק זית",
+      "collection": "living-room",
+      "order": 4
+    },
+    {
+      "file": "furniture-cat-office.webp",
+      "slot": "collection",
+      "width": 1080,
+      "height": 1080,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "פינת עבודה עם שולחן כתיבה מעץ אלון וכיסא מרופד",
+      "collection": "office",
+      "order": 5
+    },
+    {
+      "file": "furniture-gallery-1.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "כורסה מעוגלת מבד בהיר עם שמיכה בירוק זית ליד החלון",
+      "order": 1
+    },
+    {
+      "file": "furniture-gallery-2.webp",
+      "slot": "gallery",
+      "width": 1024,
+      "height": 1280,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מדפי עץ אלון עם אגרטלים וקערות קרמיקה",
+      "order": 2
+    },
+    {
+      "file": "furniture-gallery-3.webp",
+      "slot": "gallery",
+      "width": 753,
+      "height": 941,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "אגרטל קרמיקה, בד פשתן וענף זית בתקריב",
+      "order": 3
+    }
+  ]
+}
