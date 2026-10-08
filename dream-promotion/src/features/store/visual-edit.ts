@@ -14,7 +14,9 @@ export type EditMessage =
   | { type: 'field'; section: string; field: string }
   | { type: 'image'; section: string; field: string }
   | { type: 'open'; target: string }
-  | { type: 'navigate'; path: string };
+  | { type: 'navigate'; path: string }
+  /** 2.65: a section dragged on the page to a place (its index among the sections shown) — the dashboard decides */
+  | { type: 'drop'; id: string; to: number };
 
 const str = (v: unknown, max = 300): v is string => typeof v === 'string' && v.length <= max;
 /** a message from the frame, checked field by field — or null */
@@ -27,6 +29,7 @@ export function readMessage(raw: unknown): EditMessage | null {
     case 'text': return str(m.section, 40) && str(m.field, 40) && str(m.value, 2000) ? { type: 'text', section: m.section, field: m.field, value: m.value } : null;
     case 'field': case 'image': return str(m.section, 40) && str(m.field, 40) ? { type: m.type, section: m.section, field: m.field } : null;
     case 'open': return str(m.target, 200) ? { type: 'open', target: m.target } : null;
+    case 'drop': return str(m.id, 40) && Number.isInteger(m.to) && (m.to as number) >= 0 && (m.to as number) < 100 ? { type: 'drop', id: m.id, to: m.to as number } : null;
     default: return null;
   }
 }
@@ -79,6 +82,30 @@ export function duplicateSection(d: Draft, id: string): { draft: Draft; id: stri
   return { draft: { ...d, sections }, id: copy.id };
 }
 export const removeSection = (d: Draft, id: string): Draft => ({ ...d, sections: d.sections.filter((x) => x.id !== id) });
+/**
+ * 2.65: a section to a place — `to` counts the sections shown on the page (the hidden ones are not there), as a drag on the
+ * page sees them; the hidden ones keep their place among the others. The same draft when nothing moves.
+ */
+export function moveSectionTo(d: Draft, id: string, to: number): Draft {
+  const from = d.sections.findIndex((x) => x.id === id);
+  if (from < 0 || d.sections[from].hidden) return d;
+  const shown = d.sections.filter((s) => !s.hidden && s.id !== id);
+  const at = Math.max(0, Math.min(to, shown.length));
+  const rest = d.sections.filter((s) => s.id !== id);
+  const index = at < shown.length ? rest.indexOf(shown[at]) : rest.length;
+  const sections = [...rest.slice(0, index), d.sections[from], ...rest.slice(index)];
+  return sections.every((s, i) => s === d.sections[i]) ? d : { ...d, sections };
+}
+/** the place of a section among those shown on the page (-1: hidden or unknown) */
+export const shownIndex = (d: Draft, id: string) => d.sections.filter((s) => !s.hidden).findIndex((s) => s.id === id);
+/** a section moved from one place to another in the full list (the panel's list shows the hidden ones too) */
+export function moveSectionAt(d: Draft, from: number, to: number): Draft {
+  if (from === to || from < 0 || to < 0 || from >= d.sections.length || to >= d.sections.length) return d;
+  const sections = d.sections.slice();
+  const [s] = sections.splice(from, 1);
+  sections.splice(to, 0, s);
+  return { ...d, sections };
+}
 export function moveSection(d: Draft, id: string, by: -1 | 1): Draft {
   const i = d.sections.findIndex((x) => x.id === id), j = i + by;
   if (i < 0 || j < 0 || j >= d.sections.length) return d;

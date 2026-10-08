@@ -611,3 +611,13 @@ input, select, textarea {
   .v-pp-compact .product .gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .v-pp-compact .product-title { font-size: 1.6rem; }
 }
+
+/* ---- 2.65 — dragging a section in the visual editor (edit mode only) ------------------------------------------------- */
+.edit-mode main > [data-edit-section] { position: relative; }
+.edit-mode .edit-drag {
+  position: absolute; top: 10px; inset-inline-start: 10px; z-index: 50; width: 44px; height: 44px; border: 0; border-radius: 12px;
+  background: #6b3bf5; color: #ffffff; font-size: 22px; line-height: 1; cursor: grab; touch-action: none; box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+}
+.edit-mode .edit-drag:focus-visible { outline: 3px solid #ff7fa8; outline-offset: 2px; }
+.edit-mode .edit-dragging { opacity: .45; }
+.edit-drop-line { position: fixed; inset-inline: 12px; top: var(--edit-line-y, -10px); z-index: 9999; height: 4px; margin-top: -2px; border-radius: 4px; background: #6b3bf5; pointer-events: none; }

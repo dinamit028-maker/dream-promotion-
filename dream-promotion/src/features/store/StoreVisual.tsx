@@ -14,8 +14,18 @@ import { kitPictureShown } from './kits';
 import { FieldInput, ListInput } from './StoreDesign';
 import { Notice, TextRow } from './ui';
 import {
-  ADDABLE, addSection, applyText, canGrow, duplicateSection, editFrameUrl, editRoute, moveSection, readMessage, removeSection,
+  ADDABLE, addSection, applyText, canGrow, duplicateSection, editFrameUrl, editRoute, moveSection, moveSectionAt, moveSectionTo, readMessage,
+  removeSection, shownIndex,
 } from './visual-edit';
+import { emptyHistory, record, redo as redoStep, undo as undoStep, type History } from './history';
+import { SectionList } from './SectionList';
+
+/**
+ * 2.65 (Dream Builder PR-3a): how the page shows a change without loading again — "move" / "remove" at once (the draft is
+ * saved behind it), "rerender" after the save (the page fetches itself and swaps its content), "none" (the page already shows
+ * it: a text typed in place). The key joins steps of the history (typing in one field is one step).
+ */
+type Live = 'rerender' | 'reload' | 'none' | { move: string } | { remove: string };
 
 /**
  * "עריכה על האתר" (2.61, stage 6 — "לחץ לעריכה", like Wix): the store's own page in a frame, and a panel beside it (a
@@ -47,7 +57,10 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
   const [device, setDevice] = useState<'phone' | 'desktop'>('phone');
   const frame = useRef<HTMLIFrameElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reloadAfter = useRef(false);
+  const rerenderAfter = useRef(false);
+  const reloadAfter = useRef(false);   // the announcement bar is outside the page's content: a new frame
+  const rev = useRef(0);
+  const [hist, setHist] = useState<History<Draft>>(emptyHistory);
   const products = useRef<Map<string, string> | null>(null);
   const grow = canGrow(template);
   const errors = useMemo(() => draftErrors(d), [d]);
@@ -74,15 +87,45 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
     if (!r.ok) { setState('error'); setMsg({ tone: 'error', text: r.error }); return null; }
     draftRow.current = r.data;
     setState(latest.current === now ? 'saved' : 'waiting');
-    if (reloadAfter.current) { reloadAfter.current = false; refreshFrame(); }
+    if (reloadAfter.current) { reloadAfter.current = false; rerenderAfter.current = false; refreshFrame(); }
+    else if (rerenderAfter.current) { rerenderAfter.current = false; showSaved(); }
     return r.data;
   }, [storeId, template, link]); // eslint-disable-line react-hooks/exhaustive-deps
-  const change = (next: Draft, frameToo = true) => {
+  // the page shows the saved draft: its content swapped in place — or, with a token about to end, a new frame
+  const showSaved = () => {
+    if (link && link.expires - Date.now() / 1000 < 120) { refreshFrame(); return; }
+    rev.current += 1; post({ type: 'rerender', rev: rev.current });
+  };
+  const apply = (next: Draft, live: Live) => {
     setD(next); latest.current = next; setMsg(null); setState('waiting');
-    if (frameToo) reloadAfter.current = true;
+    if (live === 'rerender') rerenderAfter.current = true;
+    else if (live === 'reload') reloadAfter.current = true;
+    else if (live !== 'none' && 'move' in live) { const at = shownIndex(next, live.move); if (at >= 0) post({ type: 'move', id: live.move, to: at }); }
+    else if (live !== 'none') post({ type: 'remove', id: live.remove });
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void save(), SAVE_AFTER);
   };
+  /** every change: one step back in the history (typing in one field is one step), then the draft */
+  const change = (next: Draft, live: Live = 'rerender', key: string | null = null) => {
+    if (next === latest.current) return;
+    const before = latest.current;   // read now: the updater runs later, after apply() has moved latest on
+    setHist((h) => record(h, before, key));
+    apply(next, live);
+  };
+  const undo = () => { const r = undoStep(hist, latest.current); if (r) { setHist(r.history); apply(r.value, 'rerender'); } };
+  const redo = () => { const r = redoStep(hist, latest.current); if (r) { setHist(r.history); apply(r.value, 'rerender'); } };
+  // Ctrl / Cmd + Z, Ctrl / Cmd + Shift + Z — not while typing in a field (it has its own undo)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      const t = e.target as HTMLElement;
+      if (t.closest('input, textarea, select, [contenteditable]')) return;
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (state === 'waiting' || state === 'saving') e.preventDefault(); };
@@ -105,8 +148,15 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
       if (m.type === 'text') {
         const next = applyText(latest.current, m);
         setSel({ id: m.section, field: m.field });
-        if (next) change(next, false);
+        if (next) change(next, 'none', `text:${m.section}:${m.field}`);
         else if (latest.current.sections.some((s) => s.id === m.section)) { setMsg({ tone: 'warn', text: 'הטקסט ארוך מדי לשדה הזה — לא נשמר. אפשר לקצר בפאנל.' }); refreshFrame(); }
+        return;
+      }
+      if (m.type === 'drop') {
+        // the page says where; the draft decides (a hidden section, an unknown one — nothing moves)
+        const next = moveSectionTo(latest.current, m.id, m.to);
+        if (next !== latest.current) change(next, { move: m.id });
+        else { const at = shownIndex(latest.current, m.id); if (at >= 0) post({ type: 'move', id: m.id, to: at }); }
         return;
       }
       if (m.type === 'navigate') { setSel(null); setPath(m.path); setFrameRev((n) => n + 1); return; }
@@ -137,7 +187,9 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
 
   const section = sel && 'id' in sel ? d.sections.find((s) => s.id === sel.id) ?? null : null;
   const i = section ? d.sections.indexOf(section) : -1;
-  const setSection = (patch: Partial<typeof d.sections[number]>) => section && change({ ...d, sections: d.sections.map((x) => (x.id === section.id ? { ...x, ...patch } : x)) });
+  const setSection = (patch: Partial<typeof d.sections[number]>, live: Live = 'rerender', key: string | null = null) =>
+    section && change({ ...d, sections: d.sections.map((x) => (x.id === section.id ? { ...x, ...patch } : x)) }, live, key);
+  const moveBy = (id: string, by: -1 | 1) => { const next = moveSection(d, id, by); change(next, next.sections.find((x) => x.id === id)?.hidden ? 'none' : { move: id }); };
   const status = { saved: 'נשמר כטיוטה ✓', waiting: 'שומר…', saving: 'שומר…', error: 'לא נשמר' }[state];
 
   const panel = (
@@ -147,22 +199,22 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
           <PanelHead title="הודעה בראש האתר" onBack={() => setSel(null)} />
           <label className="flex min-h-11 items-center justify-between gap-3">
             <span className="text-sm font-semibold">להציג הודעה</span>
-            <Switch on={d.announcement.enabled} onClick={() => change({ ...d, announcement: { ...d.announcement, enabled: !d.announcement.enabled } })} label="להציג הודעה בראש האתר" />
+            <Switch on={d.announcement.enabled} onClick={() => change({ ...d, announcement: { ...d.announcement, enabled: !d.announcement.enabled } }, 'reload')} label="להציג הודעה בראש האתר" />
           </label>
-          <TextRow label="הטקסט" value={d.announcement.text} onChange={(v) => change({ ...d, announcement: { ...d.announcement, text: v } })} max={120} />
-          <TextRow label="קישור (לא חובה)" value={d.announcement.href} onChange={(v) => change({ ...d, announcement: { ...d.announcement, href: v } })} dir="ltr" placeholder="/collections/all" />
+          <TextRow label="הטקסט" value={d.announcement.text} onChange={(v) => change({ ...d, announcement: { ...d.announcement, text: v } }, 'reload', 'announcement:text')} max={120} />
+          <TextRow label="קישור (לא חובה)" value={d.announcement.href} onChange={(v) => change({ ...d, announcement: { ...d.announcement, href: v } }, 'reload', 'announcement:href')} dir="ltr" placeholder="/collections/all" />
         </>
       ) : section ? (
         <>
           <PanelHead title={SECTION_DEFS[section.type].label} onBack={() => setSel(null)} />
           <div className="flex flex-wrap gap-2" role="toolbar" aria-label="פעולות על החלק">
-            <Button size="sm" variant="soft" disabled={i <= 0} aria-label="להזיז למעלה" onClick={() => change(moveSection(d, section.id, -1))}>▲ למעלה</Button>
-            <Button size="sm" variant="soft" disabled={i >= d.sections.length - 1} aria-label="להזיז למטה" onClick={() => change(moveSection(d, section.id, 1))}>▼ למטה</Button>
-            <Button size="sm" variant="soft" onClick={() => setSection({ hidden: !section.hidden })}>{section.hidden ? 'להציג באתר' : 'להסתיר'}</Button>
+            <Button size="sm" variant="soft" disabled={i <= 0} aria-label="להזיז למעלה" onClick={() => moveBy(section.id, -1)}>▲ למעלה</Button>
+            <Button size="sm" variant="soft" disabled={i >= d.sections.length - 1} aria-label="להזיז למטה" onClick={() => moveBy(section.id, 1)}>▼ למטה</Button>
+            <Button size="sm" variant="soft" onClick={() => setSection({ hidden: !section.hidden }, section.hidden ? 'rerender' : { remove: section.id })}>{section.hidden ? 'להציג באתר' : 'להסתיר'}</Button>
             {grow && <Button size="sm" variant="soft" onClick={() => { const r = duplicateSection(d, section.id); if (r) { change(r.draft); choose(r.id); } }}>שכפול</Button>}
             {grow && <Button size="sm" variant="ghost" className="text-red-700" onClick={() => {
               if (!window.confirm(`למחוק את "${SECTION_DEFS[section.type].label}" מעמוד הבית?`)) return;
-              change(removeSection(d, section.id)); setSel(null);
+              change(removeSection(d, section.id), { remove: section.id }); setSel(null);
             }}>מחיקה</Button>}
           </div>
           {section.hidden && <Notice tone="info">החלק מוסתר — הוא לא מופיע באתר.</Notice>}
@@ -170,7 +222,8 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
           <SectionLayout d={d} section={section} change={change} />
           {SECTION_DEFS[section.type].fields.map((f) => (
             <div key={f.key} className={cx(sel && 'field' in sel && sel.field === f.key && 'rounded-md ring-2 ring-primary/50')} ref={(el) => { if (el && sel && 'field' in sel && sel.field === f.key) el.scrollIntoView({ block: 'nearest' }); }}>
-              <FieldInput f={f} value={section.settings[f.key]} collections={bundle.collections} kitPicture={kitPictureShown(d.kit, section.type, f.key)} onChange={(v) => setSection({ settings: { ...section.settings, [f.key]: v } })} />
+              <FieldInput f={f} value={section.settings[f.key]} collections={bundle.collections} kitPicture={kitPictureShown(d.kit, section.type, f.key)}
+                onChange={(v) => setSection({ settings: { ...section.settings, [f.key]: v } }, 'rerender', `field:${section.id}:${f.key}`)} />
             </div>
           ))}
           {SECTION_DEFS[section.type].list && <ListInput def={SECTION_DEFS[section.type].list!} rows={(Array.isArray(section.settings.items) ? section.settings.items : []) as Record<string, unknown>[]}
@@ -179,12 +232,10 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
       ) : (
         <>
           <p className="text-sm text-muted">לוחצים על כל דבר באתר כדי לערוך אותו: כותרת נערכת במקום, חלק פותח כאן את ההגדרות שלו, והתפריט, פרטי העסק והעמודים נפתחים בעורך שלהם.</p>
-          <ol className="space-y-1" aria-label="החלקים של עמוד הבית">
-            {d.sections.map((s) => (
-              <li key={s.id}><button type="button" className={cx('flex min-h-11 w-full items-center justify-between rounded-md border border-line px-3 text-start text-sm', s.hidden && 'opacity-60')} onClick={() => choose(s.id)}>
-                <span className="font-semibold">{SECTION_DEFS[s.type].label}</span>{s.hidden && <span className="text-xs text-muted">מוסתר</span>}</button></li>
-            ))}
-          </ol>
+          <SectionList sections={d.sections} onChoose={choose} onMove={(from, to) => {
+            const id = d.sections[from]?.id; const next = moveSectionAt(d, from, to);
+            if (id) change(next, next.sections.find((x) => x.id === id)?.hidden ? 'none' : { move: id });
+          }} />
           {grow && <AddSection onAdd={(type) => { const r = addSection(d, type); if (r) { change(r.draft); choose(r.id); } }} />}
           <button type="button" className="text-sm font-semibold text-primary underline underline-offset-2" onClick={() => setSel({ announcement: true })}>הודעה בראש האתר</button>
         </>
@@ -201,6 +252,10 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
       {linkError && <Notice tone="error">{linkError}</Notice>}
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <span role="status" className={cx('font-semibold', state === 'error' ? 'text-red-700' : 'text-muted')}>{status}</span>
+        <span className="flex gap-1" role="group" aria-label="ביטול וחזרה">
+          <Button size="sm" variant="ghost" disabled={!hist.past.length} onClick={undo} aria-label="ביטול הפעולה האחרונה (Ctrl+Z)" title="Ctrl+Z">↶ ביטול</Button>
+          <Button size="sm" variant="ghost" disabled={!hist.future.length} onClick={redo} aria-label="חזרה על הפעולה (Ctrl+Shift+Z)" title="Ctrl+Shift+Z">↷ חזרה</Button>
+        </span>
         <span className="ms-auto flex gap-1" role="group" aria-label="גודל המסך">
           <Button size="sm" variant={device === 'phone' ? 'primary' : 'ghost'} aria-pressed={device === 'phone'} onClick={() => setDevice('phone')}>טלפון</Button>
           <Button size="sm" variant={device === 'desktop' ? 'primary' : 'ghost'} aria-pressed={device === 'desktop'} onClick={() => setDevice('desktop')}>מחשב</Button>

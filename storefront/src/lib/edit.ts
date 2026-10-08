@@ -21,4 +21,6 @@ export type EditMessage =
   | { type: 'field'; section: string; field: string }
   | { type: 'image'; section: string; field: string }
   | { type: 'open'; target: string }
-  | { type: 'navigate'; path: string };
+  | { type: 'navigate'; path: string }
+  /** 2.65: a section dragged to a place among those shown — the dashboard decides, and answers "move" */
+  | { type: 'drop'; id: string; to: number };
