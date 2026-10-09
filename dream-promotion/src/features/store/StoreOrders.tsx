@@ -5,7 +5,7 @@ import { Button, Field, Input, PageHead, Pill, Select } from '@/components/ui/pr
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { DOC_LABEL } from '@/features/documents/documents';
-import { DOCUMENT_STATUS_HE, EMAIL_KIND_HE, FULFILLMENT_HE, eventText, ORDER_FILTERS, orderLabel, type OrderRow } from './checkout';
+import { DOCUMENT_STATUS_HE, EMAIL_KIND_HE, FULFILLMENT_HE, eventText, ORDER_FILTERS, orderLabel, stockShortText, type OrderRow } from './checkout';
 import { packingSlip } from './commerce';
 import { alertsSeen, loadOrder, loadOrders, refundOrder, retryOrderDocument, setFulfillment, type OrderDetail } from './data';
 import { orderHref, storeHref } from './routes';
@@ -55,6 +55,7 @@ export function StoreOrders() {
                   <span className="text-end">
                     <bdi className="block font-bold">{ils(o.total)}</bdi>
                     <Pill tone={TONE[l.tone]}>{l.text}</Pill>
+                    {o.stockShort.length > 0 && o.paymentStatus === 'paid' && <span className="mt-1 block"><Pill tone="warn">חסר במלאי</Pill></span>}
                   </span>
                 </Link>
               </li>
@@ -92,6 +93,9 @@ export function StoreOrder({ id }: { id: string }) {
       {o.isTest && <Notice tone="warn">הזמנת בדיקה: לא חויב כסף, לא נוצרה מכירה, המלאי לא זז ולא הופק מסמך.</Notice>}
       {o.requestKind && (
         <Notice tone="warn">הלקוח ביקש {o.requestKind === 'cancel' ? 'לבטל' : 'להחזיר'} את ההזמנה{o.requestedAt ? ` (${when(o.requestedAt)})` : ''}{o.requestNote ? `: „${o.requestNote}“` : '.'} הבקשה לא מחזירה כסף בעצמה — מחליטים ומבצעים החזר למטה.</Notice>
+      )}
+      {o.stockShort.length > 0 && o.paymentStatus !== 'refunded' && (
+        <Notice tone="warn">חסר במלאי: {stockShortText(o.stockShort)}. התשלום הגיע אחרי שזמן השמירה על המלאי עבר, ומישהו אחר קנה בינתיים. אפשר להשלים מלאי ולשלוח, או להחזיר כסף על מה שחסר (למטה). במוצר המלאי יכול להראות מינוס — אלה היחידות שהלקוח מחכה להן.</Notice>
       )}
       {!o.isTest && paid && <DocumentBlock d={d} onChange={reload} />}
       <Block title="הקונה">
