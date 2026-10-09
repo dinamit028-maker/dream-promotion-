@@ -12,6 +12,7 @@ import { channelOfSource } from './meta-inbox';
 import { authHeaders } from '@/lib/services/http';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { CrmFinance } from './CrmFinance';
+import { ClientPhotos } from '@/features/client-file/ClientPhotos';
 
 /** what the reply box says it answers in, per inbox channel */
 const REPLY_IN = { messenger: 'תשובה במסנג׳ר', fb: 'תשובה לתגובה בפייסבוק', ig: 'תשובה לתגובה באינסטגרם' } as const;
@@ -138,6 +139,9 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
 
       {/* the contact's money: documents, what is owed, quotes — and issuing a document for them (2.51) */}
       {isCloudConfigured && <CrmFinance leadId={lead.id} />}
+
+      {/* the client file's photos (owner and marked practitioners only — nothing is shown to anyone else) */}
+      {isCloudConfigured && <ClientPhotos leadId={lead.id} />}
 
       {posts.length > 0 && (
         <div className="mb-4">
