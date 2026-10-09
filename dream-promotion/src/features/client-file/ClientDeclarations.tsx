@@ -18,7 +18,7 @@ import { REQUEST_LABEL, declarationMessage, requestState, validOn, type RequestS
  */
 interface Tpl { id: string; family_id: string; title: string; treatment_type_ids: string[]; version: number; status: string; valid_days: number | null }
 interface Req { id: string; template_ids: string[]; status: RequestStatus; sent_at: string; opened_at: string | null; signed_at: string | null; expires_at: string }
-interface Decl { id: string; template_id: string; template_version: number; signer_name: string; signed_at: string; valid_until: string | null; marketing_ok: boolean }
+interface Decl { id: string; template_id: string; template_version: number; signer_name: string; signed_at: string; valid_until: string | null; marketing_ok: boolean; flags: string[] }
 interface Data { requests: Req[]; declarations: Decl[]; templates: Tpl[]; types: { id: string; name: string }[]; openTypes: string[]; business: string }
 
 async function api<T>(body: Record<string, unknown>): Promise<{ ok: true; data: T } | { ok: false; code: string; error: string }> {
@@ -143,6 +143,11 @@ export function ClientDeclarations({ leadId }: { leadId: string }) {
                   נחתמה {formatIL(d.signed_at)} · {d.valid_until ? (validOn(d.valid_until, today) ? `בתוקף עד ${ddmmyyyy(d.valid_until)}` : `פגה ב-${ddmmyyyy(d.valid_until)}`) : 'בלי הגבלת תוקף'}
                   {d.marketing_ok ? ' · הסכים/ה לשימוש בתמונות לפרסום' : ''}
                 </span>
+                {d.flags?.length > 0 && (
+                  <span className="mt-1 block rounded-lg bg-amber-500/15 px-2 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                    ⚠️ לתשומת לב — "כן" בהתווית נגד: {d.flags.join(' · ')}
+                  </span>
+                )}
               </span>
               <Button size="sm" variant="ghost" onClick={() => openPdf(d.id)}>צפה ב-PDF</Button>
             </li>

@@ -3,7 +3,7 @@ import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import sharp from 'sharp';
 import { fontBytes, forceLtr, ilDateTime, visual } from './doc-pdf';
-import { answerLines, CONFIRM_LINE, type Answers, type Field } from '@/features/client-file/declarations';
+import { answerLines, CONFIRM_LINE, flagged, type Answers, type Field } from '@/features/client-file/declarations';
 
 /**
  * Health declarations on the server (docs/CLIENT FILE ENGINEERING HE.md §5.2–5.3): the link's token (32 random bytes;
@@ -98,10 +98,13 @@ export async function buildDeclarationPdf(d: DeclarationPdfInput): Promise<PDFDo
   page.drawLine({ start: { x: M, y: y + 4 }, end: { x: W - M, y: y + 4 }, thickness: 0.6, color: line });
   y -= 8;
 
+  const marked = flagged(d.fields, d.answers);
+  if (marked.length) para(`לתשומת לב: ${marked.length} תשובות "כן" בשאלות שסומנו כהתווית נגד (מסומנות למטה).`, 10, bold, ink, 0, 8);
   for (const l of answerLines(d.fields, d.acks, d.answers)) {
+    if (l.heading) { y -= 4; para(l.text, 12, bold, ink, 0, 4); continue; }
     if (l.info) { para(l.text, 10, font, ink, 0, 6); continue; }
     para(l.text, 10, l.indent ? font : bold, ink, l.indent ? 16 : 0, 1);
-    para(`תשובה: ${l.answer ?? '—'}`, 10, font, ink, l.indent ? 16 : 8, 7);
+    para(`תשובה: ${l.answer ?? '—'}${l.flagged ? ' — לתשומת לב (התווית נגד)' : ''}`, 10, l.flagged ? bold : font, ink, l.indent ? 16 : 8, 7);
   }
   if (d.marketingOk !== null) para(`שימוש בתמונות לפרסום: ${d.marketingOk ? 'מסכים/ה' : 'לא מסכים/ה'}`, 10, font, ink, 0, 8);
 

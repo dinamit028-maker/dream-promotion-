@@ -25,6 +25,7 @@ export function Question({ id, prefix, field, answers, problem, onAnswer }: {
   }, [open]);
 
   if (field.type === 'info') return <p id={id} className="mb-4 whitespace-pre-wrap leading-relaxed">{field.label}</p>;
+  if (field.type === 'heading') return <h3 id={id} className="mb-3 mt-5 text-lg font-bold first:mt-0">{field.label}</h3>;
   if (field.type === 'marketing') {
     return (
       <label id={id} className="mb-4 flex items-start gap-3 rounded-xl border border-zinc-200 p-3">
@@ -102,7 +103,10 @@ export function Control({ fieldKey, labelId, label, required, type, options, val
       {type === 'longtext' || type === 'meds'
         ? <textarea className={`${input} min-h-24`} value={text} onChange={(e) => onChange(e.target.value)} aria-required={required} aria-invalid={invalid}
             placeholder={type === 'meds' ? 'שם התרופה ומינון — כל תרופה בשורה' : undefined} />
-        : <input className={input} type={type === 'date' ? 'date' : 'text'} value={text} onChange={(e) => onChange(e.target.value)} aria-required={required} aria-invalid={invalid} />}
+        : <input className={input} type={type === 'date' ? 'date' : type === 'phone' ? 'tel' : 'text'} value={text} onChange={(e) => onChange(e.target.value)}
+            aria-required={required} aria-invalid={invalid} dir={type === 'id_number' || type === 'phone' ? 'ltr' : undefined}
+            inputMode={type === 'id_number' ? 'numeric' : type === 'phone' ? 'tel' : undefined} maxLength={type === 'id_number' ? 9 : type === 'phone' ? 15 : undefined}
+            autoComplete={type === 'phone' ? 'tel' : 'off'} />}
     </label>
   );
 }

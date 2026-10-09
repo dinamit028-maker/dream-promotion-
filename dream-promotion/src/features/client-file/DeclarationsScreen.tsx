@@ -6,7 +6,7 @@ import { ClipboardText } from '@/components/ui/Icon';
 import { formatIL } from '@/lib/il-time';
 import { authHeaders } from '@/lib/services/http';
 import {
-  CONFIRM_LINE, FIELD_TYPES, FOLLOW_UP_TYPES, MARKETING_LABEL, STATUS_LABEL, canApprove, cleanAcks, cleanFields, newKey,
+  CONFIRM_LINE, FIELD_TYPES, FOLLOW_UP_TYPES, MARKETING_LABEL, STATUS_LABEL, canApprove, cleanAcks, cleanFields, isTextOnly, newKey,
   type Answers, type Field, type FieldType, type FollowUp, type TemplateStatus,
 } from './declarations';
 import { Question } from './DeclarationForm';
@@ -75,7 +75,19 @@ export function DeclarationsScreen() {
   return (
     <div>
       <PageHead title="הצהרות בריאות" sub="ההצהרות של הקליניקה, לכל סוג טיפול. רק הצהרה מאושרת נשלחת ללקוחות."
-        action={<Button variant="primary" onClick={() => setDraft({ title: '', typeIds: [], validDays: '365', fields: [], acks: [] })}>+ הצהרה חדשה</Button>} />
+        action={<div className="flex flex-wrap gap-2">
+          <label className="inline-flex cursor-pointer items-center rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold hover:bg-surface-2">
+            ייבוא טיוטה מקובץ
+            <input type="file" accept="application/json,.json" className="sr-only" onChange={async (e) => {
+              const file = e.target.files?.[0]; e.target.value = '';
+              if (!file) return;
+              const r = await importDraft(file, types);
+              if (!r.ok) { setMsg(r.error); return; }
+              setMsg(r.note); setDraft(r.draft);
+            }} />
+          </label>
+          <Button variant="primary" onClick={() => setDraft({ title: '', typeIds: [], validDays: '365', fields: [], acks: [] })}>+ הצהרה חדשה</Button>
+        </div>} />
       {msg && <p className="mb-4 rounded-xl bg-primary-soft p-3 text-sm" role="status">{msg}</p>}
 
       <Card className="mb-6 p-4">
@@ -108,7 +120,7 @@ export function DeclarationsScreen() {
                     <p className="font-semibold">{t.title}</p>
                     <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-xs">{STATUS_LABEL[t.status]} · גרסה {t.version}</span>
                   </div>
-                  <p className="text-xs text-muted">{typesOf(t)} · {t.fields.filter((f) => f.type !== 'info').length} שאלות · {t.acks.length} אישורים · {t.valid_days ? `תוקף ${t.valid_days} ימים` : 'בלי הגבלת תוקף'}</p>
+                  <p className="text-xs text-muted">{typesOf(t)} · {t.fields.filter((f) => !isTextOnly(f.type)).length} שאלות · {t.acks.length} אישורים · {t.valid_days ? `תוקף ${t.valid_days} ימים` : 'בלי הגבלת תוקף'}</p>
                   {t.approved_at && <p className="text-xs text-muted">אושרה {formatIL(t.approved_at, { dateStyle: 'short' })}</p>}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {s === 'draft' && <>
@@ -140,6 +152,27 @@ export function DeclarationsScreen() {
   );
 }
 
+/**
+ * A draft prepared from the clinic's own form (a .json file: { title, treatmentTypes?: [names], validDays?, fields, acks }).
+ * It opens in the editor as a NEW draft — nothing is saved until the owner reviews it against the original and saves it.
+ */
+async function importDraft(file: File, types: TType[]): Promise<{ ok: true; draft: Draft; note: string } | { ok: false; error: string }> {
+  if (file.size > 512 * 1024) return { ok: false, error: 'הקובץ גדול מדי.' };
+  let j: any;
+  try { j = JSON.parse(await file.text()); } catch { return { ok: false, error: 'הקובץ לא נקרא — צריך קובץ טיוטה (.json).' }; }
+  const f = cleanFields(j?.fields); if (!f.ok) return { ok: false, error: f.error };
+  const a = cleanAcks(j?.acks ?? []); if (!a.ok) return { ok: false, error: a.error };
+  const wanted: string[] = Array.isArray(j?.treatmentTypes) ? j.treatmentTypes.map((x: unknown) => String(x).trim()) : [];
+  const typeIds = types.filter((t) => wanted.some((w) => w === t.name.trim())).map((t) => t.id);
+  const missing = wanted.filter((w) => !types.some((t) => t.name.trim() === w));
+  const days = Number(j?.validDays);
+  return {
+    ok: true,
+    draft: { title: String(j?.title ?? '').slice(0, 200), typeIds, validDays: Number.isInteger(days) && days > 0 ? String(days) : '', fields: f.fields, acks: a.acks },
+    note: `הטיוטה נטענה לעורך. עברו עליה מול הטופס המקורי ושמרו.${missing.length ? ` סוגי טיפול שלא קיימים עדיין: ${missing.join(', ')} — הוסיפו אותם ובחרו.` : ''}`,
+  };
+}
+
 const toDraft = (t: Template, o: { id?: string; familyOf?: string }): Draft =>
   ({ ...o, title: t.title, typeIds: [...t.treatment_type_ids], validDays: t.valid_days ? String(t.valid_days) : '', fields: structuredClone(t.fields), acks: [...t.acks] });
 
@@ -156,7 +189,7 @@ function Editor({ draft: start, types, onClose, onSaved }: { draft: Draft; types
   });
   const add = (type: FieldType) => setD((x) => ({
     ...x, fields: [...x.fields, {
-      key: newKey(x.fields), type, label: type === 'marketing' ? MARKETING_LABEL : '', required: type !== 'info' && type !== 'marketing',
+      key: newKey(x.fields), type, label: type === 'marketing' ? MARKETING_LABEL : '', required: !isTextOnly(type) && type !== 'marketing',
       ...(type === 'choice' || type === 'multi' ? { options: [] } : {}), ...(type === 'yesno' ? { showFollowUpsWhen: 'yes' as const, followUps: [] } : {}),
     }],
   }));
@@ -203,9 +236,13 @@ function Editor({ draft: start, types, onClose, onSaved }: { draft: Draft; types
               <button type="button" className="text-xs text-(--danger)" onClick={() => setD({ ...d, fields: d.fields.filter((_, k) => k !== i) })}>הסרה</button>
             </div>
             <Textarea value={f.label} onChange={(e) => setField(i, { label: e.target.value })} className="min-h-16" aria-label="נוסח"
-              placeholder={f.type === 'info' ? 'פסקה מתוך ההצהרה (בלי תשובה)' : 'נוסח השאלה'} />
-            {f.type !== 'info' && f.type !== 'marketing' && (
+              placeholder={f.type === 'info' ? 'פסקה מתוך ההצהרה (בלי תשובה)' : f.type === 'heading' ? 'כותרת של חלק בהצהרה' : 'נוסח השאלה'} />
+            {!isTextOnly(f.type) && f.type !== 'marketing' && (
               <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={f.required} onChange={(e) => setField(i, { required: e.target.checked })} /> חובה</label>
+            )}
+            {f.type === 'yesno' && (
+              <label className="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(f.flag)} onChange={(e) => setField(i, { flag: e.target.checked || undefined })} />
+                ⚠️ תשובת "כן" מסמנת התווית נגד (התראה לבעלים ולמטפל/ת)</label>
             )}
             {(f.type === 'choice' || f.type === 'multi') && (
               <Textarea value={(f.options ?? []).join('\n')} onChange={(e) => setField(i, { options: e.target.value.split('\n') })} onBlur={(e) => setField(i, { options: options(e.target.value) })}

@@ -2,7 +2,7 @@ import { adminDb } from '@/lib/server/admin';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
 import { businessName, clientFileCaller, isClientFileOwner, notInstalled, NOT_READY } from '@/lib/server/client-file';
 import { newToken } from '@/lib/server/declarations';
-import { canApprove, cleanAcks, cleanFields, firstName, LIMITS } from '@/features/client-file/declarations';
+import { canApprove, cleanAcks, cleanFields, firstName, flagged, LIMITS, type Field } from '@/features/client-file/declarations';
 import { CLIENT_BUCKET, PHOTO_LINK_SECONDS, isUuid } from '@/features/client-file/photos';
 
 export const runtime = 'nodejs';
@@ -24,7 +24,7 @@ const json = (status: number, body: unknown) => Response.json(body, { status, he
 const bad = (message: string, code = 'bad_request', status = 400) => json(status, { code, message });
 const TEMPLATE_COLUMNS = 'id, family_id, title, treatment_type_ids, version, status, fields, acks, valid_days, source_file_path, created_at, approved_by, approved_at, archived_at';
 const REQUEST_COLUMNS = 'id, lead_id, template_ids, template_versions, status, sent_at, opened_at, signed_at, cancelled_at, expires_at';
-const DECLARATION_COLUMNS = 'id, lead_id, request_id, template_id, template_version, signer_name, signed_at, valid_until, marketing_ok, pdf_sha256';
+const DECLARATION_COLUMNS = 'id, lead_id, request_id, template_id, template_version, signer_name, signed_at, valid_until, marketing_ok, pdf_sha256, answers';
 const READS = new Set(['templates', 'lead', 'open']);
 const OWNER_ONLY = new Set(['template-approve', 'template-archive']);
 
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
       const [r, d, t, tr, y] = await Promise.all([
         db.from('declaration_requests').select(REQUEST_COLUMNS).eq('business_id', business).eq('lead_id', lead.id).order('sent_at', { ascending: false }),
         db.from('declarations').select(DECLARATION_COLUMNS).eq('business_id', business).eq('lead_id', lead.id).order('signed_at', { ascending: false }),
-        db.from('declaration_templates').select('id, family_id, title, treatment_type_ids, version, status, valid_days').eq('business_id', business),
+        db.from('declaration_templates').select('id, family_id, title, treatment_type_ids, version, status, valid_days, fields').eq('business_id', business),
         db.from('client_treatments').select('id, treatment_type_id, status').eq('business_id', business).eq('lead_id', lead.id),
         db.from('treatment_types').select('id, name, active, sort').eq('business_id', business).order('sort', { ascending: true }),
       ]);
@@ -179,8 +179,12 @@ export async function POST(req: Request) {
       const openTypes = [...new Set(((tr.data ?? []) as { treatment_type_id: string | null; status: string }[])
         .filter((x) => x.status === 'active' && x.treatment_type_id).map((x) => x.treatment_type_id!))];
       const requests = ((r.data ?? []) as Record<string, unknown>[]).map(({ token_hash: _hash, ...x }) => x);   // never the hash
-      const declarations = ((d.data ?? []) as Record<string, unknown>[]).map(({ pdf_path: _p, signature_path: _s, answers: _a, ip: _i, user_agent: _u, ...x }) => x);
-      return json(200, { requests, declarations, templates: t.data ?? [], types: y.data ?? [], openTypes, business: await businessName(business) });
+      // the answers stay on the server: the card gets only the questions marked as contraindications that were answered "כן"
+      const fieldsOf = new Map(((t.data ?? []) as { id: string; fields: Field[] }[]).map((x) => [x.id, x.fields ?? []]));
+      const declarations = ((d.data ?? []) as Record<string, any>[]).map(({ pdf_path: _p, signature_path: _s, answers, ip: _i, user_agent: _u, ...x }) =>
+        ({ ...x, flags: flagged(fieldsOf.get(x.template_id) ?? [], answers ?? {}) }));
+      const templates = ((t.data ?? []) as Record<string, unknown>[]).map(({ fields: _f, ...x }) => x);
+      return json(200, { requests, declarations, templates, types: y.data ?? [], openTypes, business: await businessName(business) });
     }
 
     if (action === 'send') {

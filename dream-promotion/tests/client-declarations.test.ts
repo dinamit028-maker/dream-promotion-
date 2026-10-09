@@ -284,3 +284,55 @@ test('two phones sign the same link at the same moment: one declaration, the oth
   assert.equal(tables.declarations.length, 1);
   assert.equal(files.size, 2, 'the loser’s files are removed: one signature, one PDF');
 });
+
+test('a clinic’s real form: ID number, phone, headings, and contraindications marked for the owner', async () => {
+  const { israeliId, israeliPhone, flagged: marked } = await import('../src/features/client-file/declarations');
+  assert.equal(israeliId('123456782'), '123456782');
+  assert.equal(israeliId('39337423'), '039337423', 'fewer than 9 digits: padded with zeros');
+  assert.equal(israeliId('123456789'), null, 'a wrong check digit');
+  assert.equal(israeliId('12-34'), null);
+  assert.equal(israeliPhone('050-356-6969'), '0503566969');
+  assert.equal(israeliPhone('+972 50 3566969'), '0503566969');
+  assert.equal(israeliPhone('12345'), null);
+
+  const fields = cleanFields([
+    { key: 'h1', type: 'heading', label: 'פרטים אישיים', required: true },
+    { key: 'tz', type: 'id_number', label: 'תעודת זהות' },
+    { key: 'tel', type: 'phone', label: 'טלפון נייד' },
+    { key: 'preg', type: 'yesno', label: 'הריון או במהלך תקופת הנקה (התווית נגד אבסולוטית)', flag: true },
+    { key: 'meds', type: 'yesno', label: 'האם הנך נוטלת תרופות?', flag: 'yes' },
+  ]);
+  assert.ok(fields.ok);
+  const fs = fields.ok ? fields.fields : [];
+  assert.deepEqual(fs.map((f) => [f.type, f.required, f.flag ?? false]),
+    [['heading', false, false], ['id_number', true, false], ['phone', true, false], ['yesno', true, true], ['yesno', true, false]],
+    'a heading is never asked; only a real true marks a question');
+  const bad = checkAnswers(fs, [], { tz: '123456789', tel: '0501234567', preg: 'no', meds: 'no' }, []);
+  assert.equal(bad.ok ? '' : bad.message, 'מספר תעודת הזהות לא תקין: תעודת זהות');
+  const ok = checkAnswers(fs, [], { h1: 'x', tz: '39337423', tel: '+972-50-123-4567', preg: 'yes', meds: 'yes' }, []);
+  assert.deepEqual(ok.ok && ok.answers, { tz: '039337423', tel: '0501234567', preg: 'yes', meds: 'yes' });
+  assert.deepEqual(marked(fs, ok.ok ? ok.answers : {}), ['הריון או במהלך תקופת הנקה (התווית נגד אבסולוטית)'], 'only the marked question');
+  assert.deepEqual(progress(fs, {}), { done: 0, total: 4 }, 'the heading is not counted');
+  const lines = answerLines(fs, [], ok.ok ? ok.answers : {});
+  assert.deepEqual(lines.map((l) => [l.heading ?? false, l.flagged ?? false]), [[true, false], [false, false], [false, false], [false, true], [false, false]]);
+
+  // the PDF draws the heading and the mark
+  const png = Buffer.from((await signature()).split(',')[1], 'base64');
+  const pdf = await buildDeclarationPdf({ business: 'ס', templateTitle: 'קרבון', templateVersion: 1, number: 'n', requestId: 'r', fields: fs, acks: [],
+    answers: ok.ok ? ok.answers : {}, marketingOk: null, signerName: 'נועה כהן', signaturePng: png, signedAt: '2026-10-09T08:30:00Z', ip: '', userAgent: '', software: 't' });
+  assert.ok((await pdf.save()).byteLength > 1000);
+});
+
+test('the card is told which contraindications were answered "כן" — never the answers themselves', async () => {
+  const fields = [...FIELDS, { key: 'preg', type: 'yesno', label: 'הריון (התווית נגד אבסולוטית)', required: true, flag: true }];
+  const t = (await staff(OWN, { action: 'template-save', title: 'קרבון', treatmentTypeIds: [LASER], fields, acks: ACKS })).body.template;
+  await staff(OWN, { action: 'template-approve', id: t.id, confirmed: true });
+  const sent = await staff(OWN, { action: 'send', leadId: NOA, templateIds: [t.id] });
+  const r = await pub(sent.body.token, { declarations: [{ answers: { ...full, preg: 'yes' }, acks: [true], signerName: 'נועה כהן', signature: await signature(), confirm: true }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(tables.lead_activities[0].body, /⚠️ לתשומת לב \(התווית נגד\): הריון \(התווית נגד אבסולוטית\)$/);
+  const card = await staff(OWN, { action: 'lead', leadId: NOA });
+  assert.deepEqual(card.body.declarations[0].flags, ['הריון (התווית נגד אבסולוטית)']);
+  assert.equal(card.body.declarations[0].answers, undefined, 'the answers stay on the server');
+  assert.equal(card.body.templates[0].fields, undefined);
+});

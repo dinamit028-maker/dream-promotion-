@@ -5,12 +5,14 @@
  * The wording is the clinic's (checked by its lawyer): nothing here adds, removes or changes a word of it.
  */
 export type FollowUpType = 'text' | 'longtext' | 'date' | 'choice';
-export type FieldType = 'yesno' | 'text' | 'longtext' | 'choice' | 'multi' | 'date' | 'meds' | 'info' | 'marketing';
+export type FieldType = 'yesno' | 'text' | 'longtext' | 'choice' | 'multi' | 'date' | 'meds' | 'id_number' | 'phone' | 'heading' | 'info' | 'marketing';
 export interface FollowUp { key: string; type: FollowUpType; label: string; required: boolean; options?: string[] }
 export interface Field {
   key: string; type: FieldType; label: string; required: boolean; options?: string[];
   /** yes/no only: fields that open under the question when the answer is showFollowUpsWhen */
   followUps?: FollowUp[]; showFollowUpsWhen?: 'yes' | 'no';
+  /** yes/no only: "כן" is marked for the owner and the practitioner (a contraindication) — the wording is unchanged */
+  flag?: boolean;
 }
 export type Answer = string | string[];
 export type Answers = Record<string, Answer>;
@@ -23,6 +25,9 @@ export const FIELD_TYPES: { id: FieldType; label: string }[] = [
   { id: 'multi', label: 'בחירה מרובה' },
   { id: 'date', label: 'תאריך' },
   { id: 'meds', label: 'רשימת תרופות' },
+  { id: 'id_number', label: 'תעודת זהות' },
+  { id: 'phone', label: 'טלפון' },
+  { id: 'heading', label: 'כותרת (בלי תשובה)' },
   { id: 'info', label: 'פסקת טקסט (בלי תשובה)' },
   { id: 'marketing', label: 'הסכמה לשימוש בתמונות לפרסום' },
 ];
@@ -36,6 +41,24 @@ export const CONFIRM_LINE = 'קראתי את ההצהרה, התשובות נכו
 
 export const LIMITS = { fields: 200, label: 1000, options: 30, option: 200, acks: 50, ack: 1000, text: 500, longtext: 3000, meds: 3000, title: 200 } as const;
 const KEY = /^[a-z][a-z0-9_]{0,39}$/;
+/** text the customer reads and does not answer: a heading or a paragraph */
+export const isTextOnly = (t: FieldType) => t === 'info' || t === 'heading';
+
+/** an Israeli ID number: up to 9 digits (padded with zeros) and a valid check digit — the 9 digits, or null */
+export function israeliId(v: string): string | null {
+  const d = v.replace(/[\s-]/g, '');
+  if (!/^\d{5,9}$/.test(d)) return null;
+  const id = d.padStart(9, '0');
+  let sum = 0;
+  for (let i = 0; i < 9; i++) { let x = Number(id[i]) * ((i % 2) + 1); if (x > 9) x -= 9; sum += x; }
+  return sum % 10 === 0 && id !== '000000000' ? id : null;
+}
+/** an Israeli phone (mobile or landline), as digits starting with 0 — or null */
+export function israeliPhone(v: string): string | null {
+  let d = v.replace(/[\s()-]/g, '');
+  if (d.startsWith('+972')) d = `0${d.slice(4)}`; else if (d.startsWith('972') && d.length >= 11) d = `0${d.slice(3)}`;
+  return /^0\d{8,9}$/.test(d) ? d : null;
+}
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim().slice(0, max) : '');
@@ -57,13 +80,14 @@ export function cleanFields(v: unknown): { ok: true; fields: Field[] } | { ok: f
     if (!key) return { ok: false, error: `שדה ${n}: מזהה חסר או כפול.` };
     const label = str(f.label, LIMITS.label);
     if (!label) return { ok: false, error: `שדה ${n}: חסר נוסח.` };
-    const field: Field = { key, type, label, required: type === 'info' || type === 'marketing' ? false : f.required !== false };
+    const field: Field = { key, type, label, required: isTextOnly(type) || type === 'marketing' ? false : f.required !== false };
     if (type === 'choice' || type === 'multi') {
       field.options = cleanOptions(f.options);
       if (field.options.length < 2) return { ok: false, error: `שדה ${n}: צריך לפחות שתי אפשרויות.` };
     }
     if (type === 'yesno') {
       field.showFollowUpsWhen = f.showFollowUpsWhen === 'no' ? 'no' : 'yes';
+      if (f.flag === true) field.flag = true;
       const ups: FollowUp[] = [];
       for (const [j, u0] of (Array.isArray(f.followUps) ? f.followUps : []).entries()) {
         const u = (u0 ?? {}) as Record<string, unknown>;
@@ -90,7 +114,7 @@ export function cleanAcks(v: unknown): { ok: true; acks: string[] } | { ok: fals
 }
 
 /** a declaration that can be approved: at least one question or one confirmation (a paragraph alone is not one) */
-export const canApprove = (fields: Field[], acks: string[]) => acks.length > 0 || fields.some((f) => f.type !== 'info');
+export const canApprove = (fields: Field[], acks: string[]) => acks.length > 0 || fields.some((f) => !isTextOnly(f.type));
 
 /** do the follow-ups of this yes/no question show, for this answer? (no answer yet: no) */
 export const followUpsOpen = (f: Field, a: Answer | undefined) => f.type === 'yesno' && Boolean(f.followUps?.length) && a === (f.showFollowUpsWhen ?? 'yes');
@@ -99,7 +123,7 @@ export const followUpsOpen = (f: Field, a: Answer | undefined) => f.type === 'ye
 export function asked(fields: Field[], answers: Answers): { key: string; label: string; required: boolean }[] {
   const out: { key: string; label: string; required: boolean }[] = [];
   for (const f of fields) {
-    if (f.type === 'info') continue;
+    if (isTextOnly(f.type)) continue;
     out.push({ key: f.key, label: f.label, required: f.required });
     if (followUpsOpen(f, answers[f.key])) for (const u of f.followUps!) out.push({ key: u.key, label: u.label, required: u.required });
   }
@@ -122,6 +146,8 @@ function cleanOne(type: FieldType | FollowUpType, options: string[] | undefined,
     case 'text': return typeof a === 'string' ? str(a, LIMITS.text) || undefined : undefined;
     case 'longtext': return typeof a === 'string' ? str(a, LIMITS.longtext) || undefined : undefined;
     case 'meds': return typeof a === 'string' ? str(a, LIMITS.meds) || undefined : undefined;
+    case 'id_number': return typeof a === 'string' ? israeliId(a) ?? undefined : undefined;
+    case 'phone': return typeof a === 'string' ? israeliPhone(a) ?? undefined : undefined;
     case 'date': return typeof a === 'string' && DATE.test(a) && !Number.isNaN(Date.parse(a)) ? a : undefined;
     case 'choice': return typeof a === 'string' && options?.includes(a) ? a : undefined;
     case 'multi': {
@@ -143,10 +169,16 @@ export function checkAnswers(fields: Field[], acks: string[], answers: unknown, 
   const given = (answers && typeof answers === 'object' && !Array.isArray(answers) ? answers : {}) as Record<string, unknown>;
   const kept: Answers = {};
   for (const f of fields) {
-    if (f.type === 'info') continue;
+    if (isTextOnly(f.type)) continue;
     const a = cleanOne(f.type, f.options, given[f.key]);
     if (a === undefined) {
-      if (f.required) return { ok: false, missing: f.key, message: `לא נענתה השאלה: ${f.label}` };
+      if (f.required) {
+        const said = given[f.key];
+        const typed = typeof said === 'string' && said.trim() !== '';
+        const message = f.type === 'id_number' && typed ? `מספר תעודת הזהות לא תקין: ${f.label}`
+          : f.type === 'phone' && typed ? `מספר הטלפון לא תקין: ${f.label}` : `לא נענתה השאלה: ${f.label}`;
+        return { ok: false, missing: f.key, message };
+      }
       continue;
     }
     kept[f.key] = a;
@@ -169,12 +201,13 @@ export function checkAnswers(fields: Field[], acks: string[], answers: unknown, 
 }
 
 /** the lines of a signed declaration, as the PDF and the card show them: each question with the answer chosen */
-export function answerLines(fields: Field[], acks: string[], answers: Answers): { text: string; answer?: string; indent?: boolean; info?: boolean }[] {
+export function answerLines(fields: Field[], acks: string[], answers: Answers): { text: string; answer?: string; indent?: boolean; info?: boolean; heading?: boolean; flagged?: boolean }[] {
   const show = (a: Answer | undefined) => (a === undefined ? '—' : Array.isArray(a) ? a.join(', ') : a === 'yes' ? 'כן' : a === 'no' ? 'לא' : a);
-  const out: { text: string; answer?: string; indent?: boolean; info?: boolean }[] = [];
+  const out: { text: string; answer?: string; indent?: boolean; info?: boolean; heading?: boolean; flagged?: boolean }[] = [];
   for (const f of fields) {
+    if (f.type === 'heading') { out.push({ text: f.label, heading: true }); continue; }
     if (f.type === 'info') { out.push({ text: f.label, info: true }); continue; }
-    out.push({ text: f.label, answer: show(answers[f.key]) });
+    out.push({ text: f.label, answer: show(answers[f.key]), ...(f.flag && answers[f.key] === 'yes' ? { flagged: true } : {}) });
     if (followUpsOpen(f, answers[f.key])) {
       for (const u of f.followUps!) if (answers[u.key] !== undefined) out.push({ text: u.label, answer: show(answers[u.key]), indent: true });
     }
@@ -182,6 +215,9 @@ export function answerLines(fields: Field[], acks: string[], answers: Answers): 
   for (const a of acks) out.push({ text: a, answer: 'סומן ✓' });
   return out;
 }
+
+/** the questions marked for attention (a contraindication) that the customer answered "כן" — their wording, in order */
+export const flagged = (fields: Field[], answers: Answers) => fields.filter((f) => f.type === 'yesno' && f.flag && answers[f.key] === 'yes').map((f) => f.label);
 
 /** a new field's key (the editor): unique among the template's keys */
 export function newKey(fields: Field[], base = 'q'): string {

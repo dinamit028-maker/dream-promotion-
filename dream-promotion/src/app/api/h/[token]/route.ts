@@ -5,7 +5,7 @@ import { pushToUser } from '@/lib/server/push';
 import { signedPdfBytes } from '@/lib/server/sign-pdf';
 import { businessName } from '@/lib/server/client-file';
 import { buildDeclarationPdf, checkSignature, hashToken, isToken, sha256 } from '@/lib/server/declarations';
-import { checkAnswers, firstName, type Field } from '@/features/client-file/declarations';
+import { checkAnswers, firstName, flagged, type Field } from '@/features/client-file/declarations';
 import { CLIENT_BUCKET } from '@/features/client-file/photos';
 
 export const runtime = 'nodejs';
@@ -149,9 +149,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     const ownerIds = ((owners ?? []) as { user_id: string }[]).map((o) => o.user_id);
     const by = r.sent_by ?? ownerIds[0];
     const titles = ready.map((x) => x.t.title).join(', ');
-    if (by) await db.from('lead_activities').insert({ user_id: by, business_id: r.business_id, lead_id: r.lead_id, kind: 'note', body: `📝 הצהרת בריאות נחתמה: ${titles}` });
+    // "כן" on a question the clinic marked as a contraindication: said on the timeline and in the owners' notification
+    const marks = ready.flatMap((x) => flagged(x.t.fields, x.answers as any));
+    const warn = marks.length ? `\n⚠️ לתשומת לב (התווית נגד): ${marks.join(' · ')}` : '';
+    if (by) await db.from('lead_activities').insert({ user_id: by, business_id: r.business_id, lead_id: r.lead_id, kind: 'note', body: `📝 הצהרת בריאות נחתמה: ${titles}${warn}`.slice(0, 2000) });
     const { data: lead } = await db.from('leads').select('name').eq('id', r.lead_id).maybeSingle();
-    for (const u of ownerIds) await pushToUser(u, { title: 'הצהרת בריאות נחתמה', body: `${String((lead as { name?: string } | null)?.name ?? 'לקוח/ה')} — ${titles}`, url: '/leads', tag: `declaration-${r.id}` });
+    for (const u of ownerIds) await pushToUser(u, { title: marks.length ? '⚠️ הצהרת בריאות נחתמה — לתשומת לב' : 'הצהרת בריאות נחתמה',
+      body: `${String((lead as { name?: string } | null)?.name ?? 'לקוח/ה')} — ${titles}${marks.length ? ` · ${marks.length} תשובות "כן" בהתוויות נגד` : ''}`, url: '/leads', tag: `declaration-${r.id}` });
   } catch { /* the signature is kept; the note and the push are extras */ }
 
   return json(200, { ok: true, pdfs });
