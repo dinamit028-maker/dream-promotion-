@@ -2694,7 +2694,7 @@
 |---|---|---|---|
 | דשבורד | `npm run typecheck`, `npm test` | עבר; 308 | 0 |
 | דשבורד | `npm run build` | עבר (Next 16.3.8, Turbopack) | 0 |
-| דשבורד | `npm run test:e2e` (קופה, כספים, חנות, רילס — כל אחת לבד) | E2E_RESULT | 0 |
+| דשבורד | `npm run test:e2e` (קופה, כספים, חנות, רילס — כל אחת לבד) | 70/70 (10 + 23 + 29 + 8) | 0 |
 | חזית | `npm run typecheck`, `npm test`, `npm run build` | עבר (רק גרסה) | 0 |
 
 **בלי מיגרציה.** `commerce_live` לא נגעו בו.
