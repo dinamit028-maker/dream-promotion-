@@ -10,6 +10,7 @@ import { CalendarPlus } from '@/components/ui/Icon';
 import { phoneDigits, telLink, waLink } from '@/features/crm/crm';
 import { ContactSheet } from '@/features/crm/ContactSheet';
 import { freeSlots, reminderText, type Hours } from './slots';
+import { authHeaders } from '@/lib/services/http';
 import { BookingAPI, DEFAULT_SETTINGS, bookingError, type Appointment, type ApptStatus, type BookingServiceRow, type BookingSettings } from './booking.service';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -49,6 +50,29 @@ export function AppointmentsScreen() {
     finally { setLoading(false); }
   }, [userId, showPast, brand.name, brand.city]);
   useEffect(() => { void load(); }, [load]);
+
+  // the client file (2.86): an upcoming appointment of a customer with no valid health declaration for its treatment is
+  // marked, with "שלח עכשיו". Asked again when a card closes (a declaration may have been sent or signed). Shown only to the
+  // owner and the practitioners the owner marked — anyone else gets nothing back, and nothing is shown.
+  const [gaps, setGaps] = useState<Record<string, { type: string | null }>>({});
+  useEffect(() => {
+    if (contactId) return;
+    const today = israelParts(Date.now()).date;
+    const list = appts.filter((a) => a.leadId && (a.status === 'booked' || a.status === 'confirmed'))
+      .map((a) => ({ id: a.id, leadId: a.leadId!, service: a.serviceName, day: israelParts(new Date(a.start)).date }))
+      .filter((a) => a.day >= today);
+    if (!list.length) { setGaps({}); return; }
+    let live = true;
+    (async () => {
+      try {
+        const r = await fetch('/api/client-file/declarations', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+          body: JSON.stringify({ action: 'gaps', appointments: list }) });
+        const j = r.ok ? await r.json() : null;
+        if (live) setGaps(j?.gaps ?? {});
+      } catch { if (live) setGaps({}); }
+    })();
+    return () => { live = false; };
+  }, [appts, contactId]);
 
   const flash = (m: string) => { setSaved(m); setTimeout(() => setSaved(null), 2500); };
   async function saveSettings(next = settings) {
@@ -127,6 +151,12 @@ export function AppointmentsScreen() {
                           </button>
                           <span className={cx('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', STATUS[a.status].tone)}>{STATUS[a.status].label}</span>
                         </div>
+                        {gaps[a.id] && a.leadId && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-amber-500/15 px-2.5 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200">
+                            <span>⚠️ אין הצהרת בריאות בתוקף{gaps[a.id].type ? ` ל${gaps[a.id].type}` : ''}</span>
+                            <button type="button" className="underline" onClick={() => setContactId(a.leadId!)}>שלח עכשיו</button>
+                          </div>
+                        )}
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {waLink(a.phone) && a.status !== 'done' && <Button size="sm" variant="ghost" onClick={() => remind(a)}>💬 תזכורת</Button>}
                           {a.phone && <a href={telLink(a.phone)} className="rounded-full border border-line px-3 py-1 text-sm">📞</a>}

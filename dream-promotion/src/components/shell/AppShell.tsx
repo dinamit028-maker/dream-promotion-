@@ -20,7 +20,7 @@ import { STORE_MODULE } from '@/features/store/module';
 import { isStorePath } from '@/features/store/routes';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
-  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet, Storefront,
+  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet, Storefront, ClipboardText,
 } from '@/components/ui/Icon';
 
 type NavItem = { href: string; label: string; Icon: ComponentType<any> };
@@ -36,6 +36,7 @@ export const NAV: NavItem[] = [
   { href: '/ads', label: 'קמפיינים', Icon: Megaphone },
   { href: '/leads', label: 'לקוחות', Icon: UsersThree },
   { href: '/appointments', label: 'תורים', Icon: CalendarCheck },
+  { href: '/declarations', label: 'הצהרות בריאות', Icon: ClipboardText },
   { href: '/register', label: 'קופה', Icon: CashRegister },
   { href: '/finance', label: 'כספים', Icon: Wallet },
   { href: '/store/products', label: 'חנות', Icon: Storefront },
