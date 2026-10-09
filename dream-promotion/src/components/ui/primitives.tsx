@@ -60,8 +60,8 @@ const fieldBase = 'w-full rounded-md border-[1.5px] border-line bg-surface px-4 
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={cx(fieldBase, p.className)} />;
 export const Textarea = (p: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={cx(fieldBase, 'min-h-28 resize-y leading-relaxed', p.className)} />;
 export const Select = (p: SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cx(fieldBase, p.className)} />;
-/** A small select for rows and lists. Its own size — the big field padding would hide the chosen text
- *  (classes are joined, not merged, so "py-1" can not override fieldBase's "py-3"). Width: pass w-… */
+/** A small select for rows and lists. Its own size — the big field padding would hide the chosen text (since 2.80 cx merges,
+ *  so a "py-1" passed to Select does override fieldBase's "py-3"; this one keeps its own look). Width: pass w-… */
 export const SmallSelect = (p: SelectHTMLAttributes<HTMLSelectElement>) => (
   <select {...p} className={cx('h-10 min-w-0 rounded-md border-[1.5px] border-line bg-surface px-3 text-sm font-semibold outline-hidden focus:border-primary', p.className)} />
 );
