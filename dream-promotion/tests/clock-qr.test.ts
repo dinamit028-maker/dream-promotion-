@@ -12,7 +12,7 @@ const tables: Record<string, any[]> = {
   time_entries: [],
 };
 before(() => { (globalThis as any).__DP_TEST_ADMIN_DB__ = fakeDb(tables); });
-const ctx = { params: { token: TOKEN } };
+const ctx = { params: Promise.resolve({ token: TOKEN }) };
 const post = (body: any) => new Request('http://x', { method: 'POST', body: JSON.stringify(body) });
 
 test('QR clock: the business code is required, old codes are refused', async () => {

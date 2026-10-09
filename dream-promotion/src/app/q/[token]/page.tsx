@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { Spinner } from '@/components/ui/feedback';
 import { issuerIdLine } from '@/features/finance/rules';
 
@@ -13,7 +13,8 @@ interface Q {
 const money = (n: number) => `₪${n.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const day = (d: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '');
 
-export default function SharedQuotePage({ params }: { params: { token: string } }) {
+export default function SharedQuotePage(props: { params: Promise<{ token: string }> }) {
+  const params = use(props.params);   // Next 15: a page's params arrive as a promise
   const [q, setQ] = useState<Q | null>(null);
   const [missing, setMissing] = useState<string | null>(null);
   const [name, setName] = useState('');

@@ -44,7 +44,8 @@ async function state(emp: any) {
   };
 }
 
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const emp = await employeeOf(params.token);
   if (!emp) return NextResponse.json({ code: 'not_found', message: 'הקישור לא תקין או שבוטל' }, { status: 404 });
   if (emp === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
@@ -53,7 +54,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   return NextResponse.json({ ...(await state(emp)), siteOk }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const emp = await employeeOf(params.token);
   if (!emp) return NextResponse.json({ code: 'not_found', message: 'הקישור לא תקין או שבוטל' }, { status: 404 });
   if (emp === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });

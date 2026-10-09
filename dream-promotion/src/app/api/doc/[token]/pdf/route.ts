@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
  * The customer's document as a PDF, signed digitally when the certificate is configured: /api/doc/<token>/pdf.
  * Same access as the document link itself — the random 64-hex token, an open business.
  */
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const limited = rateLimited(req, 'doc-pdf', PUBLIC_LIMITS.docPdf, MINUTE);
   if (limited) return limited;
   const s = await sharedDocument(params.token);

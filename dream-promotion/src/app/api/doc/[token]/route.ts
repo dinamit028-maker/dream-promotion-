@@ -5,7 +5,8 @@ import { MINUTE, PUBLIC_LIMITS, rateLimited } from '@/lib/server/rate-limit';
 
 export const runtime = 'nodejs';
 /** A customer's link to their document: /d/<token>. The token is random (64 hex), set when the document was issued. */
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const limited = rateLimited(req, 'doc-read', PUBLIC_LIMITS.docRead, MINUTE);
   if (limited) return limited;
   const s = await sharedDocument(params.token);

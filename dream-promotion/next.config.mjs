@@ -6,16 +6,17 @@ const BUILD_DATE = new Date().toISOString().slice(0, 10);
 
 const nextConfig = {
   reactStrictMode: true,
+  // Next 15's dev badge sits over the bottom bar's corner button ("תפריט") on a phone — and the e2e taps it
+  devIndicators: false,
   // next/image is not used: no remote image optimizer (an open remotePatterns '**' let anyone use the server as an image proxy)
   images: { unoptimized: true },
-  experimental: {
-    // the final-reel renderer runs the ffmpeg binary and burns captions with the bundled Hebrew font
-    serverComponentsExternalPackages: ['ffmpeg-static'],
-    outputFileTracingIncludes: {
-      '/api/reel/render': ['./node_modules/ffmpeg-static/ffmpeg', './assets/fonts/**'],
-      // the signed PDF of a document is drawn with the bundled Hebrew font (static Rubik, OFL)
-      '/api/doc/[token]/pdf': ['./assets/fonts/Rubik-Regular.ttf', './assets/fonts/Rubik-Bold.ttf'],
-    },
+  // the final-reel renderer runs the ffmpeg binary and burns captions with the bundled Hebrew font
+  // (Next 15: both options left `experimental`)
+  serverExternalPackages: ['ffmpeg-static'],
+  outputFileTracingIncludes: {
+    '/api/reel/render': ['./node_modules/ffmpeg-static/ffmpeg', './assets/fonts/**'],
+    // the signed PDF of a document is drawn with the bundled Hebrew font (static Rubik, OFL)
+    '/api/doc/[token]/pdf': ['./assets/fonts/Rubik-Regular.ttf', './assets/fonts/Rubik-Bold.ttf'],
   },
   // the client compares this with /api/version and reloads itself after every deploy
   env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID, NEXT_PUBLIC_APP_VERSION: APP_VERSION, NEXT_PUBLIC_BUILD_DATE: BUILD_DATE },

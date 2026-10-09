@@ -180,12 +180,12 @@ test('connecting to the Tax Authority: per business, a member only, tokens seale
 test('the customer\'s quote link: no internal ids, one answer while it is valid, only for the version read', async () => {
   const route = await import('../src/app/api/quote/[token]/route');
   const T = 'c'.repeat(64);
-  const g = await route.GET(new Request('http://x'), { params: { token: T } });
+  const g = await route.GET(new Request('http://x'), { params: Promise.resolve({ token: T }) });
   const j = await g.json();
   assert.equal(g.status, 200); assert.equal(j.quote.number, 7); assert.equal(j.quote.lines[0].name, 'טיפול');
   for (const k of ['id', 'user_id', 'business_id', 'lead_id', 'share_token']) assert.ok(!(k in j.quote), `${k} must not be exposed`);
   assert.ok(!JSON.stringify(j).includes('lead-secret'));
-  const post = (b: object) => route.POST(new Request('http://x', { method: 'POST', body: JSON.stringify(b) }), { params: { token: T } });
+  const post = (b: object) => route.POST(new Request('http://x', { method: 'POST', body: JSON.stringify(b) }), { params: Promise.resolve({ token: T }) });
   assert.equal((await post({ decision: 'accept', name: '' })).status, 400, 'a name is required');
   // the answer belongs to the version the customer read: no version, or the business edited the quote since → refresh first
   const stale = await post({ decision: 'accept', name: 'דנה כהן' });
@@ -194,7 +194,7 @@ test('the customer\'s quote link: no internal ids, one answer while it is valid,
   const edited = await post({ decision: 'accept', name: 'דנה כהן', version: j.quote.version });
   assert.equal(edited.status, 409); assert.equal((await edited.json()).code, 'changed', 'edited after the customer opened it');
   assert.equal(tables.quotes[0].status, 'sent', 'nothing was answered');
-  const fresh = (await (await route.GET(new Request('http://x'), { params: { token: T } })).json()).quote;
+  const fresh = (await (await route.GET(new Request('http://x'), { params: Promise.resolve({ token: T }) })).json()).quote;
   const ok = await post({ decision: 'accept', name: 'דנה כהן', note: 'מתאים', version: fresh.version });
   assert.equal(ok.status, 200);
   assert.deepEqual([tables.quotes[0].status, tables.quotes[0].decision_by, tables.quotes[0].decision_note], ['accepted', 'דנה כהן', 'מתאים']);
@@ -203,8 +203,8 @@ test('the customer\'s quote link: no internal ids, one answer while it is valid,
   tables.quotes[0].status = 'sent'; tables.quotes[0].valid_until = '2020-01-01';
   const late = await post({ decision: 'accept', name: 'דנה', version: tables.quotes[0].updated_at });
   assert.equal(late.status, 409, 'an expired quote is not accepted'); assert.equal((await late.json()).code, 'expired');
-  assert.equal((await route.GET(new Request('http://x'), { params: { token: 'x'.repeat(64) } })).status, 404);
-  assert.equal((await route.GET(new Request('http://x'), { params: { token: '../../etc' } })).status, 404);
+  assert.equal((await route.GET(new Request('http://x'), { params: Promise.resolve({ token: 'x'.repeat(64) }) })).status, 404);
+  assert.equal((await route.GET(new Request('http://x'), { params: Promise.resolve({ token: '../../etc' }) })).status, 404);
 });
 
 test('reading an expense with AI is off without a key, and never saves anything', async () => {
