@@ -2674,6 +2674,7 @@
 - **`src/middleware.ts` → `src/proxy.ts`**, והפונקציה `middleware` → `proxy`. ההתנהגות לא השתנתה: קישורי `/finance?tab=…` ישנים מקבלים 307 לכתובת של המסך. הבדיקה ב-`tests/module-shell.test.ts` עודכנה לשם החדש.
 - **Turbopack** בונה עכשיו גם את ה-build. אין הגדרת webpack, ולכן אין מה להעביר. **נבדק:** ffmpeg והגופנים עדיין נכללים בנתיבים שצריכים אותם (`/api/reel/render`, `/api/doc/[token]/pdf`).
 - **`tsconfig.json`:** ‏Next 16 עדכן אותו בעצמו — `jsx: react-jsx`, ו-`.next/dev/types` נוסף ל-`include`.
+- **`data-scroll-behavior="smooth"` על `<html>`:** ב-Next 16 המעבר בין מסכים כבר לא קופץ מיד לראש העמוד כשיש גלילה חלקה (`globals.css`). המאפיין מחזיר את מה שהיה — קפיצה מיידית בין מסכים, וגלילה חלקה בתוך מסך.
 - **`npm run lint` הוסר:** אין `next lint` ב-Next 16, ולפרויקט לא הייתה הגדרת ESLint.
 
 **התראות אבטחה (`npm audit --omit=dev`):**
