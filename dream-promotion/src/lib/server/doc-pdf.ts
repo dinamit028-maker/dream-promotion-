@@ -16,7 +16,7 @@ import { issuerIdLine } from '@/features/finance/rules';
 const bidi = bidiFactory();
 const FONT_DIR = path.join(process.cwd(), 'assets', 'fonts');
 let fontCache: { regular: Uint8Array; bold: Uint8Array } | null = null;
-const fontBytes = () => (fontCache ??= { regular: readFileSync(path.join(FONT_DIR, 'Rubik-Regular.ttf')), bold: readFileSync(path.join(FONT_DIR, 'Rubik-Bold.ttf')) });
+export const fontBytes = () => (fontCache ??= { regular: readFileSync(path.join(FONT_DIR, 'Rubik-Regular.ttf')), bold: readFileSync(path.join(FONT_DIR, 'Rubik-Bold.ttf')) });
 
 /** logical text → the order to draw it in (left to right), for a right-to-left paragraph */
 export function visual(text: string): string {
@@ -37,7 +37,7 @@ export function visual(text: string): string {
  * pdf-lib lets fontkit guess each string's script and reverse a "Hebrew" string by itself — numbers inside it
  * included. Our text is already in visual order (visual() above), so the layout is always left to right.
  */
-function forceLtr(f: PDFFont) {
+export function forceLtr(f: PDFFont) {
   const fk = (f as any).embedder?.font;
   if (!fk?.layout) return;
   const layout = fk.layout.bind(fk);
@@ -47,7 +47,7 @@ function forceLtr(f: PDFFont) {
 const ddmmyyyy = (d: string) => d.split('-').reverse().join('/');
 const money = (n: number) => n.toFixed(2);
 /** "05/10/2026 10:30" in Israel time */
-const ilDateTime = (iso: string) => {
+export const ilDateTime = (iso: string) => {
   const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
     .formatToParts(new Date(iso)).reduce<Record<string, string>>((a, x) => ((a[x.type] = x.value), a), {});
   return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;

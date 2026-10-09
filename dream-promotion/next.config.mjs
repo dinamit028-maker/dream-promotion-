@@ -17,6 +17,8 @@ const nextConfig = {
     '/api/reel/render': ['./node_modules/ffmpeg-static/ffmpeg', './assets/fonts/**'],
     // the signed PDF of a document is drawn with the bundled Hebrew font (static Rubik, OFL)
     '/api/doc/[token]/pdf': ['./assets/fonts/Rubik-Regular.ttf', './assets/fonts/Rubik-Bold.ttf'],
+    // the signed health declaration (client file) — the same font
+    '/api/h/[token]': ['./assets/fonts/Rubik-Regular.ttf', './assets/fonts/Rubik-Bold.ttf'],
   },
   // the client compares this with /api/version and reloads itself after every deploy
   env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID, NEXT_PUBLIC_APP_VERSION: APP_VERSION, NEXT_PUBLIC_BUILD_DATE: BUILD_DATE },
@@ -27,6 +29,21 @@ const nextConfig = {
         // hashed files under /_next/static stay cached — they change name on every build.
         source: '/((?!_next/static|_next/image|favicon.ico).*)',
         headers: [{ key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' }],
+      },
+      {
+        // a customer's health declaration (/h/<token>): never indexed, never framed, no script, style or connection
+        // from anywhere but this site (Next's own inline scripts need 'unsafe-inline'; development also needs eval)
+        source: '/h/:path*',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: [
+            "default-src 'self'", `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'production' ? '' : " 'unsafe-eval'"}`,
+            "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self'", "connect-src 'self'",
+            "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'", "object-src 'none'",
+          ].join('; ') },
+        ],
       },
     ];
   },

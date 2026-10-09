@@ -67,3 +67,19 @@ export function israelDayStart(now = new Date()): string {
   const offsetHours = Number(ilNoon) - 12;
   return new Date(Date.parse(`${day}T00:00:00Z`) - offsetHours * 3_600_000).toISOString();
 }
+
+/** the business's name as its customers know it: the brand, else the business record */
+export async function businessName(business: string): Promise<string> {
+  const db = adminDb();
+  const { data: b } = await db.from('brands').select('name').eq('business_id', business).limit(1).maybeSingle();
+  const brand = String((b as { name?: string } | null)?.name ?? '').trim();
+  if (brand) return brand;
+  const { data: r } = await db.from('businesses').select('name').eq('id', business).maybeSingle();
+  return String((r as { name?: string } | null)?.name ?? '').trim();
+}
+
+/** may this user approve templates, archive them and read the view log? (the owner — as client_file_owner_for) */
+export async function isClientFileOwner(userId: string, business: string): Promise<boolean> {
+  const { data } = await adminDb().rpc('client_file_owner_for', { p_user: userId, p_business: business });
+  return data === true;
+}
