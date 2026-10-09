@@ -336,3 +336,22 @@ test('the card is told which contraindications were answered "כן" — never th
   assert.equal(card.body.declarations[0].answers, undefined, 'the answers stay on the server');
   assert.equal(card.body.templates[0].fields, undefined);
 });
+
+test('email and a grey example inside the box (the micropigmentation form)', async () => {
+  const { emailAddress } = await import('../src/features/client-file/declarations');
+  assert.equal(emailAddress(' Noa@Mail.co.il '), 'noa@mail.co.il');
+  for (const bad of ['noa@', 'noa', 'a b@c.co', '@x.com']) assert.equal(emailAddress(bad), null, bad);
+  const f = cleanFields([
+    { key: 'email', type: 'email', label: 'אימייל' },
+    { key: 'how', type: 'text', label: 'איך הגעת אלינו?', required: false, placeholder: 'אינסטגרם, המלצה...' },
+    { key: 'q', type: 'yesno', label: 'שאלה', placeholder: 'לא כאן' },
+  ]);
+  assert.ok(f.ok);
+  const fs = f.ok ? f.fields : [];
+  assert.deepEqual(fs.map((x) => x.placeholder ?? null), [null, 'אינסטגרם, המלצה...', null], 'an example only where something is typed');
+  const bad = checkAnswers(fs, [], { email: 'noa@', q: 'no' }, []);
+  assert.equal(bad.ok ? '' : bad.message, 'כתובת האימייל לא תקינה: אימייל');
+  assert.deepEqual(progress(fs, { email: 'noa@', q: 'no' }), { done: 1, total: 2 }, 'a half-typed email is not counted as answered');
+  const ok = checkAnswers(fs, [], { email: 'Noa@Mail.co.il', q: 'no' }, []);
+  assert.deepEqual(ok.ok && ok.answers, { email: 'noa@mail.co.il', q: 'no' }, 'the example is never an answer');
+});

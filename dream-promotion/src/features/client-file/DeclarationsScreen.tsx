@@ -6,7 +6,7 @@ import { ClipboardText } from '@/components/ui/Icon';
 import { formatIL } from '@/lib/il-time';
 import { authHeaders } from '@/lib/services/http';
 import {
-  CONFIRM_LINE, FIELD_TYPES, FOLLOW_UP_TYPES, MARKETING_LABEL, STATUS_LABEL, canApprove, cleanAcks, cleanFields, isTextOnly, newKey,
+  CONFIRM_LINE, FIELD_TYPES, FOLLOW_UP_TYPES, MARKETING_LABEL, STATUS_LABEL, TAKES_PLACEHOLDER, canApprove, cleanAcks, cleanFields, isTextOnly, newKey,
   type Answers, type Field, type FieldType, type FollowUp, type TemplateStatus,
 } from './declarations';
 import { Question } from './DeclarationForm';
@@ -243,6 +243,10 @@ function Editor({ draft: start, types, onClose, onSaved }: { draft: Draft; types
             {f.type === 'yesno' && (
               <label className="mt-1 flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(f.flag)} onChange={(e) => setField(i, { flag: e.target.checked || undefined })} />
                 ⚠️ תשובת "כן" מסמנת התווית נגד (התראה לבעלים ולמטפל/ת)</label>
+            )}
+            {TAKES_PLACEHOLDER.includes(f.type) && (
+              <Input value={f.placeholder ?? ''} onChange={(e) => setField(i, { placeholder: e.target.value || undefined })} className="mt-2 h-9 py-1"
+                placeholder="דוגמה אפורה בתוך השדה (לא חובה)" aria-label="דוגמה בתוך השדה" />
             )}
             {(f.type === 'choice' || f.type === 'multi') && (
               <Textarea value={(f.options ?? []).join('\n')} onChange={(e) => setField(i, { options: e.target.value.split('\n') })} onBlur={(e) => setField(i, { options: options(e.target.value) })}

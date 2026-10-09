@@ -37,7 +37,7 @@ export function Question({ id, prefix, field, answers, problem, onAnswer }: {
   }
   return (
     <div id={id} className={`mb-4 rounded-xl p-3 ${bad ? 'bg-red-50 ring-2 ring-red-600' : ''}`}>
-      <Control fieldKey={field.key} labelId={`${id}-label`} label={field.label} required={field.required} type={field.type} options={field.options}
+      <Control fieldKey={field.key} labelId={`${id}-label`} label={field.label} required={field.required} type={field.type} options={field.options} placeholder={field.placeholder}
         value={answers[field.key]} onChange={(v) => onAnswer(field.key, v)} invalid={bad} />
       {field.type === 'yesno' && field.followUps?.length ? (
         <div ref={firstUp} className={`grid transition-[grid-template-rows,opacity] duration-200 ${open ? 'mt-3 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`} aria-hidden={!open}>
@@ -58,8 +58,8 @@ export function Question({ id, prefix, field, answers, problem, onAnswer }: {
   );
 }
 
-export function Control({ fieldKey, labelId, label, required, type, options, value, onChange, invalid }: {
-  fieldKey: string; labelId: string; label: string; required: boolean; type: Field['type'] | FollowUp['type']; options?: string[];
+export function Control({ fieldKey, labelId, label, required, type, options, placeholder, value, onChange, invalid }: {
+  fieldKey: string; labelId: string; label: string; required: boolean; type: Field['type'] | FollowUp['type']; options?: string[]; placeholder?: string;
   value: Answers[string] | undefined; onChange: (v: Answers[string] | undefined) => void; invalid: boolean;
 }) {
   const title = <span id={labelId} className="mb-2 block font-semibold whitespace-pre-wrap">{label}{required && <span aria-hidden className="text-red-600"> *</span>}</span>;
@@ -102,11 +102,12 @@ export function Control({ fieldKey, labelId, label, required, type, options, val
       {title}
       {type === 'longtext' || type === 'meds'
         ? <textarea className={`${input} min-h-24`} value={text} onChange={(e) => onChange(e.target.value)} aria-required={required} aria-invalid={invalid}
-            placeholder={type === 'meds' ? 'שם התרופה ומינון — כל תרופה בשורה' : undefined} />
-        : <input className={input} type={type === 'date' ? 'date' : type === 'phone' ? 'tel' : 'text'} value={text} onChange={(e) => onChange(e.target.value)}
-            aria-required={required} aria-invalid={invalid} dir={type === 'id_number' || type === 'phone' ? 'ltr' : undefined}
-            inputMode={type === 'id_number' ? 'numeric' : type === 'phone' ? 'tel' : undefined} maxLength={type === 'id_number' ? 9 : type === 'phone' ? 15 : undefined}
-            autoComplete={type === 'phone' ? 'tel' : 'off'} />}
+            placeholder={placeholder ?? (type === 'meds' ? 'שם התרופה ומינון — כל תרופה בשורה' : undefined)} />
+        : <input className={input} type={type === 'date' ? 'date' : type === 'phone' ? 'tel' : type === 'email' ? 'email' : 'text'} value={text} onChange={(e) => onChange(e.target.value)}
+            aria-required={required} aria-invalid={invalid} dir={type === 'id_number' || type === 'phone' || type === 'email' ? 'ltr' : undefined} placeholder={placeholder}
+            inputMode={type === 'id_number' ? 'numeric' : type === 'phone' ? 'tel' : type === 'email' ? 'email' : undefined}
+            maxLength={type === 'id_number' ? 9 : type === 'phone' ? 15 : type === 'email' ? 200 : undefined}
+            autoComplete={type === 'phone' ? 'tel' : type === 'email' ? 'email' : 'off'} />}
     </label>
   );
 }

@@ -5,10 +5,12 @@
  * The wording is the clinic's (checked by its lawyer): nothing here adds, removes or changes a word of it.
  */
 export type FollowUpType = 'text' | 'longtext' | 'date' | 'choice';
-export type FieldType = 'yesno' | 'text' | 'longtext' | 'choice' | 'multi' | 'date' | 'meds' | 'id_number' | 'phone' | 'heading' | 'info' | 'marketing';
+export type FieldType = 'yesno' | 'text' | 'longtext' | 'choice' | 'multi' | 'date' | 'meds' | 'id_number' | 'phone' | 'email' | 'heading' | 'info' | 'marketing';
 export interface FollowUp { key: string; type: FollowUpType; label: string; required: boolean; options?: string[] }
 export interface Field {
   key: string; type: FieldType; label: string; required: boolean; options?: string[];
+  /** a grey example inside an empty text box (the clinic's, e.g. "אינסטגרם, המלצה...") — never an answer */
+  placeholder?: string;
   /** yes/no only: fields that open under the question when the answer is showFollowUpsWhen */
   followUps?: FollowUp[]; showFollowUpsWhen?: 'yes' | 'no';
   /** yes/no only: "כן" is marked for the owner and the practitioner (a contraindication) — the wording is unchanged */
@@ -27,6 +29,7 @@ export const FIELD_TYPES: { id: FieldType; label: string }[] = [
   { id: 'meds', label: 'רשימת תרופות' },
   { id: 'id_number', label: 'תעודת זהות' },
   { id: 'phone', label: 'טלפון' },
+  { id: 'email', label: 'אימייל' },
   { id: 'heading', label: 'כותרת (בלי תשובה)' },
   { id: 'info', label: 'פסקת טקסט (בלי תשובה)' },
   { id: 'marketing', label: 'הסכמה לשימוש בתמונות לפרסום' },
@@ -53,6 +56,14 @@ export function israeliId(v: string): string | null {
   for (let i = 0; i < 9; i++) { let x = Number(id[i]) * ((i % 2) + 1); if (x > 9) x -= 9; sum += x; }
   return sum % 10 === 0 && id !== '000000000' ? id : null;
 }
+/** an email address (simple shape check, lower-cased) — or null */
+export function emailAddress(v: string): string | null {
+  const e = v.trim().toLowerCase();
+  return e.length <= 200 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) ? e : null;
+}
+/** the field types a grey example may be shown in */
+export const TAKES_PLACEHOLDER: FieldType[] = ['text', 'longtext', 'meds', 'phone', 'email'];
+
 /** an Israeli phone (mobile or landline), as digits starting with 0 — or null */
 export function israeliPhone(v: string): string | null {
   let d = v.replace(/[\s()-]/g, '');
@@ -81,6 +92,8 @@ export function cleanFields(v: unknown): { ok: true; fields: Field[] } | { ok: f
     const label = str(f.label, LIMITS.label);
     if (!label) return { ok: false, error: `שדה ${n}: חסר נוסח.` };
     const field: Field = { key, type, label, required: isTextOnly(type) || type === 'marketing' ? false : f.required !== false };
+    const ph = str(f.placeholder, 100);
+    if (ph && TAKES_PLACEHOLDER.includes(type)) field.placeholder = ph;
     if (type === 'choice' || type === 'multi') {
       field.options = cleanOptions(f.options);
       if (field.options.length < 2) return { ok: false, error: `שדה ${n}: צריך לפחות שתי אפשרויות.` };
@@ -120,22 +133,20 @@ export const canApprove = (fields: Field[], acks: string[]) => acks.length > 0 |
 export const followUpsOpen = (f: Field, a: Answer | undefined) => f.type === 'yesno' && Boolean(f.followUps?.length) && a === (f.showFollowUpsWhen ?? 'yes');
 
 /** every key the customer is asked, in order, with whether it must be answered now */
-export function asked(fields: Field[], answers: Answers): { key: string; label: string; required: boolean }[] {
-  const out: { key: string; label: string; required: boolean }[] = [];
+export function asked(fields: Field[], answers: Answers): { key: string; label: string; required: boolean; type: FieldType | FollowUpType; options?: string[] }[] {
+  const out: { key: string; label: string; required: boolean; type: FieldType | FollowUpType; options?: string[] }[] = [];
   for (const f of fields) {
     if (isTextOnly(f.type)) continue;
-    out.push({ key: f.key, label: f.label, required: f.required });
-    if (followUpsOpen(f, answers[f.key])) for (const u of f.followUps!) out.push({ key: u.key, label: u.label, required: u.required });
+    out.push({ key: f.key, label: f.label, required: f.required, type: f.type, options: f.options });
+    if (followUpsOpen(f, answers[f.key])) for (const u of f.followUps!) out.push({ key: u.key, label: u.label, required: u.required, type: u.type, options: u.options });
   }
   return out;
 }
 
-const answered = (a: Answer | undefined) => (Array.isArray(a) ? a.length > 0 : typeof a === 'string' && a.trim() !== '');
-
-/** "8 מתוך 15 נענו": the required questions open now, and how many have an answer */
+/** "8 מתוך 15 נענו": the required questions open now, and how many have a VALID answer (a half-typed email is not one) */
 export function progress(fields: Field[], answers: Answers): { done: number; total: number } {
   const req = asked(fields, answers).filter((q) => q.required);
-  return { done: req.filter((q) => answered(answers[q.key])).length, total: req.length };
+  return { done: req.filter((q) => cleanOne(q.type, q.options, answers[q.key]) !== undefined).length, total: req.length };
 }
 
 /** one answer, by the field's type: what is kept, or undefined when it is not a valid answer */
@@ -148,6 +159,7 @@ function cleanOne(type: FieldType | FollowUpType, options: string[] | undefined,
     case 'meds': return typeof a === 'string' ? str(a, LIMITS.meds) || undefined : undefined;
     case 'id_number': return typeof a === 'string' ? israeliId(a) ?? undefined : undefined;
     case 'phone': return typeof a === 'string' ? israeliPhone(a) ?? undefined : undefined;
+    case 'email': return typeof a === 'string' ? emailAddress(a) ?? undefined : undefined;
     case 'date': return typeof a === 'string' && DATE.test(a) && !Number.isNaN(Date.parse(a)) ? a : undefined;
     case 'choice': return typeof a === 'string' && options?.includes(a) ? a : undefined;
     case 'multi': {
@@ -176,7 +188,8 @@ export function checkAnswers(fields: Field[], acks: string[], answers: unknown, 
         const said = given[f.key];
         const typed = typeof said === 'string' && said.trim() !== '';
         const message = f.type === 'id_number' && typed ? `מספר תעודת הזהות לא תקין: ${f.label}`
-          : f.type === 'phone' && typed ? `מספר הטלפון לא תקין: ${f.label}` : `לא נענתה השאלה: ${f.label}`;
+          : f.type === 'phone' && typed ? `מספר הטלפון לא תקין: ${f.label}`
+            : f.type === 'email' && typed ? `כתובת האימייל לא תקינה: ${f.label}` : `לא נענתה השאלה: ${f.label}`;
         return { ok: false, missing: f.key, message };
       }
       continue;
