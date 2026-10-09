@@ -19,7 +19,7 @@ export function DashboardMock({ className = '' }: { className?: string }) {
           <span className="relative h-6 w-6 rounded-[8px] bg-[#8B66FF]"><span className="absolute inset-[27%] rounded-[3px] bg-white/90" /></span>
           <span className="font-display text-[13px] font-bold">Dream Promotion</span>
         </div>
-        <ul className="space-y-1 text-[12px]">
+        <ul className="stack-y-1 text-[12px]">
           {NAV.map(({ I, t, on }) => (
             <li key={t} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${on ? 'bg-surface-2 text-ink' : 'text-muted'}`}>
               <I size={14} />{t}

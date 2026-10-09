@@ -44,7 +44,7 @@ export function Campaigns() {
       <p className="mt-4 max-w-xl text-lg text-ink-2">בוחרים שלושה דברים. ה-AI כותב, מעצב ומחלק את התקציב.</p>
 
       <div className="mt-12 grid gap-6 lg:grid-cols-[.8fr_1.2fr]">
-        <ul className="space-y-3">
+        <ul className="stack-y-3">
           {CHOICES.map(({ I, k, v }, i) => (
             <li key={k} className={`flex items-center gap-3 rounded-2xl border p-4 transition-colors duration-300 ${step > i ? 'border-[#8B66FF]/50 bg-[#8B66FF]/10' : 'border-line bg-surface-2'}`}>
               <I size={22} className={step > i ? 'text-primary' : 'text-muted'} aria-hidden />

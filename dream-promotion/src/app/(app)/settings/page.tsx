@@ -94,7 +94,7 @@ export default function SettingsPage() {
 
       <Card>
         <h3 className="font-display text-xl font-extrabold">מצב המערכת</h3>
-        <dl className="mt-3 space-y-2.5 text-sm">
+        <dl className="mt-3 stack-y-2.5 text-sm">
           {([
             ['מנוע AI', aiReady],
             ['אחסון מדיה', MediaService.persistent],

@@ -114,7 +114,7 @@ export function StoreOrder({ id }: { id: string }) {
             </li>
           ))}
         </ul>
-        <dl className="mt-3 space-y-1 text-sm">
+        <dl className="mt-3 stack-y-1 text-sm">
           <div className="flex justify-between"><dt className="text-muted">מוצרים</dt><dd><bdi>{ils(o.subtotal)}</bdi></dd></div>
           {o.discount > 0 && <div className="flex justify-between"><dt className="text-muted">הנחה{o.couponCode ? ` (${o.couponCode})` : ''}</dt><dd><bdi>−{ils(o.discount)}</bdi></dd></div>}
           <div className="flex justify-between"><dt className="text-muted">{o.deliveryMethod === 'delivery' ? 'משלוח' : 'איסוף'}</dt><dd>{o.shipping ? <bdi>{ils(o.shipping)}</bdi> : 'חינם'}</dd></div>
@@ -126,7 +126,7 @@ export function StoreOrder({ id }: { id: string }) {
       {paid && !o.isTest && o.saleId && <RefundBlock d={d} onChange={reload} />}
       {d.emails.length > 0 && (
         <Block title="מיילים ללקוח">
-          <ul className="space-y-1 text-sm">
+          <ul className="stack-y-1 text-sm">
             {d.emails.map((m, i) => (
               <li key={i} className="flex flex-wrap justify-between gap-2">
                 <span>{EMAIL_KIND_HE[m.kind] ?? m.kind}</span>
@@ -140,7 +140,7 @@ export function StoreOrder({ id }: { id: string }) {
         </Block>
       )}
       <Block title="ציר הזמן">
-        <ol className="space-y-2">
+        <ol className="stack-y-2">
           {events.map((e, i) => (
             <li key={i} className="flex gap-3 text-sm"><span className="shrink-0 text-muted">{when(e.at)}</span><span>{eventText(e)}</span></li>
           ))}
@@ -172,7 +172,7 @@ function DocumentBlock({ d, onChange }: { d: OrderDetail; onChange: () => void }
       </>}
       {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
       {d.docs.length > 0 && (
-        <ul className="space-y-1 text-sm">
+        <ul className="stack-y-1 text-sm">
           {d.docs.map((x) => (
             <li key={x.id}><a href={`/d/${x.token}`} target="_blank" rel="noopener" className="text-primary underline underline-offset-2">{DOC_LABEL[x.type] ?? x.type} {x.number}</a></li>
           ))}
@@ -246,7 +246,7 @@ function RefundBlock({ d, onChange }: { d: OrderDetail; onChange: () => void }) 
   };
   return (
     <Block title="החזר" sub={`אפשר להחזיר עד ${ils(left)}`}>
-      {d.refunds.length > 0 && <ul className="mb-3 space-y-1 text-sm">{d.refunds.map((r) => <li key={r.id}>{when(r.at)} · {ils(r.amount)}{r.restock ? ' · חזר למלאי' : ''}{r.reason ? ` · ${r.reason}` : ''}</li>)}</ul>}
+      {d.refunds.length > 0 && <ul className="mb-3 stack-y-1 text-sm">{d.refunds.map((r) => <li key={r.id}>{when(r.at)} · {ils(r.amount)}{r.restock ? ' · חזר למלאי' : ''}{r.reason ? ` · ${r.reason}` : ''}</li>)}</ul>}
       <div role="radiogroup" aria-label="מה מחזירים" className="mb-3 flex flex-wrap gap-2">
         {([['full', 'הכול'], ['items', 'פריטים'], ['amount', 'סכום']] as const).map(([k, t]) => (
           <button key={k} type="button" role="radio" aria-checked={mode === k} onClick={() => setMode(k)}
@@ -254,7 +254,7 @@ function RefundBlock({ d, onChange }: { d: OrderDetail; onChange: () => void }) 
         ))}
       </div>
       {mode === 'items' && (
-        <ul className="mb-3 space-y-2">
+        <ul className="mb-3 stack-y-2">
           {d.saleItems.map((x, i) => (
             <li key={i} className="flex items-center justify-between gap-2 text-sm">
               <span>{x.name} · {ils(x.price)} (נקנו {x.qty})</span>

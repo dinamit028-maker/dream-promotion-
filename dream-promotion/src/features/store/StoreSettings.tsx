@@ -176,7 +176,7 @@ function Publish({ store, check, busy, onStatus }: { store: StoreRow; check: { r
   return (
     <Block title="לפני שעולים לאוויר" id="publish" sub="מה שהחוק והלקוחות מצפים לראות באתר. כל סעיף מוביל למקום שבו משלימים אותו.">
       {!check ? <p className="flex items-center gap-2 text-muted"><Spinner /> בודק…</p> : (
-        <ul className="mb-4 space-y-2">
+        <ul className="mb-4 stack-y-2">
           {CHECKLIST.map((c) => {
             const ok = !check.missing.includes(c.code);
             return (
@@ -261,7 +261,7 @@ function Domains({ domains, onChange, reload }: { domains: DomainRow[]; onChange
         </form>
       ) : (
         <>
-          <ul className="mb-4 space-y-3">
+          <ul className="mb-4 stack-y-3">
             {domains.map((d) => {
               const st = DOMAIN_STATUS[d.status];
               return (
@@ -304,7 +304,7 @@ function Domains({ domains, onChange, reload }: { domains: DomainRow[]; onChange
       {(vercel === 'not_configured' || (primary && primary.status !== 'active' && !(primary.vercel as any).added)) && (
         <div className="mt-4 rounded-md bg-surface-2 p-4 text-sm leading-relaxed">
           <p className="mb-2 font-semibold">החיבור ל-Vercel נעשה ביד (אין עדיין חיבור אוטומטי):</p>
-          <ol className="list-decimal space-y-1 ps-5">
+          <ol className="list-decimal stack-y-1 ps-5">
             <li>ב-Vercel, בפרויקט של החזית: Settings ← Domains ← Add, ומוסיפים את <span dir="ltr">{primary?.domain ?? 'הדומיין'}</span> ואת <span dir="ltr">www.{primary?.domain ?? 'הדומיין'}</span>.</li>
             <li>אצל רשם הדומיין (איפה שקניתם אותו), בהגדרות ה-DNS: מוסיפים את הרשומות ש-Vercel מציג.</li>
             <li>אחרי שה-DNS מתעדכן (לפעמים כמה שעות), פותחים את האתר פעם אחת. אז הדומיין מסומן כאן "פעיל".</li>

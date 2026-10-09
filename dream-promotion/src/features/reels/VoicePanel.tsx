@@ -120,7 +120,7 @@ export function VoicePanel() {
           </p>
         )}
         {!status ? <Spinner /> : (
-          <div className="max-h-64 space-y-2 overflow-y-auto pe-1">
+          <div className="max-h-64 stack-y-2 overflow-y-auto pe-1">
             {status.voices.filter((v) => (gender === 'all' || v.gender === gender) && (showHidden || !hidden.includes(v.id))).slice(0, 40).map((v) => (
               <div key={v.id}
                 className={cx('flex items-center gap-2 rounded-2xl border-[1.5px] p-2.5 transition-colors',
@@ -171,7 +171,7 @@ export function VoicePanel() {
         </button>
 
         {showTerms && (
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 stack-y-2">
             {pronunciations.map((p, i) => (
               <div key={i} className="flex items-center gap-2">
                 <Input value={p.term} placeholder="eSIM" onChange={(e) => update(i, { term: e.target.value })} />

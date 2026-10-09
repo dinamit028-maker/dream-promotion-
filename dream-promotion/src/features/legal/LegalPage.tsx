@@ -11,11 +11,11 @@ export function LegalPage({ title, en, children, english }: { title: string; en:
       <Link href="/" className="text-sm font-semibold text-primary">← Dream Promotion</Link>
       <h1 className="mt-4 font-display text-3xl font-extrabold">{title}</h1>
       <p className="mb-8 text-sm text-muted">עודכן לאחרונה: {UPDATED}</p>
-      <div className="space-y-4 text-[15px] [&_h2]:mt-8 [&_h2]:font-display [&_h2]:text-xl [&_h2]:font-bold [&_li]:ms-5 [&_ul]:list-disc">
+      <div className="stack-y-4 text-[15px] [&_h2]:mt-8 [&_h2]:font-display [&_h2]:text-xl [&_h2]:font-bold [&_li]:ms-5 [&_ul]:list-disc">
         {children}
       </div>
       <hr className="my-12 border-line" />
-      <section dir="ltr" lang="en" className="space-y-4 text-[15px] [&_h2]:mt-8 [&_h2]:text-xl [&_h2]:font-bold [&_li]:ms-5 [&_ul]:list-disc">
+      <section dir="ltr" lang="en" className="stack-y-4 text-[15px] [&_h2]:mt-8 [&_h2]:text-xl [&_h2]:font-bold [&_li]:ms-5 [&_ul]:list-disc">
         <h1 className="text-2xl font-extrabold">{en}</h1>
         <p className="text-sm text-muted">Last updated: September 27, 2026</p>
         {english}

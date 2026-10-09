@@ -11,7 +11,7 @@ import { ADDABLE } from './visual-edit';
  */
 export function AddGallery({ where, onPick, onBack }: { where: string; onPick: (type: SectionType) => void; onBack: () => void }) {
   return (
-    <div className="space-y-3">
+    <div className="stack-y-3">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-bold">חלק חדש</h2>
         <Button size="sm" variant="ghost" onClick={onBack}>סגירה</Button>

@@ -78,7 +78,7 @@ function Pages() {
       {msg && <Notice tone="ok">{msg}</Notice>}
       <Block title="מדיניות" sub="שלוש הראשונות נדרשות לפני שהחנות עולה לאוויר. בתחתית כל עמוד באתר יש קישור אליהן.">
         <Notice tone="warn">הנוסח המוצע הוא נקודת התחלה בלבד, ולא בדיקה משפטית. לפני מכירה אמיתית — לעבור עליו עם עורך דין (NEEDS_LEGAL_VERIFICATION).</Notice>
-        <ul className="space-y-2">
+        <ul className="stack-y-2">
           {POLICIES.map((kind) => {
             const p = pages.find((g) => g.policy === kind);
             const st = status(p);
@@ -98,7 +98,7 @@ function Pages() {
       </Block>
       <Block title="עמודים משלכם">
         {!content.length ? <p className="text-sm text-muted">עוד אין. למשל: אודות, איך מזמינים, הדפסה על שקיות.</p> : (
-          <ul className="space-y-2">
+          <ul className="stack-y-2">
             {content.map((p) => {
               const st = status(p);
               return (

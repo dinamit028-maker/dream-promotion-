@@ -40,7 +40,7 @@ export function ColumnsEditor({ columns, block, onChange, onBlock, device = 'md'
   if (open) return <BlockFields columns={columns} at={open} onChange={onChange} onBlock={onBlock} />;
   const total = columns.reduce((n, c) => n + spanShown(c, device), 0);
   return (
-    <div className="space-y-3">
+    <div className="stack-y-3">
       <p className="text-sm text-muted">{`הרוחב של כל עמודה — ב${DEVICE_LABEL[device]} (מחליפים מסך למעלה). בטלפון, בלי בחירה, העמודות אחת מתחת לשנייה; במחשב — כמו בטאבלט. בכל עמודה בלוקים, שאפשר לגרור גם לעמודה אחרת.`}</p>
       {total > 12 && <Notice tone="info">{`ב${DEVICE_LABEL[device]}: סך הרוחב ${total} מתוך 12 — מה שלא נכנס בשורה יורד לשורה הבאה.`}</Notice>}
       <BlockBoard columns={columns} onChange={onChange} onBlock={onBlock} device={device} />
@@ -56,7 +56,7 @@ export function ColumnsField({ columns, onChange }: { columns: Column[]; onChang
   const [block, setBlock] = useState<string | null>(null);
   const [device, setDevice] = useState<ColumnDevice>('md');
   return (
-    <div className="space-y-2">
+    <div className="stack-y-2">
       <div className="flex gap-1" role="group" aria-label="הרוחב של העמודות — לאיזה מסך">
         {(['base', 'md', 'lg'] as const).map((dv) => <Button key={dv} size="sm" variant={device === dv ? 'primary' : 'ghost'} aria-pressed={device === dv}
           onClick={() => setDevice(dv)}>{DEVICE_LABEL[dv]}</Button>)}
@@ -95,7 +95,7 @@ function BlockBoard({ columns, onChange, onBlock, device }: { columns: Column[];
   return (
     <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={onDragEnd}
       accessibility={{ announcements, screenReaderInstructions: { draggable: 'כדי להזיז בלוק: רווח כדי להרים, חיצים כדי להזיז (גם לעמודה אחרת), רווח כדי להניח, Escape כדי לבטל.' } }}>
-      <div className="space-y-3">
+      <div className="stack-y-3">
         {columns.map((c, n) => (
           <ColumnBox key={c.id} column={c} n={n} count={columns.length} onBlock={onBlock} device={device}
             onSpan={(span) => onChange(setSpan(columns, c.id, span, device))}
@@ -131,7 +131,7 @@ function ColumnBox({ column: c, n, count, onBlock, device, onSpan, onStep, onRem
         <Button size="sm" variant="ghost" className="text-red-700" aria-label={`למחוק את עמודה ${n + 1}`} onClick={onRemove}>מחיקה</Button>
       </div>
       <SortableContext id={`${COL}${c.id}`} items={c.blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-        <ol ref={setNodeRef} className={cx('min-h-11 space-y-1 rounded-md', isOver && 'bg-primary/5 ring-2 ring-primary/40')} aria-label={`הבלוקים של עמודה ${n + 1}`}>
+        <ol ref={setNodeRef} className={cx('min-h-11 stack-y-1 rounded-md', isOver && 'bg-primary/5 ring-2 ring-primary/40')} aria-label={`הבלוקים של עמודה ${n + 1}`}>
           {c.blocks.map((b) => <BlockRow key={b.id} block={b} onOpen={() => onBlock(b.id)} />)}
           {!c.blocks.length && <li className="p-2 text-xs text-muted">עמודה ריקה — מוסיפים בלוק או גוררים אליה אחד.</li>}
         </ol>
@@ -169,7 +169,7 @@ function BlockFields({ columns, at, onChange, onBlock }: {
 }) {
   const b = at.block, def = BLOCKS[b.type];
   return (
-    <div className="space-y-3">
+    <div className="stack-y-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-bold">{`בלוק: ${def.label}`}</h3>
         <Button size="sm" variant="ghost" onClick={() => onBlock(null)}>← לעמודות</Button>

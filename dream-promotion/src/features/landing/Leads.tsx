@@ -36,7 +36,7 @@ export function Leads() {
           {STAGES.map((stage, si) => (
             <div key={stage} className={`min-w-[150px] flex-1 rounded-2xl border p-3 ${si === 4 ? 'border-[#43D2AE]/30 bg-[#43D2AE]/5' : 'border-line bg-surface-2'}`}>
               <p className={`mb-3 text-sm font-semibold ${si === 4 ? 'text-ok' : 'text-muted'}`}>{stage}</p>
-              <div className="min-h-[180px] space-y-2">
+              <div className="min-h-[180px] stack-y-2">
                 {LEADS.map((l, li) => at[li] === si && (
                   <motion.div key={l.id} layoutId={reduce ? undefined : l.id} transition={{ type: 'spring', stiffness: 200, damping: 24 }}
                     className="rounded-xl border border-line bg-surface p-2.5">

@@ -27,6 +27,16 @@
 @layer base {
   *, ::after, ::before, ::backdrop, ::file-selector-button { border-color: var(--color-gray-200, currentcolor); }
   input::placeholder, textarea::placeholder { color: var(--color-gray-400); }
+  /* element rules: under every utility, as in Tailwind 3 (a cursor-grab on a button wins) — in Tailwind 4 an unlayered rule
+     would beat every class. The class rules further down (focus ring, disabled, safe areas) beat utilities in 3 too. */
+  html { scroll-behavior: smooth; }
+  button, [role='button'], a, summary, label[for] { cursor: pointer; }
+  body {
+    /* a single soft light from above, the same source as on the landing page */
+    background: radial-gradient(1100px 520px at 50% -180px, var(--glow), transparent 70%) fixed, var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
 /* ============================================================
@@ -77,11 +87,9 @@
 :root[data-theme='light'] { --shop:#C2410C; --shop-soft:#FFEDD5; --shop-ink:#FFFFFF; --shop-line:rgba(194,65,12,.35); }
 .module-store { --module:var(--shop); --module-soft:var(--shop-soft); --module-ink:var(--shop-ink); --module-line:var(--shop-line); }
 
-html { scroll-behavior: smooth; }
 
 /* keyboard users always see where they are; mouse clicks don't flash a ring */
 :focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; border-radius: 10px; }
-button, [role='button'], a, summary, label[for] { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -90,16 +98,16 @@ button:disabled { cursor: not-allowed; }
     transition-duration: .01ms !important; scroll-behavior: auto !important;
   }
 }
-body {
-  /* a single soft light from above, the same source as on the landing page */
-  background: radial-gradient(1100px 520px at 50% -180px, var(--glow), transparent 70%) fixed, var(--bg);
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
-}
+
 /* iOS safe areas — the app draws edge to edge */
 .safe-t { padding-top: env(safe-area-inset-top, 0px); }
 .safe-b { padding-bottom: env(safe-area-inset-bottom, 0px); }
 
+/* stack-y-N = what space-y-N did in Tailwind 3: a margin ABOVE every child but the first. Tailwind 4's space-y puts it below
+   instead, which changes the gap wherever a child has its own margin (a Field's mb-4) — so space-y-* is not used here. */
+@utility stack-y-* {
+  & > :not([hidden]) ~ :not([hidden]) { margin-top: calc(var(--spacing) * --value(number)); }
+}
 @utility grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 @utility scrollbar-thin {
   &::-webkit-scrollbar { width: 8px; height: 8px; }
