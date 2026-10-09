@@ -303,7 +303,7 @@ function Benchmark() {
         <div className="flex flex-wrap items-center gap-2">
           {providers.map((p) => (
             <label key={p.id} className={cx('flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm', !p.available && 'opacity-50')}>
-              <input type="checkbox" disabled={!p.available} checked={chosen.includes(p.id)} className="h-4 w-4 accent-[var(--primary)]"
+              <input type="checkbox" disabled={!p.available} checked={chosen.includes(p.id)} className="h-4 w-4 accent-(--primary)"
                 onChange={() => setChosen((c) => (c.includes(p.id) ? c.filter((x) => x !== p.id) : [...c, p.id]))} />
               {p.id}{!p.available && ' · לא מוגדר'}
             </label>
@@ -314,7 +314,7 @@ function Benchmark() {
           {(['480p', '720p', '1080p'] as const).map((r) => <Chip key={r} on={resolution === r} onClick={() => setResolution(r)}>{r}</Chip>)}
         </div>
         <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} className="mt-0.5 h-5 w-5 accent-[var(--primary)]" />
+          <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} className="mt-0.5 h-5 w-5 accent-(--primary)" />
           <span>אני מאשר/ת הוצאה{estimate > 0 ? ` של כ-$${estimate.toFixed(2)}` : ''}{chosen.some((c) => !PRICE_HINT[c]) ? ' (ועוד ספקים שמחירם לא מוגדר)' : ''}.</span>
         </label>
         <div><Button variant="primary" onClick={run} disabled={!confirm || busy || !chosen.length || !prompt.trim()}>{busy ? <><Spinner />שולח…</> : 'הרצת השוואה'}</Button></div>
@@ -327,14 +327,14 @@ function Benchmark() {
             <div key={k} className="rounded-2xl border border-line p-3">
               <div className="flex items-center justify-between gap-2">
                 <strong>{r.provider}</strong>
-                <span className={cx('text-xs font-bold', r.state === 'succeeded' ? 'text-ok' : r.state === 'failed' ? 'text-[var(--danger)]' : 'text-muted')}>
+                <span className={cx('text-xs font-bold', r.state === 'succeeded' ? 'text-ok' : r.state === 'failed' ? 'text-(--danger)' : 'text-muted')}>
                   {r.state === 'succeeded' ? '✓ הצליח' : r.state === 'failed' ? '✗ נכשל' : <span className="inline-flex items-center gap-1"><Spinner />{r.state === 'queued' ? 'בתור' : 'נוצר'}</span>}
                 </span>
               </div>
               {r.model && <p className="mt-1 truncate text-xs text-muted" dir="ltr">{r.model}</p>}
               <p className="mt-1 text-xs">זמן: {r.seconds ?? 0} שנ׳ · עלות משוערת: {r.estimate == null ? 'לא ידועה' : `$${r.estimate.toFixed(2)}`}</p>
-              {r.error && <p className="mt-1 text-xs text-[var(--danger)]" dir="ltr">{r.error}</p>}
-              {r.url && <video src={r.url} controls playsInline className="mt-2 aspect-[9/16] w-full rounded-xl bg-black object-cover" />}
+              {r.error && <p className="mt-1 text-xs text-(--danger)" dir="ltr">{r.error}</p>}
+              {r.url && <video src={r.url} controls playsInline className="mt-2 aspect-9/16 w-full rounded-xl bg-black object-cover" />}
             </div>
           ))}
         </div>

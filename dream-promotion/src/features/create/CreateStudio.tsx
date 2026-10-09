@@ -220,7 +220,7 @@ export function CreateStudio() {
                           <button key={u} type="button" onClick={() => chooseImage(u)}
                             className={cx('overflow-hidden rounded-xl ring-2 transition',
                               chosen ? 'ring-primary' : 'ring-transparent hover:ring-line')}>
-                            <img src={u} alt="" className="aspect-[4/5] w-full object-cover" />
+                            <img src={u} alt="" className="aspect-4/5 w-full object-cover" />
                           </button>
                         );
                       })}

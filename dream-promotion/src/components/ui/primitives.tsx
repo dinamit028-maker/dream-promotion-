@@ -28,7 +28,7 @@ export function Button({
 export function Card({ children, className, hover }: { children: ReactNode; className?: string; hover?: boolean }) {
   return (
     <div className={cx(
-      'rounded-lg border border-line bg-[color:var(--glass)] p-6 shadow-sm backdrop-blur transition-all duration-300',
+      'rounded-lg border border-line bg-(--glass) p-6 shadow-sm backdrop-blur-sm transition-all duration-300',
       hover && 'hover:-translate-y-0.5 hover:border-[#8B66FF]/30 hover:shadow-md',
       className,
     )}>{children}</div>
@@ -49,13 +49,13 @@ export function Pill({ children, tone = 'default' }: { children: ReactNode; tone
   const tones = {
     default: 'bg-surface-2 text-muted',
     ai: 'bg-primary-soft text-primary',
-    ok: 'bg-[var(--ok-soft)] text-ok',
-    warn: 'bg-[var(--warn-soft)] text-warn',
+    ok: 'bg-(--ok-soft) text-ok',
+    warn: 'bg-(--warn-soft) text-warn',
   };
   return <span className={cx('inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold', tones[tone])}>{children}</span>;
 }
 
-const fieldBase = 'w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px] outline-none transition-all focus:border-primary focus:shadow-[0_0_0_4px_var(--primary-soft)]';
+const fieldBase = 'w-full rounded-md border-[1.5px] border-line bg-surface px-4 py-3 text-[15px] outline-hidden transition-all focus:border-primary focus:shadow-[0_0_0_4px_var(--primary-soft)]';
 
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={cx(fieldBase, p.className)} />;
 export const Textarea = (p: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={cx(fieldBase, 'min-h-28 resize-y leading-relaxed', p.className)} />;
@@ -63,7 +63,7 @@ export const Select = (p: SelectHTMLAttributes<HTMLSelectElement>) => <select {.
 /** A small select for rows and lists. Its own size — the big field padding would hide the chosen text
  *  (classes are joined, not merged, so "py-1" can not override fieldBase's "py-3"). Width: pass w-… */
 export const SmallSelect = (p: SelectHTMLAttributes<HTMLSelectElement>) => (
-  <select {...p} className={cx('h-10 min-w-0 rounded-md border-[1.5px] border-line bg-surface px-3 text-sm font-semibold outline-none focus:border-primary', p.className)} />
+  <select {...p} className={cx('h-10 min-w-0 rounded-md border-[1.5px] border-line bg-surface px-3 text-sm font-semibold outline-hidden focus:border-primary', p.className)} />
 );
 
 /**

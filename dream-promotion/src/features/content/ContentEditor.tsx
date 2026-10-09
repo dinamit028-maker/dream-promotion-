@@ -141,11 +141,11 @@ export function ContentEditor() {
             ? <Button variant="ghost" onClick={() => setMetaOpen(true)}>פרסום באינסטגרם ובפייסבוק</Button>
             : <Button variant="ghost" onClick={() => setPublishDialog(true)}>פרסום עכשיו</Button>}
           {confirmDelete ? (
-            <Button variant="ghost" className="text-[var(--danger)]" onClick={() => { removeContent(item.id); closeEditor(); }}>
+            <Button variant="ghost" className="text-(--danger)" onClick={() => { removeContent(item.id); closeEditor(); }}>
               בטוח? מחיקה סופית
             </Button>
           ) : (
-            <Button variant="ghost" className="text-[var(--danger)]" onClick={() => setConfirmDelete(true)}>מחיקה</Button>
+            <Button variant="ghost" className="text-(--danger)" onClick={() => setConfirmDelete(true)}>מחיקה</Button>
           )}
         </div>
         {when.date && when.date < today() && (

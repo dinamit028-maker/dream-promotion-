@@ -246,7 +246,7 @@ function Editor({ draft, items, taken, onClose, onSaved }: {
           hint={`${d.seoDescription.length} תווים · גוגל מציג בערך ${SEO_SHOWN.description}`} />
       </Block>
 
-      <div className={cx('sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-[color:var(--glass)] py-2 backdrop-blur sm:bottom-4')}>
+      <div className={cx('sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-(--glass) py-2 backdrop-blur-sm sm:bottom-4')}>
         {d.id && (
           <Button variant="ghost" className="me-auto text-red-700" disabled={busy} onClick={async () => {
             if (!window.confirm(`למחוק את הקולקציה "${d.title}"? המוצרים עצמם לא נמחקים.${draft.publishOnline ? ' העמוד שלה באתר יפסיק לעבוד.' : ''}`)) return;

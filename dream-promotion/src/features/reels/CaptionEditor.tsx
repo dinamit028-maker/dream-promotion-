@@ -214,7 +214,7 @@ export function CaptionEditor({
       <div className="grid gap-5 md:grid-cols-[260px_minmax(0,1fr)]">
         {/* ---------- preview ---------- */}
         <div>
-          <div className="relative mx-auto aspect-[9/16] w-full max-w-[260px] overflow-hidden rounded-xl bg-black">
+          <div className="relative mx-auto aspect-9/16 w-full max-w-[260px] overflow-hidden rounded-xl bg-black">
             {scene.kind === 'video'
               ? <video key={scene.clipUrl} ref={video} src={`${scene.clipUrl}#t=0.1`} playsInline preload="auto" muted={Boolean(scene.narrationUrl)}
                   onLoadedMetadata={(e) => { if (!scene.narrationUrl) setDur(e.currentTarget.duration || 0); }}
@@ -230,7 +230,7 @@ export function CaptionEditor({
           <div className="mx-auto mt-3 flex max-w-[260px] items-center gap-2">
             <Button size="sm" variant="primary" onClick={playPause} aria-label={playing ? 'עצירה' : 'ניגון'}>{playing ? '❚❚' : '▶'}</Button>
             <input type="range" min={0} max={Math.max(0.1, dur)} step={0.05} value={Math.min(t, dur || t)}
-              onChange={(e) => seek(+e.target.value)} className="flex-1 accent-[var(--primary)]" aria-label="מיקום בסרטון" />
+              onChange={(e) => seek(+e.target.value)} className="flex-1 accent-(--primary)" aria-label="מיקום בסרטון" />
             <span className="w-12 text-xs tabular-nums text-muted">{fmt(t)}</span>
           </div>
           <p className="mx-auto mt-2 max-w-[260px] text-xs text-muted">
@@ -280,16 +280,16 @@ export function CaptionEditor({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm">גודל: <strong>{style.size}</strong>
-                  <input type="range" min={34} max={96} value={style.size} onChange={(e) => setStyle({ size: +e.target.value })} className="mt-1 w-full accent-[var(--primary)]" />
+                  <input type="range" min={34} max={96} value={style.size} onChange={(e) => setStyle({ size: +e.target.value })} className="mt-1 w-full accent-(--primary)" />
                 </label>
                 <label className="text-sm">מיקום: <strong>{Math.round(style.y * 100)}%</strong>
-                  <input type="range" min={10} max={90} value={Math.round(style.y * 100)} onChange={(e) => setStyle({ y: +e.target.value / 100 })} className="mt-1 w-full accent-[var(--primary)]" />
+                  <input type="range" min={10} max={90} value={Math.round(style.y * 100)} onChange={(e) => setStyle({ y: +e.target.value / 100 })} className="mt-1 w-full accent-(--primary)" />
                 </label>
                 <label className="text-sm">מילים בשורה: <strong>{style.maxWords}</strong>
-                  <input type="range" min={1} max={8} value={style.maxWords} onChange={(e) => wordsPerLine(+e.target.value)} className="mt-1 w-full accent-[var(--primary)]" />
+                  <input type="range" min={1} max={8} value={style.maxWords} onChange={(e) => wordsPerLine(+e.target.value)} className="mt-1 w-full accent-(--primary)" />
                 </label>
                 <label className="text-sm">עובי מסגרת: <strong>{style.strokeWidth}</strong>
-                  <input type="range" min={0} max={14} value={style.strokeWidth} onChange={(e) => setStyle({ strokeWidth: +e.target.value })} className="mt-1 w-full accent-[var(--primary)]" />
+                  <input type="range" min={0} max={14} value={style.strokeWidth} onChange={(e) => setStyle({ strokeWidth: +e.target.value })} className="mt-1 w-full accent-(--primary)" />
                 </label>
               </div>
 
@@ -297,8 +297,8 @@ export function CaptionEditor({
                 <label className="flex items-center gap-2">טקסט <input type="color" value={style.color} onChange={(e) => setStyle({ color: e.target.value })} /></label>
                 <label className="flex items-center gap-2">הדגשה <input type="color" value={style.highlightColor} onChange={(e) => setStyle({ highlightColor: e.target.value })} /></label>
                 <label className="flex items-center gap-2">מסגרת <input type="color" value={style.strokeColor} onChange={(e) => setStyle({ strokeColor: e.target.value })} /></label>
-                <label className="flex items-center gap-2"><input type="checkbox" checked={style.shadow} onChange={(e) => setStyle({ shadow: e.target.checked })} className="h-4 w-4 accent-[var(--primary)]" />צל</label>
-                <label className="flex items-center gap-2"><input type="checkbox" checked={style.background === 'box'} onChange={(e) => setStyle({ background: e.target.checked ? 'box' : 'none' })} className="h-4 w-4 accent-[var(--primary)]" />רקע לטקסט</label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={style.shadow} onChange={(e) => setStyle({ shadow: e.target.checked })} className="h-4 w-4 accent-(--primary)" />צל</label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={style.background === 'box'} onChange={(e) => setStyle({ background: e.target.checked ? 'box' : 'none' })} className="h-4 w-4 accent-(--primary)" />רקע לטקסט</label>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Chip onClick={() => setStyle({ y: 0.2 })}>למעלה</Chip>
@@ -321,7 +321,7 @@ export function CaptionEditor({
                   {busy === 'polish' ? <><Spinner />עובד…</> : '✨ תיקון AI + מילות מפתח'}
                 </Button>
                 <label className="flex items-center gap-1.5 text-sm">
-                  <input type="checkbox" checked={emoji} onChange={(e) => setEmoji(e.target.checked)} className="h-4 w-4 accent-[var(--primary)]" />עם אימוג'י
+                  <input type="checkbox" checked={emoji} onChange={(e) => setEmoji(e.target.checked)} className="h-4 w-4 accent-(--primary)" />עם אימוג'י
                 </label>
                 <Button size="sm" variant="ghost" onClick={addAtPlayhead}>+ שורה ב-{fmt(t)}</Button>
                 {scene.source === 'edited' && scene.narrationUrl && (
@@ -348,14 +348,14 @@ export function CaptionEditor({
                           <span className="ms-auto flex gap-3">
                             <button type="button" onClick={() => split(i)} className="hover:text-ink">פיצול</button>
                             <button type="button" onClick={() => merge(i)} disabled={i + 1 >= lines.length} className="hover:text-ink disabled:opacity-40">איחוד עם הבאה</button>
-                            <button type="button" onClick={() => remove(i)} className="text-[var(--danger)]">מחיקה</button>
+                            <button type="button" onClick={() => remove(i)} className="text-(--danger)">מחיקה</button>
                           </span>
                         </div>
                         <Input value={c.text} onChange={(e) => editText(i, e.target.value)} />
                         <div className="mt-2 flex flex-wrap gap-1">
                           {wordsOf(c).map((w, k) => (
                             <button key={k} type="button" onClick={() => toggleHl(i, k)} title="סימון כמילת מפתח"
-                              className={cx('rounded-full px-2 py-0.5 text-xs', w.hl ? 'bg-[var(--warn-soft,#fff4e0)] font-bold text-warn' : 'bg-surface-2 text-ink-2')}>
+                              className={cx('rounded-full px-2 py-0.5 text-xs', w.hl ? 'bg-(--warn-soft,#fff4e0) font-bold text-warn' : 'bg-surface-2 text-ink-2')}>
                               {w.hl ? '★ ' : ''}{w.text}
                             </button>
                           ))}

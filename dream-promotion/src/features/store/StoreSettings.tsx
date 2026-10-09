@@ -181,7 +181,7 @@ function Publish({ store, check, busy, onStatus }: { store: StoreRow; check: { r
             const ok = !check.missing.includes(c.code);
             return (
               <li key={c.code} className="flex items-start gap-3">
-                <span aria-hidden className={cx('mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold', ok ? 'bg-[var(--ok-soft)] text-ok' : 'bg-surface-2 text-muted')}>{ok ? '✓' : '·'}</span>
+                <span aria-hidden className={cx('mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold', ok ? 'bg-(--ok-soft) text-ok' : 'bg-surface-2 text-muted')}>{ok ? '✓' : '·'}</span>
                 <span className="flex-1">
                   <span className="font-semibold">{c.label}</span><span className="sr-only">{ok ? ' — קיים' : ' — חסר'}</span>
                   {!ok && <> — <Link href={c.href} className="text-primary underline underline-offset-2">{c.fix}</Link></>}

@@ -57,7 +57,7 @@ export function MicButton({ onText, className, label = 'הקלטה' }: { onText:
       <button type="button" onClick={state === 'recording' ? stop : start} disabled={state === 'working'}
         aria-label={state === 'recording' ? 'עצירת ההקלטה' : 'הקלטה במקום הקלדה'}
         className={cx('inline-flex h-9 items-center gap-2 rounded-full border px-3 text-sm font-semibold transition-colors',
-          state === 'recording' ? 'border-[var(--danger)] bg-[var(--danger)] text-white' : 'border-line hover:bg-surface-2')}>
+          state === 'recording' ? 'border-(--danger) bg-(--danger) text-white' : 'border-line hover:bg-surface-2')}>
         {state === 'recording' ? (
           <><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />עצירה · {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}</>
         ) : state === 'working' ? (

@@ -106,7 +106,7 @@ export function DocumentCenter() {
                 <span className="text-xs text-muted">עודכנה {ddmmyyyy(d.updatedAt.slice(0, 10))}</span>
               </button>
               <strong className="tabular-nums">{ils(d.total)}</strong>
-              <button type="button" className="text-xs text-muted hover:text-[var(--danger)]" onClick={() => void removeDraft(d.id)}>מחיקה</button>
+              <button type="button" className="text-xs text-muted hover:text-(--danger)" onClick={() => void removeDraft(d.id)}>מחיקה</button>
             </div>
           ))}
         </div>

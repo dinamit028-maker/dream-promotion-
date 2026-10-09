@@ -76,12 +76,12 @@ export default function IntegrationsPage() {
     <>
       <PageHead title="חיבורים" sub="כל חיבור נעשה דרך אישור אמיתי אצל הרשת. הסיסמאות והמפתחות לא עוברים דרכנו." />
       {notice && (
-        <p className={`mb-5 rounded-2xl p-3 text-sm ${notice.ok ? 'bg-[var(--ok-soft,#e8f7ee)]' : 'bg-[var(--danger-soft,#fdecec)] text-[var(--danger)]'}`}>{notice.text}</p>
+        <p className={`mb-5 rounded-2xl p-3 text-sm ${notice.ok ? 'bg-(--ok-soft,#e8f7ee)' : 'bg-(--danger-soft,#fdecec) text-(--danger)'}`}>{notice.text}</p>
       )}
       {(accounts ?? []).filter((a) => a.missing).map((a) => (
-        <p key={a.id} role="alert" className="mb-3 rounded-2xl bg-[var(--danger-soft,#fdecec)] p-3 text-sm font-semibold text-[var(--danger)]">⚠️ {missingBanner(a.name)}</p>
+        <p key={a.id} role="alert" className="mb-3 rounded-2xl bg-(--danger-soft,#fdecec) p-3 text-sm font-semibold text-(--danger)">⚠️ {missingBanner(a.name)}</p>
       ))}
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
         <Card>
           <div className="flex items-center justify-between">
             <strong className="text-[17px]">TikTok</strong>
@@ -91,9 +91,9 @@ export default function IntegrationsPage() {
           {tiktok.map((a) => (
             <div key={a.id} className="mb-2 flex items-center gap-2 rounded-xl bg-surface-2 p-2 text-sm">
               {a.avatar ? <img src={a.avatar} alt="" className="h-8 w-8 rounded-full" /> : <span className="h-8 w-8 rounded-full bg-line" />}
-              <span className="flex-1 truncate">{a.name || 'חשבון TikTok'}{a.needsReconnect && <span className="text-[var(--danger)]"> · צריך לחבר מחדש</span>}</span>
+              <span className="flex-1 truncate">{a.name || 'חשבון TikTok'}{a.needsReconnect && <span className="text-(--danger)"> · צריך לחבר מחדש</span>}</span>
               {confirmOff === a.id
-                ? <button type="button" className="text-xs font-semibold text-[var(--danger)]" onClick={() => disconnect(a.id)}>בטוח?</button>
+                ? <button type="button" className="text-xs font-semibold text-(--danger)" onClick={() => disconnect(a.id)}>בטוח?</button>
                 : <button type="button" className="text-xs text-muted hover:underline" onClick={() => setConfirmOff(a.id)}>ניתוק</button>}
             </div>
           ))}
@@ -118,9 +118,9 @@ export default function IntegrationsPage() {
                 <span className="flex-1 truncate">
                   <span className="text-muted">{a.provider === 'instagram' ? 'Instagram' : 'Facebook'} · </span>{a.name}
                   {a.readOnly && <span className="text-muted"> · משיכה בלבד</span>}
-                  {a.missing ? <span className="block text-xs text-[var(--danger)]">✗ נותק מהחיבור ל-Meta</span> : health[a.id] && (health[a.id].ok
+                  {a.missing ? <span className="block text-xs text-(--danger)">✗ נותק מהחיבור ל-Meta</span> : health[a.id] && (health[a.id].ok
                     ? <span className="block text-xs text-ok">✓ פעיל — Meta מאשרת את החיבור</span>
-                    : <span className="block text-xs text-[var(--danger)]">✗ לא פעיל: {health[a.id].reason}. צריך לחבר מחדש את Meta במסך הניהול.</span>)}
+                    : <span className="block text-xs text-(--danger)">✗ לא פעיל: {health[a.id].reason}. צריך לחבר מחדש את Meta במסך הניהול.</span>)}
                 </span>
               </div>
               {a.provider === 'instagram' && (

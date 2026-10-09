@@ -30,7 +30,7 @@ export function SceneCard({
       <div className="flex gap-4">
         <button type="button" onClick={onPick} disabled={running}
           aria-label={pUrl ? 'החלפת תמונת פתיחה' : 'בחירת תמונת פתיחה'}
-          className="relative flex aspect-[9/16] w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.5px] border-dashed border-line bg-surface-2 text-muted hover:border-primary hover:text-primary sm:w-24">
+          className="relative flex aspect-9/16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border-[1.5px] border-dashed border-line bg-surface-2 text-muted hover:border-primary hover:text-primary sm:w-24">
           {c?.url ? (c.kind === 'image'
               ? <img key={`${c.url}-${motion}`} src={c.url} alt="" style={{ ['--kb-dur' as any]: `${sc.seconds || 5}s` }}
                   className={cx('absolute inset-0 h-full w-full object-cover', motion && `kb kb-${motion}`)} />
@@ -49,7 +49,7 @@ export function SceneCard({
           <p className="mt-0.5 text-sm text-muted">{sc.visual}</p>
 
           {step === 2 && err && (
-            <div className="mt-3 rounded-2xl bg-[var(--warn-soft)] p-3">
+            <div className="mt-3 rounded-2xl bg-(--warn-soft) p-3">
               <strong className="block text-sm text-warn">{err.title}</strong>
               {err.body && <p className="mt-1 text-sm text-ink-2">{err.body}</p>}
             </div>
@@ -85,7 +85,7 @@ export function SceneCard({
                   onClick={() => onMove(1)}>
                   <CaretLeft size={15} aria-hidden />
                 </Button>
-                <Button size="sm" variant="ghost" className="text-[var(--danger)]" aria-label="מחיקת סצנה" disabled={running}
+                <Button size="sm" variant="ghost" className="text-(--danger)" aria-label="מחיקת סצנה" disabled={running}
                   onClick={onRemove}>
                   <Trash size={15} aria-hidden />
                 </Button>

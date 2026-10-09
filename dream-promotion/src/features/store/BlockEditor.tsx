@@ -185,7 +185,7 @@ function BlockFields({ columns, at, onChange, onBlock }: {
         const set = (v: unknown) => onChange(setBlockField(columns, b.id, f.key, typeof v === 'string' ? v : ''), `block:${b.id}:${f.key}`);
         if (f.kind === 'choice') {
           return (
-            <label key={f.key} className="block max-w-[14rem]">
+            <label key={f.key} className="block max-w-56">
               <span className="mb-1 block text-sm font-semibold text-ink-2">{f.label}</span>
               <Select value={value} onChange={(e) => set(e.target.value)}>{f.options!.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</Select>
             </label>

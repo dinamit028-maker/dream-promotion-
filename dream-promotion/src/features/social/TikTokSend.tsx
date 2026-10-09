@@ -114,7 +114,7 @@ export function TikTokSend({
               {!done && <Spinner />}{STATUS_HE[status] ?? status}
             </p>
           )}
-          {error && <p className="mb-3 text-sm text-[var(--danger)]">{error}</p>}
+          {error && <p className="mb-3 text-sm text-(--danger)">{error}</p>}
           <div className="flex gap-3">
             {done ? <Button variant="primary" onClick={onClose}>סגירה</Button> : (
               <Button variant="primary" onClick={send} disabled={busy || !accountId || !mediaId}>

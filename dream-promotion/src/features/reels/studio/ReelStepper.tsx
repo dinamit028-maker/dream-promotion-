@@ -8,7 +8,7 @@ export function ReelStepper({ steps, step, done, canOpen, onSelect }: {
   done: Record<StepN, boolean>; canOpen: (n: number) => boolean; onSelect: (n: StepN) => void;
 }) {
   return (
-    <nav aria-label="שלבי יצירת הריל" className="sticky top-0 z-20 -mx-1 mb-5 rounded-2xl bg-[var(--bg)]/90 px-1 py-2 backdrop-blur">
+    <nav aria-label="שלבי יצירת הריל" className="sticky top-0 z-20 -mx-1 mb-5 rounded-2xl bg-(--bg)/90 px-1 py-2 backdrop-blur-sm">
       <ol className="flex gap-1.5 overflow-x-auto">
         {steps.map((st) => {
           const on = step === st.n, isDone = done[st.n], open = canOpen(st.n);

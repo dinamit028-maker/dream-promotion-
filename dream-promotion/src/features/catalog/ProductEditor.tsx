@@ -379,7 +379,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
                       <button type="button" disabled={k === 0 || Boolean(busy)} onClick={() => void movePicture(m, -1)} aria-label={`תמונה ${k + 1}: קדימה`} className="h-9 w-9 rounded-full border border-line disabled:opacity-40">→</button>
                       <button type="button" disabled={k === media.length - 1 || Boolean(busy)} onClick={() => void movePicture(m, 1)} aria-label={`תמונה ${k + 1}: אחורה`} className="h-9 w-9 rounded-full border border-line disabled:opacity-40">←</button>
                     </span>
-                    <button type="button" disabled={Boolean(busy)} onClick={() => void removePicture(m)} className="text-xs font-semibold text-[var(--danger)]">מחיקה</button>
+                    <button type="button" disabled={Boolean(busy)} onClick={() => void removePicture(m)} className="text-xs font-semibold text-(--danger)">מחיקה</button>
                   </div>
                 </li>
               ))}
@@ -401,7 +401,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
             {ai.busy ? <><Spinner />ה-AI כותב…</> : '✨ תיאור מה-AI'}</Button>}
         </div>
         {aiOk === false && <p className="mt-1 text-xs text-muted">ה-AI לא מוגדר בשרת — כותבים ידנית.</p>}
-        {ai.error && <p role="alert" className="mt-2 text-sm text-[var(--danger)]">{ai.error}</p>}
+        {ai.error && <p role="alert" className="mt-2 text-sm text-(--danger)">{ai.error}</p>}
         {ai.proposal && (
           <div className="mt-3 rounded-2xl border border-primary/40 bg-primary-soft p-3 text-sm">
             <p className="mb-1 font-bold">✨ הצעה מה-AI — לקרוא לפני שמשתמשים. היא תישמר רק אחרי &quot;שמירה&quot;.</p>
@@ -507,7 +507,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
                       <strong>{variantLabel(v) || 'ללא שם'}</strong>
                       <span className="flex items-center gap-3">
                         <label className="flex items-center gap-2 text-xs font-semibold">פעיל<Switch on={x.active} onClick={() => setX({ active: !x.active })} label={`פעיל: ${variantLabel(v)}`} /></label>
-                        <button type="button" onClick={() => void removeVariant(v)} className="text-xs font-semibold text-[var(--danger)]" aria-label={`מחיקת ${variantLabel(v)}`}>מחיקה</button>
+                        <button type="button" onClick={() => void removeVariant(v)} className="text-xs font-semibold text-(--danger)" aria-label={`מחיקת ${variantLabel(v)}`}>מחיקה</button>
                       </span>
                     </div>
                     <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -590,7 +590,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
 
       {item && (
         <div className="flex justify-start">
-          <button type="button" className="text-sm font-semibold text-[var(--danger)]" disabled={Boolean(busy)} onClick={async () => {
+          <button type="button" className="text-sm font-semibold text-(--danger)" disabled={Boolean(busy)} onClick={async () => {
             if (!window.confirm(`למחוק את "${item.name}"? מכירות ומסמכים קודמים לא ישתנו. התמונות יימחקו.`)) return;
             setBusy('delete');
             const r = await deleteItem(item.id, media.length > 0);
@@ -601,12 +601,12 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
         </div>
       )}
 
-      <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface/95 px-1 py-3 backdrop-blur">
+      <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface/95 px-1 py-3 backdrop-blur-sm">
         <Button variant="primary" disabled={Boolean(busy)} onClick={() => void save()}>{busy === 'save' ? <><Spinner />שומר…</> : item ? 'שמירה' : 'יצירת המוצר'}</Button>
         {onClose && <Button variant="ghost" onClick={onClose}>סגירה</Button>}
         {busy && busy !== 'save' && <span className="flex items-center gap-2 text-sm text-muted"><Spinner />{busy.includes('…') ? busy : 'רגע…'}</span>}
         {note && <span role="status" className="text-sm font-semibold text-ok">{note}</span>}
-        {error && <span role="alert" className="text-sm font-semibold text-[var(--danger)]">{error}</span>}
+        {error && <span role="alert" className="text-sm font-semibold text-(--danger)">{error}</span>}
       </div>
     </div>
   );

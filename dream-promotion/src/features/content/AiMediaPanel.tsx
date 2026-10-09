@@ -137,7 +137,7 @@ export function AiMediaPanel({
           </p>
           <p className="mt-1 text-muted">לוקח כמה דקות. אפשר לסגור את החלון — הסרטון ימשיך וייכנס לספרייה.</p>
           {running.phase !== 'running' && (
-            <button type="button" className="mt-2 font-semibold text-[var(--danger)] underline" onClick={stop}>ביטול (לפני שהרינדור מתחיל — בלי חיוב)</button>
+            <button type="button" className="mt-2 font-semibold text-(--danger) underline" onClick={stop}>ביטול (לפני שהרינדור מתחיל — בלי חיוב)</button>
           )}
           {running.phase === 'running' && (
             <button type="button" className="mt-2 text-muted underline" onClick={stop}>ביטול</button>
@@ -156,19 +156,19 @@ export function AiMediaPanel({
       )}
 
       {ready.map((j) => (
-        <div key={j.id} className="mt-3 rounded-xl bg-[var(--ok-soft,#e8f7ee)] p-3 text-xs">
+        <div key={j.id} className="mt-3 rounded-xl bg-(--ok-soft,#e8f7ee) p-3 text-xs">
           <p className="font-semibold">הסרטון מוכן ונשמר בספרייה.</p>
           <Button size="sm" variant="primary" className="mt-2 w-full" onClick={() => openReview([j.mediaId!], j.id)}>תצוגה מקדימה ואישור</Button>
         </div>
       ))}
       {failed && (
-        <p className="mt-2 text-xs text-[var(--danger)]">
+        <p className="mt-2 text-xs text-(--danger)">
           יצירת הסרטון נכשלה: {failed.error}{' '}
           <button type="button" className="underline" onClick={() => remove(failed.id)}>הבנתי</button>
         </p>
       )}
       {note && <p className="mt-2 text-xs text-muted">{note}</p>}
-      {error && <p className="mt-2 text-xs text-[var(--danger)]">{error}</p>}
+      {error && <p className="mt-2 text-xs text-(--danger)">{error}</p>}
 
       <Button size="sm" variant="primary" className="mt-3 w-full"
         onClick={() => { useApp.getState().closeEditor(); router.push(`/reels?id=${contentId}`); }}>
@@ -188,7 +188,7 @@ export function AiMediaPanel({
               return m ? (
                 <button key={id} type="button" onClick={() => setChoice(id)}
                   className={cx('w-20 overflow-hidden rounded-xl ring-2', id === choice ? 'ring-primary' : 'ring-transparent')}>
-                  <img src={m.url} alt={`אפשרות ${n + 1}`} className="aspect-[4/5] w-full object-cover" />
+                  <img src={m.url} alt={`אפשרות ${n + 1}`} className="aspect-4/5 w-full object-cover" />
                 </button>
               ) : null;
             })}

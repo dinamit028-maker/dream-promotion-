@@ -96,7 +96,7 @@ export function MetaLeadsSettings() {
                 <button type="button" role="switch" aria-checked={p.enabled} aria-label={`ייבוא לידים מ-${p.name}`}
                   disabled={busy === p.id} onClick={() => toggle(p)}
                   className={cx('relative h-7 w-12 shrink-0 rounded-full transition-colors', p.enabled ? 'bg-primary' : 'bg-line')}>
-                  <span className={cx('absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all', p.enabled ? 'start-[22px]' : 'start-0.5')} />
+                  <span className={cx('absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all', p.enabled ? 'inset-s-[22px]' : 'inset-s-0.5')} />
                 </button>
               </div>
               {problem && <p role="alert" className="mt-2 rounded-xl bg-red-500/10 p-2 text-sm font-semibold text-red-700 dark:text-red-300">⚠️ {problem}</p>}

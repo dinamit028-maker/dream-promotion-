@@ -16,7 +16,7 @@ export const PREVIEW_TABS: { id: PreviewPlatform; label: string }[] = [
   { id: 'facebook', label: 'Facebook' },
 ];
 const RATIO: Record<PreviewPlatform, string> = {
-  'ig-feed': 'aspect-[4/5]', 'ig-reel': 'aspect-[9/16]', story: 'aspect-[9/16]', tiktok: 'aspect-[9/16]', facebook: 'aspect-square',
+  'ig-feed': 'aspect-4/5', 'ig-reel': 'aspect-9/16', story: 'aspect-9/16', tiktok: 'aspect-9/16', facebook: 'aspect-square',
 };
 
 /** The media as it will actually play — autoplaying and live, with sound on tap. */
@@ -71,7 +71,7 @@ export function PlatformPreview({
           )}
           {vertical && (
             <>
-              <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-gradient-to-b from-black/50 to-transparent p-3 text-white">
+              <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 bg-linear-to-b from-black/50 to-transparent p-3 text-white">
                 {tab === 'story' && <span className="absolute inset-x-3 top-1.5 h-0.5 rounded bg-white/70" />}
                 <span className="h-6 w-6 rounded-full border border-white" style={{ background: palette[0] }} />
                 <span className="text-xs font-semibold">{name}</span>
@@ -82,7 +82,7 @@ export function PlatformPreview({
                   <span>♥<br />1.2K</span><span>💬<br />84</span><span>↗</span>
                 </div>
               )}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-10 text-white">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-3 pt-10 text-white">
                 {tab === 'story'
                   ? <div className="mx-auto w-fit rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-[#1A1530]">שלחו הודעה</div>
                   : <p className="line-clamp-2 text-xs">{caption}</p>}

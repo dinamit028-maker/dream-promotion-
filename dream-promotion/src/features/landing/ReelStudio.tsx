@@ -52,7 +52,7 @@ export function ReelStudio() {
 
   return (
     <section ref={ref} className={reduce ? 'py-28' : 'relative h-[280vh]'}>
-      <div className={reduce ? 'px-5' : 'sticky top-0 flex h-[100svh] flex-col items-center justify-center overflow-hidden px-5'}>
+      <div className={reduce ? 'px-5' : 'sticky top-0 flex h-svh flex-col items-center justify-center overflow-hidden px-5'}>
         <h2 className="text-center font-display text-4xl font-black leading-tight sm:text-6xl">מסטוריבורד לרילס מוכן</h2>
         <p className="mt-3 text-center text-lg text-ink-2">חמש סצנות, טקסט למסך וקריינות. ה-AI מרכיב, אתם מאשרים.</p>
 
@@ -60,7 +60,7 @@ export function ReelStudio() {
           {!reduce && SCENES.map((s, i) => <Scene key={s.n} p={p} i={i} s={s} w={w} />)}
           <motion.div style={reduce ? undefined : { scale: phoneScale }}
             className="relative w-[190px] rounded-[34px] border-[6px] border-[#2A2350] bg-black p-1 shadow-[0_40px_100px_rgba(107,59,245,.35)] sm:w-[230px]">
-            <ShowcaseVideo {...REELS[2]} className="aspect-[9/16] rounded-[26px]" />
+            <ShowcaseVideo {...REELS[2]} className="aspect-9/16 rounded-[26px]" />
             <motion.span style={reduce ? undefined : { opacity: done }}
               className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#43D2AE] px-3 py-1 text-[12px] font-bold text-[#0A0814]">
               הרילס מוכן

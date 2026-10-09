@@ -53,13 +53,13 @@ export function SequencePlayer({ items }: { items: { url: string; kind: 'video' 
     <Card className="p-3">
       <div className="mx-auto w-full max-w-[300px]">
         {cur.kind === 'image'
-          ? <div className="aspect-[9/16] w-full overflow-hidden rounded-xl bg-black">
+          ? <div className="aspect-9/16 w-full overflow-hidden rounded-xl bg-black">
               <img key={`${i}-${cur.url}`} src={cur.url} alt="" style={{ ['--kb-dur' as any]: `${cur.seconds || 4}s` }}
                 className={cx('h-full w-full object-cover', cur.motion && `kb kb-${cur.motion}`)} />
             </div>
           : <video key={cur.url} src={cur.url} controls playsInline autoPlay={i > 0}
               onEnded={() => setI((n) => (n + 1 < items.length ? n + 1 : n))}
-              className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />}
+              className="aspect-9/16 w-full rounded-xl bg-black object-cover" />}
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
         {items.map((it, n) => (

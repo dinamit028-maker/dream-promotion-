@@ -143,7 +143,7 @@ export function VoicePanel() {
                   {previewing === v.id ? <Spinner /> : <Play size={16} weight="fill" aria-hidden />}
                 </Button>
                 <button type="button" onClick={() => toggleHidden(v.id)} title={hidden.includes(v.id) ? 'החזרה לרשימה' : 'לא מתאים — הסתרה'}
-                  className="shrink-0 px-1 text-sm text-muted hover:text-[var(--danger)]" aria-label={hidden.includes(v.id) ? `החזרת ${v.name}` : `הסתרת ${v.name}`}>
+                  className="shrink-0 px-1 text-sm text-muted hover:text-(--danger)" aria-label={hidden.includes(v.id) ? `החזרת ${v.name}` : `הסתרת ${v.name}`}>
                   {hidden.includes(v.id) ? '↺' : '✕'}
                 </button>
               </div>
@@ -177,7 +177,7 @@ export function VoicePanel() {
                 <Input value={p.term} placeholder="eSIM" onChange={(e) => update(i, { term: e.target.value })} />
                 <span className="shrink-0 text-muted">←</span>
                 <Input value={p.say} placeholder="אי סים" onChange={(e) => update(i, { say: e.target.value })} />
-                <Button size="sm" variant="ghost" aria-label="מחיקה" className="text-[var(--danger)]"
+                <Button size="sm" variant="ghost" aria-label="מחיקה" className="text-(--danger)"
                   onClick={() => setPronunciations(pronunciations.filter((_, n) => n !== i))}>
                   <Trash size={15} aria-hidden />
                 </Button>

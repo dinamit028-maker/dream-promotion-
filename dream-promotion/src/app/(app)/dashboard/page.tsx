@@ -41,8 +41,8 @@ export default function Dashboard() {
       {/* the command bar: one sentence in, content out */}
       <div className="relative mb-10">
         <div aria-hidden className="pointer-events-none absolute -inset-6 rounded-[40px] bg-[#8B66FF]/15 blur-3xl" />
-        <div className="relative rounded-[26px] border border-[#8B66FF]/30 bg-[color:var(--glass)] p-4 shadow-[0_24px_70px_rgba(0,0,0,.45)] backdrop-blur-xl sm:p-5">
-        <Textarea className="min-h-[84px] border-line bg-[color:var(--glass-bg)] text-[17px]" value={prompt} onChange={(e) => setPrompt(e.target.value)}
+        <div className="relative rounded-[26px] border border-[#8B66FF]/30 bg-(--glass) p-4 shadow-[0_24px_70px_rgba(0,0,0,.45)] backdrop-blur-xl sm:p-5">
+        <Textarea className="min-h-[84px] border-line bg-(--glass-bg) text-[17px]" value={prompt} onChange={(e) => setPrompt(e.target.value)}
           placeholder="תארו מה בא לכם לפרסם — למשל: ריל שמסביר את הטיפול החדש שלנו" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
@@ -62,7 +62,7 @@ export default function Dashboard() {
         <Link href="/calendar"><Button variant="ghost" size="sm">ליומן</Button></Link>
       </div>
       {todays.length ? (
-        <div className="mb-8 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(210px,1fr))]">
+        <div className="mb-8 grid gap-4 grid-cols-[repeat(auto-fill,minmax(210px,1fr))]">
           {todays.map((c) => <ContentCard key={c.id} item={c} />)}
         </div>
       ) : (
@@ -77,7 +77,7 @@ export default function Dashboard() {
         <Link href="/calendar"><Button variant="ghost" size="sm"><Sparkle size={18} weight="fill" aria-hidden />תכנון שבועי</Button></Link>
       </div>
       {upcoming.length ? (
-        <div className="mb-8 grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(210px,1fr))]">
+        <div className="mb-8 grid gap-4 grid-cols-[repeat(auto-fill,minmax(210px,1fr))]">
           {upcoming.map((c) => <ContentCard key={c.id} item={c} />)}
         </div>
       ) : (
@@ -89,7 +89,7 @@ export default function Dashboard() {
 
       <h3 className="mb-3 font-display text-2xl font-black">תובנות המותג</h3>
       {analysis ? (
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+        <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))]">
           <Card><Pill tone="ai">טון</Pill><p className="mt-2.5">{analysis.voice}</p></Card>
           {analysis.pillars?.slice(0, 3).map((p) => (
             <Card key={p.name}><strong>{p.name}</strong><p className="mt-1.5 text-sm text-muted">{p.why}</p></Card>

@@ -162,7 +162,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
             placeholder="כתבו כאן את התשובה — היא תישלח ישירות אליו/ה" aria-label={REPLY_IN[inbox]} />
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="primary" onClick={sendReply} disabled={reply.busy || !reply.text.trim()}>{reply.busy ? <><Spinner />שולח…</> : 'שליחה'}</Button>
-            {reply.sent && <span className="text-xs font-semibold text-[var(--ok,#16a34a)]">נשלח ✓ ונשמר בהיסטוריה</span>}
+            {reply.sent && <span className="text-xs font-semibold text-(--ok,#16a34a)">נשלח ✓ ונשמר בהיסטוריה</span>}
           </div>
           {reply.error && <p className="mt-2 text-sm text-warn">{reply.error}</p>}
           {inbox === 'messenger' && <p className="mt-1.5 text-xs text-muted">במסנג׳ר אפשר לענות עד 24 שעות מההודעה האחרונה של הלקוח/ה.</p>}
@@ -193,7 +193,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
       {/* follow-up */}
       <p className="mb-1.5 text-sm font-semibold">
         תזכורת לחזור אליו/ה
-        {fuState === 'overdue' && <span className="ms-2 text-xs font-bold text-[var(--danger)]">עבר הזמן</span>}
+        {fuState === 'overdue' && <span className="ms-2 text-xs font-bold text-(--danger)">עבר הזמן</span>}
         {fuState === 'today' && <span className="ms-2 text-xs font-bold text-warn">היום</span>}
       </p>
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -230,7 +230,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
                   <span className="text-xs text-muted">{ACTIVITY_HE[a.kind].label} · {formatIL(a.at)}</span>
                   {a.body && <span className="block whitespace-pre-wrap" dir="auto">{a.body}</span>}
                 </span>
-                <button type="button" onClick={() => deleteActivity(a.id)} className="text-xs text-muted hover:text-[var(--danger)]" aria-label="מחיקה">✕</button>
+                <button type="button" onClick={() => deleteActivity(a.id)} className="text-xs text-muted hover:text-(--danger)" aria-label="מחיקה">✕</button>
               </li>
             ))}
           </ol>
@@ -251,7 +251,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         <Field label="הערות"><Textarea value={draft.notes ?? ''} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="min-h-[70px]" /></Field>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button size="sm" variant="primary" onClick={save} disabled={!dirty}>{dirty ? 'שמירת פרטים' : 'נשמר'}</Button>
-          <button type="button" className="text-xs text-[var(--danger)] hover:underline"
+          <button type="button" className="text-xs text-(--danger) hover:underline"
             onClick={() => { if (window.confirm(`למחוק את ${lead.name} וכל ההיסטוריה שלו/ה?`)) { deleteLead(lead.id); onClose(); } }}>
             מחיקת איש הקשר
           </button>

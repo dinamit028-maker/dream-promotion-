@@ -33,7 +33,7 @@ export function ImageStudio() {
         </p>
       </div>
 
-      <div className="relative mx-auto mt-14 h-[380px] max-w-5xl [perspective:1400px] sm:h-[440px]"
+      <div className="relative mx-auto mt-14 h-[380px] max-w-5xl perspective-[1400px] sm:h-[440px]"
         onPointerEnter={() => setHold(true)} onPointerLeave={() => setHold(false)}>
         {SCENES.map((s, i) => {
           let d = i - sel;
@@ -52,7 +52,7 @@ export function ImageStudio() {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={s.img} alt="" className="h-full w-full object-cover" />
-                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-10 text-right text-sm font-semibold text-white">{s.t}</span>
+                <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 to-transparent p-3 pt-10 text-right text-sm font-semibold text-white">{s.t}</span>
               </motion.button>
             </div>
           );

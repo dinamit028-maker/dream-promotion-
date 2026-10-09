@@ -62,7 +62,7 @@ export function KitGallery({ bundle, onApplied, onClose }: { bundle: StoreBundle
             {/* 2.66: a picture of the kit from the storefront's real renderer (storefront `npm run kit-shots`), on a store with no product */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/kit-previews/${k.id}.jpg`} alt={`האתר בערכת "${k.name}"`} width={640} height={430} loading="lazy"
-              className="mb-2 aspect-[640/430] w-full rounded-md border border-line object-cover object-top" />
+              className="mb-2 aspect-640/430 w-full rounded-md border border-line object-cover object-top" />
             <span className="flex flex-wrap items-center gap-2 font-semibold">
               {k.name}
               {k.id === current?.id && <Pill tone="ok">הערכה הנוכחית</Pill>}

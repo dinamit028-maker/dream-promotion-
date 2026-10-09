@@ -44,7 +44,7 @@ export function AiShort({ ask, autoKey, onUse }: { ask: ShortAsk; autoKey: strin
         <Button size="sm" variant="ghost" disabled={st.busy || ok === null} onClick={() => void write()}>
           {st.busy ? <><Spinner /> ה-AI כותב…</> : '✨ מילוי בעזרת AI'}</Button>
       )}
-      {st.error && <p role="alert" className="mt-1 text-sm text-[var(--danger)]">{st.error}</p>}
+      {st.error && <p role="alert" className="mt-1 text-sm text-(--danger)">{st.error}</p>}
       {st.proposal && (
         <div className="mt-2 rounded-2xl border border-primary/40 bg-primary-soft p-3 text-sm">
           <p className="mb-1 font-bold">✨ הצעה מה-AI — תישמר רק אחרי &quot;שמירה&quot;.</p>

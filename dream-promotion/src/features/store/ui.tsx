@@ -26,8 +26,8 @@ export function Block({ title, sub, id, children, action }: { title: string; sub
 export function Notice({ tone = 'info', children }: { tone?: 'info' | 'ok' | 'warn' | 'error'; children: ReactNode }) {
   const tones = {
     info: 'border-line bg-surface-2 text-ink-2',
-    ok: 'border-line bg-[var(--ok-soft)] text-ok',
-    warn: 'border-line bg-[var(--warn-soft)] text-warn',
+    ok: 'border-line bg-(--ok-soft) text-ok',
+    warn: 'border-line bg-(--warn-soft) text-warn',
     error: 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200',
   };
   return <div role={tone === 'error' ? 'alert' : 'status'} className={cx('mb-4 rounded-md border px-4 py-3 text-sm leading-relaxed', tones[tone])}>{children}</div>;

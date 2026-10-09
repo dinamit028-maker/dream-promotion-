@@ -133,7 +133,7 @@ export function LinesEditor({ lines, onChange, catalog, products, productsReady 
             onBlur={(e) => { const c = catalog.find((x) => x.name === e.target.value.trim()); if (c && !l.itemId) set(i, { name: c.name, itemId: c.id, variantId: c.variantId, unitPrice: l.unitPrice || c.price }); }} />
           <Input type="number" inputMode="decimal" min={0} step="any" value={l.qty || ''} onChange={(e) => set(i, { qty: Number(e.target.value) })} aria-label={`כמות שורה ${i + 1}`} className="px-2 py-2 text-center" />
           <Input type="number" inputMode="decimal" min={0} step="0.01" value={l.unitPrice || ''} onChange={(e) => set(i, { unitPrice: Number(e.target.value) })} placeholder="מחיר" aria-label={`מחיר שורה ${i + 1}`} className="px-2 py-2 text-center" />
-          <button type="button" aria-label={`הסרת שורה ${i + 1}`} onClick={() => onChange(lines.length > 1 ? lines.filter((_, k) => k !== i) : [{ name: '', qty: 1, unitPrice: 0 }])} className="h-10 rounded-full text-muted hover:text-[var(--danger)]">✕</button>
+          <button type="button" aria-label={`הסרת שורה ${i + 1}`} onClick={() => onChange(lines.length > 1 ? lines.filter((_, k) => k !== i) : [{ name: '', qty: 1, unitPrice: 0 }])} className="h-10 rounded-full text-muted hover:text-(--danger)">✕</button>
           {products && (() => {
             const p = l.itemId ? products.find((x) => x.id === l.itemId) : null;
             if (p) return (

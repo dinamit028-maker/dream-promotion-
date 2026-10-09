@@ -31,7 +31,7 @@ export function AddGallery({ where, onPick, onBack }: { where: string; onPick: (
                     <button type="button" className="flex h-full w-full flex-col overflow-hidden rounded-md border border-line bg-surface text-start hover:ring-2 hover:ring-primary/50 focus-visible:ring-2 focus-visible:ring-primary"
                       aria-label={`הוספת ${label}`} onClick={() => onPick(x.type as SectionType)}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`/section-previews/${x.type}.jpg`} alt="" width={320} height={160} loading="lazy" className="aspect-[2/1] w-full bg-white object-cover object-[right_top]" />
+                      <img src={`/section-previews/${x.type}.jpg`} alt="" width={320} height={160} loading="lazy" className="aspect-2/1 w-full bg-white object-cover object-top-right" />
                       <span className="block p-2">
                         <span className="block text-sm font-semibold">{label}</span>
                         <span className="block text-xs text-muted">{x.about}</span>
