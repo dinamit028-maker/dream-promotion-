@@ -78,7 +78,7 @@ function Pages() {
       {msg && <Notice tone="ok">{msg}</Notice>}
       <Block title="מדיניות" sub="שלוש הראשונות נדרשות לפני שהחנות עולה לאוויר. בתחתית כל עמוד באתר יש קישור אליהן.">
         <Notice tone="warn">הנוסח המוצע הוא נקודת התחלה בלבד, ולא בדיקה משפטית. לפני מכירה אמיתית — לעבור עליו עם עורך דין (NEEDS_LEGAL_VERIFICATION).</Notice>
-        <ul className="space-y-2">
+        <ul className="stack-y-2">
           {POLICIES.map((kind) => {
             const p = pages.find((g) => g.policy === kind);
             const st = status(p);
@@ -98,7 +98,7 @@ function Pages() {
       </Block>
       <Block title="עמודים משלכם">
         {!content.length ? <p className="text-sm text-muted">עוד אין. למשל: אודות, איך מזמינים, הדפסה על שקיות.</p> : (
-          <ul className="space-y-2">
+          <ul className="stack-y-2">
             {content.map((p) => {
               const st = status(p);
               return (
@@ -183,7 +183,7 @@ function Editor({ draft, store, taken, onClose, onSaved }: { draft: Draft; store
           hint={`${d.seoDescription.length} תווים · גוגל מציג בערך ${SEO_SHOWN.description}`} />
       </Block>
 
-      <div className="sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-[color:var(--glass)] py-2 backdrop-blur sm:bottom-4">
+      <div className="sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-(--glass) py-2 backdrop-blur-sm sm:bottom-4">
         {d.id && (
           <Button variant="ghost" className="me-auto text-red-700" disabled={busy} onClick={async () => {
             const live = leavesLive(false) ? ' החנות באוויר, והעמוד הזה נדרש בה.' : '';
@@ -239,7 +239,7 @@ function AiProposal({ ai, policy, onUse }: { ai: PageAi; policy: boolean; onUse:
           {ai.busy ? <><Spinner /> ה-AI כותב…</> : policy ? '✨ מילוי בעזרת AI לפי החוק' : '✨ מילוי בעזרת AI'}</Button>
         {!ai.busy && !ai.proposal && <span className="text-xs text-muted">{policy ? 'לפי חוקי המדינה של החנות ופרטי העסק.' : 'לפי פרטי העסק והכותרת.'}</span>}
       </div>
-      {ai.error && <p role="alert" className="mt-2 text-sm text-[var(--danger)]">{ai.error}</p>}
+      {ai.error && <p role="alert" className="mt-2 text-sm text-(--danger)">{ai.error}</p>}
       {ai.proposal && (
         <div className="mt-3 rounded-2xl border border-primary/40 bg-primary-soft p-3 text-sm">
           <p className="mb-1 font-bold">✨ הצעה מה-AI — לקרוא לפני שמשתמשים. היא תישמר רק אחרי &quot;שמירה&quot;.</p>

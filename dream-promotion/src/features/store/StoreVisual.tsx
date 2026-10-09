@@ -225,7 +225,7 @@ export function VisualEditor({ bundle, template, versions, reload, onClassic }: 
   const status = { saved: 'נשמר כטיוטה ✓', waiting: 'שומר…', saving: 'שומר…', error: 'לא נשמר' }[state];
 
   const panel = (
-    <div className="space-y-3">
+    <div className="stack-y-3">
       {sel && 'chrome' in sel ? (
         <>
           <PanelHead title={sel.chrome === 'header' ? 'ראש האתר' : 'תחתית האתר'} onBack={() => setSel(null)} />

@@ -1,6 +1,50 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* Tailwind 4 (2.80): the theme that was tailwind.config.ts. "inline": a utility uses our own variable (shadow-sm →
+   var(--shadow-sm), font-display → var(--font-display) from next/font) — no theme variable of the same name in between. */
+@theme inline {
+  --color-bg: var(--bg); --color-bg-2: var(--bg-2); --color-surface: var(--surface); --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink); --color-ink-2: var(--ink-2); --color-muted: var(--muted); --color-line: var(--line);
+  --color-primary: var(--primary); --color-primary-soft: var(--primary-soft);
+  --color-pink: var(--pink); --color-peach: var(--peach); --color-blue: var(--blue); --color-mint: var(--mint);
+  --color-ok: var(--ok); --color-warn: var(--warn); --color-danger: var(--danger);
+  /* the color of the module on screen (ModuleShell sets it — finance: teal) */
+  --color-module: var(--module); --color-module-soft: var(--module-soft); --color-module-ink: var(--module-ink);
+  --font-sans: var(--font-body), system-ui, sans-serif;
+  --font-display: var(--font-display), system-ui, sans-serif;
+  /* line heights as in Tailwind 3 — a length, not a ratio: an <input> inside a text-xs label inherits 16px, not 1.33 × its own size */
+  --text-xs--line-height: 1rem; --text-sm--line-height: 1.25rem; --text-base--line-height: 1.5rem; --text-lg--line-height: 1.75rem;
+  --text-xl--line-height: 1.75rem; --text-2xl--line-height: 2rem; --text-3xl--line-height: 2.25rem; --text-4xl--line-height: 2.5rem;
+  /* the register's widest grid (2.80): a named breakpoint sorts after xl / 2xl — an arbitrary min-[1800px] sorts before them */
+  --breakpoint-3xl: 112.5rem; /* 1800px — in rem like the rest, or it does not sort after them */
+  --radius-sm: 10px; --radius-md: 16px; --radius-lg: 24px; --radius-xl: 32px;
+  --shadow-sm: var(--shadow-sm); --shadow-md: var(--shadow-md); --shadow-lg: var(--shadow-lg);
+  --background-image-brand: var(--grad); --background-image-brand-soft: var(--grad-soft);
+  --animate-rise: rise .4s cubic-bezier(.22,.8,.3,1); --animate-pop: pop .3s cubic-bezier(.22,.8,.3,1);
+  --animate-drawer: drawer .26s cubic-bezier(.22,.8,.3,1); --animate-fade: fade .2s ease-out;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: translateY(18px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes drawer { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* what Tailwind 3 did by default, kept (the official upgrade guide): a border without a color is gray-200, a placeholder gray-400 */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button { border-color: var(--color-gray-200, currentcolor); }
+  input::placeholder, textarea::placeholder { color: var(--color-gray-400); }
+  /* Tailwind 4 zeroes every element's padding; 3 left a table cell the browser's 1px (the DNS records, a document's table) */
+  :where(td, th) { padding: 1px; }
+  /* element rules: under every utility, as in Tailwind 3 (a cursor-grab on a button wins) — in Tailwind 4 an unlayered rule
+     would beat every class. The class rules further down (focus ring, disabled, safe areas) beat utilities in 3 too. */
+  html { scroll-behavior: smooth; }
+  button, [role='button'], a, summary, label[for] { cursor: pointer; }
+  body {
+    /* a single soft light from above, the same source as on the landing page */
+    background: radial-gradient(1100px 520px at 50% -180px, var(--glow), transparent 70%) fixed, var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+}
 
 /* ============================================================
    DESIGN TOKENS — the single source of truth for the visual system
@@ -50,11 +94,9 @@
 :root[data-theme='light'] { --shop:#C2410C; --shop-soft:#FFEDD5; --shop-ink:#FFFFFF; --shop-line:rgba(194,65,12,.35); }
 .module-store { --module:var(--shop); --module-soft:var(--shop-soft); --module-ink:var(--shop-ink); --module-line:var(--shop-line); }
 
-html { scroll-behavior: smooth; }
 
 /* keyboard users always see where they are; mouse clicks don't flash a ring */
 :focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; border-radius: 10px; }
-button, [role='button'], a, summary, label[for] { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -63,20 +105,21 @@ button:disabled { cursor: not-allowed; }
     transition-duration: .01ms !important; scroll-behavior: auto !important;
   }
 }
-body {
-  /* a single soft light from above, the same source as on the landing page */
-  background: radial-gradient(1100px 520px at 50% -180px, var(--glow), transparent 70%) fixed, var(--bg);
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
-}
+
 /* iOS safe areas — the app draws edge to edge */
 .safe-t { padding-top: env(safe-area-inset-top, 0px); }
 .safe-b { padding-bottom: env(safe-area-inset-bottom, 0px); }
 
-@layer components {
-  .grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
-  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+/* stack-y-N = exactly what space-y-N did in Tailwind 3: every child but the first gets the margin ABOVE it and no margin
+   below (its own mb-4 included — the selector outweighs it). Tailwind 4's space-y puts the margin below instead, which moves
+   every form where a child has its own margin (a Field's mb-4) — so space-y-* is not used here. */
+@utility stack-y-* {
+  & > :not([hidden]) ~ :not([hidden]) { margin-top: calc(var(--spacing) * --value(number)); margin-bottom: 0; }
+}
+@utility grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@utility scrollbar-thin {
+  &::-webkit-scrollbar { width: 8px; height: 8px; }
+  &::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
 }
 
 @keyframes spin-slow { to { transform: rotate(360deg); } }

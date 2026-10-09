@@ -19,7 +19,7 @@ export function SectionStyle({ d, section, device, change, onDevice }: {
   const label = DEVICES.find((x) => x.id === device)!.label;
   const own = device !== 'base' && Boolean(section.responsive?.[device]);
   return (
-    <fieldset className="space-y-2 rounded-md border border-line p-2">
+    <fieldset className="stack-y-2 rounded-md border border-line p-2">
       <legend className="px-1 text-sm font-bold">{`עיצוב החלק — ${label}`}</legend>
       {onDevice && (
         <div className="flex gap-1" role="group" aria-label="לאיזה מסך">

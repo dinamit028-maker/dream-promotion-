@@ -63,7 +63,7 @@ export default function LeadsPage() {
           <span className="flex flex-wrap items-center gap-2">
             <strong className="truncate">{l.name}</strong>
             <span className={cx('rounded-full px-2 py-0.5 text-[11px] font-bold', st.tone)}>{st.label}</span>
-            {fs === 'overdue' && <span className="rounded-full bg-[var(--danger)]/15 px-2 py-0.5 text-[11px] font-bold text-[var(--danger)]">לחזור — עבר הזמן</span>}
+            {fs === 'overdue' && <span className="rounded-full bg-(--danger)/15 px-2 py-0.5 text-[11px] font-bold text-(--danger)">לחזור — עבר הזמן</span>}
             {fs === 'today' && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">לחזור היום</span>}
           </span>
           <span className="mt-0.5 block truncate text-xs text-muted" dir="auto">

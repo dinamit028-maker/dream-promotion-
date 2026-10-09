@@ -110,7 +110,7 @@ export function ScriptStep({
         </p>
       </Field>
       {hasExistingVideo && (
-        <div className="mb-3 rounded-2xl border border-[var(--ok,#16a34a)]/40 bg-[var(--ok-soft,#e8f7ee)] p-3 text-sm">
+        <div className="mb-3 rounded-2xl border border-(--ok,#16a34a)/40 bg-(--ok-soft,#e8f7ee) p-3 text-sm">
           <strong className="block">יש כבר סרטון בפרויקט — עליו לא משלמים.</strong>
           <span className="text-ink-2">
             משלמים רק על הקריינות (ElevenLabs){Math.max(1, Math.round(total / 15)) > 1 ? ' ועל הסצנות הנוספות שייווצרו' : ''}.

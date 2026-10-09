@@ -62,7 +62,7 @@ export function KitGallery({ bundle, onApplied, onClose }: { bundle: StoreBundle
             {/* 2.66: a picture of the kit from the storefront's real renderer (storefront `npm run kit-shots`), on a store with no product */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/kit-previews/${k.id}.jpg`} alt={`האתר בערכת "${k.name}"`} width={640} height={430} loading="lazy"
-              className="mb-2 aspect-[640/430] w-full rounded-md border border-line object-cover object-top" />
+              className="mb-2 aspect-640/430 w-full rounded-md border border-line object-cover object-top" />
             <span className="flex flex-wrap items-center gap-2 font-semibold">
               {k.name}
               {k.id === current?.id && <Pill tone="ok">הערכה הנוכחית</Pill>}
@@ -114,12 +114,12 @@ function KitPlanView({ kit, mode, bundle, ctx, onBack, onApplied }: { kit: Kit; 
           {plan.publishTheme && ' החנות עוד לא פרסמה עיצוב, ולכן זה יהיה העיצוב הראשון שלה (האתר עצמו עדיין סגור).'}
         </Notice>
         <h4 className="mb-2 font-semibold">מה משתנה</h4>
-        <ul className="mb-4 list-disc space-y-1 ps-5 text-sm">
+        <ul className="mb-4 list-disc stack-y-1 ps-5 text-sm">
           <li>המראה בלבד: הצבעים, הגופן, ראש האתר והתחתית, כרטיסי המוצר, הריווח והכפתורים — של הערכה.</li>
           <li>בחירות עיצוב שעשיתם (פריסה, כפתורים וכו׳) מתחלפות בשל הערכה. אפשר לשנות אותן שוב אחר כך.</li>
         </ul>
         <h4 className="mb-2 font-semibold">מה נשאר כמו שהוא</h4>
-        <ul className="mb-4 list-disc space-y-1 ps-5 text-sm text-muted">
+        <ul className="mb-4 list-disc stack-y-1 ps-5 text-sm text-muted">
           <li>עמוד הבית שלכם: הטקסטים, התמונות, הסדר ומה שהסתרתם.</li>
           <li>העמודים, המדיניות, התפריטים, הקולקציות, המוצרים וההודעה העליונה.</li>
         </ul>
@@ -130,7 +130,7 @@ function KitPlanView({ kit, mode, bundle, ctx, onBack, onApplied }: { kit: Kit; 
       </Notice>
 
       <h4 className="mb-2 font-semibold">מה ייווצר</h4>
-      <ul className="mb-4 list-disc space-y-1 ps-5 text-sm">
+      <ul className="mb-4 list-disc stack-y-1 ps-5 text-sm">
         <li>עיצוב ועמוד בית: {kit.theme.sections.filter((s) => !s.hidden).length} חלקים, צבעים וגופן של הערכה.</li>
         {plan.collections.length > 0 && <li>קולקציות (ריקות, מתמלאות לפי תגיות של מוצרים): {plan.collections.map((c) => c.title).join(', ')}.</li>}
         {pages.length > 0 && <li>עמודים (כטיוטה): {pages.map((p) => p.title).join(', ')}.</li>}
@@ -141,7 +141,7 @@ function KitPlanView({ kit, mode, bundle, ctx, onBack, onApplied }: { kit: Kit; 
 
       {(plan.keptCollections.length > 0 || plan.keptPolicies.length > 0) && <>
         <h4 className="mb-2 font-semibold">מה נשאר כמו שהוא</h4>
-        <ul className="mb-4 list-disc space-y-1 ps-5 text-sm text-muted">
+        <ul className="mb-4 list-disc stack-y-1 ps-5 text-sm text-muted">
           {plan.keptCollections.length > 0 && <li>קולקציות שכבר קיימות: {plan.keptCollections.join(', ')}.</li>}
           {plan.keptPolicies.length > 0 && <li>המדיניות שכבר כתבתם: {plan.keptPolicies.map((k) => POLICY_LABEL[k]).join(', ')} — לא מוחלפת.</li>}
         </ul>
@@ -150,7 +150,7 @@ function KitPlanView({ kit, mode, bundle, ctx, onBack, onApplied }: { kit: Kit; 
 
       {(conflicts > 0 || plan.draft.edited) && <>
         <h4 className="mb-2 font-semibold">לפני שמחליפים — סמנו רק מה שרוצים להחליף</h4>
-        <ul className="mb-4 space-y-2">
+        <ul className="mb-4 stack-y-2">
           {plan.draft.edited && (
             <li><Check on={choices.replaceDraft} onChange={() => setChoices((c) => ({ ...c, replaceDraft: !c.replaceDraft }))}
               label="להחליף את טיוטת העיצוב" sub="בטיוטה יש שינויים שלא פורסמו. הגרסה שבאתר לא משתנה, ונשמרת ברשימת הגרסאות." /></li>

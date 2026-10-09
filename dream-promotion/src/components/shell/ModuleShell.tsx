@@ -100,7 +100,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
       <div className={cx(config.theme, 'flex min-h-screen')} data-module={config.id}>
         {/* ---- computer: the module's sidebar ---------------------------------------------------------------- */}
         <aside aria-label={`ניווט ${config.name}`}
-          className="sticky top-3 m-3 me-0 hidden h-[calc(100vh-24px)] w-[248px] shrink-0 flex-col overflow-y-auto rounded-[24px] border border-line bg-[color:var(--glass)] p-3 shadow-[0_20px_60px_rgba(0,0,0,.35)] backdrop-blur-xl md:flex">
+          className="sticky top-3 m-3 me-0 hidden h-[calc(100vh-24px)] w-[248px] shrink-0 flex-col overflow-y-auto rounded-lg border border-line bg-(--glass) p-3 shadow-[0_20px_60px_rgba(0,0,0,.35)] backdrop-blur-xl md:flex">
           <Link href={exitHref} className="mb-2 flex min-h-11 items-center gap-2 rounded-2xl px-3 text-sm font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink">
             <ArrowRight size={18} aria-hidden />חזרה ל-Dream
           </Link>
@@ -117,7 +117,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
 
         <div className="flex min-w-0 flex-1 flex-col">
           {/* ---- phone: header ------------------------------------------------------------------------------- */}
-          <header className="safe-t sticky top-0 z-30 border-b border-line bg-[color:var(--glass-bg)] backdrop-blur-xl md:hidden">
+          <header className="safe-t sticky top-0 z-30 border-b border-line bg-(--glass-bg) backdrop-blur-xl md:hidden">
             <div className="flex h-14 items-center gap-1 px-1.5">
               <Link href={exitHref} aria-label="חזרה ל-Dream"
                 className="flex h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-sm font-semibold text-ink-2 hover:text-ink">
@@ -132,12 +132,12 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
                   </button>
                 ) : <h1 className="truncate px-2 font-display text-[16px] font-bold">{title}</h1>}
               </div>
-              <ThemeToggle className="!h-11 !w-11" />
+              <ThemeToggle className="h-11! w-11!" />
             </div>
           </header>
 
           {/* ---- computer: header ---------------------------------------------------------------------------- */}
-          <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-[color:var(--glass-bg)] px-6 py-2.5 backdrop-blur-xl md:flex">
+          <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-(--glass-bg) px-6 py-2.5 backdrop-blur-xl md:flex">
             <h1 className="truncate font-display text-[17px] font-bold">{title}</h1>
             <div className="flex items-center gap-2">
               {canSwitch && (
@@ -155,7 +155,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
                   <Plus size={16} weight="bold" aria-hidden />חדש
                 </button>
                 {newMenu && (
-                  <div id="module-new" role="group" aria-label="יצירה חדשה" className="absolute end-0 top-full z-40 mt-2 w-64 rounded-2xl border border-line bg-surface p-1.5 shadow-[0_20px_50px_rgba(0,0,0,.35)] animate-fade">
+                  <div id="module-new" role="group" aria-label="יצירה חדשה" className="absolute inset-e-0 top-full z-40 mt-2 w-64 rounded-2xl border border-line bg-surface p-1.5 shadow-[0_20px_50px_rgba(0,0,0,.35)] animate-fade">
                     {actions.map((a) => (
                       <Link key={a.id} href={a.href} onClick={() => setNewMenu(false)} aria-label={a.label} aria-describedby={a.hint ? `new-menu-${a.id}` : undefined}
                         className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-1.5 text-sm font-semibold hover:bg-module-soft">
@@ -177,7 +177,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
 
         {/* ---- phone: the module's bottom bar and its "+" ---------------------------------------------------- */}
         <nav aria-label={`ניווט ${config.name}`}
-          className="safe-b fixed inset-x-0 bottom-0 z-40 border-t border-line bg-[color:var(--glass)] backdrop-blur-xl md:hidden">
+          className="safe-b fixed inset-x-0 bottom-0 z-40 border-t border-line bg-(--glass) backdrop-blur-xl md:hidden">
           <div className="mx-auto flex max-w-lg items-stretch px-1">
             {config.tabs.map((t) => <Tab key={t.href} link={t} on={isActiveLink(path, t.href)} />)}
             <button ref={menuButton} type="button" onClick={() => setMenu(true)} aria-haspopup="dialog" aria-expanded={menu}
@@ -187,7 +187,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
           </div>
         </nav>
         <button ref={plusButton} type="button" onClick={() => setSheet('new')} aria-label="יצירה חדשה" aria-haspopup="dialog" aria-expanded={sheet === 'new'}
-          className="fixed end-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-module text-module-ink shadow-[0_12px_30px_rgba(0,0,0,.4)] md:hidden"
+          className="fixed inset-e-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-module text-module-ink shadow-[0_12px_30px_rgba(0,0,0,.4)] md:hidden"
           style={{ bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))' }}>
           <Plus size={26} weight="bold" aria-hidden />
         </button>
@@ -253,7 +253,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
                   <button key={b.id} type="button" disabled={switching} aria-current={on ? 'true' : undefined}
                     onClick={() => { if (on) setSheet(null); else onSwitchBusiness?.(b.id); }}
                     className={cx('flex min-h-14 items-center gap-3 rounded-2xl border px-4 text-start font-semibold',
-                      on ? 'border-[color:var(--module-line)] bg-module-soft' : 'border-line bg-surface-2')}>
+                      on ? 'border-(--module-line) bg-module-soft' : 'border-line bg-surface-2')}>
                     <span className="min-w-0 flex-1 truncate">{b.name}{stateLabel(b)}</span>
                     {on && <Check size={20} weight="bold" aria-hidden className="text-module" />}
                   </button>
@@ -342,7 +342,7 @@ function Sheet({ label, onClose, children }: { label: string; onClose: () => voi
           <span aria-hidden className="mx-auto h-1.5 w-12 rounded-full bg-line" />
         </div>
         <button type="button" onClick={onClose} aria-label="סגירה"
-          className="absolute end-2 top-2 grid h-11 w-11 place-items-center rounded-full text-ink-2 hover:bg-surface-2"><X size={20} aria-hidden /></button>
+          className="absolute inset-e-2 top-2 grid h-11 w-11 place-items-center rounded-full text-ink-2 hover:bg-surface-2"><X size={20} aria-hidden /></button>
         {children}
       </div>
     </div>

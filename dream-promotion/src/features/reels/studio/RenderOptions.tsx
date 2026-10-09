@@ -20,7 +20,7 @@ export function RenderOptions({
     <Card className="mt-4">
       <label className="mb-4 flex cursor-pointer items-start gap-3">
         <input type="checkbox" checked={draftMode} onChange={(e) => setDraftMode(e.target.checked)} disabled={running}
-          className="mt-1 h-5 w-5 accent-[var(--primary)]" />
+          className="mt-1 h-5 w-5 accent-(--primary)" />
         <span>
           <strong className="block">טיוטה קודם (מומלץ)</strong>
           <span className="text-sm text-muted">
@@ -30,7 +30,7 @@ export function RenderOptions({
       </label>
       <label className="flex cursor-pointer items-start gap-3">
         <input type="checkbox" checked={seamless} onChange={(e) => setSeamless(e.target.checked)} disabled={running}
-          className="mt-1 h-5 w-5 accent-[var(--primary)]" />
+          className="mt-1 h-5 w-5 accent-(--primary)" />
         <span>
           <strong className="block">רצף חלק</strong>
           <span className="text-sm text-muted">

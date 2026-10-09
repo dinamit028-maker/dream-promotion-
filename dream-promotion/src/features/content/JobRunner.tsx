@@ -47,7 +47,7 @@ export function JobRunner() {
 
   if (!notice) return null;
   return (
-    <div role="status" className="fixed inset-x-4 bottom-24 z-[120] mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-sm text-white shadow-lg md:bottom-6">
+    <div role="status" className="fixed inset-x-4 bottom-24 z-120 mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-sm text-white shadow-lg md:bottom-6">
       <span className="flex-1">{notice.text}</span>
       {notice.contentId && (
         <button type="button" className="font-semibold underline"

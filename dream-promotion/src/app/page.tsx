@@ -45,7 +45,7 @@ export default function Landing() {
 
       {/* floating glass navigation */}
       <header className="safe-t sticky top-3 z-50 px-3">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full border border-line bg-[color:var(--glass-bg)] px-2 py-2 shadow-[0_10px_40px_rgba(0,0,0,.4)] backdrop-blur-xl sm:gap-4 sm:px-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full border border-line bg-(--glass-bg) px-2 py-2 shadow-[0_10px_40px_rgba(0,0,0,.4)] backdrop-blur-xl sm:gap-4 sm:px-4">
           <Link href="/" className="flex min-w-0 items-center gap-2 ps-1">
             <span aria-hidden className="relative h-8 w-8 shrink-0 rounded-[11px] bg-[#8B66FF]"><span className="absolute inset-[27%] rounded-[5px] bg-white/90" /></span>
             {/* on the smallest phones the name shrinks instead of pushing the buttons off screen */}
@@ -90,7 +90,7 @@ export default function Landing() {
             </ul>
           </div>
           <div>
-            <h3 className="flex items-center gap-2 font-display text-xl font-bold text-ink-2"><span className="h-2.5 w-2.5 rounded-full border-2 border-[color:var(--muted)]" aria-hidden />נכנס בקרוב</h3>
+            <h3 className="flex items-center gap-2 font-display text-xl font-bold text-ink-2"><span className="h-2.5 w-2.5 rounded-full border-2 border-(--muted)" aria-hidden />נכנס בקרוב</h3>
             <ul className="mt-5 divide-y divide-dashed divide-line border-y border-dashed border-line">
               {TOOLS_NEXT.map(({ I, t, d }) => (
                 <li key={t} className="flex items-start gap-4 py-4">

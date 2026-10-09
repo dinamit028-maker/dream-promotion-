@@ -35,7 +35,7 @@ export function SectionList({ sections, onChoose, onMove }: { sections: Section[
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}
       accessibility={{ announcements, screenReaderInstructions: { draggable: 'כדי להזיז: רווח כדי להרים, חיצים כדי להזיז, רווח כדי להניח, Escape כדי לבטל.' } }}>
       <SortableContext items={sections.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-        <ol className="space-y-1" aria-label="החלקים של עמוד הבית — אפשר לגרור כדי לשנות את הסדר">
+        <ol className="stack-y-1" aria-label="החלקים של עמוד הבית — אפשר לגרור כדי לשנות את הסדר">
           {sections.map((s) => <Row key={s.id} section={s} onChoose={onChoose} />)}
         </ol>
       </SortableContext>

@@ -45,7 +45,7 @@ export function Brain() {
 
   return (
     <section id="brain" ref={ref} className="relative h-[260vh] scroll-mt-10">
-      <div className="sticky top-0 flex h-[100svh] flex-col items-center justify-center overflow-hidden px-5">
+      <div className="sticky top-0 flex h-svh flex-col items-center justify-center overflow-hidden px-5">
         <h2 className="text-center font-display text-4xl font-black leading-tight sm:text-6xl">ה-AI שמכיר את העסק שלכם</h2>
         <p className="mt-4 flex items-center gap-3 text-lg text-muted">
           <motion.span style={{ opacity: inOpacity }}>העסק</motion.span><span aria-hidden>←</span>

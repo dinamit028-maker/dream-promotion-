@@ -98,7 +98,7 @@ export function CommissionsTab({ sales, refunds, catalog, onLoadOlder }: {
           <Chip on={month === thisMonth} onClick={() => setMonth(thisMonth)}>החודש</Chip>
           <Chip on={month === prevMonth(thisMonth)} onClick={() => setMonth(prevMonth(thisMonth))}>חודש קודם</Chip>
           <input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} aria-label="חודש"
-            className="h-9 rounded-full border border-line bg-surface px-3 text-sm font-semibold outline-none focus:border-primary" />
+            className="h-9 rounded-full border border-line bg-surface px-3 text-sm font-semibold outline-hidden focus:border-primary" />
           <span className="flex-1" />
           <Button size="sm" variant="ghost" onClick={exportCsv}>ייצוא לאקסל</Button>
           {rep.totals.commission > 0 && <Button size="sm" variant="ghost" onClick={() => void recordExpense()}>רישום כהוצאה בכספים</Button>}

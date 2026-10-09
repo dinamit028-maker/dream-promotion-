@@ -22,7 +22,7 @@ export default function ContentPage() {
         {FILTERS.map(([k, l]) => <Chip key={k} on={filter === k} onClick={() => setFilter(k)}>{l}</Chip>)}
       </div>
       {list.length ? (
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(215px,1fr))]">
+        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(215px,1fr))]">
           {list.map((c) => <ContentCard key={c.id} item={c} />)}
         </div>
       ) : (

@@ -84,7 +84,7 @@ function Collections() {
           <p className="text-sm text-muted">בלי קולקציות האתר מציג את כל המוצרים יחד, בעמוד "כל המוצרים".</p>
         </div>
       ) : (
-        <ol className="space-y-2">
+        <ol className="stack-y-2">
           {list.map((c, i) => {
             const count = c.kind === 'manual' ? c.items.length : (items ?? []).filter((it) => matchesTags(it.tags, c.tags)).length;
             return (
@@ -175,7 +175,7 @@ function Editor({ draft, items, taken, onClose, onSaved }: {
         {items === null ? <p className="flex items-center gap-2 text-muted"><Spinner /> טוען מוצרים…</p> : d.kind === 'manual' ? (
           <>
             {d.items.length > 0 ? (
-              <ol className="mb-4 space-y-2">
+              <ol className="mb-4 stack-y-2">
                 {d.items.map((id, i) => {
                   const it = byId.get(id);
                   return (
@@ -193,7 +193,7 @@ function Editor({ draft, items, taken, onClose, onSaved }: {
               <span className="mb-2 block text-sm font-semibold text-ink-2">הוספת מוצרים</span>
               <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש לפי שם או מק״ט" />
             </label>
-            <ul className="max-h-72 space-y-1 overflow-y-auto">
+            <ul className="max-h-72 stack-y-1 overflow-y-auto">
               {found.map((i) => (
                 <li key={i.id}>
                   <button type="button" className="flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-3 text-start hover:bg-surface-2"
@@ -246,7 +246,7 @@ function Editor({ draft, items, taken, onClose, onSaved }: {
           hint={`${d.seoDescription.length} תווים · גוגל מציג בערך ${SEO_SHOWN.description}`} />
       </Block>
 
-      <div className={cx('sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-[color:var(--glass)] py-2 backdrop-blur sm:bottom-4')}>
+      <div className={cx('sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-(--glass) py-2 backdrop-blur-sm sm:bottom-4')}>
         {d.id && (
           <Button variant="ghost" className="me-auto text-red-700" disabled={busy} onClick={async () => {
             if (!window.confirm(`למחוק את הקולקציה "${d.title}"? המוצרים עצמם לא נמחקים.${draft.publishOnline ? ' העמוד שלה באתר יפסיק לעבוד.' : ''}`)) return;

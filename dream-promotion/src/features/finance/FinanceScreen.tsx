@@ -155,7 +155,7 @@ function Toasts({ error, flash, onCloseError }: { error: string | null; flash: s
   useEffect(() => { setHost(document.body); }, []);
   if (!host || (!error && !flash)) return null;
   return createPortal(
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-[150] flex flex-col items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] print:hidden">
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-150 flex flex-col items-center gap-2 px-3 pt-[max(env(safe-area-inset-top),12px)] print:hidden">
       {error && (
         <div role="alert" className="pointer-events-auto flex w-full max-w-xl items-start gap-2 rounded-2xl border border-warn/40 bg-surface p-3 text-sm font-semibold text-warn shadow-lg">
           <span className="min-w-0 flex-1">{error}</span>

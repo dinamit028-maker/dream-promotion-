@@ -303,7 +303,7 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
         {employees.length > 0 && (
           <label className="flex items-center gap-2 text-sm">
             <span className="text-muted">מוכר/מטפל:</span>
-            <SmallSelect value={employeeId} onChange={(e) => pickEmployee(e.target.value)} className="w-auto min-w-[8rem]" aria-label="מוכר/מטפל">
+            <SmallSelect value={employeeId} onChange={(e) => pickEmployee(e.target.value)} className="w-auto min-w-32" aria-label="מוכר/מטפל">
               <option value="">—</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
             </SmallSelect>
           </label>
@@ -353,8 +353,8 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
             </div>
           )}
           <div className={cx('grid gap-2', quick
-            ? cx('grid-cols-2 sm:grid-cols-3 xl:grid-cols-4', wide && '2xl:grid-cols-5 min-[1800px]:grid-cols-6')
-            : cx('grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5', wide && '2xl:grid-cols-6 min-[1800px]:grid-cols-7'))}>
+            ? cx('grid-cols-2 sm:grid-cols-3 xl:grid-cols-4', wide && '2xl:grid-cols-5 3xl:grid-cols-6')
+            : cx('grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5', wide && '2xl:grid-cols-6 3xl:grid-cols-7'))}>
             {shown.map((i) => {
               // every line of this item (all its sizes / colours together); a free amount with its name counts too, as before
               const inCart = lines.filter((l) => l.itemId === i.id || (!l.itemId && l.name === i.name && l.price === i.price)).reduce((a, l) => a + l.qty, 0);
@@ -366,7 +366,7 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
                   {i.imageUrl && !quick && <img src={i.imageUrl} alt="" className="mb-2 h-16 w-full rounded-xl object-cover" />}
                   <span className={cx('font-bold leading-tight', quick ? 'text-lg' : 'text-sm')}>{i.name}</span>
                   <span className={cx('mt-1 tabular-nums text-ink-2', quick ? 'text-lg font-semibold' : 'text-sm')}>{ils(i.price)}</span>
-                  {inCart > 0 && <span className="absolute end-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{inCart}</span>}
+                  {inCart > 0 && <span className="absolute inset-e-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{inCart}</span>}
                   {level !== 'ok' && <span className={cx('mt-1 self-start rounded-full px-2 py-0.5 text-[11px] font-bold', level === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : 'bg-amber-500/15 text-amber-800 dark:text-amber-200')}>{stockText(i)}</span>}
                   {siteHeld && i.trackStock && heldOf(siteHeld, i.id) > 0 && <span className="mt-1 self-start rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-bold text-sky-800 dark:text-sky-200">שמור להזמנה באתר: {heldOf(siteHeld, i.id)}</span>}
                 </button>
@@ -413,7 +413,7 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
                   {lvl && lvl !== 'ok' && <span className={cx('mt-1 self-start rounded-full px-2 py-0.5 text-[11px] font-bold', lvl === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : 'bg-amber-500/15 text-amber-800 dark:text-amber-200')}>
                     {v.stockQty <= 0 ? 'אזל מהמלאי' : `נשארו ${v.stockQty}`}</span>}
                   {siteHeld && pick.trackStock && heldOf(siteHeld, pick.id, v.id) > 0 && <span className="mt-1 self-start rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-bold text-sky-800 dark:text-sky-200">שמור לאתר: {heldOf(siteHeld, pick.id, v.id)}</span>}
-                  {n > 0 && <span className="absolute end-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{n}</span>}
+                  {n > 0 && <span className="absolute inset-e-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1 text-xs font-bold text-white">{n}</span>}
                 </button>
               );
             })}

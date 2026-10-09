@@ -71,7 +71,7 @@ function Selling({ store, setStore }: { store: StoreRow; setStore: (s: StoreRow)
         {missing.length > 0 && !c.checkoutEnabled && (
           <div className="mb-3 text-sm">
             <p className="mb-1 font-semibold">לפני שמפעילים חסר:</p>
-            <ul className="list-disc space-y-1 ps-5">{missing.map((m) => <li key={m}>{SELLING_MISSING[m]}</li>)}</ul>
+            <ul className="list-disc stack-y-1 ps-5">{missing.map((m) => <li key={m}>{SELLING_MISSING[m]}</li>)}</ul>
           </div>
         )}
         <label className="flex min-h-11 items-center justify-between gap-3">
@@ -148,7 +148,7 @@ function Terminal({ terminal, error, onChange }: { terminal: TerminalInfo | null
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
       {!terminal && !error ? <p className="flex items-center gap-2 text-muted"><Spinner /> בודק…</p> : terminal?.connected ? (
-        <div className="space-y-3">
+        <div className="stack-y-3">
           <p className="text-sm">
             <Pill tone="ok">מחובר</Pill>{' '}
             <span className="text-muted">PayPlus · {terminal.mode === 'test' ? 'סביבת בדיקה' : 'אמיתי'} · מפתח שמסתיים ב-<bdi dir="ltr">{terminal.hint}</bdi></span>
@@ -161,7 +161,7 @@ function Terminal({ terminal, error, onChange }: { terminal: TerminalInfo | null
           }}>הסרת המסוף</Button>
         </div>
       ) : (
-        <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void connect(); }} autoComplete="off">
+        <form className="stack-y-1" onSubmit={(e) => { e.preventDefault(); void connect(); }} autoComplete="off">
           {terminal && !terminal.ready && <Notice tone="warn">השרת עוד לא מוכן לשמור מפתחות סליקה: צריך להגדיר PAYMENT_SEAL_KEY ב-Vercel (בשני הפרויקטים, אותו ערך).</Notice>}
           {terminal?.liveOpen && (
             <div role="radiogroup" aria-label="סוג המסוף" className="mb-3 flex flex-wrap gap-2">
@@ -213,7 +213,7 @@ function EmailDomainBlock() {
       {err && <Notice tone="error">{err}</Notice>}
       {d === undefined && !err ? <p className="flex items-center gap-2 text-muted"><Spinner /> בודק…</p> : <>
         {d && <p className="mb-3 text-sm"><Pill tone={d.status === 'verified' ? 'ok' : 'warn'}>{EMAIL_DOMAIN_HE[d.status]}</Pill> <bdi dir="ltr">orders@{d.domain}</bdi></p>}
-        <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); void connect(); }}>
+        <form className="stack-y-1" onSubmit={(e) => { e.preventDefault(); void connect(); }}>
           <TextRow label="הדומיין שממנו יוצאים המיילים" value={domain} onChange={setDomain} dir="ltr" />
           <TextRow label="שם השולח (לא חובה — אחרת שם החנות)" value={fromName} onChange={setFromName} />
           <div className="flex flex-wrap gap-2">

@@ -680,7 +680,7 @@ export default function ReelsPage() {
                 </Card>
               )}
               {step === 3 && outdatedCount > 0 && (
-                <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-[var(--warn-soft,#fff4e0)] p-3 text-sm">
+                <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-(--warn-soft,#fff4e0) p-3 text-sm">
                   <span className="flex-1">{outdatedCount} סצנות עם קריינות ישנה (טקסט, קול או סגנון השתנו).</span>
                   <Button size="sm" variant="primary" onClick={renarrateAll} disabled={renarrating}>
                     {renarrating ? <><Spinner />מקריא…</> : 'קריינות מחדש בקול החדש'}

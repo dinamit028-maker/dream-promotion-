@@ -120,7 +120,7 @@ export function VoicePanel() {
           </p>
         )}
         {!status ? <Spinner /> : (
-          <div className="max-h-64 space-y-2 overflow-y-auto pe-1">
+          <div className="max-h-64 stack-y-2 overflow-y-auto pe-1">
             {status.voices.filter((v) => (gender === 'all' || v.gender === gender) && (showHidden || !hidden.includes(v.id))).slice(0, 40).map((v) => (
               <div key={v.id}
                 className={cx('flex items-center gap-2 rounded-2xl border-[1.5px] p-2.5 transition-colors',
@@ -143,7 +143,7 @@ export function VoicePanel() {
                   {previewing === v.id ? <Spinner /> : <Play size={16} weight="fill" aria-hidden />}
                 </Button>
                 <button type="button" onClick={() => toggleHidden(v.id)} title={hidden.includes(v.id) ? 'החזרה לרשימה' : 'לא מתאים — הסתרה'}
-                  className="shrink-0 px-1 text-sm text-muted hover:text-[var(--danger)]" aria-label={hidden.includes(v.id) ? `החזרת ${v.name}` : `הסתרת ${v.name}`}>
+                  className="shrink-0 px-1 text-sm text-muted hover:text-(--danger)" aria-label={hidden.includes(v.id) ? `החזרת ${v.name}` : `הסתרת ${v.name}`}>
                   {hidden.includes(v.id) ? '↺' : '✕'}
                 </button>
               </div>
@@ -171,13 +171,13 @@ export function VoicePanel() {
         </button>
 
         {showTerms && (
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 stack-y-2">
             {pronunciations.map((p, i) => (
               <div key={i} className="flex items-center gap-2">
                 <Input value={p.term} placeholder="eSIM" onChange={(e) => update(i, { term: e.target.value })} />
                 <span className="shrink-0 text-muted">←</span>
                 <Input value={p.say} placeholder="אי סים" onChange={(e) => update(i, { say: e.target.value })} />
-                <Button size="sm" variant="ghost" aria-label="מחיקה" className="text-[var(--danger)]"
+                <Button size="sm" variant="ghost" aria-label="מחיקה" className="text-(--danger)"
                   onClick={() => setPronunciations(pronunciations.filter((_, n) => n !== i))}>
                   <Trash size={15} aria-hidden />
                 </Button>

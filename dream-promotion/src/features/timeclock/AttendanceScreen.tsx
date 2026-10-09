@@ -254,7 +254,7 @@ function EntryEditor({ value, emps, onClose, onSave, onDelete }: {
       {err && <p className="mb-3 text-sm text-warn">{err}</p>}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="flex gap-2"><Button variant="primary" onClick={save}>שמירה</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></span>
-        {existing && <button type="button" className="text-xs text-[var(--danger)]" onClick={() => { if (window.confirm('למחוק את המשמרת?')) onDelete(existing.id); }}>מחיקת משמרת</button>}
+        {existing && <button type="button" className="text-xs text-(--danger)" onClick={() => { if (window.confirm('למחוק את המשמרת?')) onDelete(existing.id); }}>מחיקת משמרת</button>}
       </div>
     </Modal>
   );

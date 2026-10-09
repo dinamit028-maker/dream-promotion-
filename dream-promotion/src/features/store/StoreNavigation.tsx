@@ -55,7 +55,7 @@ function HiddenLinks({ storeId, links, pages, reload }: { storeId: string; links
   return (
     <Block title="קישורים שלא מופיעים באתר" sub="הם מובילים לעמוד, למדיניות או לקולקציה שעוד לא באתר — ולכן הלקוחות לא רואים אותם בתפריט. בתצוגה המקדימה הם מופיעים.">
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
-      <ul className="space-y-2">
+      <ul className="stack-y-2">
         {links.map((l, i) => {
           const g = l.target?.kind === 'page' ? pages.find((p) => p.id === l.target!.id) : undefined;
           const direct = g && g.body.trim() && !hasPlaceholders(g.body);
@@ -114,7 +114,7 @@ function Menu({ storeId, kind, title, empty, initial, targets, onSaved }: {
     <Block title={title} id={kind}>
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
       {!rows.length && <p className="mb-3 text-sm text-muted">{empty}</p>}
-      <ol className="mb-3 space-y-3">
+      <ol className="mb-3 stack-y-3">
         {rows.map((r, i) => {
           const other = !known.has(r.href);
           return (

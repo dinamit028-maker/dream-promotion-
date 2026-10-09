@@ -47,7 +47,7 @@ export function SceneMediaPicker({ picking, media, photoId, clipUrl, onClose, on
               className={cx('overflow-hidden rounded-xl text-start ring-2 ring-offset-2 ring-offset-surface',
                 (pickTab === 'image' ? photoId === m.id : clipUrl === m.url) ? 'ring-primary' : 'ring-transparent hover:ring-line')}>
               {m.kind === 'video'
-                ? <video src={`${m.url}#t=1`} preload="metadata" muted playsInline className="aspect-[9/16] w-full bg-black object-cover" />
+                ? <video src={`${m.url}#t=1`} preload="metadata" muted playsInline className="aspect-9/16 w-full bg-black object-cover" />
                 : <img src={m.url} alt={m.name} className="aspect-square w-full object-cover" />}
               <p className="truncate bg-surface-2 px-2 py-1 text-[11px]" title={m.name}>{m.name}</p>
             </button>

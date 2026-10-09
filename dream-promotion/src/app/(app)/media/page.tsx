@@ -214,7 +214,7 @@ export default function MediaPage() {
       {!MediaService.persistent && (
         <div className="mb-6"><AdapterNote>אחסון קבצים מתמיד לא מוגדר, לכן הקבצים חיים בדפדפן עד רענון.</AdapterNote></div>
       )}
-      {error && <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>}
+      {error && <p className="mb-4 text-sm text-(--danger)">{error}</p>}
 
       {oldCopies.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2 p-3 text-sm">
@@ -230,7 +230,7 @@ export default function MediaPage() {
       )}
 
       {media.length > 0 && (
-        <div className="sticky top-0 z-10 -mx-1 mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--bg)]/90 px-1 py-2 backdrop-blur">
+        <div className="sticky top-0 z-10 -mx-1 mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-(--bg)/90 px-1 py-2 backdrop-blur-sm">
           {!selecting ? (
             <Button size="sm" variant="ghost" onClick={() => { setSelecting(true); setPicked(new Set()); }}>בחירה ומחיקה</Button>
           ) : (
@@ -258,7 +258,7 @@ export default function MediaPage() {
 
       {media.length ? (
         shown.length ? (
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(170px,1fr))]">
+          <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(170px,1fr))]">
             {shown.map((m) => {
               const t = typeOf(m);
               const act = primary(m);
@@ -268,20 +268,20 @@ export default function MediaPage() {
                   <button type="button" onClick={() => (selecting ? togglePick(m.id) : setOpen(m))} className="relative block w-full"
                     aria-label={selecting ? `בחירה של ${m.name}` : `תצוגה של ${m.name}`} aria-pressed={selecting ? picked.has(m.id) : undefined}>
                     {selecting && (
-                      <span className={cx('absolute end-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 text-sm font-bold',
+                      <span className={cx('absolute inset-e-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 text-sm font-bold',
                         picked.has(m.id) ? 'border-primary bg-primary text-white' : 'border-white bg-black/30 text-transparent')}>✓</span>
                     )}
                     {t === 'audio' ? (
-                      <div className="flex aspect-[4/5] w-full items-center justify-center bg-gradient-to-b from-surface-2 to-line text-4xl text-ink-2">♪</div>
+                      <div className="flex aspect-4/5 w-full items-center justify-center bg-linear-to-b from-surface-2 to-line text-4xl text-ink-2">♪</div>
                     ) : m.kind === 'video' ? (
-                      <video src={`${m.url}#t=1`} preload="metadata" muted playsInline className="aspect-[4/5] w-full bg-black object-cover" />
+                      <video src={`${m.url}#t=1`} preload="metadata" muted playsInline className="aspect-4/5 w-full bg-black object-cover" />
                     ) : (
-                      <img src={m.url} alt="" className="aspect-[4/5] w-full object-cover" />
+                      <img src={m.url} alt="" className="aspect-4/5 w-full object-cover" />
                     )}
                     {m.kind === 'video' && (
                       <span className="absolute inset-0 m-auto flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-white">▶</span>
                     )}
-                    <span className={cx('absolute start-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+                    <span className={cx('absolute inset-s-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-semibold',
                       t === 'reel' ? 'bg-primary text-white' : 'bg-white/90 text-ink')}>{TYPE_HE[t]}</span>
                   </button>
 
@@ -292,17 +292,17 @@ export default function MediaPage() {
                         <button type="button" aria-label="עוד פעולות" onClick={() => { setMenu(menu === m.id ? null : m.id); setConfirm(null); }}
                           className="flex h-7 w-7 items-center justify-center rounded-full text-ink-2 hover:bg-surface-2">⋯</button>
                         {menu === m.id && (
-                          <div className="absolute end-0 top-8 z-20 w-40 overflow-hidden rounded-xl border border-line bg-surface py-1 text-sm shadow-lg">
+                          <div className="absolute inset-e-0 top-8 z-20 w-40 overflow-hidden rounded-xl border border-line bg-surface py-1 text-sm shadow-lg">
                             <a href={m.url} target="_blank" rel="noreferrer" download className="block px-3 py-2 hover:bg-surface-2" onClick={() => setMenu(null)}>הורדה</a>
                             {m.kind === 'video' && t === 'clip' && (
                               <button type="button" className="block w-full px-3 py-2 text-start hover:bg-surface-2"
                                 onClick={() => router.push(`/create?media=${m.id}`)}>יצירת פוסט</button>
                             )}
                             {confirm === m.id ? (
-                              <button type="button" className="block w-full px-3 py-2 text-start font-semibold text-[var(--danger)] hover:bg-surface-2"
+                              <button type="button" className="block w-full px-3 py-2 text-start font-semibold text-(--danger) hover:bg-surface-2"
                                 onClick={() => { removeMedia(m.id); setMenu(null); setConfirm(null); }}>בטוח? מחיקה סופית</button>
                             ) : (
-                              <button type="button" className="block w-full px-3 py-2 text-start text-[var(--danger)] hover:bg-surface-2"
+                              <button type="button" className="block w-full px-3 py-2 text-start text-(--danger) hover:bg-surface-2"
                                 onClick={() => setConfirm(m.id)}>מחיקה</button>
                             )}
                           </div>

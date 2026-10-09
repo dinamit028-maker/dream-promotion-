@@ -121,7 +121,7 @@ export function liveClasses(d: Draft): string {
 /** "עיצוב כללי" in the visual editor (2.66): the main colours, the corners, the font — and the design choices */
 export function GlobalDesign({ d, change }: { d: Draft; change: (next: Draft) => void }) {
   return (
-    <div className="space-y-3">
+    <div className="stack-y-3">
       <div className="grid grid-cols-2 gap-2">
         {([['primary', 'כפתורים'], ['accent', 'צבע הדגשה'], ['background', 'רקע'], ['text', 'טקסט']] as const).map(([k, label]) => (
           <label key={k} className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-line px-2">

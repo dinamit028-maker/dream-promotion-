@@ -22,7 +22,7 @@ export default function AnalyticsPage() {
           <Link href="/create" className="font-semibold text-primary">ליצירת התוכן הראשון ←</Link>
         </div>
       )}
-      <div className="mb-6 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
+      <div className="mb-6 grid gap-4 grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
         {stats.map(([l, v]) => (
           <Card key={l}>
             <p className="text-sm text-muted">{l}</p>

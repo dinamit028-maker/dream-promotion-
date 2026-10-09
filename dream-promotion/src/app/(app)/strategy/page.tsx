@@ -14,7 +14,7 @@ export default function StrategyPage() {
     <>
       <PageHead title="האסטרטגיה השבועית" sub="מה לפרסם, מתי ולמה"
         action={<Button variant="primary" onClick={planner.run} disabled={planner.busy}><Sparkle size={18} weight="fill" aria-hidden />בניית שבוע</Button>} />
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+      <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
         {week.map((d) => {
           const items = content.filter((c) => c.date === d);
           return (

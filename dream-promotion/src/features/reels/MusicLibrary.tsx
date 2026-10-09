@@ -98,7 +98,7 @@ export function MusicLibrary({ open, onClose, onChoose }: {
           : 'רק מוזיקה בלי זכויות יוצרים (CC0 / נחלת הכלל) — מותר לכל שימוש, גם מסחרי, בלי קרדיט ובלי רישום.'}
       </p>
       <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-muted">
-        <input type="checkbox" className="h-4 w-4 accent-[var(--primary)]" checked={withCredit}
+        <input type="checkbox" className="h-4 w-4 accent-(--primary)" checked={withCredit}
           onChange={(e) => { setWithCredit(e.target.checked); void search(q, 1, e.target.checked); }} />
         יותר בחירה: להציג גם שירים שדורשים קרדיט (הקרדיט נכנס לפוסט אוטומטית)
       </label>

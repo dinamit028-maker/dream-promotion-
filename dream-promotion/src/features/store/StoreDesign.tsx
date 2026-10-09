@@ -166,7 +166,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
       </Block>
 
       <Block title="עמוד הבית" sub="החלקים לפי הסדר. אפשר להסתיר, להזיז ולערוך כל אחד.">
-        <ol className="space-y-2">
+        <ol className="stack-y-2">
           {d.sections.map((s, i) => {
             const def = SECTION_DEFS[s.type];
             const isOpen = open === s.id;
@@ -218,7 +218,7 @@ function Editor({ bundle, storeId, template, versions, collections, reload, onKi
         if (!r.ok) setMsg({ tone: 'error', text: r.error }); else { setMsg({ tone: 'ok', text: `גרסה ${v.version} חזרה לאתר.` }); await reload(); }
       }} />
 
-      <div className="sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-[color:var(--glass)] py-2 backdrop-blur sm:bottom-4">
+      <div className="sticky bottom-20 z-10 flex flex-wrap justify-end gap-2 rounded-lg bg-(--glass) py-2 backdrop-blur-sm sm:bottom-4">
         {dirty && <span className="me-auto self-center text-sm text-muted">יש שינויים שלא נשמרו</span>}
         <Button variant="ghost" disabled={busy || !dirty} onClick={async () => { if (await save()) setMsg({ tone: 'ok', text: 'הטיוטה נשמרה. הלקוחות עדיין רואים את הגרסה שפורסמה.' }); }}>שמירת טיוטה</Button>
         <Button variant="primary" disabled={busy} onClick={() => void publish()}>{busy ? <><Spinner /> רגע…</> : 'פרסום באתר'}</Button>
@@ -245,7 +245,7 @@ export function FieldInput({ f, value, onChange, collections, kitPicture }: { f:
   if (f.kind === 'longtext') return <AreaRow label={f.label} value={v} onChange={onChange} max={f.max} />;
   if (f.kind === 'number') {
     return (
-      <label className="mb-4 block max-w-[10rem]">
+      <label className="mb-4 block max-w-40">
         <span className="mb-2 block text-sm font-semibold text-ink-2">{f.label}</span>
         <Select value={v || '8'} onChange={(e) => onChange(Number(e.target.value))}>{[2, 3, 4, 6, 8, 12].map((n) => <option key={n} value={n}>{n}</option>)}</Select>
       </label>
@@ -253,7 +253,7 @@ export function FieldInput({ f, value, onChange, collections, kitPicture }: { f:
   }
   if (f.kind === 'side') {
     return (
-      <label className="mb-4 block max-w-[12rem]">
+      <label className="mb-4 block max-w-48">
         <span className="mb-2 block text-sm font-semibold text-ink-2">{f.label}</span>
         <Select value={v || 'start'} onChange={(e) => onChange(e.target.value)}><option value="start">ימין</option><option value="end">שמאל</option></Select>
       </label>
@@ -293,7 +293,7 @@ function Versions({ versions, busy, onPublish }: { versions: ThemeVersion[]; bus
   if (!done.length) return null;
   return (
     <Block title="גרסאות" sub="אפשר להחזיר לאתר גרסה קודמת. הטיוטה נשארת כמו שהיא.">
-      <ul className="space-y-2">
+      <ul className="stack-y-2">
         {done.map((v) => (
           <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-line px-3 py-2">
             <span><span className="font-semibold">גרסה {v.version}</span> <span className="text-sm text-muted">{v.publishedAt ? new Date(v.publishedAt).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', dateStyle: 'short', timeStyle: 'short' }) : ''}</span></span>

@@ -20,7 +20,7 @@ function Orbit({ mx, my, depth, className, delay = 0, children }: {
       <motion.div
         animate={reduce ? undefined : { y: [0, -12, 0] }}
         transition={{ duration: 6 + delay, repeat: Infinity, ease: 'easeInOut', delay }}
-        className="rounded-2xl border border-line bg-[color:var(--glass)] p-3 text-right text-ink shadow-[0_24px_60px_rgba(0,0,0,.55)] backdrop-blur"
+        className="rounded-2xl border border-line bg-(--glass) p-3 text-right text-ink shadow-[0_24px_60px_rgba(0,0,0,.55)] backdrop-blur-sm"
       >
         {children}
       </motion.div>
@@ -71,10 +71,10 @@ export function Hero() {
         </div>
       </div>
 
-      <div className="relative mx-auto mt-14 max-w-6xl px-5 [perspective:1600px]">
+      <div className="relative mx-auto mt-14 max-w-6xl px-5 perspective-[1600px]">
         <motion.div
           style={reduce ? undefined : { rotateX, rotateY: turnY, y: lift, scale: zoom }}
-          className="relative mx-auto max-w-[680px] [transform-style:preserve-3d]"
+          className="relative mx-auto max-w-[680px] transform-3d"
         >
           <DashboardMock />
         </motion.div>
@@ -82,7 +82,7 @@ export function Hero() {
         {/* content orbiting the dashboard; fewer cards on phones */}
         <Orbit mx={mx} my={my} depth={1.2} className="-right-2 top-[-10%] w-[112px] sm:right-[1%] sm:top-[-4%] sm:w-[150px]" delay={0}>
           <p className="mb-2 flex items-center gap-1 text-[11px] text-muted"><TiktokLogo size={12} />רילס</p>
-          <ShowcaseVideo {...REELS[1]} className="aspect-[9/16] rounded-xl" />
+          <ShowcaseVideo {...REELS[1]} className="aspect-9/16 rounded-xl" />
         </Orbit>
         <Orbit mx={mx} my={my} depth={0.8} className="-left-2 top-[62%] w-[124px] sm:left-[1%] sm:top-[-2%] sm:w-[170px]" delay={1}>
           <p className="mb-2 flex items-center gap-1 text-[11px] text-muted"><InstagramLogo size={12} />פוסט</p>
@@ -112,7 +112,7 @@ export function Hero() {
         <Orbit mx={mx} my={my} depth={0.6} className="left-[16%] top-[-16%] hidden w-[110px] xl:block" delay={2.5}>
           <p className="mb-2 flex items-center gap-1 text-[11px] text-muted"><ImageGlyph size={12} />תמונת AI</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={REELS[3].poster} alt="" className="aspect-[4/5] w-full rounded-lg object-cover" />
+          <img src={REELS[3].poster} alt="" className="aspect-4/5 w-full rounded-lg object-cover" />
         </Orbit>
       </div>
     </section>

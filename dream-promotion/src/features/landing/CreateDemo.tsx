@@ -42,11 +42,11 @@ export function CreateDemo() {
     { k: 'story', I: DeviceMobile, t: 'סטורי', body: (
       <div className="relative">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={REELS[1].poster} alt="" className="aspect-[9/16] w-full rounded-xl object-cover" />
+        <img src={REELS[1].poster} alt="" className="aspect-9/16 w-full rounded-xl object-cover" />
         <p className="absolute inset-x-2 bottom-3 rounded-lg bg-black/55 px-2 py-1.5 text-center text-[12px] font-bold text-white">נשארו 6 מקומות ליולי</p>
       </div>
     ) },
-    { k: 'reel', I: TiktokLogo, t: 'רילס', body: <ShowcaseVideo {...REELS[2]} className="aspect-[9/16] rounded-xl" /> },
+    { k: 'reel', I: TiktokLogo, t: 'רילס', body: <ShowcaseVideo {...REELS[2]} className="aspect-9/16 rounded-xl" /> },
     { k: 'ad', I: Megaphone, t: 'מודעה', body: (
       <div className="flex h-full flex-col justify-between gap-3">
         <p className="font-display text-lg font-bold leading-tight">טסים בקיץ? הכול סגור מראש.</p>

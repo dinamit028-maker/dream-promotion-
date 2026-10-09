@@ -273,7 +273,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <aside aria-label="ניווט ראשי"
-        className="sticky top-3 m-3 me-0 hidden h-[calc(100vh-24px)] w-[240px] shrink-0 flex-col gap-1 overflow-y-auto rounded-[24px] border border-line bg-[color:var(--glass)] p-4 shadow-[0_20px_60px_rgba(0,0,0,.35)] backdrop-blur-xl md:flex max-lg:w-[76px]">
+        className="sticky top-3 m-3 me-0 hidden h-[calc(100vh-24px)] w-[240px] shrink-0 flex-col gap-1 overflow-y-auto rounded-lg border border-line bg-(--glass) p-4 shadow-[0_20px_60px_rgba(0,0,0,.35)] backdrop-blur-xl md:flex max-lg:w-[76px]">
         <div className="flex items-center gap-2.5 px-2 pb-6 max-lg:justify-center">
           <Logo /><span className="whitespace-nowrap font-display text-[16px] font-bold max-lg:sr-only">Dream Promotion</span>
         </div>
@@ -281,7 +281,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-4">
           {NAV_BOTTOM.map(sideItem)}
           <button type="button" onClick={signOut}
-            className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-[var(--danger)] max-lg:justify-center">
+            className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-(--danger) max-lg:justify-center">
             <SignOut size={22} aria-hidden /><span className="max-lg:sr-only">יציאה</span>
           </button>
           <VersionTag className="px-3 pt-2 text-[11px] text-muted max-lg:hidden" />
@@ -290,7 +290,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className={cx('safe-t sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-2.5 backdrop-blur-xl transition-colors sm:px-6',
-          scrolled ? 'border-b border-line bg-[color:var(--glass-bg)]' : 'border-b border-transparent bg-transparent')}>
+          scrolled ? 'border-b border-line bg-(--glass-bg)' : 'border-b border-transparent bg-transparent')}>
           <div className="flex items-center gap-2.5">
             <span className="md:hidden"><Logo small /></span>
             <strong className="font-display text-[17px] font-bold">{current?.label ?? ''}</strong>
@@ -325,7 +325,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
 
-      {!cashier && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-[color:var(--glass)] px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
+      {!cashier && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-(--glass) px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
         {MOBILE_LEFT.map(tabItem)}
         <Link href="/create" aria-label="יצירת תוכן חדש"
           className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">
@@ -361,7 +361,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="mt-4 flex items-center justify-between border-t border-line pt-4">
               <button type="button" onClick={signOut}
-                className="flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold text-ink-2 hover:text-[var(--danger)]">
+                className="flex h-11 items-center gap-2 rounded-full px-4 text-sm font-semibold text-ink-2 hover:text-(--danger)">
                 <SignOut size={20} aria-hidden />יציאה מהחשבון
               </button>
               <VersionTag className="text-[11px] text-muted" />

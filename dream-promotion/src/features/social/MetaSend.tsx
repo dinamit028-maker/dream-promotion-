@@ -105,12 +105,12 @@ export function MetaSend({
               const r = results[a.id];
               return (
                 <label key={a.id} className={cx('flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2 text-sm', chosen.includes(a.id) ? 'border-primary bg-primary-soft' : 'border-line')}>
-                  <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={chosen.includes(a.id)} disabled={busy} onChange={() => toggle(a.id)} />
+                  <input type="checkbox" className="h-5 w-5 accent-(--primary)" checked={chosen.includes(a.id)} disabled={busy} onChange={() => toggle(a.id)} />
                   {a.avatar && <img src={a.avatar} alt="" className="h-7 w-7 rounded-full" />}
                   <span className="min-w-0 flex-1">
                     <span className="text-muted">{a.provider === 'instagram' ? 'Instagram' : 'Facebook'} · </span>{a.name}
                     {r && (
-                      <span className={cx('mt-0.5 flex items-center gap-1.5 text-xs', r.state === 'done' ? 'text-ok' : r.state === 'failed' ? 'text-[var(--danger)]' : 'text-muted')}>
+                      <span className={cx('mt-0.5 flex items-center gap-1.5 text-xs', r.state === 'done' ? 'text-ok' : r.state === 'failed' ? 'text-(--danger)' : 'text-muted')}>
                         {(r.state === 'working' || r.state === 'waiting') && <Spinner />}{r.state === 'done' ? '✓ ' : r.state === 'failed' ? '✗ ' : ''}{r.text}
                       </span>
                     )}
@@ -138,11 +138,11 @@ export function MetaSend({
               <div className="flex items-center gap-3">
                 <video key={`${media.url}-${cover}`} src={`${media.url}#t=${cover}`} preload="metadata" muted playsInline
                   onLoadedMetadata={(e) => setVideoLen(e.currentTarget.duration || 0)}
-                  className="aspect-[9/16] w-20 shrink-0 rounded-lg bg-black object-cover" />
+                  className="aspect-9/16 w-20 shrink-0 rounded-lg bg-black object-cover" />
                 <label className="flex-1 text-sm">
                   מהשנייה <strong>{cover.toFixed(1)}</strong>
                   <input type="range" min={0} max={Math.max(0.5, videoLen - 0.1)} step={0.1} value={cover} disabled={busy}
-                    onChange={(e) => setCover(+e.target.value)} className="mt-1 w-full accent-[var(--primary)]" />
+                    onChange={(e) => setCover(+e.target.value)} className="mt-1 w-full accent-(--primary)" />
                 </label>
               </div>
             </div>
@@ -155,7 +155,7 @@ export function MetaSend({
             </label>
           ) : null}
           {onlyStory && <p className="mb-4 text-sm text-muted">בסטורי באינסטגרם אין טקסט מתחת לתמונה. אם צריך טקסט, הוא צריך להיות חלק מהתמונה או מהסרטון.</p>}
-          {error && <p className="mb-3 text-sm text-[var(--danger)]">{error}</p>}
+          {error && <p className="mb-3 text-sm text-(--danger)">{error}</p>}
 
           <div className="flex gap-3">
             {allDone ? <Button variant="primary" onClick={onClose}>סגירה</Button> : (

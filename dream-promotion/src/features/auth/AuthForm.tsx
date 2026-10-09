@@ -140,7 +140,7 @@ export function AuthForm({ initialMode = 'in', compact = false }: { initialMode?
           </Field>
         )}
 
-        {error && <p className="mb-3 text-sm text-[var(--danger)]">{error}</p>}
+        {error && <p className="mb-3 text-sm text-(--danger)">{error}</p>}
         {notice && <p className="mb-3 text-sm text-ok">{notice}</p>}
 
         <Button variant="primary" size="lg" className="w-full" onClick={submit} disabled={busy || (mode === 'newpass' ? !password || !password2 : !email)}>

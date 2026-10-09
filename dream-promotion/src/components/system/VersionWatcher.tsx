@@ -41,7 +41,7 @@ export function VersionWatcher() {
   }, []);
   if (!ready) return null;
   return (
-    <div role="status" className="fixed inset-x-0 top-0 z-[200] flex justify-center px-3 pt-[max(env(safe-area-inset-top),8px)] print:hidden">
+    <div role="status" className="fixed inset-x-0 top-0 z-200 flex justify-center px-3 pt-[max(env(safe-area-inset-top),8px)] print:hidden">
       <div className="flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-2 text-sm shadow-lg">
         <span className="font-semibold">יש גרסה חדשה של האפליקציה.</span>
         <span className="text-muted">כדאי לעדכן אחרי שמסיימים את מה שפתוח.</span>

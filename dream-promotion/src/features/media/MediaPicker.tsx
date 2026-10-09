@@ -41,9 +41,9 @@ export function MediaPicker({
       <Button variant="primary" className="mb-5" onClick={() => input.current?.click()} disabled={busy}>
         {busy ? <><Spinner />מעלה…</> : accept === 'audio' ? '+ העלאת קובץ מוזיקה' : '+ העלאת תמונה חדשה'}
       </Button>
-      {error && <p className="mb-4 text-sm text-[var(--danger)]">{error}</p>}
+      {error && <p className="mb-4 text-sm text-(--danger)">{error}</p>}
       {media.length ? (
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(130px,1fr))]">
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(130px,1fr))]">
           {media.map((m) => (
             <button key={m.id} type="button" onClick={() => { onPick(m.id); onClose(); }}
               className={cx('overflow-hidden rounded-xl text-start ring-2 transition',

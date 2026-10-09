@@ -402,7 +402,7 @@ export function FinalReelPanel({
                 עוצמת המוזיקה: <strong>{Math.round(music.volume * 100)}%</strong>
                 <input type="range" min={0} max={100} value={Math.round(music.volume * 100)}
                   onChange={(e) => setMusic({ ...music, volume: +e.target.value / 100 })}
-                  className="mt-1 w-full accent-[var(--primary)]" />
+                  className="mt-1 w-full accent-(--primary)" />
               </label>
               <p className="mt-1 text-xs text-muted">{textOnly ? 'בלי קריינות — המוזיקה היא הקול של הסרטון.' : 'המוזיקה יורדת אוטומטית כשמדברים.'}</p>
               {musicCredit && <p className="mt-1 text-xs text-warn">השיר דורש קרדיט — נוסף אוטומטית לטקסט הפוסט.</p>}
@@ -419,14 +419,14 @@ export function FinalReelPanel({
             </div>
           )}
           <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[var(--primary)]" checked={originalAudio} onChange={(e) => setOriginalAudio(e.target.checked)} />
+            <input type="checkbox" className="mt-0.5 h-5 w-5 accent-(--primary)" checked={originalAudio} onChange={(e) => setOriginalAudio(e.target.checked)} />
             <span><strong>הקול המקורי של הסרטונים</strong><span className="block text-xs text-muted">דיבור מסטורי או מסרטון שצילמתם נשמר. מתחת לקריינות הוא נשמע בשקט.</span></span>
           </label>
         </Field>
 
         <Field label="כתוביות">
           <label className="mb-2 flex w-full cursor-pointer items-center gap-2 text-sm font-semibold">
-            <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={captions.enabled}
+            <input type="checkbox" className="h-5 w-5 accent-(--primary)" checked={captions.enabled}
               onChange={(e) => setCaptions({ ...captions, enabled: e.target.checked })} />
             הוספת כתוביות לריל
           </label>
@@ -473,7 +473,7 @@ export function FinalReelPanel({
 
       {final && (
         <div className="mt-5 grid gap-4 border-t border-line pt-5 sm:grid-cols-[220px_1fr]">
-          <video key={final.url} src={`${final.url}#t=0.1`} preload="metadata" controls playsInline className="aspect-[9/16] w-full rounded-xl bg-black object-cover" />
+          <video key={final.url} src={`${final.url}#t=0.1`} preload="metadata" controls playsInline className="aspect-9/16 w-full rounded-xl bg-black object-cover" />
           <div className="min-w-0">
             <p className="font-semibold">הריל מוכן · {Math.round(final.durationSec)} שנ׳</p>
             <p className="mt-1 text-sm text-muted">נשמר בספריית המדיה ומשויך לפרויקט הזה.</p>
@@ -487,15 +487,15 @@ export function FinalReelPanel({
                       : schedule.status === 'done' ? '✓ פורסם' : schedule.status === 'partial' ? '⚠ פורסם חלקית' : '✗ הפרסום נכשל'}
                     {' · '}{formatIL(schedule.runAt)} (שעון ישראל)
                   </strong>
-                  {schedule.status === 'scheduled' && <button type="button" className="text-xs text-[var(--danger)] hover:underline" onClick={cancelSchedule}>ביטול הפרסום האוטומטי</button>}
+                  {schedule.status === 'scheduled' && <button type="button" className="text-xs text-(--danger) hover:underline" onClick={cancelSchedule}>ביטול הפרסום האוטומטי</button>}
                 </div>
                 <ul className="mt-2 grid gap-1">
                   {schedule.destinations.map((d) => (
                     <li key={d.accountId} className="text-xs">
-                      <span className={cx('font-semibold', d.result.state === 'failed' ? 'text-[var(--danger)]' : d.result.state === 'published' || d.result.state === 'sent_to_drafts' ? 'text-ok' : 'text-muted')}>
+                      <span className={cx('font-semibold', d.result.state === 'failed' ? 'text-(--danger)' : d.result.state === 'published' || d.result.state === 'sent_to_drafts' ? 'text-ok' : 'text-muted')}>
                         {d.result.state === 'published' ? '✓ פורסם' : d.result.state === 'sent_to_drafts' ? '✓ נשלח לטיוטות' : d.result.state === 'processing' ? '⏳ בעיבוד' : d.result.state === 'failed' ? '✗ נכשל' : '· ממתין'}
                       </span>{' '}{d.name}{d.target === 'story' ? ' (סטורי)' : ''}
-                      {d.result.error && <span className="block text-[var(--danger)]" dir="auto">{d.result.error}</span>}
+                      {d.result.error && <span className="block text-(--danger)" dir="auto">{d.result.error}</span>}
                     </li>
                   ))}
                 </ul>
@@ -576,7 +576,7 @@ export function FinalReelPanel({
             <div className="grid gap-2">
               {schedAccounts.map((a) => (
                 <label key={a.id} className={cx('flex cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2 text-sm', schedPick[a.id] ? 'border-primary bg-primary-soft' : 'border-line')}>
-                  <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={Boolean(schedPick[a.id])}
+                  <input type="checkbox" className="h-5 w-5 accent-(--primary)" checked={Boolean(schedPick[a.id])}
                     onChange={(e) => setSchedPick((p) => ({ ...p, [a.id]: e.target.checked }))} />
                   {a.avatar && <img src={a.avatar} alt="" className="h-7 w-7 rounded-full" />}
                   <span className="min-w-0 flex-1">

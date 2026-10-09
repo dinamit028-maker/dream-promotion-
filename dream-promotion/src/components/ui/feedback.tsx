@@ -35,7 +35,7 @@ export function Modal({ open, onClose, children, wide }: { open: boolean; onClos
   // portalled to <body>, so a dialog opened from inside another dialog is never clipped by it
   return createPortal(
     <div onClick={(e) => e.target === e.currentTarget && onClose()}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(18,14,28,.46)] p-4 backdrop-blur-sm">
+      className="fixed inset-0 z-100 flex items-center justify-center bg-[rgba(18,14,28,.46)] p-4 backdrop-blur-xs">
       <div role="dialog" aria-modal="true"
         className={cx('max-h-[90dvh] w-full overflow-y-auto overscroll-contain rounded-xl bg-surface p-5 shadow-lg animate-pop sm:p-8', wide ? 'max-w-4xl' : 'max-w-2xl')}>
         {children}

@@ -37,7 +37,7 @@ export default function SettingsPage() {
       <PageHead title="הגדרות" />
       <Card className="mb-4">
         <h3 className="font-display text-xl font-extrabold">פרטי העסק</h3>
-        <div className="mt-4 grid gap-x-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+        <div className="mt-4 grid gap-x-4 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
           <Field label="שם העסק"><Input value={brand.name} onChange={(e) => setBrand({ name: e.target.value })} /></Field>
           <Field label="תחום"><Input value={brand.industry} onChange={(e) => setBrand({ industry: e.target.value })} /></Field>
           <Field label="עיר"><Input value={brand.city} onChange={(e) => setBrand({ city: e.target.value })} /></Field>
@@ -94,7 +94,7 @@ export default function SettingsPage() {
 
       <Card>
         <h3 className="font-display text-xl font-extrabold">מצב המערכת</h3>
-        <dl className="mt-3 space-y-2.5 text-sm">
+        <dl className="mt-3 stack-y-2.5 text-sm">
           {([
             ['מנוע AI', aiReady],
             ['אחסון מדיה', MediaService.persistent],
@@ -107,7 +107,7 @@ export default function SettingsPage() {
             </div>
           ))}
         </dl>
-        <Button variant="ghost" size="sm" className="mt-4 text-[var(--danger)]" onClick={reset}>איפוס כל הנתונים</Button>
+        <Button variant="ghost" size="sm" className="mt-4 text-(--danger)" onClick={reset}>איפוס כל הנתונים</Button>
       </Card>
     </>
   );
