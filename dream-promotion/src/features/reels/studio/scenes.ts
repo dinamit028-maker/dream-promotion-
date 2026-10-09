@@ -1,5 +1,6 @@
 import { PRICE_PER_SECOND } from '@/lib/services/video.service';
 import { PRICE_PER_IMAGE } from '@/lib/services/image.service';
+import { reelPlan } from '@/lib/services/prompts';
 import type { CaptionCue, ReelProject, ReelScene, SceneMotion, SceneNarration, SceneSource, Storyboard } from '@/types';
 import type { RenderScenePayload } from '@/features/reels/FinalReelPanel';
 import { roleLabel, type Clip, type Res } from './parts';
@@ -82,14 +83,17 @@ export function planBoard(b: Storyboard, total: number, shape: 'scenes' | 'singl
   return { board: { ...b, scenes: planned }, imageMode: Object.fromEntries(planned.map((sc, k) => [k, sc.source !== 'ai_video'])), draftMode: true };
 }
 
-/** what the video will cost, roughly, before there is a script ("עלות וידאו משוערת") — a video already there is free */
+/**
+ * what the video will cost, roughly, before there is a script ("עלות וידאו משוערת") — a video already there is free.
+ * Scenes: the plan the storyboard is asked for (reelPlan) — its AI-video seconds, in clips of about 5 seconds; the last
+ * scene a free card; every other scene a still (8¢ each). A 10-second reel = 3 scenes: one clip, one still, the card.
+ */
 export function estimateVideoCost(o: { shape: 'scenes' | 'single'; total: number; res: Res; hasExistingVideo: boolean }): number {
-  const perScene = Math.round(o.total / Math.max(1, Math.round(o.total / 15)));
-  return o.shape === 'single'
-    ? Math.max(0, Math.min(30, o.total) - (o.hasExistingVideo ? perScene : 0)) * PRICE_PER_SECOND[o.res]
-    // scenes: about a third is AI video, the rest stills (8¢ each) and a free card
-    : Math.max(0, Math.round(o.total * 0.35) - (o.hasExistingVideo ? perScene : 0)) * PRICE_PER_SECOND[o.res]
-      + Math.max(0, Math.round(o.total / 5) - 2) * PRICE_PER_IMAGE;
+  const plan = reelPlan(o.total);
+  if (o.shape === 'single') return Math.max(0, Math.min(30, o.total) - (o.hasExistingVideo ? plan.per : 0)) * PRICE_PER_SECOND[o.res];
+  const clips = Math.max(1, Math.round(plan.videoBudget / 5));
+  const stills = Math.max(0, plan.count - 1 - clips);
+  return Math.max(0, plan.videoBudget - (o.hasExistingVideo ? plan.per : 0)) * PRICE_PER_SECOND[o.res] + stills * PRICE_PER_IMAGE;
 }
 
 /** What a scene is made of (older projects: from the video / image switch). */

@@ -5,6 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { reelPlan, storyboardPrompt } from '../src/lib/services/prompts';
 import {
   estimateVideoCost, motionOf, narrationOutdated, NEW_SCENE, planBoard, projectOf, remapScenes, removeScene, renderPayload, restoreScenes,
   sourceOf, swapScenes, type ProjectState,
@@ -54,6 +55,21 @@ test('the cost before a script; a video already there is not paid for', () => {
   const b = estimateVideoCost({ shape: 'scenes', total: 15, res: '720p', hasExistingVideo: true });
   assert.ok(a > b && b >= 0);
   assert.ok(estimateVideoCost({ shape: 'single', total: 45, res: '720p', hasExistingVideo: false }) === estimateVideoCost({ shape: 'single', total: 30, res: '720p', hasExistingVideo: false }), 'one shot: 30 seconds at most');
+});
+
+test('the cost before a script is the plan the storyboard asks for — a 10-second reel counts its still (2.78)', () => {
+  const cost = (total: number, hasExistingVideo = false) => Number(estimateVideoCost({ shape: 'scenes', total, res: '720p', hasExistingVideo }).toFixed(2));
+  // 10 s: 3 scenes — one 5-second clip ($0.10/s), one still ($0.08), the card (free). Before 2.78: $0.40, no still.
+  assert.equal(cost(10), 0.58);
+  assert.equal(cost(15), 0.58, '15 s: the same three scenes, longer');
+  assert.equal(cost(30), 1.34, '30 s: 6 scenes — 11 s of video in 2 clips, 3 stills, the card');
+  assert.equal(cost(15, true), 0.08, 'their own video takes a scene of video: only the still is paid for');
+  // the numbers are the prompt's own: what the model is asked for is what is counted
+  for (const d of [10, 15, 30, 45, 60]) {
+    const { count, videoBudget } = reelPlan(d);
+    const prompt = storyboardPrompt({ name: 'x' } as any, 'נושא', d);
+    assert.ok(prompt.includes(`ב-${count} סצנות קצרות`) && prompt.includes(`עד ${videoBudget} שניות`), `${d} s: the prompt asks for the plan`);
+  }
 });
 
 test('what a scene is made of, its camera move, a narration that no longer matches', () => {
