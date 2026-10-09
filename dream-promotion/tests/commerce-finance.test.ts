@@ -143,6 +143,22 @@ test('the order\'s stage-4 fields and timeline', () => {
   assert.match(eventText({ kind: 'paid', data: { late: true }, at: '' }), /כדאי לבדוק מלאי/);
 });
 
+test('paid after the hold ran out, with stock missing (2.79, migration 4000): kept on the order, said plainly', async () => {
+  const { toStockShort, stockShortText } = await import('@/features/store/checkout');
+  // the database's words (orders.stock_short) — the same as tests/sql/late-payment.check.sql
+  const o = toOrder({ id: 'o', number: 1002, payment_status: 'paid', stock_short: [{ name: 'שקית בד', variant: '', qty: 2, available: 1 }] });
+  assert.deepEqual(o.stockShort, [{ name: 'שקית בד', variant: '', qty: 2, available: 1 }]);
+  assert.equal(stockShortText(o.stockShort), 'שקית בד — הוזמנו 2, יש 1');
+  assert.equal(stockShortText([{ name: 'חולצה', variant: 'M', qty: 1, available: 0 }]), 'חולצה (M) — הוזמנה 1, אין');
+  assert.deepEqual(toOrder({ id: 'o', number: 1, payment_status: 'paid' }).stockShort, [], 'a row from before 4000: nothing missing');
+  assert.deepEqual(toStockShort('x'), []);
+  assert.deepEqual(toStockShort([{ name: 'a', qty: 1, available: 3 }, { qty: 2, available: 0 }, { name: 'b', qty: 2, available: -4 }]),
+    [{ name: 'b', variant: '', qty: 2, available: 0 }], 'only a real shortage; never a negative "יש"');
+  assert.match(eventText({ kind: 'paid', data: { late: true, short: true }, at: '' }), /וחסר מלאי/);
+  assert.match(eventText({ kind: 'paid', data: { late: true, short: false }, at: '' }), /המלאי הספיק/);
+  assert.doesNotMatch(eventText({ kind: 'paid', data: { late: false, short: false }, at: '' }), /שמירה/, 'on time: nothing about the hold');
+});
+
 test('the register counts its own sales only; a row from before 3600 is the register\'s', async () => {
   const { isPosSale } = await import('@/features/register/money');
   assert.equal(isPosSale({ channel: 'pos' }), true);

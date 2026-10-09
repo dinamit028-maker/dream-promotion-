@@ -1071,11 +1071,12 @@ async function main() {
       fake.tables.orders.push({ id, business_id: BIZ, store_id: store().id, number: 1003, is_test: false, payment_status: 'paid', fulfillment_status: 'unfulfilled',
         document_status: 'blocked', document_error: 'חסרים פרטי העסק למסמכים (מספר עוסק בן 9 ספרות) — ממלאים ב"הגדרות".', sale_id: sale, lead_id: randomUUID(),
         request_kind: 'cancel', request_note: 'הזמנתי בטעות', requested_at: '2026-10-06T11:10:00Z', refunded_total: 0, tracking_number: '', tracking_url: '',
+        stock_short: [{ name: 'חולצת כותנה', variant: 'L / לבן', qty: 1, available: 0 }],
         currency: 'ILS', subtotal: 120, discount: 0, shipping: 30, total: 150, coupon_code: '', customer_name: 'נועה לוי', customer_phone: '0547777777',
         customer_email: 'noa@example.com', delivery_method: 'delivery', address: { city: 'חיפה', street: 'הנביאים', house: '3', apartment: '' }, notes: '',
         provider: 'payplus', created_at: '2026-10-06T11:00:00Z', paid_at: '2026-10-06T11:02:00Z', expires_at: '2026-10-06T11:15:00Z' });
       fake.tables.order_lines.push({ id: randomUUID(), order_id: id, business_id: BIZ, name: 'חולצת כותנה', variant_label: 'L / לבן', sku: 'TS-L-W', unit_price: 120, qty: 1, line_total: 120, image_url: '', position: 1 });
-      fake.tables.order_events.push({ id: 50, order_id: id, business_id: BIZ, kind: 'paid', data: { late: false }, at: '2026-10-06T11:02:00Z' },
+      fake.tables.order_events.push({ id: 50, order_id: id, business_id: BIZ, kind: 'paid', data: { late: true, short: true }, at: '2026-10-06T11:02:00Z' },
         { id: 51, order_id: id, business_id: BIZ, kind: 'sale_recorded', data: {}, at: '2026-10-06T11:02:05Z' },
         { id: 52, order_id: id, business_id: BIZ, kind: 'document_blocked', data: { error: 'חסרים פרטי העסק' }, at: '2026-10-06T11:02:06Z' });
       fake.tables.email_outbox = [{ id: randomUUID(), business_id: BIZ, order_id: id, kind: 'order_confirmation', ref: '', status: 'sent', last_error: '', sent_at: '2026-10-06T11:02:10Z', created_at: '2026-10-06T11:02:00Z' }];
@@ -1085,6 +1086,9 @@ async function main() {
       await st.getByText(/חסרים פרטי העסק למסמכים/).first().waitFor({ timeout: 60_000 });
       await block(st, 'מסמך').getByRole('button', { name: 'נסו שוב' }).waitFor();
       await st.getByText(/הלקוח ביקש לבטל את ההזמנה .*הזמנתי בטעות/).waitFor();
+      // 2.79: paid after its hold ran out, and the shirt was gone by then — said on the order and in its timeline
+      await st.getByText(/חסר במלאי: חולצת כותנה \(L \/ לבן\) — הוזמנה 1, אין\./).waitFor();
+      await st.getByText(/אחרי שזמן השמירה עבר, וחסר מלאי/).waitFor();
       await block(st, 'מיילים ללקוח').getByText(/נשלח ✓/).waitFor();
       // shipped, with its tracking: the customer gets an email (queued — "נשלח" only with the provider's id)
       const ful = block(st, 'טיפול בהזמנה');

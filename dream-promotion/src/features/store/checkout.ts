@@ -160,7 +160,17 @@ export interface OrderRow {
   saleId: string | null; leadId: string | null; documentStatus: 'not_required' | 'pending' | 'issued' | 'blocked'; documentId: string | null;
   documentError: string; trackingNumber: string; trackingUrl: string; shippedAt: string | null; requestKind: '' | 'cancel' | 'return';
   requestNote: string; requestedAt: string | null; refundedTotal: number;
+  /** 2.79 (migration 4000): paid after its hold ran out, and stock was missing then — per product / size, ordered vs. free */
+  stockShort: StockShort[];
 }
+export interface StockShort { name: string; variant: string; qty: number; available: number }
+/** what the database kept on the order (orders.stock_short), made safe: whole numbers, a real shortage only */
+export const toStockShort = (raw: unknown): StockShort[] => (Array.isArray(raw) ? raw : [])
+  .map((x: any) => ({ name: String(x?.name ?? ''), variant: String(x?.variant ?? ''), qty: Math.trunc(Number(x?.qty)), available: Math.max(0, Math.trunc(Number(x?.available))) }))
+  .filter((x) => x.name && Number.isFinite(x.qty) && Number.isFinite(x.available) && x.qty > x.available);
+/** "שקית בד — הוזמנו 2, יש 1; חולצה (M) — הוזמנה 1, אין" */
+export const stockShortText = (s: StockShort[]): string => s.map((x) =>
+  `${x.name}${x.variant ? ` (${x.variant})` : ''} — ${x.qty === 1 ? 'הוזמנה 1' : `הוזמנו ${x.qty}`}, ${x.available ? `יש ${x.available}` : 'אין'}`).join('; ');
 export interface OrderLine { name: string; variantLabel: string; sku: string; unitPrice: number; qty: number; lineTotal: number; imageUrl: string }
 export interface OrderEvent { kind: string; data: Record<string, unknown>; at: string }
 
@@ -174,7 +184,7 @@ export const toOrder = (r: any): OrderRow => ({
   saleId: r.sale_id ?? null, leadId: r.lead_id ?? null, documentStatus: r.document_status ?? 'not_required', documentId: r.document_id ?? null,
   documentError: r.document_error ?? '', trackingNumber: r.tracking_number ?? '', trackingUrl: r.tracking_url ?? '', shippedAt: r.shipped_at ?? null,
   requestKind: r.request_kind === 'cancel' || r.request_kind === 'return' ? r.request_kind : '', requestNote: r.request_note ?? '',
-  requestedAt: r.requested_at ?? null, refundedTotal: Number(r.refunded_total ?? 0),
+  requestedAt: r.requested_at ?? null, refundedTotal: Number(r.refunded_total ?? 0), stockShort: toStockShort(r.stock_short),
 });
 export const toOrderLine = (r: any): OrderLine => ({
   name: r.name, variantLabel: r.variant_label ?? '', sku: r.sku ?? '', unitPrice: Number(r.unit_price), qty: Number(r.qty),
@@ -225,7 +235,7 @@ export function eventText(e: OrderEvent): string {
     case 'double_payment': return 'התקבל אישור על תשלום נוסף להזמנה ששולמה — לבדוק מול חברת הסליקה (ייתכן חיוב כפול).';
     case 'payment_rejected': return 'התקבלה הודעת תשלום שלא מתאימה להזמנה. היא נרשמה ולא שינתה כלום.';
     // stage 4
-    case 'paid': return `התשלום אושר ע״י חברת הסליקה${d.late ? ' — אחרי שזמן השמירה עבר (כדאי לבדוק מלאי)' : ''}. המוצרים שמורים עד שהמכירה נרשמת.`;
+    case 'paid': return `התשלום אושר ע״י חברת הסליקה${d.late ? (d.short ? ' — אחרי שזמן השמירה עבר, וחסר מלאי' : d.short === false ? ' — אחרי שזמן השמירה עבר (המלאי הספיק)' : ' — אחרי שזמן השמירה עבר (כדאי לבדוק מלאי)') : ''}. המוצרים שמורים עד שהמכירה נרשמת.`;
     case 'sale_recorded': return 'נרשמה מכירה מהאתר: המלאי ירד, והלקוח נוסף ללקוחות (או עודכן).';
     case 'document_issued': return 'המסמך הופק.';
     case 'document_blocked': return `המסמך לא הופק: ${String(d.error ?? '')}`;
