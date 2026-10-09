@@ -14,6 +14,7 @@ import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { CrmFinance } from './CrmFinance';
 import { ClientPhotos } from '@/features/client-file/ClientPhotos';
 import { ClientDeclarations } from '@/features/client-file/ClientDeclarations';
+import { ClientTimeline } from '@/features/client-file/ClientTimeline';
 
 /** what the reply box says it answers in, per inbox channel */
 const REPLY_IN = { messenger: 'תשובה במסנג׳ר', fb: 'תשובה לתגובה בפייסבוק', ig: 'תשובה לתגובה באינסטגרם' } as const;
@@ -224,24 +225,26 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         </div>
       </div>
 
-      {/* timeline */}
-      {history.length > 0 && (
-        <div className="mb-5">
-          <p className="mb-2 text-sm font-semibold">היסטוריה</p>
-          <ol className="grid max-h-60 gap-2 overflow-y-auto pe-1">
-            {history.map((a) => (
-              <li key={a.id} className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-sm">
-                <span aria-hidden>{ACTIVITY_HE[a.kind].icon}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="text-xs text-muted">{ACTIVITY_HE[a.kind].label} · {formatIL(a.at)}</span>
-                  {a.body && <span className="block whitespace-pre-wrap" dir="auto">{a.body}</span>}
-                </span>
-                <button type="button" onClick={() => deleteActivity(a.id)} className="text-xs text-muted hover:text-(--danger)" aria-label="מחיקה">✕</button>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
+      {/* timeline: CRM activities + the client file and appointments (§6) */}
+      {isCloudConfigured
+        ? <ClientTimeline leadId={lead.id} history={history} onDelete={deleteActivity} />
+        : history.length > 0 && (
+          <div className="mb-5">
+            <p className="mb-2 text-sm font-semibold">היסטוריה</p>
+            <ol className="grid max-h-60 gap-2 overflow-y-auto pe-1">
+              {history.map((a) => (
+                <li key={a.id} className="flex items-start gap-2 rounded-xl bg-surface-2 px-3 py-2 text-sm">
+                  <span aria-hidden>{ACTIVITY_HE[a.kind].icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="text-xs text-muted">{ACTIVITY_HE[a.kind].label} · {formatIL(a.at)}</span>
+                    {a.body && <span className="block whitespace-pre-wrap" dir="auto">{a.body}</span>}
+                  </span>
+                  <button type="button" onClick={() => deleteActivity(a.id)} className="text-xs text-muted hover:text-(--danger)" aria-label="מחיקה">✕</button>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
 
       {/* details */}
       <details className="mb-4 rounded-2xl border border-line p-3" open={!lead.phone}>

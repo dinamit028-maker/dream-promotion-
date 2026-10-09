@@ -7,6 +7,7 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { authHeaders } from '@/lib/services/http';
 import { useApp } from '@/lib/store';
 import { waLink } from '@/features/crm/crm';
+import { CLIENT_FILE_CHANGED } from './photos';
 import { REQUEST_LABEL, declarationMessage, requestState, validOn, type RequestStatus } from './declarations';
 
 /**
@@ -19,7 +20,7 @@ import { REQUEST_LABEL, declarationMessage, requestState, validOn, type RequestS
 interface Tpl { id: string; family_id: string; title: string; treatment_type_ids: string[]; version: number; status: string; valid_days: number | null }
 interface Req { id: string; template_ids: string[]; status: RequestStatus; sent_at: string; opened_at: string | null; signed_at: string | null; expires_at: string }
 interface Decl { id: string; template_id: string; template_version: number; signer_name: string; signed_at: string; valid_until: string | null; marketing_ok: boolean; flags: string[] }
-interface Data { requests: Req[]; declarations: Decl[]; templates: Tpl[]; types: { id: string; name: string }[]; openTypes: string[]; business: string }
+interface Data { requests: Req[]; declarations: Decl[]; templates: Tpl[]; types: { id: string; name: string }[]; openTypes: string[]; business: string; owner?: boolean }
 
 async function api<T>(body: Record<string, unknown>): Promise<{ ok: true; data: T } | { ok: false; code: string; error: string }> {
   try {
@@ -37,6 +38,8 @@ export function ClientDeclarations({ leadId }: { leadId: string }) {
   const [picking, setPicking] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; link?: string } | null>(null);
+  const [purging, setPurging] = useState(false);
+  const [confirmName, setConfirmName] = useState('');
 
   const load = useCallback(async () => {
     const r = await api<Data>({ action: 'lead', leadId });
@@ -87,6 +90,22 @@ export function ClientDeclarations({ leadId }: { leadId: string }) {
     const r = await api({ action: 'cancel', requestId: id });
     if (!r.ok) setMsg({ text: r.error });
     await load();
+  }
+
+  async function purge() {
+    const name = useApp.getState().leads.find((l) => l.id === leadId)?.name ?? '';
+    setBusy(true);
+    try {
+      const r = await fetch('/api/client-file/purge', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ leadId, confirmName: confirmName }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) { setMsg({ text: j?.message ?? 'המחיקה לא הצליחה — נסו שוב.' }); return; }
+      setMsg({ text: `תיק הלקוח של ${name} נמחק: ${j.counts.photos} צילומים, ${j.counts.declarations} הצהרות, ${j.counts.treatments} טיפולים. המחיקה נרשמה ביומן, בלי התוכן.` });
+      setConfirmName(''); setPurging(false);
+      window.dispatchEvent(new CustomEvent(CLIENT_FILE_CHANGED, { detail: leadId }));
+      const { userId, businessId, hydrate } = useApp.getState();
+      if (userId) void hydrate(userId, businessId);   // the timeline note
+      await load();
+    } catch { setMsg({ text: 'אין חיבור כרגע.' }); } finally { setBusy(false); }
   }
 
   return (
@@ -169,6 +188,24 @@ export function ClientDeclarations({ leadId }: { leadId: string }) {
             );
           })}
         </ul>
+      )}
+      {data.owner && (
+        <div className="mt-4 border-t border-line pt-3">
+          {!purging ? (
+            <button type="button" className="text-xs text-(--danger) hover:underline" onClick={() => setPurging(true)}>🗑️ מחיקת תיק הלקוח (לבקשת הלקוח/ה)…</button>
+          ) : (
+            <div className="rounded-xl bg-red-500/10 p-3 text-sm">
+              <p className="mb-2 font-semibold">כל הצילומים, הטיפולים וההצהרות החתומות של הלקוח/ה יימחקו לצמיתות, כולל הקבצים. אי אפשר לשחזר.</p>
+              <p className="mb-2 text-xs text-muted">המחיקה נרשמת ביומן (מי ומתי), בלי התוכן. פרטי הקשר וההיסטוריה בכרטיס נשארים.</p>
+              <input value={confirmName} onChange={(e) => setConfirmName(e.target.value)} placeholder="הקלידו את שם הלקוח/ה לאישור"
+                className="mb-2 w-full rounded-xl border border-line bg-surface px-3 py-2" aria-label="שם הלקוח/ה לאישור המחיקה" />
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="primary" className="bg-red-600 shadow-none" disabled={busy || !confirmName.trim()} onClick={purge}>{busy ? <><Spinner />מוחק…</> : 'מחיקה לצמיתות'}</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setPurging(false); setConfirmName(''); }}>ביטול</Button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

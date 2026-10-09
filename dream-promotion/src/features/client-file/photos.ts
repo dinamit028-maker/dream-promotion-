@@ -82,3 +82,6 @@ export function comparePair(photos: PhotoRow[]): { before: PhotoRow; after: Phot
 export type QueueState = 'waiting' | 'uploading' | 'failed' | 'done';
 export const retryDelay = (attempt: number) => Math.min(60_000, 2_000 * 2 ** Math.max(0, attempt - 1));
 export const MAX_AUTO_RETRIES = 5;
+
+/** said on the window when a customer's client file changed elsewhere in the card (a whole file deleted): reload it */
+export const CLIENT_FILE_CHANGED = 'dp-client-file-changed';

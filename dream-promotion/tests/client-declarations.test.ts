@@ -58,7 +58,9 @@ const storage = {
       if (!o.upsert && files.has(path)) return { data: null, error: { message: 'exists' } };
       files.set(path, { bytes: new Uint8Array(bytes), contentType: o.contentType }); return { data: { path }, error: null };
     },
-    remove: async (paths: string[]) => { for (const p of paths) files.delete(p); return { data: [], error: null }; },
+    remove: async (paths: string[]) => { const gone = paths.filter((p) => files.delete(p)); return { data: gone.map((name) => ({ name })), error: null }; },
+    list: async (folder: string) => ({ data: [...files.keys()].filter((p) => p.startsWith(`${folder}/`) && !p.slice(folder.length + 1).includes('/'))
+      .map((p) => ({ name: p.slice(folder.length + 1), id: 'f' })), error: null }),
     createSignedUrl: async (path: string, s: number) => { events.push(`sign:${path}`); return { data: { signedUrl: `https://sb.test/${path}?ttl=${s}` }, error: null }; },
   }),
 };
@@ -74,6 +76,14 @@ before(() => {
       if (fn === 'client_files_allowed_for') return { data: allowed.has(`${a.p_user}:${a.p_business}`), error: null };
       if (fn === 'client_file_owner_for') return { data: owners.has(`${a.p_user}:${a.p_business}`), error: null };
       if (fn === 'client_file_log_view') { events.push(`log:${a.p_id}`); return { data: NOA, error: null }; }
+      if (fn === 'client_file_purge') {
+        if (!owners.has(`${a.p_user}:${a.p_business}`)) return { data: null, error: { message: 'not allowed' } };
+        const mine = tables.declarations.filter((d) => d.lead_id === a.p_lead && d.business_id === a.p_business);
+        const paths = mine.flatMap((d) => [d.signature_path, d.pdf_path]);
+        tables.declarations = tables.declarations.filter((d) => !mine.includes(d));
+        events.push(`purge:${a.p_lead}`);
+        return { data: { paths, counts: { photos: 0, declarations: mine.length, treatments: 0 } }, error: null };
+      }
       return { data: null, error: null };
     },
     storage,
@@ -354,4 +364,99 @@ test('email and a grey example inside the box (the micropigmentation form)', asy
   assert.deepEqual(progress(fs, { email: 'noa@', q: 'no' }), { done: 1, total: 2 }, 'a half-typed email is not counted as answered');
   const ok = checkAnswers(fs, [], { email: 'Noa@Mail.co.il', q: 'no' }, []);
   assert.deepEqual(ok.ok && ok.answers, { email: 'noa@mail.co.il', q: 'no' }, 'the example is never an answer');
+});
+
+test('the booking warning: a declaration for the appointment\u2019s treatment (or a general one), valid on its day', async () => {
+  const { declarationGap } = await import('../src/features/client-file/declarations');
+  const types = [{ id: 'laser', name: 'לייזר' }, { id: 'carbon', name: 'קרבון' }, { id: 'laser-legs', name: 'לייזר רגליים' }];
+  assert.deepEqual(declarationGap('לייזר פנים', '2026-10-10', types, []), { ok: false, type: 'לייזר' });
+  assert.deepEqual(declarationGap('לייזר רגליים', '2026-10-10', types, [{ template_types: ['laser'], valid_until: null }]), { ok: false, type: 'לייזר רגליים' },
+    'the longest matching name wins');
+  assert.deepEqual(declarationGap('לייזר פנים', '2026-10-10', types, [{ template_types: ['laser'], valid_until: '2026-10-10' }]), { ok: true });
+  assert.deepEqual(declarationGap('לייזר פנים', '2026-10-11', types, [{ template_types: ['laser'], valid_until: '2026-10-10' }]), { ok: false, type: 'לייזר' },
+    'expired by the appointment\u2019s day');
+  assert.deepEqual(declarationGap('לייזר פנים', '2026-10-10', types, [{ template_types: [], valid_until: null }]), { ok: true }, 'a general declaration counts');
+  assert.deepEqual(declarationGap('לייזר פנים', '2026-10-10', types, [{ template_types: ['carbon'], valid_until: null }]), { ok: false, type: 'לייזר' });
+  assert.deepEqual(declarationGap('ייעוץ', '2026-10-10', types, [{ template_types: ['carbon'], valid_until: null }]), { ok: true }, 'no type matches: any valid one');
+  assert.deepEqual(declarationGap('ייעוץ', '2026-10-10', types, []), { ok: false, type: null });
+});
+
+test('the appointments screen asks which appointments miss a declaration — the client-file people only', async () => {
+  const { sent } = await sentLink();
+  const appts = [
+    { id: 'a1', leadId: NOA, service: 'לייזר רגליים', day: '2099-01-01' },
+    { id: 'a2', leadId: MICHAL, service: 'לייזר', day: '2099-01-01' },
+    { id: 'a3', leadId: NOA, service: 'לייזר', day: 'not-a-day' },
+  ];
+  const before = await staff(PRAC, { action: 'gaps', appointments: appts });
+  assert.deepEqual(before.body.gaps, { a1: { type: 'לייזר' }, a2: { type: 'לייזר' } }, 'Noa has nothing signed yet; a3 is not a real appointment');
+  await pub(sent.body.token, { declarations: [{ answers: full, acks: [true], signerName: 'נועה כהן', signature: await signature(), confirm: true }] });
+  tables.declarations[0].valid_until = '2099-12-31';   // the database sets it from the template's valid_days (365 from today)
+  const after = await staff(PRAC, { action: 'gaps', appointments: appts });
+  assert.deepEqual(after.body.gaps, { a2: { type: 'לייזר' } }, 'Noa signed the laser declaration; Michal is not of this business, so nothing of hers is found');
+  assert.equal((await staff(CASH, { action: 'gaps', appointments: appts })).body.code, 'no_access', 'a cashier gets nothing');
+});
+
+test('the timeline: treatments, photos by day, declarations, links and appointments — titles only', async () => {
+  const { sent } = await sentLink();
+  await pub(sent.body.token, { declarations: [{ answers: full, acks: [true], signerName: 'נועה כהן', signature: await signature(), confirm: true }] });
+  // the database fills these by default (signed_at, sent_at); the in-memory one does not
+  tables.declarations[0].signed_at = '2026-10-03T08:00:00Z';
+  tables.declaration_requests[0].sent_at = '2026-10-02T12:00:00Z';
+  Object.assign(tables, {
+    client_treatments: [{ id: 't1', business_id: B1, lead_id: NOA, title: 'לייזר', area: 'רגליים', started_at: '2026-10-01', status: 'active', created_at: '2026-10-01T08:00:00Z' }],
+    client_sessions: [{ id: 's1', business_id: B1, lead_id: NOA, treatment_id: 't1', at: '2026-10-02T09:00:00Z', notes: '18 ג׳אול' }],
+    client_photos: [
+      { id: 'p1', business_id: B1, lead_id: NOA, treatment_id: 't1', stage: 'before', taken_at: '2026-10-02T09:01:00Z', path: 'secret/p1.webp' },
+      { id: 'p2', business_id: B1, lead_id: NOA, treatment_id: 't1', stage: 'before', taken_at: '2026-10-02T09:02:00Z', path: 'secret/p2.webp' },
+      { id: 'p3', business_id: B1, lead_id: NOA, treatment_id: 't1', stage: 'after', taken_at: '2026-10-02T10:00:00Z', path: 'secret/p3.webp' },
+      { id: 'p9', business_id: B2, lead_id: MICHAL, treatment_id: null, stage: 'after', taken_at: '2026-10-02T10:00:00Z', path: 'other' }],
+    appointments: [{ id: 'ap1', business_id: B1, lead_id: NOA, service_name: 'לייזר רגליים', start_at: '2026-10-20T10:00:00Z', status: 'booked' }],
+  });
+  const r = await staff(PRAC, { action: 'timeline', leadId: NOA });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const kinds = r.body.events.map((e: any) => `${e.kind}:${e.title}${e.sub ? ` (${e.sub})` : ''}`);
+  assert.equal(kinds[0], 'appointment:תור: לייזר רגליים (נקבע)', 'newest first');
+  assert.ok(kinds.includes('photo:3 צילומים · לייזר · רגליים (לפני ×2, אחרי ×1)'), JSON.stringify(kinds));
+  assert.ok(kinds.includes('session:סשן · לייזר · רגליים (18 ג׳אול)'));
+  assert.ok(kinds.includes('treatment:טיפול חדש: לייזר · רגליים (מ-2026-10-01)'));
+  assert.ok(kinds.some((k: string) => k.startsWith('declaration:הצהרה נחתמה: הצהרת לייזר')));
+  assert.ok(kinds.some((k: string) => k.startsWith('declaration:נשלח קישור להצהרה: הצהרת לייזר')));
+  const text = JSON.stringify(r.body);
+  assert.ok(!text.includes('secret/') && !text.includes('סוכרת') && !text.includes('אינסולין'), 'no paths and no answers');
+  assert.equal(r.body.events.filter((e: any) => e.kind === 'photo').length, 1, 'another business\u2019s photo is not there');
+  assert.equal((await staff(CASH, { action: 'timeline', leadId: NOA })).body.code, 'no_access');
+  assert.equal((await staff(OTHER, { action: 'timeline', leadId: NOA })).status, 404);
+});
+
+test('deleting a whole client file: the owner, typing the customer\u2019s name; rows and files go, a note stays', async () => {
+  const { sent } = await sentLink();
+  await pub(sent.body.token, { declarations: [{ answers: full, acks: [true], signerName: 'נועה כהן', signature: await signature(), confirm: true }] });
+  files.set(`${B1}/${NOA}/incoming/left-over`, { bytes: new Uint8Array([1]), contentType: 'image/jpeg' });
+  files.set(`${B2}/${MICHAL}/keep.webp`, { bytes: new Uint8Array([1]), contentType: 'image/webp' });
+  const purge = async (user: string, body: unknown) => {
+    const { POST } = await import('../src/app/api/client-file/purge/route');
+    const r = await POST(new Request('http://x/api/client-file/purge', { method: 'POST', headers: { authorization: `Bearer ${user}` }, body: JSON.stringify(body) }));
+    return { status: r.status, body: await r.json() };
+  };
+  assert.equal((await purge(PRAC, { leadId: NOA, confirmName: 'נועה כהן' })).body.code, 'owner_only');
+  assert.equal((await purge(CASH, { leadId: NOA, confirmName: 'נועה כהן' })).body.code, 'no_access');
+  assert.equal((await purge(OTHER, { leadId: NOA, confirmName: 'נועה כהן' })).status, 404, 'another business\u2019s owner');
+  assert.equal((await purge(OWN, { leadId: NOA, confirmName: 'נועה' })).body.code, 'confirm', 'the full name, as in the card');
+  assert.equal(tables.declarations.length, 1, 'nothing deleted yet');
+
+  const r = await purge(OWN, { leadId: NOA, confirmName: ' נועה כהן ' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.counts, { photos: 0, declarations: 1, treatments: 0 });
+  assert.equal(tables.declarations.length, 0);
+  assert.deepEqual([...files.keys()], [`${B2}/${MICHAL}/keep.webp`], 'every file of Noa (the signature, the PDF, a left-over upload) — and nothing else');
+  assert.equal(r.body.files.removed, 3);
+  assert.equal(tables.lead_activities.at(-1).body, '🗑️ תיק הלקוח נמחק (צילומים, טיפולים והצהרות) לבקשת הלקוח/ה', 'a note, never the content');
+});
+
+test('deleting a customer who has a client file: the screen says why, and what to do', async () => {
+  const { saveErrorReason } = await import('../src/lib/save-status');
+  assert.equal(saveErrorReason({ code: '23503', message: 'update or delete on table "leads" violates foreign key constraint "client_treatments_lead_id_business_id_fkey" on table "client_treatments"' }),
+    'ללקוח/ה יש תיק לקוח (צילומים או הצהרות). קודם מוחקים את התיק — בעל/ת העסק, בכרטיס הלקוח');
+  assert.equal(saveErrorReason({ code: '23503', message: 'violates foreign key constraint "sales_lead_id_fkey"' }), 'השרת לא אישר את השמירה', 'other keys: as before');
 });

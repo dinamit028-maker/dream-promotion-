@@ -2,7 +2,7 @@ import { adminDb } from '@/lib/server/admin';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
 import { businessName, clientFileCaller, isClientFileOwner, notInstalled, NOT_READY } from '@/lib/server/client-file';
 import { newToken } from '@/lib/server/declarations';
-import { canApprove, cleanAcks, cleanFields, firstName, flagged, LIMITS, type Field } from '@/features/client-file/declarations';
+import { canApprove, cleanAcks, cleanFields, declarationGap, firstName, flagged, LIMITS, type Field } from '@/features/client-file/declarations';
 import { CLIENT_BUCKET, PHOTO_LINK_SECONDS, isUuid } from '@/features/client-file/photos';
 
 export const runtime = 'nodejs';
@@ -25,7 +25,7 @@ const bad = (message: string, code = 'bad_request', status = 400) => json(status
 const TEMPLATE_COLUMNS = 'id, family_id, title, treatment_type_ids, version, status, fields, acks, valid_days, source_file_path, created_at, approved_by, approved_at, archived_at';
 const REQUEST_COLUMNS = 'id, lead_id, template_ids, template_versions, status, sent_at, opened_at, signed_at, cancelled_at, expires_at';
 const DECLARATION_COLUMNS = 'id, lead_id, request_id, template_id, template_version, signer_name, signed_at, valid_until, marketing_ok, pdf_sha256, answers';
-const READS = new Set(['templates', 'lead', 'open']);
+const READS = new Set(['templates', 'lead', 'open', 'gaps', 'timeline']);
 const OWNER_ONLY = new Set(['template-approve', 'template-archive']);
 
 export async function POST(req: Request) {
@@ -184,7 +184,7 @@ export async function POST(req: Request) {
       const declarations = ((d.data ?? []) as Record<string, any>[]).map(({ pdf_path: _p, signature_path: _s, answers, ip: _i, user_agent: _u, ...x }) =>
         ({ ...x, flags: flagged(fieldsOf.get(x.template_id) ?? [], answers ?? {}) }));
       const templates = ((t.data ?? []) as Record<string, unknown>[]).map(({ fields: _f, ...x }) => x);
-      return json(200, { requests, declarations, templates, types: y.data ?? [], openTypes, business: await businessName(business) });
+      return json(200, { requests, declarations, templates, types: y.data ?? [], openTypes, business: await businessName(business), owner: await isClientFileOwner(userId, business) });
     }
 
     if (action === 'send') {
@@ -213,6 +213,89 @@ export async function POST(req: Request) {
       const made = await createRequest(lead.id, old.template_ids);
       if (!made) return bad('אחת ההצהרות עודכנה או הועברה לארכיון מאז — בחרו מחדש ב"שלח הצהרת בריאות".', 'not_approved', 409);
       return json(200, { ...made, firstName: firstName(lead.name), phone: lead.phone, business: await businessName(business) });
+    }
+
+    if (action === 'timeline') {
+      // §6: one timeline in the card — treatments, sessions, photos (by day), declarations, links and appointments; the
+      // card adds its own CRM activities. Titles only: no answers, no paths, no links to pictures.
+      const lead = await ownLead(body.leadId);
+      if (!lead) return bad('הלקוח לא נמצא בעסק הזה.', 'not_found', 404);
+      const [tr, se, ph, de, rq, tp, ap] = await Promise.all([
+        db.from('client_treatments').select('id, title, area, started_at, status, created_at').eq('business_id', business).eq('lead_id', lead.id),
+        db.from('client_sessions').select('id, treatment_id, at, notes').eq('business_id', business).eq('lead_id', lead.id),
+        db.from('client_photos').select('id, treatment_id, stage, taken_at').eq('business_id', business).eq('lead_id', lead.id),
+        db.from('declarations').select('id, template_id, template_version, signed_at, valid_until').eq('business_id', business).eq('lead_id', lead.id),
+        db.from('declaration_requests').select('id, template_ids, status, sent_at').eq('business_id', business).eq('lead_id', lead.id),
+        db.from('declaration_templates').select('id, title').eq('business_id', business),
+        db.from('appointments').select('id, service_name, start_at, status').eq('business_id', business).eq('lead_id', lead.id),
+      ]);
+      const err = tr.error ?? se.error ?? ph.error ?? de.error ?? rq.error ?? tp.error;
+      if (notInstalled(err)) return json(404, NOT_READY);
+      if (err) return bad('לא הצלחנו לטעון את ההיסטוריה — נסו שוב.', 'load_failed', 500);
+      const title = new Map(((tp.data ?? []) as { id: string; title: string }[]).map((x) => [x.id, x.title]));
+      const treatments = (tr.data ?? []) as { id: string; title: string; area: string; started_at: string; status: string; created_at: string }[];
+      const tname = new Map(treatments.map((t) => [t.id, [t.title || 'טיפול', t.area].filter(Boolean).join(' · ')]));
+      type Ev = { at: string; kind: 'treatment' | 'session' | 'photo' | 'declaration' | 'appointment'; title: string; sub?: string; treatmentId?: string | null };
+      const events: Ev[] = [];
+      for (const t of treatments) events.push({ at: t.created_at, kind: 'treatment', title: `טיפול חדש: ${tname.get(t.id)}`, sub: `מ-${t.started_at}`, treatmentId: t.id });
+      for (const x of (se.data ?? []) as { id: string; treatment_id: string; at: string; notes: string }[]) {
+        events.push({ at: x.at, kind: 'session', title: `סשן · ${tname.get(x.treatment_id) ?? 'טיפול'}`, sub: x.notes ? x.notes.slice(0, 140) : undefined, treatmentId: x.treatment_id });
+      }
+      // photos: one line per day and treatment ("3 צילומים: לפני ×2, אחרי ×1")
+      const days = new Map<string, { at: string; treatmentId: string | null; stages: Record<string, number> }>();
+      for (const x of (ph.data ?? []) as { treatment_id: string | null; stage: string; taken_at: string }[]) {
+        const key = `${x.taken_at.slice(0, 10)}|${x.treatment_id ?? ''}`;
+        const g = days.get(key) ?? { at: x.taken_at, treatmentId: x.treatment_id, stages: {} };
+        g.stages[x.stage] = (g.stages[x.stage] ?? 0) + 1;
+        if (x.taken_at > g.at) g.at = x.taken_at;
+        days.set(key, g);
+      }
+      const STAGE: Record<string, string> = { before: 'לפני', process: 'תהליך', after: 'אחרי' };
+      for (const g of days.values()) {
+        const n = Object.values(g.stages).reduce((a, b) => a + b, 0);
+        events.push({ at: g.at, kind: 'photo', title: `${n === 1 ? 'צילום' : `${n} צילומים`}${g.treatmentId ? ` · ${tname.get(g.treatmentId) ?? 'טיפול'}` : ''}`,
+          sub: Object.entries(g.stages).map(([k, v]) => `${STAGE[k] ?? k} ×${v}`).join(', '), treatmentId: g.treatmentId });
+      }
+      for (const x of (de.data ?? []) as { template_id: string; template_version: number; signed_at: string; valid_until: string | null }[]) {
+        events.push({ at: x.signed_at, kind: 'declaration', title: `הצהרה נחתמה: ${title.get(x.template_id) ?? 'הצהרה'}`, sub: x.valid_until ? `בתוקף עד ${x.valid_until.split('-').reverse().join('/')}` : 'בלי הגבלת תוקף' });
+      }
+      for (const x of (rq.data ?? []) as { template_ids: string[]; status: string; sent_at: string }[]) {
+        events.push({ at: x.sent_at, kind: 'declaration', title: `נשלח קישור להצהרה: ${x.template_ids.map((id) => title.get(id) ?? 'הצהרה').join(' + ')}` });
+      }
+      const APPT: Record<string, string> = { booked: 'נקבע', confirmed: 'אושר', done: 'הגיע/ה', no_show: 'לא הגיע/ה', cancelled: 'בוטל' };
+      if (!ap.error) for (const x of (ap.data ?? []) as { service_name: string; start_at: string; status: string }[]) {
+        events.push({ at: x.start_at, kind: 'appointment', title: `תור: ${x.service_name || 'טיפול'}`, sub: APPT[x.status] ?? x.status });
+      }
+      const dated = events.filter((e) => typeof e.at === 'string' && e.at);   // a row without a time is left out, never breaks the list
+      dated.sort((a, b) => b.at.localeCompare(a.at));
+      return json(200, { events: dated.slice(0, 500) });
+    }
+
+    if (action === 'gaps') {
+      // the appointments screen: for each upcoming appointment, is a valid declaration missing? (no answers, no names)
+      const list: { id: string; leadId: string; service: string; day: string }[] = (Array.isArray(body.appointments) ? body.appointments : [])
+        .filter((a: any) => a && isUuid(a.leadId) && typeof a.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(a.day)))
+        .slice(0, 300).map((a: any) => ({ id: String(a.id).slice(0, 80), leadId: a.leadId, service: String(a.service ?? '').slice(0, 200), day: a.day }));
+      if (!list.length) return json(200, { gaps: {} });
+      const leads = [...new Set(list.map((a) => a.leadId))];
+      const [d, t, y] = await Promise.all([
+        db.from('declarations').select('lead_id, template_id, valid_until').eq('business_id', business).in('lead_id', leads),
+        db.from('declaration_templates').select('id, treatment_type_ids').eq('business_id', business),
+        db.from('treatment_types').select('id, name').eq('business_id', business),
+      ]);
+      if (notInstalled(d.error ?? t.error ?? y.error)) return json(404, NOT_READY);
+      const typesOf = new Map(((t.data ?? []) as { id: string; treatment_type_ids: string[] }[]).map((x) => [x.id, x.treatment_type_ids ?? []]));
+      const byLead = new Map<string, { template_types: string[]; valid_until: string | null }[]>();
+      for (const x of (d.data ?? []) as { lead_id: string; template_id: string; valid_until: string | null }[]) {
+        byLead.set(x.lead_id, [...(byLead.get(x.lead_id) ?? []), { template_types: typesOf.get(x.template_id) ?? [], valid_until: x.valid_until }]);
+      }
+      const types = (y.data ?? []) as { id: string; name: string }[];
+      const gaps: Record<string, { type: string | null }> = {};
+      for (const a of list) {
+        const g = declarationGap(a.service, a.day, types, byLead.get(a.leadId) ?? []);
+        if (!g.ok) gaps[a.id] = { type: g.type };
+      }
+      return json(200, { gaps });
     }
 
     if (action === 'open') {

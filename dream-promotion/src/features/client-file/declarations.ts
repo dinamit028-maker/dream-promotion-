@@ -258,3 +258,20 @@ export function declarationMessage(business: string, firstName: string, link: st
   return `${hi}לפני הטיפול ב${business || 'קליניקה'} נשמח שתמלא/י ${what} ותחתום/י בטלפון:\n${link}\nהקישור תקף ל-7 ימים.`;
 }
 export const firstName = (name: string) => (name || '').trim().split(/\s+/)[0] ?? '';
+
+/**
+ * The booking warning (§5.4): does this customer have a valid declaration for this appointment? The appointment's service
+ * is matched to one of the clinic's treatment types by name ("לייזר רגליים" → "לייזר"); then a declaration of that type,
+ * or a general one, counts. A service no type matches: any valid declaration counts. Days are Israeli calendar dates.
+ */
+export function declarationGap(
+  serviceName: string, day: string,
+  types: { id: string; name: string }[],
+  signed: { template_types: string[]; valid_until: string | null }[],
+): { ok: true } | { ok: false; type: string | null } {
+  const s = serviceName.trim().toLowerCase();
+  const type = s ? [...types].sort((a, b) => b.name.length - a.name.length).find((t) => t.name.trim() && s.includes(t.name.trim().toLowerCase())) ?? null : null;
+  const valid = signed.filter((d) => validOn(d.valid_until, day));
+  const ok = type ? valid.some((d) => !d.template_types.length || d.template_types.includes(type.id)) : valid.length > 0;
+  return ok ? { ok: true } : { ok: false, type: type?.name ?? null };
+}

@@ -7,7 +7,7 @@ import { formatIL } from '@/lib/il-time';
 import { authHeaders } from '@/lib/services/http';
 import { supabase } from '@/lib/supabase/client';
 import {
-  CLIENT_BUCKET, MAX_AUTO_RETRIES, MAX_PHOTO_BYTES, PHOTO_LINK_SECONDS, STAGES, comparePair, galleryGroups, retryDelay, stageLabel,
+  CLIENT_BUCKET, CLIENT_FILE_CHANGED, MAX_AUTO_RETRIES, MAX_PHOTO_BYTES, PHOTO_LINK_SECONDS, STAGES, comparePair, galleryGroups, retryDelay, stageLabel,
   type PhotoRow, type QueueState, type Stage, type TreatmentRow,
 } from './photos';
 
@@ -78,6 +78,12 @@ export function ClientPhotos({ leadId }: { leadId: string }) {
     setTreatments(r.data.treatments); setPhotos(r.data.photos); setLoadError(''); setShown('ready');
   }, [leadId]);
   useEffect(() => { setShown('loading'); setUrls({}); setQueue([]); setPick(null); load(); }, [load]);
+  // the whole file was deleted from the card: the gallery empties
+  useEffect(() => {
+    const again = (e: Event) => { if ((e as CustomEvent<string>).detail === leadId) { setUrls({}); load(); } };
+    window.addEventListener(CLIENT_FILE_CHANGED, again);
+    return () => window.removeEventListener(CLIENT_FILE_CHANGED, again);
+  }, [leadId, load]);
 
   /** signed links for these photos — each one written in the view log by the server */
   const open = useCallback(async (ids: string[]) => {
@@ -245,7 +251,7 @@ export function ClientPhotos({ leadId }: { leadId: string }) {
       {groups.map((g) => {
         const pair = comparePair(g.photos);
         return (
-          <div key={g.treatment?.id ?? 'none'} className="mb-3">
+          <div key={g.treatment?.id ?? 'none'} id={g.treatment ? `cf-treatment-${g.treatment.id}` : undefined} className="mb-3 scroll-mt-4">
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold text-ink-2">
                 {g.treatment ? `${g.treatment.title || 'טיפול'}${g.treatment.area ? ` · ${g.treatment.area}` : ''} · מ-${g.treatment.started_at}` : 'בלי שיוך לטיפול'}
