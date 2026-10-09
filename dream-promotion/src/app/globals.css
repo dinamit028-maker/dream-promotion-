@@ -30,6 +30,8 @@
 @layer base {
   *, ::after, ::before, ::backdrop, ::file-selector-button { border-color: var(--color-gray-200, currentcolor); }
   input::placeholder, textarea::placeholder { color: var(--color-gray-400); }
+  /* Tailwind 4 zeroes every element's padding; 3 left a table cell the browser's 1px (the DNS records, a document's table) */
+  :where(td, th) { padding: 1px; }
   /* element rules: under every utility, as in Tailwind 3 (a cursor-grab on a button wins) — in Tailwind 4 an unlayered rule
      would beat every class. The class rules further down (focus ring, disabled, safe areas) beat utilities in 3 too. */
   html { scroll-behavior: smooth; }
