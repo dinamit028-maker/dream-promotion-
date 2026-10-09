@@ -8,7 +8,7 @@ import { authHeaders } from '@/lib/services/http';
 import { useApp } from '@/lib/store';
 import { waLink } from '@/features/crm/crm';
 import { CLIENT_FILE_CHANGED } from './photos';
-import { REQUEST_LABEL, declarationMessage, requestState, validOn, type RequestStatus } from './declarations';
+import { REQUEST_LABEL, declarationMessage, initialPick, requestState, validOn, type RequestStatus } from './declarations';
 
 /**
  * Health declarations in the client card (docs/CLIENT FILE ENGINEERING HE.md §5.2, 5.4): a badge at the top ("בתוקף
@@ -119,22 +119,26 @@ export function ClientDeclarations({ leadId }: { leadId: string }) {
 
       {picking === null ? (
         <Button size="sm" variant="primary" disabled={!approved.length}
-          onClick={() => setPicking(approved.filter((t) => t.treatment_type_ids.some((y) => data.openTypes.includes(y))).map((t) => t.id))}>
+          onClick={() => setPicking(initialPick(approved, data.openTypes))}>
           📝 שלח הצהרת בריאות
         </Button>
       ) : (
-        <div className="rounded-xl bg-surface-2 p-3">
-          <p className="mb-2 text-sm font-semibold">אילו הצהרות לשלוח? (אפשר כמה בקישור אחד)</p>
+        <div className="rounded-xl border border-line p-3">
+          <p className="mb-2 text-sm font-semibold">סמנו את ההצהרות לשליחה (אפשר כמה בקישור אחד)</p>
           {groups.map((g) => (
             <div key={g.name} className="mb-2">
               <p className="mb-1 text-xs font-semibold text-muted">{g.name}</p>
               <div className="flex flex-wrap gap-1.5">
                 {g.list.map((t) => (
-                  <Chip key={t.id} on={picking.includes(t.id)} onClick={() => setPicking(picking.includes(t.id) ? picking.filter((x) => x !== t.id) : [...picking, t.id])}>{t.title}</Chip>
+                  <Chip key={t.id} on={picking.includes(t.id)} aria-pressed={picking.includes(t.id)}
+                    onClick={() => setPicking(picking.includes(t.id) ? picking.filter((x) => x !== t.id) : [...picking, t.id])}>
+                    <span aria-hidden className="me-1">{picking.includes(t.id) ? '☑' : '☐'}</span>{t.title}
+                  </Chip>
                 ))}
               </div>
             </div>
           ))}
+          {!picking.length && <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">👆 לחצו על שם ההצהרה כדי לסמן אותה, ואז "שלח בוואטסאפ".</p>}
           <div className="mt-2 flex flex-wrap gap-2">
             <Button size="sm" variant="primary" disabled={!picking.length || busy} onClick={() => send({ action: 'send', leadId, templateIds: picking })}>
               {busy ? <><Spinner />שולח…</> : 'שלח בוואטסאפ'}

@@ -460,3 +460,13 @@ test('deleting a customer who has a client file: the screen says why, and what t
     'ללקוח/ה יש תיק לקוח (צילומים או הצהרות). קודם מוחקים את התיק — בעל/ת העסק, בכרטיס הלקוח');
   assert.equal(saveErrorReason({ code: '23503', message: 'violates foreign key constraint "sales_lead_id_fkey"' }), 'השרת לא אישר את השמירה', 'other keys: as before');
 });
+
+test('the send picker opens with the open treatments’ declarations, or the only one there is', async () => {
+  const { initialPick } = await import('../src/features/client-file/declarations');
+  const carbon = { id: 'c', treatment_type_ids: ['carbon'] }, laser = { id: 'l', treatment_type_ids: ['laser'] }, general = { id: 'g', treatment_type_ids: [] };
+  assert.deepEqual(initialPick([carbon, laser], ['laser']), ['l']);
+  assert.deepEqual(initialPick([carbon, laser], []), [], 'several and none open: the clinic picks');
+  assert.deepEqual(initialPick([general], []), ['g'], 'a single approved declaration is picked');
+  assert.deepEqual(initialPick([carbon], ['laser']), ['c'], 'the only one, even for another treatment');
+  assert.deepEqual(initialPick([], ['laser']), []);
+});

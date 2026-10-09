@@ -275,3 +275,12 @@ export function declarationGap(
   const ok = type ? valid.some((d) => !d.template_types.length || d.template_types.includes(type.id)) : valid.length > 0;
   return ok ? { ok: true } : { ok: false, type: type?.name ?? null };
 }
+
+/**
+ * What the send picker opens with: the approved declarations of the customer's open treatments; when none matches and the
+ * clinic has a single approved declaration — that one (a clinic with one form should not have to pick it).
+ */
+export function initialPick(approved: { id: string; treatment_type_ids: string[] }[], openTypes: string[]): string[] {
+  const match = approved.filter((t) => t.treatment_type_ids.some((y) => openTypes.includes(y))).map((t) => t.id);
+  return match.length || approved.length !== 1 ? match : [approved[0].id];
+}
