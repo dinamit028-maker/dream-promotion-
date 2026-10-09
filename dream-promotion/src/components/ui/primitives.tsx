@@ -38,7 +38,8 @@ export function Card({ children, className, hover }: { children: ReactNode; clas
 export function Chip({ on, className, ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { on?: boolean }) {
   return (
     <button className={cx(
-      'inline-flex min-h-11 items-center gap-1.5 rounded-full border-[1.5px] px-4 text-sm font-semibold transition-colors',
+      // a caller's own height (min-h-9) replaces the 44px one: Tailwind 4 would let the larger value win
+      'inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-4 text-sm font-semibold transition-colors', /\bmin-h-/.test(className ?? '') ? '' : 'min-h-11',
       on ? 'border-primary bg-primary-soft text-primary' : 'border-transparent bg-surface-2 hover:border-line',
       className,
     )} {...p} />

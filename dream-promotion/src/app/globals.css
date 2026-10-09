@@ -15,6 +15,8 @@
   /* line heights as in Tailwind 3 — a length, not a ratio: an <input> inside a text-xs label inherits 16px, not 1.33 × its own size */
   --text-xs--line-height: 1rem; --text-sm--line-height: 1.25rem; --text-base--line-height: 1.5rem; --text-lg--line-height: 1.75rem;
   --text-xl--line-height: 1.75rem; --text-2xl--line-height: 2rem; --text-3xl--line-height: 2.25rem; --text-4xl--line-height: 2.5rem;
+  /* the register's widest grid (2.80): a named breakpoint sorts after xl / 2xl — an arbitrary min-[1800px] sorts before them */
+  --breakpoint-3xl: 112.5rem; /* 1800px — in rem like the rest, or it does not sort after them */
   --radius-sm: 10px; --radius-md: 16px; --radius-lg: 24px; --radius-xl: 32px;
   --shadow-sm: var(--shadow-sm); --shadow-md: var(--shadow-md); --shadow-lg: var(--shadow-lg);
   --background-image-brand: var(--grad); --background-image-brand-soft: var(--grad-soft);

@@ -353,8 +353,8 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
             </div>
           )}
           <div className={cx('grid gap-2', quick
-            ? cx('grid-cols-2 sm:grid-cols-3 xl:grid-cols-4', wide && '2xl:grid-cols-5 min-[1800px]:grid-cols-6')
-            : cx('grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5', wide && '2xl:grid-cols-6 min-[1800px]:grid-cols-7'))}>
+            ? cx('grid-cols-2 sm:grid-cols-3 xl:grid-cols-4', wide && '2xl:grid-cols-5 3xl:grid-cols-6')
+            : cx('grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5', wide && '2xl:grid-cols-6 3xl:grid-cols-7'))}>
             {shown.map((i) => {
               // every line of this item (all its sizes / colours together); a free amount with its name counts too, as before
               const inCart = lines.filter((l) => l.itemId === i.id || (!l.itemId && l.name === i.name && l.price === i.price)).reduce((a, l) => a + l.qty, 0);
