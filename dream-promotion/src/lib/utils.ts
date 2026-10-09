@@ -1,15 +1,4 @@
-import { extendTailwindMerge } from 'tailwind-merge';
-
-/** Our own theme names, so a merge knows what they are: bg-brand is the gradient (an image, not a color). */
-const twMerge = extendTailwindMerge({
-  extend: { classGroups: { 'bg-image': [{ bg: ['brand', 'brand-soft'] }], animate: [{ animate: ['rise', 'pop', 'drawer', 'fade'] }] } },
-});
-/**
- * Class names joined — and when two say the same thing (min-h-11 … min-h-9), the later one wins: a component's own classes
- * first, the caller's after them. Tailwind 4 orders conflicting utilities by value (the larger wins), not by the place in the
- * class list, so without the merge a caller's "py-2" or "min-h-9" could be lost (2.80).
- */
-export const cx = (...c: (string | false | null | undefined)[]) => twMerge(c.filter(Boolean).join(' '));
+export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
 const pad = (n: number) => String(n).padStart(2, '0');
