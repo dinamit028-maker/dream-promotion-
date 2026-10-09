@@ -34,10 +34,17 @@ headline: טקסט קצר שיופיע על התמונה (עד 8 מילים). ca
 החזר/י JSON תקין בלבד, בלי טקסט לפני או אחרי:
 {"items":[{"dayOffset":0,"time":"19:30","kind":"post|reel|story","platform":"Instagram|Facebook|TikTok","goal":"","headline":"","caption":"","hashtags":[""],"cta":"","emoji":"","visual_direction":""}]}`;
 
-export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number, avoid?: string[]) => {
+/**
+ * The shape of a reel the storyboard asks for: how many scenes, about how long each, and how many seconds of them may be AI
+ * video (the last scene is a free card). The cost shown before there is a script (estimateVideoCost) reads the same numbers.
+ */
+export function reelPlan(duration: number) {
   const count = Math.min(10, Math.max(3, Math.round(duration / 5)));
-  const per = Math.round(duration / count);
-  const videoBudget = Math.max(5, Math.round(duration * 0.35));
+  return { count, per: Math.round(duration / count), videoBudget: Math.max(5, Math.round(duration * 0.35)) };
+}
+
+export const storyboardPrompt = (b: BrandProfile, brief: string, duration: number, avoid?: string[]) => {
+  const { count, per, videoBudget } = reelPlan(duration);
   return `${brandContext(b)}
 
 בנה/י תוכנית לסרטון אנכי (9:16) באורך ${duration} שניות, ב-${count} סצנות קצרות של בערך ${per} שניות (3–7 שניות כל אחת).
