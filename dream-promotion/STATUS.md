@@ -2638,6 +2638,7 @@
   - 7 דפים (`q`, `d`, `c`, `book`, `clock`, `store/orders/[id]`, `store/products/[id]`) — `use(props.params)`, ובדף השרת `clock` — `await`.
   - הבדיקות שקוראות לנתיבים מעבירות `Promise.resolve(...)`.
 - **`next.config.mjs`:** `serverExternalPackages` ו-`outputFileTracingIncludes` יצאו מ-`experimental`, כמו ש-Next 15 דורש. ffmpeg והגופן העברי עדיין נכללים בנתיבים שצריכים אותם.
+- **`devIndicators: false`:** ב-`next dev` של Next 15 יש עיגול "N" בפינה השמאלית התחתונה, והוא כיסה את כפתור "תפריט" בטלפון (נמצא בבדיקת הכספים). בפרודקשן הוא לא קיים.
 - **לא נדרש שינוי:**
   - אין שימוש ב-`cookies()` / `headers()` של Next;
   - כל ה-fetch בשרת הם קריאות API ישירות, ולכן ברירת המחדל החדשה של מטמון (בלי מטמון) לא משנה כלום.
@@ -2659,7 +2660,7 @@
 |---|---|---|---|
 | דשבורד | `npm run typecheck`, `npm test` | עבר; 308 | 0 |
 | דשבורד | `npm run build` | עבר (Next 15.5.27, כולל בדיקת הטיפוסים של הנתיבים) | 0 |
-| דשבורד | `npm run test:e2e` (קופה, כספים, חנות, רילס — כל אחת לבד) | E2E_RESULT | 0 |
+| דשבורד | `npm run test:e2e` (קופה, כספים, חנות, רילס — כל אחת לבד) | 70/70 (10 + 23 + 29 + 8) | 0 |
 | חזית | `npm run typecheck`, `npm test`, `npm run build` | עבר (רק גרסה) | 0 |
 
 **בלי מיגרציה.** `commerce_live` לא נגעו בו.
