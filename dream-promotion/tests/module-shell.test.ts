@@ -8,7 +8,7 @@ import { NextRequest } from 'next/server';
 import { FINANCE_SECTIONS, financeHref, isFinancePath, legacyFinanceRedirect, sectionOfPath } from '../src/features/finance/routes';
 import { FINANCE_MODULE, financeActions } from '../src/features/finance/module';
 import { groupOfPath, isActiveLink, toggleGroup } from '../src/components/shell/module-nav';
-import { middleware, config as middlewareConfig } from '../src/middleware';
+import { proxy, config as proxyConfig } from '../src/proxy';
 
 test('every finance screen has its own address, and back', () => {
   assert.deepEqual(FINANCE_SECTIONS.map((s) => s.path), [
@@ -56,12 +56,12 @@ test('old links (/finance?tab=…) move to the new address, keeping the rest of 
   }
 });
 
-test('the middleware sends an old link on (307) and lets everything else through', () => {
-  assert.deepEqual(middlewareConfig.matcher, ['/finance']);
-  const moved = middleware(new NextRequest('https://app.example/finance?tab=documents&new=305&lead=L9'));
+test('the proxy sends an old link on (307) and lets everything else through', () => {
+  assert.deepEqual(proxyConfig.matcher, ['/finance']);
+  const moved = proxy(new NextRequest('https://app.example/finance?tab=documents&new=305&lead=L9'));
   assert.equal(moved.status, 307);
   assert.equal(moved.headers.get('location'), 'https://app.example/finance/documents?new=305&lead=L9');
-  const pass = middleware(new NextRequest('https://app.example/finance'));
+  const pass = proxy(new NextRequest('https://app.example/finance'));
   assert.equal(pass.headers.get('location'), null);
   assert.equal(pass.headers.get('x-middleware-next'), '1');
 });

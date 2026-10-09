@@ -1,8 +1,8 @@
 /**
  * The finance module's addresses (2.52): every screen has its own route, so a link, a refresh and the phone's back
  * button all land on the same screen. Old links (/finance?tab=…, from before 2.52 — notifications, bookmarks, the CRM
- * card) are moved to the new address by src/middleware.ts with legacyFinanceRedirect().
- * Pure functions only: the middleware runs on the edge.
+ * card) are moved to the new address by src/proxy.ts with legacyFinanceRedirect().
+ * Pure functions only: the proxy runs before every /finance request.
  */
 export type FinanceSection = 'overview' | 'documents' | 'income' | 'receivables' | 'quotes' | 'expenses' | 'reports' | 'accountant' | 'settings';
 
