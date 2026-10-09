@@ -1,6 +1,6 @@
 {
   "name": "dream-promotion",
-  "version": "2.76.0",
+  "version": "2.77.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +8,6 @@
     "prebuild": "node scripts/kits.mjs",
     "build": "node node_modules/ffmpeg-static/install.js && next build",
     "start": "next start",
-    "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "npx -y tsx --test tests/*.test.ts",
     "test:sql": "bash tests/sql/run.sh",
@@ -30,7 +29,7 @@
     "ffmpeg-static": "^5.2.0",
     "framer-motion": "^11.3.0",
     "jszip": "^3.10.1",
-    "next": "15.5.27",
+    "next": "16.3.8",
     "node-forge": "^1.4.0",
     "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",

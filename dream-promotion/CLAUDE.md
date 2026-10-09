@@ -43,7 +43,7 @@
   - קטלוג (מ-2.54.0): מוצר נוצר ונערך רק ב-`ProductEditor` (src/features/catalog), שנפתח מהקופה, מהכספים ומהחנות. כללי מחיר, וריאנט, slug וקודים — רק ב-`catalog.ts`.
   - מלאי של וריאנט זז רק דרך פונקציות המלאי (`stock_move_v`, `adjust_variant_stock`, `reconcile_variant_stock`). שורה שמקושרת למוצר נושאת `itemId`, וכשיש — גם `variantId`, בכל מקום: קופה, עסקה מושהית, החזר, מסמך, הוצאה. שורה בלי וריאנט של מוצר עם וריאנטים = "לא משויך", אף פעם לא וריאנט באקראי.
   - תמונות מוצר: רק דרך `/api/store/media` (אין מדיניות דפדפן על `store-media`). הגדלים נעשים בדפדפן.
-  - הדשבורד (מ-2.76.0, Next 15.5, React 19): params של נתיב ושל דף הם Promise — בנתיב API `await ctx.params`, בדף לקוח `use(props.params)`, בדף שרת `await`. בבדיקה שקוראת לנתיב: `{ params: Promise.resolve({...}) }`. `next dev` / `next build` מוסיפים ל-`next-env.d.ts` הפניה ל-`.next/types/routes.d.ts` — לא לעשות לזה commit (בלי `.next` ה-typecheck נכשל).
+  - הדשבורד (מ-2.77.0, Next 16 כמו החזית, React 19): `src/proxy.ts` במקום middleware (מפנה קישורי `/finance?tab=` ישנים). build ו-dev ב-Turbopack; `next dev` כותב ל-`.next/dev`, ושני `next dev` על אותו פרויקט לא רצים יחד (ולכן בדיקות הקצה לקצה — אחת אחרי השנייה). לא לשנות `package.json` / `next.config.mjs` בזמן שבדיקת קצה לקצה רצה: `next dev` מופעל מחדש באמצע והבדיקות נופלות. אין `next lint` ב-16. params של נתיב ושל דף הם Promise — בנתיב API `await ctx.params`, בדף לקוח `use(props.params)`, בדף שרת `await`. בבדיקה שקוראת לנתיב: `{ params: Promise.resolve({...}) }`. `next dev` / `next build` מוסיפים ל-`next-env.d.ts` הפניה ל-`.next/types/routes.d.ts` (או `.next/dev/types`) — לא לעשות לזה commit (בלי `.next` ה-typecheck נכשל).
   - החזית (מ-2.55.0, Next 16): `src/proxy.ts` במקום middleware, ו-params / headers אסינכרוניים (התיעוד ב-`storefront/node_modules/next/dist/docs`). בלי `style=` (ה-CSP חוסם); צבעי התבנית ב-`<style nonce>`. המילה Dream לא מופיעה ללקוח. `storefront/tests/unit/no-tables.test.ts` בודק את שני הכללים.
   - תבנית: שדה חדש נכתב בשני מקומות — `storefront/src/lib/theme.ts` (SCHEMA) ו-`src/features/store/theme-fields.ts`. ברירות המחדל של התבנית מועתקות. `tests/store-theme.test.ts` נכשל אם הם לא שווים.
   - דומיין "פעיל" רק דרך `sf_domain_seen`, כשהחזית באמת הגישה אותו — לא מהדשבורד ולא לפי Vercel. Search Console: "קוד האימות מוצג באתר", אף פעם לא "מחובר".
@@ -122,3 +122,13 @@
   - חיבור OAuth חדש: ערך חד-פעמי ב-state ובעוגייה (`oauthOnce` / `sameBrowser`, lib/server/secrets.ts), כמו רשות המסים, Meta ו-TikTok.
   - שרשרת ה-hash של היומן מגלה שינוי, לא מונעת אותו — לא לכתוב "לא ניתן לשינוי".
   - תפקיד viewer קורא בלבד: `can_write()` במסד, `blockedFor` / `financeCaller(req, { write: true })` בשרת.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -28,7 +28,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="he" dir="rtl" data-theme="dark" suppressHydrationWarning className={`${body.variable} ${display.variable}`}>
+    <html lang="he" dir="rtl" data-theme="dark" data-scroll-behavior="smooth" suppressHydrationWarning className={`${body.variable} ${display.variable}`}>
       <head><script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} /></head>
       <body className="font-sans antialiased"><VersionWatcher />{children}<SaveErrorBanner /></body>
     </html>
