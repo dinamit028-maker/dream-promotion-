@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { ClockView, DEVICE_KEY, Shell } from '@/features/timeclock/ClockView';
 import { Spinner } from '@/components/ui/feedback';
 
@@ -7,7 +7,8 @@ import { Spinner } from '@/components/ui/feedback';
  * The QR printed at the business points here: /c/<site>. The phone already knows who the employee is
  * (from the personal link opened once), so scanning shows that employee's clock-in / clock-out button.
  */
-export default function ScanPage({ params }: { params: { site: string } }) {
+export default function ScanPage(props: { params: Promise<{ site: string }> }) {
+  const params = use(props.params);   // Next 15: a page's params arrive as a promise
   const [people, setPeople] = useState<{ token: string; name: string }[] | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   useEffect(() => {

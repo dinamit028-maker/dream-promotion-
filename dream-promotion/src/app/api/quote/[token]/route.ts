@@ -36,7 +36,8 @@ function publicView(r: any) {
   };
 }
 
-export async function GET(req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const limited = rateLimited(req, 'quote-read', PUBLIC_LIMITS.quoteRead, MINUTE);
   if (limited) return limited;
   const r = await find(params.token);
@@ -45,7 +46,8 @@ export async function GET(req: Request, { params }: { params: { token: string } 
   return NextResponse.json({ quote: publicView(r) }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
-export async function POST(req: Request, { params }: { params: { token: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
+  const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const limited = rateLimited(req, 'quote-answer', PUBLIC_LIMITS.quoteAnswer, MINUTE);
   if (limited) return limited;
   const r = await find(params.token);

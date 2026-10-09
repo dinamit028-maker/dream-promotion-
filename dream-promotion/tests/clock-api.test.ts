@@ -15,7 +15,7 @@ const tables: Record<string, any[]> = {
 const oneOpen = (t: string, r: any, all: any[]) => t === 'time_entries' && !r.clock_out && all.some((x) => x.employee_id === r.employee_id && !x.clock_out)
   ? { code: '23505', message: 'duplicate key value violates unique constraint "time_entries_one_open"' } : null;
 before(() => { (globalThis as any).__DP_TEST_ADMIN_DB__ = fakeDb(tables, { onInsert: oneOpen }); });
-const ctx = (t = TOKEN) => ({ params: { token: t } });
+const ctx = (t = TOKEN) => ({ params: Promise.resolve({ token: t }) });
 const post = (body: any) => new Request('http://x', { method: 'POST', body: JSON.stringify(body) });
 
 test('clock API: in → double tap → out too soon → out → stamps from the server', async () => {

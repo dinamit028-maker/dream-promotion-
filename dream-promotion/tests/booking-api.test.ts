@@ -22,7 +22,7 @@ const overlap = (t: string, r: any, all: any[]) => t === 'appointments' && ['boo
 before(() => { (globalThis as any).__DP_TEST_ADMIN_DB__ = fakeDb(tables, { onInsert: overlap }); });
 
 const day = israelParts(Date.now() + 2 * 864e5).date;
-const ctx = { params: { slug: 'sagaboot' } };
+const ctx = { params: Promise.resolve({ slug: 'sagaboot' }) };
 const post = (body: any) => new Request('http://x/api/book/sagaboot', { method: 'POST', body: JSON.stringify(body) });
 
 test('booking API: card, free times, book, conflict, CRM', async () => {
@@ -65,7 +65,7 @@ test('booking API: refuses bad input, bots, off-grid times and too many bookings
   assert.equal(bot.status, 200); // silently ignored
   const off = new Date(new Date((await (await slotsR.GET(new Request(`http://x/s?service=svc-1&date=${day}`), ctx)).json()).slots[0].start).getTime() + 7 * 60_000).toISOString();
   assert.equal((await card.POST(post({ serviceId: 'svc-1', start: off, name: 'x', phone: '0501234567' }), ctx)).status, 409, 'off-grid time');
-  assert.equal((await card.GET(new Request('http://x'), { params: { slug: 'nope' } })).status, 404);
+  assert.equal((await card.GET(new Request('http://x'), { params: Promise.resolve({ slug: 'nope' }) })).status, 404);
   const free = (await (await slotsR.GET(new Request(`http://x/s?service=svc-1&date=${day}`), ctx)).json()).slots;
   for (const k of [0, 1]) await card.POST(post({ serviceId: 'svc-1', start: free[k * 4].start, name: 'דנה', phone: '0521112233' }), ctx);
   const fourth = await card.POST(post({ serviceId: 'svc-1', start: free[12].start, name: 'דנה', phone: '0521112233' }), ctx);

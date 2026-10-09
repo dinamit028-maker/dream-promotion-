@@ -30,9 +30,9 @@ test('a fixed window per address and route: the limit passes, the next one waits
 test('the quote link answers 429 after its limit, before touching the database', async () => {
   const route = await import('../src/app/api/quote/[token]/route');
   const T = 'c'.repeat(64);
-  const post = () => route.POST(new Request('http://x', { method: 'POST', headers: { 'x-forwarded-for': '9.9.9.9' }, body: '{}' }), { params: { token: T } });
+  const post = () => route.POST(new Request('http://x', { method: 'POST', headers: { 'x-forwarded-for': '9.9.9.9' }, body: '{}' }), { params: Promise.resolve({ token: T }) });
   for (let i = 0; i < PUBLIC_LIMITS.quoteAnswer; i++) assert.equal((await post()).status, 404, 'not found (no such quote) — but counted');
   assert.equal((await post()).status, 429);
-  const get = await route.GET(new Request('http://x', { headers: { 'x-forwarded-for': '9.9.9.9' } }), { params: { token: T } });
+  const get = await route.GET(new Request('http://x', { headers: { 'x-forwarded-for': '9.9.9.9' } }), { params: Promise.resolve({ token: T }) });
   assert.equal(get.status, 404, 'reading has its own, larger limit');
 });

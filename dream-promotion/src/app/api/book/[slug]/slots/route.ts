@@ -8,7 +8,8 @@ import { MINUTE, PUBLIC_LIMITS, rateLimited } from '@/lib/server/rate-limit';
 export const runtime = 'nodejs';
 
 /** Free times for one service on one day (Israel time). GET ?service=<id>&date=YYYY-MM-DD */
-export async function GET(req: Request, { params }: { params: { slug: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ slug: string }> }) {
+  const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const limited = rateLimited(req, 'book-read', PUBLIC_LIMITS.bookRead, MINUTE);
   if (limited) return limited;
   const b = await loadBusiness(params.slug);

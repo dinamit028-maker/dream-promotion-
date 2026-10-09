@@ -31,9 +31,9 @@ async function statuses() {
   const book = await import('../src/app/api/book/[slug]/route');
   const clock = await import('../src/app/api/clock/[token]/route');
   const doc = await import('../src/app/api/doc/[token]/route');
-  const b = await book.GET(new Request('http://x'), { params: { slug: 'sagabot' } });
-  const c = await clock.GET(new Request('http://x'), { params: { token: TOKEN } });
-  const d = await doc.GET(new Request('http://x'), { params: { token: DOC } });
+  const b = await book.GET(new Request('http://x'), { params: Promise.resolve({ slug: 'sagabot' }) });
+  const c = await clock.GET(new Request('http://x'), { params: Promise.resolve({ token: TOKEN }) });
+  const d = await doc.GET(new Request('http://x'), { params: Promise.resolve({ token: DOC }) });
   return { book: b.status, clock: c.status, doc: d.status, bodies: [await b.json(), await c.json(), await d.json()] };
 }
 
@@ -49,7 +49,7 @@ test('public pages: open business works, locked business says "the service is un
 
   const post = await (await import('../src/app/api/book/[slug]/route')).POST(
     new Request('http://x', { method: 'POST', body: JSON.stringify({ serviceId: 'svc-1', start: new Date().toISOString(), name: 'דנה', phone: '0521112233' }) }),
-    { params: { slug: 'sagabot' } });
+    { params: Promise.resolve({ slug: 'sagabot' }) });
   assert.equal(post.status, 403, 'no booking into a locked business');
   assert.equal(tables.appointments.length, 0);
 

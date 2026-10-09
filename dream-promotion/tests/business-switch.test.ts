@@ -59,7 +59,7 @@ test('a public booking lands in the page\'s business, not where its owner is wor
   const book = await import('../src/app/api/book/[slug]/route');
   const slots = await import('../src/app/api/book/[slug]/slots/route');
   const day = israelParts(Date.now() + 2 * 864e5).date;
-  const ctx = { params: { slug: 'followme' } };
+  const ctx = { params: Promise.resolve({ slug: 'followme' }) };
   const s = await (await slots.GET(new Request(`http://x/s?service=svc&date=${day}`), ctx)).json();
   const r = await book.POST(new Request('http://x', { method: 'POST', body: JSON.stringify({ serviceId: 'svc', start: s.slots[0].start, name: 'דנה', phone: '0521112233' }) }), ctx);
   assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));

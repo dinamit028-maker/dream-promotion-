@@ -57,20 +57,20 @@ test('signing settings: not set → unsigned; a wrong password is reported, neve
 test('the PDF without a certificate: a valid file, marked unsigned', async () => {
   delete process.env.DOC_SIGN_P12_BASE64;
   const route = await import('../src/app/api/doc/[token]/pdf/route');
-  const r = await route.GET(new Request('http://x'), { params: { token: TOKEN } });
+  const r = await route.GET(new Request('http://x'), { params: Promise.resolve({ token: TOKEN }) });
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'application/pdf');
   assert.equal(r.headers.get('x-signed'), '0');
   const bytes = Buffer.from(await r.arrayBuffer());
   assert.equal(bytes.subarray(0, 5).toString(), '%PDF-');
-  assert.equal((await route.GET(new Request('http://x'), { params: { token: 'd'.repeat(64) } })).status, 404);
-  assert.equal((await route.GET(new Request('http://x'), { params: { token: '../x' } })).status, 404);
+  assert.equal((await route.GET(new Request('http://x'), { params: Promise.resolve({ token: 'd'.repeat(64) }) })).status, 404);
+  assert.equal((await route.GET(new Request('http://x'), { params: Promise.resolve({ token: '../x' }) })).status, 404);
 });
 
 test('the signed PDF: the details are in it, OpenSSL verifies the signature, one changed byte breaks it', async () => {
   process.env.DOC_SIGN_P12_BASE64 = p12b64; process.env.DOC_SIGN_P12_PASSWORD = 'secret';
   const route = await import('../src/app/api/doc/[token]/pdf/route');
-  const r = await route.GET(new Request('http://x'), { params: { token: TOKEN } });
+  const r = await route.GET(new Request('http://x'), { params: Promise.resolve({ token: TOKEN }) });
   assert.equal(r.headers.get('x-signed'), '1');
   const pdf = Buffer.from(await r.arrayBuffer());
   const file = path.join(dir, 'doc.pdf'); writeFileSync(file, pdf);

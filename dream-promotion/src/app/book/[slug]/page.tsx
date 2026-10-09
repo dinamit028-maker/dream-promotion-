@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import { Button, Input, Textarea } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
@@ -18,7 +18,8 @@ const dayLabel = (d: string) => {
   return { wd: DAY[wd], date: `${Number(dd)}.${Number(m)}` };
 };
 
-export default function BookPage({ params }: { params: { slug: string } }) {
+export default function BookPage(props: { params: Promise<{ slug: string }> }) {
+  const params = use(props.params);   // Next 15: a page's params arrive as a promise
   const [biz, setBiz] = useState<Biz | null>(null);
   const [missing, setMissing] = useState<string | false>(false);
   const [serviceId, setServiceId] = useState<string | null>(null);

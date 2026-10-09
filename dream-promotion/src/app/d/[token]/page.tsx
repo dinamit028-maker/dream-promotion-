@@ -1,10 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { Spinner } from '@/components/ui/feedback';
 import { docBody, toDoc } from '@/features/documents/DocumentsTab';
 
 /** The customer's link to a document (sent on WhatsApp): view, print, or download the PDF (signed digitally when set up). */
-export default function SharedDocPage({ params }: { params: { token: string } }) {
+export default function SharedDocPage(props: { params: Promise<{ token: string }> }) {
+  const params = use(props.params);   // Next 15: a page's params arrive as a promise
   const [html, setHtml] = useState<string | null>(null);
   const [missing, setMissing] = useState<string | false>(false);
   useEffect(() => {
