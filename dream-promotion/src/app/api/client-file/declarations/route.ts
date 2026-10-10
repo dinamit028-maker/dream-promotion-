@@ -220,14 +220,23 @@ export async function POST(req: Request) {
       // card adds its own CRM activities. Titles only: no answers, no paths, no links to pictures.
       const lead = await ownLead(body.leadId);
       if (!lead) return bad('הלקוח לא נמצא בעסק הזה.', 'not_found', 404);
-      const [tr, se, ph, de, rq, tp, ap] = await Promise.all([
+      // sessions with their cancellation (migration 20261010004200); before it, as they were
+      const sessionsOf = async () => {
+        const full = await db.from('client_sessions').select('id, treatment_id, at, notes, cancelled_at, cancel_reason').eq('business_id', business).eq('lead_id', lead.id);
+        if (!full.error || !/cancel/.test(`${full.error.message ?? ''}`)) return full;
+        return db.from('client_sessions').select('id, treatment_id, at, notes').eq('business_id', business).eq('lead_id', lead.id);
+      };
+      const [tr, se, ph, de, rq, tp, ap, pu, pk] = await Promise.all([
         db.from('client_treatments').select('id, title, area, started_at, status, created_at').eq('business_id', business).eq('lead_id', lead.id),
-        db.from('client_sessions').select('id, treatment_id, at, notes').eq('business_id', business).eq('lead_id', lead.id),
+        sessionsOf(),
         db.from('client_photos').select('id, treatment_id, stage, taken_at').eq('business_id', business).eq('lead_id', lead.id),
         db.from('declarations').select('id, template_id, template_version, signed_at, valid_until').eq('business_id', business).eq('lead_id', lead.id),
         db.from('declaration_requests').select('id, template_ids, status, sent_at').eq('business_id', business).eq('lead_id', lead.id),
         db.from('declaration_templates').select('id, title').eq('business_id', business),
         db.from('appointments').select('id, service_name, start_at, status').eq('business_id', business).eq('lead_id', lead.id),
+        // which package a session was taken from (2.87) — only its name; nothing when the migration is not in the database
+        db.from('client_package_uses').select('session_id, package_id, returned_at').eq('business_id', business).eq('lead_id', lead.id),
+        db.from('client_packages').select('id, name').eq('business_id', business).eq('lead_id', lead.id),
       ]);
       const err = tr.error ?? se.error ?? ph.error ?? de.error ?? rq.error ?? tp.error;
       if (notInstalled(err)) return json(404, NOT_READY);
@@ -238,8 +247,19 @@ export async function POST(req: Request) {
       type Ev = { at: string; kind: 'treatment' | 'session' | 'photo' | 'declaration' | 'appointment'; title: string; sub?: string; treatmentId?: string | null };
       const events: Ev[] = [];
       for (const t of treatments) events.push({ at: t.created_at, kind: 'treatment', title: `טיפול חדש: ${tname.get(t.id)}`, sub: `מ-${t.started_at}`, treatmentId: t.id });
-      for (const x of (se.data ?? []) as { id: string; treatment_id: string; at: string; notes: string }[]) {
-        events.push({ at: x.at, kind: 'session', title: `סשן · ${tname.get(x.treatment_id) ?? 'טיפול'}`, sub: x.notes ? x.notes.slice(0, 140) : undefined, treatmentId: x.treatment_id });
+      const pname = new Map(pk.error ? [] : ((pk.data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+      const taken = new Map<string, string>();   // session → the package it was taken from (a deduction that still counts)
+      if (!pu.error) for (const u of (pu.data ?? []) as { session_id: string | null; package_id: string; returned_at: string | null }[]) {
+        if (u.session_id && !u.returned_at) taken.set(u.session_id, pname.get(u.package_id) ?? 'חבילה');
+      }
+      for (const x of (se.data ?? []) as { id: string; treatment_id: string; at: string; notes: string; cancelled_at?: string | null; cancel_reason?: string }[]) {
+        const name = tname.get(x.treatment_id) ?? 'טיפול';
+        if (x.cancelled_at) {
+          events.push({ at: x.at, kind: 'session', title: `סשן בוטל · ${name}`, sub: x.cancel_reason ? x.cancel_reason.slice(0, 140) : undefined, treatmentId: x.treatment_id });
+          continue;
+        }
+        const sub = [x.notes ? x.notes.slice(0, 140) : '', taken.has(x.id) ? `נוכה מהחבילה "${taken.get(x.id)}"` : ''].filter(Boolean).join(' · ');
+        events.push({ at: x.at, kind: 'session', title: `סשן · ${name}`, sub: sub || undefined, treatmentId: x.treatment_id });
       }
       // photos: one line per day and treatment ("3 צילומים: לפני ×2, אחרי ×1")
       const days = new Map<string, { at: string; treatmentId: string | null; stages: Record<string, number> }>();

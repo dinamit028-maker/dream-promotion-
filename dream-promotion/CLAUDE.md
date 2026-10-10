@@ -18,10 +18,16 @@
   - גם `delete` נתקע, אפילו כשהוא רק כתוב בגוף של פונקציה (נמצא ב-3400). פונקציה כזו בעל המערכת מריץ ב-SQL Editor, ואחר כך בודקים דרך ה-MCP בקריאה בלבד. לא עוקפים את העצירה.
   - פקודה שנתקעה נכשלת אחרי 60 שניות. לבדוק מה נשמר לפני כל ניסיון נוסף.
 - כספים (מ-2.51.0, src/features/finance):
-  - מסמך מופק רק דרך issueDocumentRow (finance/api.ts), עם idempotency_key — sale:<id> / refund:<id> / cancel:<id> / direct:<uuid>; קבלה וזיכוי על מסמך: `followKey()` (finance/keys.ts, `receipt:<doc>:<n>` / `credit:<doc>:<n>`); הצעה שהופכת למסמך: `quote:<id>`. מכירה והחזר בקופה: המזהה נקבע במכשיר (ניסיון חוזר לא יוצר כפילות).
+  - מסמך מופק רק דרך issueDocumentRow (finance/api.ts), עם idempotency_key — sale:<id> / refund:<id> / cancel:<id> / direct:<uuid>; קבלה וזיכוי על מסמך: `followKey()` (finance/keys.ts, `receipt:<doc>:<n>` / `credit:<doc>:<n>`); הצעה שהופכת למסמך: `quote:<id>`; חבילה שנמכרה: `package:<id>`. מכירה והחזר בקופה: המזהה נקבע במכשיר (ניסיון חוזר לא יוצר כפילות).
   - מע״מ רק דרך finance/vat.ts: המסמך מקבל את השיעור שבהגדרות העסק; טבלת השיעורים לפי תאריך משמשת לאזהרה (מסמך בתאריך עבר — שאלה לרו״ח, לא משנים לבד). מה מותר לכל סוג עוסק — רק דרך finance/rules.ts.
   - payments, finance_audit_log, tax_allocations ו-document_cancellations לא נערכים ולא נמחקים — רק שורה הפוכה.
   - התיקון של חשבונית מס הוא חשבונית זיכוי (330). ביטול — רק 300/400 שהופקו בטעות.
+  - חבילות (מ-2.87.0, מיגרציה 4200 — T1 של `docs/FINANCE ADDITIONS HE.md`):
+    - חבילה בקטלוג = פריט `kind='package'` בקטלוג האחד, עם תנאים (`package_sessions`, `package_type_id`, `package_valid_months`), שנערכים רק ב-`ProductEditor`. אין קטלוג חבילות שני.
+    - מכירה = שורה ב-`client_packages` (התנאים מועתקים) + מסמך דרך `issueDocumentRow` עם `package:<id>`. המסד קושר את המסמך לחבילה לפי המפתח, רק באותו לקוח, מחיר ועסק. תשלום = קבלה על המסמך (`followKey`), רק ב-`payments`.
+    - ניכוי = שורה ב-`client_package_uses`, שהמסד בודק (`client_session_add` — הטיפול והניכוי בפעולה אחת, עם מזהה שנקבע במכשיר: `p_id`). ניכוי לא נמחק ולא משתנה — רק "הוחזר" (`returned_at`), פעם אחת. ביטול טיפול (`client_sessions.cancelled_at`) מחזיר את הניכוי במסד. טיפול לא נמחק.
+    - מה נוצל, שולם וזוכה — רק מ-`client_package_status`. חישובים (תוקף, אזהרות, הצעת ביטול, דוח) — רק ב-`features/finance/packages.ts`.
+    - ביטול חבילה: המערכת מציעה (`cancelSuggestion`), הבעלים מאשר/ת את הסכום. זיכוי (330) או ביטול קיים (300/400) — דרך המנגנון הקיים, אף פעם לא שינוי של מסמך.
 - רשות המסים:
   - לא ממציאים כתובת, שדה או מספר הקצאה.
   - מספר TEST לעולם לא מוצג כמספר אמיתי, ולא מופיע בעותק של הלקוח. מצב mock רק בפיתוח ובבדיקות — לא בשום בנייה של production.

@@ -8,6 +8,8 @@ import { ils } from '@/features/register/money';
 import { QUOTE_STATUS_HE, type QuoteStatus } from '@/features/finance/quotes';
 import { orderLabel } from '@/features/store/checkout';
 import { orderHref } from '@/features/store/routes';
+import { packagesReady } from '@/features/finance/packages-data';
+import { SellPackageDialog } from '@/features/finance/SellPackage';
 
 /**
  * The money of one contact, on their card: documents issued to them, what they still owe, open quotes — and
@@ -21,6 +23,10 @@ export function CrmFinance({ leadId }: { leadId: string }) {
   const [data, setData] = useState<{ docs: Row[]; owed: number; overdue: number; quotes: { id: string; number: number; status: QuoteStatus; total: number }[]; paid: number;
     orders: { id: string; number: number; total: number; at: string; status: any; test: boolean }[] } | null>(null);
   const [error, setError] = useState(false);
+  // "מכירת חבילה" (2.87): only once migration 20261010004200 is in the database
+  const [pkReady, setPkReady] = useState(false);
+  const [selling, setSelling] = useState(false);
+  useEffect(() => { if (open) void packagesReady().then(setPkReady); }, [open]);
   useEffect(() => {
     if (!open || data) return;
     const sb = supabase();
@@ -52,6 +58,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
           <div className="flex flex-wrap gap-2">
             <Link href={`/finance/documents?new=1&lead=${leadId}`} className="rounded-full bg-primary px-3 py-1.5 font-semibold text-white">🧾 הפקת מסמך</Link>
             <Link href={`/finance/quotes?new=1&lead=${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">הצעת מחיר</Link>
+            {pkReady && !error && <button type="button" onClick={() => setSelling(true)} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">📦 מכירת חבילה</button>}
           </div>
           {error ? <p className="text-muted">אין גישה לנתונים הכספיים כאן.</p> : !data ? <Spinner /> : <>
             <p>{data.owed > 0 ? <>חייב/ת: <strong>{ils(data.owed)}</strong>{data.overdue > 0 ? <span className="text-red-600"> (באיחור {ils(data.overdue)})</span> : null}</> : 'אין חוב פתוח.'}{data.paid > 0 ? ` · שולם במסמכים: ${ils(data.paid)}` : ''}</p>
@@ -71,6 +78,8 @@ export function CrmFinance({ leadId }: { leadId: string }) {
           </>}
         </div>
       )}
+      {/* a package sold from the card: its document by the existing engine; the card's packages and documents refresh */}
+      {selling && <SellPackageDialog leadId={leadId} onClose={() => setSelling(false)} onDone={() => { setSelling(false); setData(null); }} />}
     </div>
   );
 }

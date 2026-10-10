@@ -30,7 +30,8 @@ export function previousPeriod(kind: PeriodKind, ref: string) {
 }
 
 const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-const csv = (head: string[], rows: unknown[][]) => '﻿' + [head.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\r\n');
+/** a CSV file as Excel opens it in Hebrew (UTF-8 with BOM) — every report file of the module is made by it */
+export const csv = (head: string[], rows: unknown[][]) => '﻿' + [head.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\r\n');
 const money = (n: number) => n.toFixed(2);
 const day = (d: string | null | undefined) => (d ? d.split('-').reverse().join('/') : '');
 

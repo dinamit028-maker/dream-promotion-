@@ -13,6 +13,7 @@
 #  10. the register and the checkout race for the same 4 units (3500) → what was sold + what is held never exceeds the stock
 #  11. 8 paid orders of one new customer (her phone in 8 spellings) recorded at once (3600) → one lead, 8 sales
 #  12. 8 connections record the same paid order at once (3600) → one sale, one stock movement
+#  13. 8 connections take the last 3 treatments of a package, and 8 deduct one session (4200) → exactly 3, exactly one
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -223,3 +224,25 @@ r=$(q "select (select count(*) from public.sales where id = '$O') || ' ' || (sel
 q "update public.platform_flags set enabled = false where key = 'commerce_live';" >/dev/null
 [ "$r" = "1 1 10 1" ] || fail "the same order 8 times at once: one sale, one movement (expected 1 1 10 1, got: $r)"
 echo "ok: 8 connections record the same paid order at once → one sale, one stock movement, one line on the timeline"
+
+# ---- 13. the last treatments of a package, and one session, from 8 connections at once (4200) ---------------------------------
+PKL=00000000-0000-0000-0000-0000000cc4a1; PKT=00000000-0000-0000-0000-0000000cc4a2
+PK3=00000000-0000-0000-0000-0000000cc4a3; PK9=00000000-0000-0000-0000-0000000cc4a4; PKS=00000000-0000-0000-0000-0000000cc4a5
+q "insert into public.leads (id, user_id, business_id, name) values ('$PKL', '$U', '$B', 'עומס');
+   insert into public.client_treatments (id, business_id, lead_id, title) values ('$PKT', '$B', '$PKL', 'טיפול');
+   insert into public.client_packages (id, business_id, user_id, lead_id, name, sessions_total, price) values
+     ('$PK3', '$B', '$U', '$PKL', 'שלושה אחרונים', 3, 0), ('$PK9', '$B', '$U', '$PKL', 'הרבה', 50, 0);
+   insert into public.client_sessions (id, business_id, treatment_id, lead_id, notes) values ('$PKS', '$B', '$PKT', '$PKL', 'one');" >/dev/null
+# 8 sessions, each with its deduction, race for 3 treatments: a refused deduction takes its session with it
+for w in $(seq 8); do worker_script "$TMP/pkg-$w.sql" 1 "select public.client_session_add('$PKL', '$PKT', null, 'race-$w', '$PK3');"; done
+run_parallel pkg
+r=$(q "select (select count(*) from public.client_package_uses where package_id = '$PK3' and returned_at is null) || ' ' ||
+              (select count(*) from public.client_sessions where lead_id = '$PKL' and notes like 'race-%')")
+[ "$r" = "3 3" ] || fail "8 connections take the last 3 treatments of a package: exactly 3 deductions and 3 sessions (got: $r)"
+echo "ok: 8 connections take the last 3 treatments of a package at once → exactly 3 sessions with 3 deductions, none beyond"
+# one session deducted from 8 connections at once: exactly one deduction
+for w in $(seq 8); do worker_script "$TMP/pks-$w.sql" 1 "insert into public.client_package_uses (business_id, package_id, lead_id, session_id) values ('$B', '$PK9', '$PKL', '$PKS');"; done
+run_parallel pks
+r=$(q "select count(*) from public.client_package_uses where session_id = '$PKS'")
+[ "$r" = "1" ] || fail "one session deducted from 8 connections at once: exactly one deduction (got: $r)"
+echo "ok: one session deducted from 8 connections at once → exactly one deduction"

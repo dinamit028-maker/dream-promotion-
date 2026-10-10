@@ -4,7 +4,7 @@
  * card) are moved to the new address by src/proxy.ts with legacyFinanceRedirect().
  * Pure functions only: the proxy runs before every /finance request.
  */
-export type FinanceSection = 'overview' | 'documents' | 'income' | 'receivables' | 'quotes' | 'expenses' | 'reports' | 'accountant' | 'settings';
+export type FinanceSection = 'overview' | 'documents' | 'income' | 'receivables' | 'quotes' | 'packages' | 'expenses' | 'reports' | 'accountant' | 'settings';
 
 export const FINANCE_SECTIONS: readonly { id: FinanceSection; path: string; label: string }[] = [
   { id: 'overview', path: '/finance', label: 'לובי כספים' },
@@ -12,6 +12,7 @@ export const FINANCE_SECTIONS: readonly { id: FinanceSection; path: string; labe
   { id: 'income', path: '/finance/income', label: 'הכנסות' },
   { id: 'receivables', path: '/finance/receivables', label: 'חייבים' },
   { id: 'quotes', path: '/finance/quotes', label: 'הצעות מחיר' },
+  { id: 'packages', path: '/finance/packages', label: 'חבילות' },
   { id: 'expenses', path: '/finance/expenses', label: 'הוצאות' },
   { id: 'reports', path: '/finance/reports', label: 'דוחות' },
   { id: 'accountant', path: '/finance/accountant', label: 'רואה חשבון' },
