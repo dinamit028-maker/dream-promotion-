@@ -24,6 +24,8 @@ export interface CatalogItem {
   publishOnline: boolean; onlinePrice: number | null; compareAtPrice: number | null;
   sku: string; barcode: string; hasVariants: boolean; tags: string[]; customFields: Record<string, string>;
   manufacturer: string; countryOfOrigin: string; publishedAt: string | null; updatedAt: string | null;
+  /** a package's terms (kind 'package', migration 20261010004200): treatments, a treatment type (null = any), months valid */
+  packageSessions: number | null; packageTypeId: string | null; packageValidMonths: number | null;
 }
 export interface CatalogOption { id: string; itemId: string; position: number; name: string; choices: string[] }
 export interface CatalogVariant {
@@ -45,6 +47,9 @@ export const LIMITS = { name: 80, description: 5000, seoTitle: 120, seoDescripti
 /** what search engines show (a longer SEO text is saved, but cut by Google) */
 export const SEO_SHOWN = { title: 60, description: 155 } as const;
 export const MIGRATION_3300 = 'צריך להריץ את מיגרציה 20261005003300 (קטלוג 2.54: וריאנטים, תמונות, אתר) ב-Supabase.';
+export const MIGRATION_4200 = 'צריך להריץ את מיגרציה 20261010004200 (חבילות) ב-Supabase לפני שהחבילות עובדות.';
+/** a package: up to this many treatments, valid up to this many months (the database checks the same) */
+export const PACKAGE_LIMITS = { sessions: 500, months: 120 } as const;
 
 // ---- rows of the database → the screen (lenient: a row from before 3300 has none of the new columns) --------------------
 const num = (v: unknown, d = 0) => (v == null || v === '' || !Number.isFinite(Number(v)) ? d : Number(v));
@@ -63,6 +68,7 @@ export function toCatalogItem(r: any): CatalogItem {
     sku: str(r.sku), barcode: str(r.barcode), hasVariants: Boolean(r.has_variants), tags: Array.isArray(r.tags) ? r.tags.map(str) : [],
     customFields: Object.fromEntries(Object.entries(cf).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
     manufacturer: str(r.manufacturer), countryOfOrigin: str(r.country_of_origin), publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? null,
+    packageSessions: numOrNull(r.package_sessions), packageTypeId: r.package_type_id ? str(r.package_type_id) : null, packageValidMonths: numOrNull(r.package_valid_months),
   };
 }
 export const toOption = (r: any): CatalogOption => ({ id: str(r.id), itemId: str(r.item_id), position: num(r.position, 1), name: str(r.name), choices: Array.isArray(r.choices) ? r.choices.map(str) : [] });
@@ -232,16 +238,21 @@ export interface ItemDraft {
   description: string; seoTitle: string; seoDescription: string; slug: string; publishOnline: boolean;
   onlinePrice: string; compareAtPrice: string; sku: string; barcode: string; tags: string;
   customFields: Record<string, string>; manufacturer: string; countryOfOrigin: string;
+  /** a package's terms ('' = not set; the type '' = any treatment) */
+  packageSessions: string; packageTypeId: string; packageValidMonths: string;
 }
 export const emptyDraft = (p: Partial<ItemDraft> = {}): ItemDraft => ({
   name: '', kind: 'product', price: '', active: true, description: '', seoTitle: '', seoDescription: '', slug: '', publishOnline: false,
-  onlinePrice: '', compareAtPrice: '', sku: '', barcode: '', tags: '', customFields: {}, manufacturer: '', countryOfOrigin: '', ...p,
+  onlinePrice: '', compareAtPrice: '', sku: '', barcode: '', tags: '', customFields: {}, manufacturer: '', countryOfOrigin: '',
+  packageSessions: '', packageTypeId: '', packageValidMonths: '', ...p,
 });
 export const draftOf = (i: CatalogItem): ItemDraft => ({
   name: i.name, kind: i.kind, price: String(i.price), active: i.active, description: i.description, seoTitle: i.seoTitle, seoDescription: i.seoDescription,
   slug: i.slug ?? '', publishOnline: i.publishOnline, onlinePrice: i.onlinePrice == null ? '' : String(i.onlinePrice),
   compareAtPrice: i.compareAtPrice == null ? '' : String(i.compareAtPrice), sku: i.sku, barcode: i.barcode, tags: i.tags.join(', '),
   customFields: { ...i.customFields }, manufacturer: i.manufacturer, countryOfOrigin: i.countryOfOrigin,
+  packageSessions: i.packageSessions == null ? '' : String(i.packageSessions), packageTypeId: i.packageTypeId ?? '',
+  packageValidMonths: i.packageValidMonths == null ? '' : String(i.packageValidMonths),
 });
 
 const money = (s: string) => { const t = s.replace(/[₪,\s]/g, ''); return t === '' ? null : Number(t); };
@@ -266,12 +277,27 @@ export function draftError(d: ItemDraft): string | null {
   if (d.sku.trim().length > LIMITS.sku) return `מק״ט ארוך מדי (עד ${LIMITS.sku} תווים).`;
   if (!isBarcode(d.barcode.trim())) return 'ברקוד: 3–40 ספרות או אותיות באנגלית (בלי רווחים).';
   if (d.manufacturer.length > LIMITS.manufacturer || d.countryOfOrigin.length > LIMITS.country) return 'שם היצרן או ארץ הייצור ארוכים מדי.';
+  // a package's terms: optional (a package of the register without them is not sold as a customer's package), checked when set
+  if (d.kind === 'package') {
+    const s = Number(d.packageSessions);
+    if (d.packageSessions.trim() && !(Number.isInteger(s) && s >= 1 && s <= PACKAGE_LIMITS.sessions)) return `מספר הטיפולים בחבילה: מספר שלם בין 1 ל-${PACKAGE_LIMITS.sessions}.`;
+    const m = Number(d.packageValidMonths);
+    if (d.packageValidMonths.trim() && !(Number.isInteger(m) && m >= 1 && m <= PACKAGE_LIMITS.months)) return `תוקף החבילה: מספר חודשים שלם בין 1 ל-${PACKAGE_LIMITS.months} — או ריק (בלי הגבלה).`;
+    if (!d.packageSessions.trim() && (d.packageTypeId || d.packageValidMonths.trim())) return 'כמה טיפולים בחבילה? בלי מספר טיפולים היא לא נמכרת כחבילה ללקוח.';
+  }
   return null;
 }
 
-/** the columns of catalog_items a draft writes (only after draftError(d) === null) */
-export function itemColumns(d: ItemDraft, defs: Pick<FieldDef, 'key'>[]) {
+/** the package columns of a draft (migration 20261010004200) — written only for a package, and only when the database has them */
+const packageColumns = (d: ItemDraft) => ({
+  package_sessions: d.packageSessions.trim() ? Number(d.packageSessions) : null,
+  package_type_id: d.packageTypeId || null,
+  package_valid_months: d.packageValidMonths.trim() ? Number(d.packageValidMonths) : null,
+});
+/** the columns of catalog_items a draft writes (only after draftError(d) === null); opts.packages: the database has 4200 */
+export function itemColumns(d: ItemDraft, defs: Pick<FieldDef, 'key'>[], opts: { packages?: boolean } = {}) {
   return {
+    ...(opts.packages && d.kind === 'package' ? packageColumns(d) : {}),
     name: d.name.trim(), kind: d.kind, price: money(d.price) ?? 0, active: d.active,
     description: d.description.trim(), seo_title: d.seoTitle.trim(), seo_description: d.seoDescription.trim(),
     slug: d.slug.trim() || null, publish_online: d.publishOnline, online_price: money(d.onlinePrice), compare_at_price: money(d.compareAtPrice),
@@ -289,8 +315,9 @@ export function changedColumns<T extends Record<string, unknown>>(next: T, befor
 const stable = (v: unknown): string => JSON.stringify(v ?? null, (_k, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x);
 /** the columns of an item as they are in the database, in the shape itemColumns() returns — to compare */
-export function itemColumnsOf(i: CatalogItem) {
+export function itemColumnsOf(i: CatalogItem, opts: { packages?: boolean } = {}) {
   return {
+    ...(opts.packages ? { package_sessions: i.packageSessions, package_type_id: i.packageTypeId, package_valid_months: i.packageValidMonths } : {}),
     name: i.name, kind: i.kind, price: i.price, active: i.active, description: i.description, seo_title: i.seoTitle, seo_description: i.seoDescription,
     slug: i.slug, publish_online: i.publishOnline, online_price: i.onlinePrice, compare_at_price: i.compareAtPrice, sku: i.sku, barcode: i.barcode,
     tags: i.tags, custom_fields: i.customFields, manufacturer: i.manufacturer, country_of_origin: i.countryOfOrigin,
@@ -322,6 +349,9 @@ export function catalogError(e: { message?: string; code?: string } | null | und
   if (/catalog_variants_item_id_option1_option2_option3_key/.test(m)) return 'הווריאנט הזה כבר קיים.';
   if (/catalog_options_item_id_position_key/.test(m)) return 'לכל מוצר עד 3 אפשרויות (למשל מידה, צבע, חומר).';
   if (/catalog_field_defs_key_uq/.test(m)) return 'שדה בשם הזה כבר קיים.';
+  if (/does not exist|schema cache|PGRST20[2-5]|42703/i.test(m) && /package_(sessions|type_id|valid_months)/.test(m)) return MIGRATION_4200;
+  if (/catalog_items_package_check/.test(m)) return `מספר טיפולים 1–${PACKAGE_LIMITS.sessions}, תוקף 1–${PACKAGE_LIMITS.months} חודשים.`;
+  if (/catalog_items_package_type_fk/.test(m)) return 'סוג הטיפול לא נמצא בעסק.';
   if (/variant_required/.test(m)) return 'למוצר עם וריאנטים סופרים מלאי לכל וריאנט בנפרד.';
   if (/not of this item/.test(m)) return 'התמונה והווריאנט חייבים להיות של אותו מוצר.';
   if (/stock changes only/.test(m)) return 'מלאי משתנה רק דרך קבלת סחורה או ספירה.';

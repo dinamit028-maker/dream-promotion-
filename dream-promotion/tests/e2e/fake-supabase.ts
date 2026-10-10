@@ -61,6 +61,8 @@ export class FakeSupabase {
   /** 2.73: store_apply_kit is on the database (migration 3900) — false: as before it, the steps of 2.58 */
   applyKitRpc = true;
   applyKitCalls = 0;
+  /** 2.87: client_files_allowed() for the signed-in user (the owner: yes) */
+  clientFiles = true;
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string }) {}
   private today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
   private log(action: string, entityId: string, details: Row) {
@@ -111,6 +113,38 @@ export class FakeSupabase {
       pending: { count: this.t('sales').filter((x) => x.status === 'pending').length, total: 0 }, posWithoutDocument: { count: 0, total: 0 }, allocationMissing: 0,
       months: [{ month, revenue: r2(rev(docs)), expenses: r2(eNet + eVat - eDed) }], lockedUntil: this.finance.lockedUntil,
     };
+  }
+
+  /** 2.87: the database view client_package_status — a package with what was used, its document, paid (the ledger) and credited */
+  packageStatus(): Row[] {
+    const docs = this.t('documents'), pays = this.t('payments'), canc = new Set(this.t('document_cancellations').map((c) => c.document_id));
+    return this.t('client_packages').map((p) => {
+      const uses = this.t('client_package_uses').filter((u) => u.package_id === p.id);
+      const used = uses.filter((u) => !u.returned_at).length;
+      const d = p.document_id ? docs.find((x) => x.id === p.document_id) : null;
+      const paid = d ? pays.filter((y) => y.document_id === d.id || y.applies_to === d.id).reduce((a, y) => a + (y.direction === 'in' ? 1 : -1) * Number(y.amount), 0) : 0;
+      const credited = d ? docs.filter((c) => c.doc_type === 330 && c.base_doc_type === d.doc_type && c.base_doc_number === d.doc_number).reduce((a, c) => a + Number(c.total), 0) : 0;
+      const lead = this.t('leads').find((l) => l.id === p.lead_id);
+      return { ...p, customer_name: lead?.name ?? '', used, returned: uses.length - used, remaining: Number(p.sessions_total) - used,
+        last_used_at: uses.filter((u) => !u.returned_at).map((u) => u.used_at).sort().pop() ?? null,
+        doc_type: d?.doc_type ?? null, doc_number: d?.doc_number ?? null, doc_date: d?.doc_date ?? null, doc_total: d ? Number(d.total) : null, doc_cancelled: d ? canc.has(d.id) : false,
+        paid: Math.round(paid * 100) / 100, credited: Math.round(credited * 100) / 100 };
+    });
+  }
+  /** 2.87: a deduction — the database's rules (client_package_uses_check): one per session, never beyond, never cancelled */
+  private useCheck(r: Row): string | null {
+    const s = this.t('client_sessions').find((x) => x.id === r.session_id && x.lead_id === r.lead_id);
+    if (!s) return 'the session was not found for this customer';
+    if (s.cancelled_at) return 'session_cancelled: a cancelled session is not deducted';
+    const p = this.t('client_packages').find((x) => x.id === r.package_id && x.lead_id === r.lead_id);
+    if (!p) return 'the package was not found for this customer';
+    if (p.status !== 'active') return 'package_cancelled: a cancelled package is not used';
+    if (this.t('client_package_uses').some((u) => u.session_id === r.session_id && !u.returned_at)) return 'session_deducted: this session was already deducted';
+    if (this.t('client_package_uses').filter((u) => u.package_id === p.id && !u.returned_at).length >= Number(p.sessions_total)) return 'package_used_up: no treatments are left in this package';
+    const t = this.t('client_treatments').find((x) => x.id === s.treatment_id);
+    if (p.treatment_type_id && t?.treatment_type_id && t.treatment_type_id !== p.treatment_type_id) return 'package_other_type: the package is for another type of treatment';
+    Object.assign(r, { user_id: this.opts.userId, used_at: now(), returned_at: null, returned_by: null, return_reason: '' });
+    return null;
   }
 
   private t(name: string) { return (this.tables[name] ||= []); }
@@ -179,6 +213,15 @@ export class FakeSupabase {
       Object.assign(r, { expense_number: n, status: r.status ?? 'confirmed', confirmed_at: (r.status ?? 'confirmed') === 'confirmed' ? now() : null, stock_lines: r.stock_lines ?? [], updated_at: now() });
     }
     if (table === 'document_drafts') Object.assign(r, { status: 'open', document_id: null, updated_at: now() });
+    // 2.87: a package sold — its terms as sent, active; its document linked when it already exists ("package:<id>")
+    if (table === 'client_packages') {
+      if (this.t(table).some((x) => x.id === r.id)) return 'duplicate key value violates unique constraint "client_packages_pkey"';
+      const doc = this.t('documents').find((d) => d.idempotency_key === `package:${r.id}`);
+      Object.assign(r, { status: 'active', sold_on: r.sold_on ?? this.today(), valid_until: r.valid_until ?? null, notes: r.notes ?? '', cancelled_at: null, cancelled_by: null,
+        cancel_reason: '', document_id: doc?.id ?? null, user_id: this.opts.userId });
+    }
+    if (table === 'client_package_uses') { const e = this.useCheck(r); if (e) return e; }
+    if (table === 'client_sessions') Object.assign(r, { at: r.at ?? now(), notes: r.notes ?? '', params: r.params ?? {}, by_user: r.by_user ?? this.opts.userId, cancelled_at: null, cancelled_by: null, cancel_reason: '' });
     if (table === 'document_cancellations' && this.t('document_cancellations').some((c) => c.document_id === r.document_id)) return 'duplicate key value violates unique constraint "document_cancellations_pkey"';
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
     if (table === 'store_coupons') { r.code = String(r.code ?? '').toUpperCase(); r.active ??= true; r.used_count = 0; r.min_subtotal ??= 0; }
@@ -269,6 +312,9 @@ export class FakeSupabase {
       }
       if (r.draft_id) { const d = this.t('document_drafts').find((x) => x.id === r.draft_id); if (d) Object.assign(d, { status: 'finalized', document_id: r.id }); }
       if (r.quote_id) { const q = this.t('quotes').find((x) => x.id === r.quote_id); if (q) Object.assign(q, { status: 'converted', converted_document_id: r.id }); }
+      // 2.87: a package's document is linked to it (z_documents_package_link)
+      const pk = /^package:([0-9a-f-]{36})$/.exec(r.idempotency_key ?? '');
+      if (pk) { const p = this.t('client_packages').find((x) => x.id === pk[1] && !x.document_id); if (p) p.document_id = r.id; }
       this.log('document.issued', r.id, { type: r.doc_type, number: r.doc_number, total: r.total });
     }
     if (table === 'document_cancellations') {
@@ -292,6 +338,21 @@ export class FakeSupabase {
       if (patch.status === 'accepted' || patch.status === 'rejected') patch.decided_at = now();
     }
     if (table === 'document_drafts' && old.status !== 'open') return 'the draft was already issued';
+    if (table === 'client_packages') {
+      if (old.status === 'cancelled' && (patch.status ?? 'cancelled') !== 'cancelled') return 'a cancelled package stays cancelled';
+      if (patch.status === 'cancelled' && old.status !== 'cancelled') {
+        if (String(patch.cancel_reason ?? '').trim().length < 2) return 'a reason is required to cancel a package';
+        Object.assign(patch, { cancelled_at: now(), cancelled_by: this.opts.userId });
+      }
+    }
+    if (table === 'client_package_uses') {
+      if (old.returned_at) return 'a deduction does not change — it is given back';
+      if (patch.returned_at) Object.assign(patch, { returned_at: now(), returned_by: this.opts.userId });
+    }
+    if (table === 'client_sessions') {
+      if (old.cancelled_at) return 'a cancelled session does not change';
+      if (patch.cancelled_at) Object.assign(patch, { cancelled_at: now(), cancelled_by: this.opts.userId });
+    }
     if (table === 'expenses' && old.status === 'void') return 'a void expense does not change';
     if (table === 'expenses' && patch.status === 'void') patch.voided_at = now();
     if (table === 'sales' && patch.status === 'cancelled' && old.status !== 'cancelled' && this.t('sale_refunds').some((x) => x.sale_id === old.id)) return 'a refunded sale can not be cancelled';
@@ -326,6 +387,11 @@ export class FakeSupabase {
     return null;
   }
   private afterUpdate(table: string, old: Row, r: Row) {
+    if (table === 'client_sessions' && r.cancelled_at && !old.cancelled_at) {
+      for (const u of this.t('client_package_uses').filter((x) => x.session_id === r.id && !x.returned_at)) {
+        Object.assign(u, { returned_at: now(), returned_by: this.opts.userId, return_reason: `הטיפול בוטל${r.cancel_reason ? `: ${r.cancel_reason}` : ''}` });
+      }
+    }
     if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant });
   }
 
@@ -437,6 +503,26 @@ export class FakeSupabase {
       this.stock(it.id, total - Number(it.stock_qty ?? 0), 'count', { note: 'התאמה לסכום הווריאנטים' });
       return { status: 200, body: it.stock_qty };
     }
+    // 2.87: the client file's people (the owner here), and a session + its deduction in one step (all or nothing)
+    if (fn === 'client_files_allowed') return { status: 200, body: this.clientFiles };
+    if (fn === 'client_session_add') {
+      if (!this.clientFiles) return { status: 400, body: { code: '42501', message: 'not allowed' } };
+      // the id fixed on the device: a retry of the same call is the same session
+      if (args.p_id && this.t('client_sessions').some((x) => x.id === args.p_id && x.lead_id === args.p_lead)) return { status: 200, body: args.p_id };
+      const t = this.t('client_treatments').find((x) => x.id === args.p_treatment && x.lead_id === args.p_lead);
+      if (!t) return { status: 400, body: { code: '23503', message: 'insert or update on table "client_sessions" violates foreign key constraint "client_sessions_treatment_id_business_id_lead_id_fkey"' } };
+      if (args.p_at && Date.parse(args.p_at) > Date.now() + 864e5) return { status: 400, body: { code: '22023', message: 'session_time: a session that took place (not in the future)' } };
+      const s: Row = { id: args.p_id ?? randomUUID(), business_id: this.opts.businessId, treatment_id: t.id, lead_id: args.p_lead, at: args.p_at ?? now(), notes: args.p_notes ?? '' };
+      this.beforeInsert('client_sessions', s);
+      this.t('client_sessions').push(s);
+      if (args.p_package) {
+        const u: Row = { id: randomUUID(), business_id: this.opts.businessId, package_id: args.p_package, lead_id: args.p_lead, session_id: s.id };
+        const e = this.useCheck(u);
+        if (e) { this.tables.client_sessions = this.t('client_sessions').filter((x) => x !== s); return { status: 400, body: { code: '23514', message: e } }; }
+        this.t('client_package_uses').push(u);
+      }
+      return { status: 200, body: s.id };
+    }
     if (fn === 'finance_access_state') {
       const f = this.finance;
       return { status: 200, body: { business: this.opts.businessId, superAdmin: f.superAdmin, access: 'full', member: f.member, open: f.member || Boolean(f.grantUntil), grantUntil: f.grantUntil, lockedUntil: f.lockedUntil } };
@@ -525,12 +611,13 @@ export class FakeSupabase {
     if (!m) return json(404, { message: 'not found' });
     const table = m[1];
     if (table === 'receivables') this.tables.receivables = this.receivables();
+    if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();
     const rows = this.t(table);
     const wantsObject = (headers.accept ?? '').includes('vnd.pgrst.object');
     const prefer = headers.prefer ?? '';
-    const ret = (list: Row[], status = 200) => {
-      if (wantsObject) return list.length === 1 ? json(status, list[0]) : json(406, { code: 'PGRST116', message: `JSON object requested, multiple (or no) rows returned (${list.length})` });
-      return json(status, list);
+    const ret = (list: Row[], status = 200, extra: Record<string, string> = {}) => {
+      if (wantsObject) return list.length === 1 ? json(status, list[0], extra) : json(406, { code: 'PGRST116', message: `JSON object requested, multiple (or no) rows returned (${list.length})` });
+      return json(status, list, extra);
     };
     const err = (message: string) => json(400, { code: message.includes('duplicate key') ? '23505' : 'P0001', message, details: null, hint: null });
 
@@ -543,7 +630,10 @@ export class FakeSupabase {
       }
       const limit = Number(url.searchParams.get('limit') ?? Infinity);
       const offset = Number(url.searchParams.get('offset') ?? 0);
-      return ret(list.slice(offset, offset + limit));
+      const page = list.slice(offset, offset + limit);
+      // { count: 'exact' } (a receipt's / credit's "next" key counts what exists): PostgREST answers in Content-Range
+      const range: Record<string, string> = prefer.includes('count=exact') ? { 'content-range': `${page.length ? `${offset}-${offset + page.length - 1}` : '*'}/${list.length}` } : {};
+      return ret(page, 200, range);
     }
     if (method === 'POST') {
       const list: Row[] = Array.isArray(body) ? body : [body];

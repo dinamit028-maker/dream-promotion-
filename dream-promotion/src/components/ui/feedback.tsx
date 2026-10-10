@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './primitives';
 import { cx } from '@/lib/utils';
@@ -23,14 +23,18 @@ let modalSeq = 0;
 export function Modal({ open, onClose, children, wide }: { open: boolean; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => { setHost(document.body); }, []);
+  // the latest onClose, read when Escape is pressed: a parent that re-renders (a new inline onClose) must not move its dialog to
+  // the top of the stack — then Escape closed the dialog underneath, and the one opened from it with it (2.87)
+  const close = useRef(onClose);
+  useEffect(() => { close.current = onClose; });
   useEffect(() => {
     if (!open) return;
     const id = ++modalSeq;
     modalStack.push(id);
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === id) onClose(); };
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === id) close.current(); };
     addEventListener('keydown', h);
     return () => { removeEventListener('keydown', h); modalStack.splice(modalStack.indexOf(id), 1); };
-  }, [open, onClose]);
+  }, [open]);
   if (!open || !host) return null;
   // portalled to <body>, so a dialog opened from inside another dialog is never clipped by it
   return createPortal(

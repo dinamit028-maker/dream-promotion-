@@ -30,6 +30,8 @@ export function financeError(e: unknown): string {
   if (/receipt_exceeds_balance/.test(m)) return 'הסכום גדול מהיתרה לתשלום על החשבונית (אולי כבר נרשם תשלום ממכשיר אחר). רעננו ובדקו.';
   if (/tax invoice-receipt \(320\), not a receipt/.test(m)) return 'בעסק שגובה מע״מ, תשלום על חשבונית עסקה מקבל חשבונית מס / קבלה — לא קבלה.';
   if (/refund_exceeds_paid/.test(m)) return 'הסכום גדול ממה שנשאר להחזיר על העסקה (חלק כבר הוחזר בקופה).';
+  // 2.87 (migration 20261010004200): a package's document is linked to its package — the same customer and price
+  if (/package_document/.test(m)) return 'המסמך לא תואם לחבילה (לקוח/ה או מחיר). סגרו ופתחו את המכירה מחדש.';
   if (/method and amount are numbers|cheque's details/.test(m)) return 'פרטי התשלום לא תקינים (סכום, תאריך או פרטי הצ׳ק).';
   if (/names are text/.test(m)) return 'שורות המסמך לא תקינות (כמות, מחיר או שיעור מע״מ). רעננו ונסו שוב.';
   if (/payments:/.test(m)) return 'סכום התשלומים לא שווה לסכום המסמך.';

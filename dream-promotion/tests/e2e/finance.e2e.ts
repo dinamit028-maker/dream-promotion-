@@ -3,7 +3,7 @@
  * (390×844, and 375 for sideways scrolling) and on a computer (1440×900), against the in-memory Supabase of
  * fake-supabase.ts (the accounting rules themselves are proven on Postgres in tests/sql).
  * The module's own shell: its header, the menu from the right (groups, one open at a time), the bottom bar, the "+",
- * every one of the 9 screens at its own address, the phone's back button, an old link, "חזרה ל-Dream", the business
+ * every one of the 10 screens at its own address, the phone's back button, an old link, "חזרה ל-Dream", the business
  * switch, a locked business, the computer's sidebar and "חדש".
  * The money: a tax invoice from the contacts, the receivables and a reminder, a receipt, a credit invoice with money
  * back, a quote accepted and converted, an expense with its VAT share, the VAT working paper, the audit check, the CRM
@@ -37,7 +37,7 @@ const TEAL_DARK = 'rgb(45, 212, 191)';
 const TEAL_LIGHT = 'rgb(15, 118, 110)';
 // the phone's menu: the links that sit inside a group (the group opens first)
 const GROUP_OF: Record<string, string> = {
-  'מסמכים': 'הכנסות', 'הכנסות': 'הכנסות', 'חייבים': 'הכנסות', 'הצעות מחיר': 'הכנסות', 'דוחות': 'דוחות ורואה חשבון', 'רואה חשבון': 'דוחות ורואה חשבון',
+  'מסמכים': 'הכנסות', 'הכנסות': 'הכנסות', 'חייבים': 'הכנסות', 'הצעות מחיר': 'הכנסות', 'חבילות': 'הכנסות', 'דוחות': 'דוחות ורואה חשבון', 'רואה חשבון': 'דוחות ורואה חשבון',
 };
 const PATH_OF: Record<string, string> = Object.fromEntries(FINANCE_SECTIONS.map((s) => [s.label, s.path]));
 const BAR: Record<string, string> = { 'לובי': '/finance', 'הכנסות': '/finance/income', 'הוצאות': '/finance/expenses', 'חייבים': '/finance/receivables' };
@@ -255,7 +255,7 @@ async function main() {
       const reports = m.getByRole('button', { name: 'דוחות ורואה חשבון', exact: true });
       assert.deepEqual([await income.getAttribute('aria-expanded'), await reports.getAttribute('aria-expanded')], ['false', 'false']);
       await income.click();
-      for (const l of ['מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר']) await m.getByRole('link', { name: l, exact: true }).waitFor();
+      for (const l of ['מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות']) await m.getByRole('link', { name: l, exact: true }).waitFor();
       await reports.click();
       await m.getByRole('link', { name: 'רואה חשבון', exact: true }).waitFor();
       assert.equal(await income.getAttribute('aria-expanded'), 'false', 'opening a group closes the open one');
@@ -445,7 +445,7 @@ async function main() {
       await page.getByText('החיבור לרשות המסים לא הוגדר.').waitFor();
     });
 
-    await step('every one of the 9 screens from the menu, at its own address; the phone\'s back button; a direct link; nothing sideways at 375', async () => {
+    await step('every one of the 10 screens from the menu, at its own address; the phone\'s back button; a direct link; nothing sideways at 375', async () => {
       for (const s of FINANCE_SECTIONS) {
         await menuTo(page, s.label);
         await noSideScroll(page, s.label);
@@ -623,7 +623,7 @@ async function main() {
       await side.waitFor({ timeout: 120_000 });
       await p.getByText('רווח משוער').waitFor();
       assert.deepEqual((await side.getByRole('link').allInnerTexts()).map((t: string) => t.trim()),
-        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'הוצאות', 'דוחות', 'רואה חשבון', 'הגדרות כספים']);
+        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'הוצאות', 'דוחות', 'רואה חשבון', 'הגדרות כספים']);
       for (const g of ['הכנסות', 'דוחות ורואה חשבון']) await side.locator('p', { hasText: new RegExp(`^${g}$`) }).waitFor();
       await heading(p, 'כספים · FollowMe');
       assert.equal(await p.getByRole('button', { name: 'תפריט', exact: true }).count(), 0, 'no bottom bar');

@@ -15,6 +15,8 @@ import { CrmFinance } from './CrmFinance';
 import { ClientPhotos } from '@/features/client-file/ClientPhotos';
 import { ClientDeclarations } from '@/features/client-file/ClientDeclarations';
 import { ClientTimeline } from '@/features/client-file/ClientTimeline';
+import { ClientSessions } from '@/features/client-file/ClientSessions';
+import { ClientPackages } from './ClientPackages';
 
 /** what the reply box says it answers in, per inbox channel */
 const REPLY_IN = { messenger: 'תשובה במסנג׳ר', fb: 'תשובה לתגובה בפייסבוק', ig: 'תשובה לתגובה באינסטגרם' } as const;
@@ -141,9 +143,12 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
 
       {/* the contact's money: documents, what is owed, quotes — and issuing a document for them (2.51) */}
       {isCloudConfigured && <CrmFinance leadId={lead.id} />}
+      {/* the customer's packages: what is left of each, and a warning near the end (2.87; nothing when they have none) */}
+      {isCloudConfigured && <ClientPackages leadId={lead.id} />}
 
       {/* the client file: declarations and photos (owner and marked practitioners only — nothing is shown to anyone else) */}
       {isCloudConfigured && <ClientDeclarations leadId={lead.id} />}
+      {isCloudConfigured && <ClientSessions leadId={lead.id} />}
       {isCloudConfigured && <ClientPhotos leadId={lead.id} />}
 
       {posts.length > 0 && (

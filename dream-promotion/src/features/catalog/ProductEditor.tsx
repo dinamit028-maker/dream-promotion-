@@ -10,7 +10,7 @@ import { cx } from '@/lib/utils';
 import { AIService } from '@/lib/services';
 import { ils } from '@/features/register/money';
 import {
-  KIND_HE, LIMITS, MAX_OPTIONS, MAX_PICTURES, MIGRATION_3300, SEO_SHOWN, changedColumns, cleanProductCopy, copyBrief, draftError, draftOf, emptyDraft,
+  KIND_HE, LIMITS, MAX_OPTIONS, MAX_PICTURES, MIGRATION_3300, MIGRATION_4200, SEO_SHOWN, changedColumns, cleanProductCopy, copyBrief, draftError, draftOf, emptyDraft,
   itemColumns, itemColumnsOf, newFieldKey, onlinePriceOf, planVariants, posPrice, promoteBrief, promoteUrl, publishGaps, slugify, splitList, unassignedUnits, uniqueSlug,
   variantColumns, variantLabel, variantLevel, type CatalogItem, type CatalogMedia, type CatalogOption, type CatalogVariant, type FieldDef,
   type ItemDraft, type ItemKind, type ProductCopy,
@@ -22,6 +22,8 @@ import {
 import { uploadPicture } from './upload';
 import { pickSize } from './images';
 import { Switch, SITE_LIVE, SITE_NOT_LIVE, useSiteLive, type EditorFocus } from './PublishSwitch';
+import { authHeaders } from '@/lib/services/http';
+import { loadTreatmentTypes, packagesReady, type TreatmentType } from '@/features/finance/packages-data';
 
 /**
  * THE product editor (Dream Commerce 2.54) — the only place a product is created and edited, opened from the register's
@@ -85,6 +87,10 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const [orphans, setOrphans] = useState<CatalogVariant[]>([]);
   const [newField, setNewField] = useState<{ label: string; kind: 'text' | 'multiline' } | null>(null);
   const [aiOk, setAiOk] = useState<boolean | null>(null);
+  // a package's terms (2.87, migration 20261010004200): shown for kind "חבילה", written only when the database has them
+  const [pkReady, setPkReady] = useState(false);
+  const [types, setTypes] = useState<TreatmentType[]>([]);
+  const [newType, setNewType] = useState<{ name: string; busy: boolean; error: string | null } | null>(null);
   const [ai, setAi] = useState<{ busy: boolean; proposal: ProductCopy | null; error: string | null }>({ busy: false, proposal: null, error: null });
   const sections = useRef<Record<string, HTMLElement | null>>({});
   const fileInput = useRef<HTMLInputElement>(null);
@@ -127,6 +133,35 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
     return () => { alive = false; };
   }, [itemId, apply]);
   useEffect(() => { AIService.available().then(setAiOk); }, []);
+  const isPackage = draft.kind === 'package';
+  useEffect(() => {
+    if (!isPackage) return;
+    let alive = true;
+    void packagesReady().then(async (ok) => {
+      if (!alive) return;
+      setPkReady(ok);
+      if (ok) { const t = await loadTreatmentTypes(); if (alive) setTypes(t); }
+    });
+    return () => { alive = false; };
+  }, [isPackage]);
+  /** a treatment type of the clinic (the client file's list, docs/CLIENT_FILE_ENGINEERING_HE.md §3) — the owner and marked practitioners add */
+  async function addType() {
+    const name = newType?.name.trim() ?? '';
+    if (!name) return;
+    setNewType({ name, busy: true, error: null });
+    try {
+      const r = await fetch('/api/client-file/declarations', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ action: 'type-add', name }) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) {
+        setNewType({ name, busy: false, error: j?.code === 'no_access' ? 'סוגי טיפול מוסיפים בעלי העסק והמטפלים שסומנו (תיק לקוח).' : j?.message ?? 'לא נשמר — נסו שוב.' });
+        return;
+      }
+      setTypes(await loadTreatmentTypes());
+      if (j?.type?.id) set('packageTypeId', String(j.type.id));
+      setNewType(null);
+    } catch { setNewType({ name, busy: false, error: 'אין חיבור כרגע.' }); }
+  }
 
   const set = <K extends keyof ItemDraft>(k: K, v: ItemDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const price = Number(draft.price.replace(/[₪,\s]/g, '')) || 0;
@@ -146,7 +181,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
         d = { ...d, slug: uniqueSlug(slugify(d.name), await takenSlugs(item?.id)) };
         setDraft(d);
       }
-      const all = itemColumns(d, fields);
+      const all = itemColumns(d, fields, { packages: pkReady });
       // before migration 3300 only the register's columns exist
       const cols: Record<string, unknown> = ready ? all : { name: all.name, kind: all.kind, price: all.price, active: all.active };
       let saved: CatalogItem;
@@ -155,7 +190,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
         if (!r.ok) { fail(r.error); return null; }
         saved = r.data;
       } else {
-        const r = await updateItem(item.id, changedColumns(cols, itemColumnsOf(item) as Record<string, unknown>));
+        const r = await updateItem(item.id, changedColumns(cols, itemColumnsOf(item, { packages: pkReady }) as Record<string, unknown>));
         if (!r.ok) { fail(r.error); return null; }
         saved = r.data;
         // the variants' own fields
@@ -237,7 +272,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const router = useRouter();
   const [promoting, setPromoting] = useState(false);
   async function promote() {
-    const dirty = Boolean(item) && Object.keys(changedColumns(itemColumns(draft, fields), itemColumnsOf(item!) as Record<string, unknown>)).length > 0;
+    const dirty = Boolean(item) && Object.keys(changedColumns(itemColumns(draft, fields, { packages: pkReady }), itemColumnsOf(item!, { packages: pkReady }) as Record<string, unknown>)).length > 0;
     if (dirty && !window.confirm('יש שינויים שלא נשמרו. לעבור לאולפן היצירה בלי לשמור?')) return;
     setPromoting(true);
     const main = [...media].sort((a, b) => a.position - b.position)[0];
@@ -342,7 +377,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
     <div className="grid gap-4 pb-24">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="font-display text-2xl font-extrabold">{item ? item.name : 'מוצר חדש'}</h2>
+          <h2 className="font-display text-2xl font-extrabold">{item ? item.name : isPackage ? 'חבילה חדשה' : 'מוצר חדש'}</h2>
           <p className="text-sm text-muted">מוצר אחד לקופה, לכספים ולאתר — שינוי כאן מופיע מיד בכל המקומות.</p>
         </div>
         {onClose && <CloseButton onClick={onClose} />}
@@ -359,6 +394,38 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
           </label>
         </div>
       </Section>
+
+      {isPackage && (
+        <Section id="package" title="תנאי החבילה" sectionRef={ref('package')}
+          hint="מה הלקוח/ה מקבל/ת: כמה טיפולים, לאיזה סוג טיפול, ולכמה זמן. כך החבילה נמכרת מכרטיס הלקוח, והטיפולים נוכים ממנה. שינוי כאן לא משנה חבילה שכבר נמכרה.">
+          {!pkReady ? <p className="text-sm text-muted">{MIGRATION_4200} עד אז החבילה נמכרת בקופה כמו כל פריט.</p> : <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="מספר טיפולים"><Input inputMode="numeric" value={draft.packageSessions} placeholder="למשל 6"
+                onChange={(e) => set('packageSessions', e.target.value.replace(/\D/g, '').slice(0, 3))} /></Field>
+              <Field label="סוג טיפול">
+                <Select value={draft.packageTypeId} onChange={(e) => (e.target.value === '+' ? setNewType({ name: '', busy: false, error: null }) : set('packageTypeId', e.target.value))}>
+                  <option value="">כל טיפול</option>
+                  {types.map((t) => <option key={t.id} value={t.id}>{t.name}{t.active ? '' : ' (לא פעיל)'}</option>)}
+                  <option value="+">+ סוג טיפול חדש…</option>
+                </Select>
+              </Field>
+              <Field label="תוקף בחודשים (ריק = בלי הגבלה)"><Input inputMode="numeric" value={draft.packageValidMonths} placeholder="למשל 6"
+                onChange={(e) => set('packageValidMonths', e.target.value.replace(/\D/g, '').slice(0, 3))} /></Field>
+            </div>
+            {newType && (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Input value={newType.name} maxLength={80} autoFocus placeholder="שם סוג הטיפול (למשל לייזר)" aria-label="סוג טיפול חדש" className="max-w-xs py-2"
+                  onChange={(e) => setNewType({ ...newType, name: e.target.value, error: null })} />
+                <Button size="sm" variant="primary" disabled={newType.busy || !newType.name.trim()} onClick={() => void addType()}>{newType.busy ? <Spinner /> : 'הוספה'}</Button>
+                <Button size="sm" variant="ghost" onClick={() => setNewType(null)}>ביטול</Button>
+                {newType.error && <p role="alert" className="w-full text-sm text-(--danger)">{newType.error}</p>}
+              </div>
+            )}
+            {!draft.packageSessions.trim() && <p className="text-xs text-amber-700 dark:text-amber-300">בלי מספר טיפולים, החבילה נמכרת בקופה כפריט — אבל לא נמכרת ללקוח כחבילה שמנכים ממנה.</p>}
+            <p className="text-xs text-muted">סוג הטיפול: ניכוי מוצע רק לטיפול מאותו סוג (&quot;כל טיפול&quot; — לכל טיפול). תנאים והערות ללקוח — בשדה &quot;תיאור&quot;.</p>
+          </>}
+        </Section>
+      )}
 
       <Section id="images" title="תמונות" sectionRef={ref('images')}
         hint={`עד ${MAX_PICTURES} תמונות. הראשונה היא התמונה הראשית (גם במשבצת בקופה). הגדלים לאתר נעשים במכשיר — גם תמונה גדולה מהטלפון עולה מהר.`}>
@@ -602,7 +669,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
       )}
 
       <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-3 border-t border-line bg-surface/95 px-1 py-3 backdrop-blur-sm">
-        <Button variant="primary" disabled={Boolean(busy)} onClick={() => void save()}>{busy === 'save' ? <><Spinner />שומר…</> : item ? 'שמירה' : 'יצירת המוצר'}</Button>
+        <Button variant="primary" disabled={Boolean(busy)} onClick={() => void save()}>{busy === 'save' ? <><Spinner />שומר…</> : item ? 'שמירה' : isPackage ? 'יצירת החבילה' : 'יצירת המוצר'}</Button>
         {onClose && <Button variant="ghost" onClick={onClose}>סגירה</Button>}
         {busy && busy !== 'save' && <span className="flex items-center gap-2 text-sm text-muted"><Spinner />{busy.includes('…') ? busy : 'רגע…'}</span>}
         {note && <span role="status" className="text-sm font-semibold text-ok">{note}</span>}

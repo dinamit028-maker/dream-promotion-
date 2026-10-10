@@ -429,6 +429,27 @@ test('the timeline: treatments, photos by day, declarations, links and appointme
   assert.equal((await staff(OTHER, { action: 'timeline', leadId: NOA })).status, 404);
 });
 
+test('the timeline (2.87): a cancelled session is marked, and a session taken from a package names it', async () => {
+  Object.assign(tables, {
+    client_treatments: [{ id: 't1', business_id: B1, lead_id: NOA, title: 'לייזר', area: 'רגליים', started_at: '2026-10-01', status: 'active', created_at: '2026-10-01T08:00:00Z' }],
+    client_sessions: [
+      { id: 's1', business_id: B1, lead_id: NOA, treatment_id: 't1', at: '2026-10-02T09:00:00Z', notes: '18 ג׳אול', cancelled_at: null, cancel_reason: '' },
+      { id: 's2', business_id: B1, lead_id: NOA, treatment_id: 't1', at: '2026-10-04T09:00:00Z', notes: '', cancelled_at: '2026-10-04T10:00:00Z', cancel_reason: 'לא הגיעה' },
+      { id: 's3', business_id: B1, lead_id: NOA, treatment_id: 't1', at: '2026-10-06T09:00:00Z', notes: '', cancelled_at: null, cancel_reason: '' }],
+    client_packages: [{ id: 'pk1', business_id: B1, lead_id: NOA, name: '6 טיפולי לייזר' }, { id: 'pk9', business_id: B2, lead_id: MICHAL, name: 'של עסק אחר' }],
+    client_package_uses: [
+      { id: 'u1', business_id: B1, lead_id: NOA, package_id: 'pk1', session_id: 's1', returned_at: null },
+      { id: 'u2', business_id: B1, lead_id: NOA, package_id: 'pk1', session_id: 's2', returned_at: '2026-10-04T10:00:00Z' },
+      { id: 'u3', business_id: B1, lead_id: NOA, package_id: 'pk1', session_id: 's3', returned_at: '2026-10-06T10:00:00Z' }],
+  });
+  const r = await staff(PRAC, { action: 'timeline', leadId: NOA });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const kinds = r.body.events.filter((e: any) => e.kind === 'session').map((e: any) => `${e.title}${e.sub ? ` (${e.sub})` : ''}`);
+  assert.deepEqual(kinds, ['סשן · לייזר · רגליים', 'סשן בוטל · לייזר · רגליים (לא הגיעה)', 'סשן · לייזר · רגליים (18 ג׳אול · נוכה מהחבילה "6 טיפולי לייזר")'],
+    'newest first: a deduction given back is not named; a cancelled session says why');
+  assert.ok(!JSON.stringify(r.body).includes('של עסק אחר'), 'another business\u2019s package is not read');
+});
+
 test('deleting a whole client file: the owner, typing the customer\u2019s name; rows and files go, a note stays', async () => {
   const { sent } = await sentLink();
   await pub(sent.body.token, { declarations: [{ answers: full, acks: [true], signerName: 'נועה כהן', signature: await signature(), confirm: true }] });

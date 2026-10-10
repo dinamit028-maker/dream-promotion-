@@ -11,6 +11,8 @@ type DbError = { message?: string; code?: string; details?: string } | null | un
 /** a database / network error → why, in Hebrew (the technical text goes to the console only) */
 export function saveErrorReason(e: DbError): string {
   const text = `${e?.message ?? ''} ${e?.details ?? ''}`.toLowerCase();
+  // a customer with a package that was sold (2.87): the money stays known — the contact is not deleted
+  if (e?.code === '23503' && /client_package/.test(text)) return 'ללקוח/ה יש חבילה שנמכרה — היא נשארת ברישומים הכספיים, ולכן איש הקשר לא נמחק';
   // a customer with a client file (photos, declarations): the database keeps the file — it is deleted first, as a whole
   if (e?.code === '23503' && /client_|declaration/.test(text)) return 'ללקוח/ה יש תיק לקוח (צילומים או הצהרות). קודם מוחקים את התיק — בעל/ת העסק, בכרטיס הלקוח';
   if (e?.code === '42501' || text.includes('row-level security') || text.includes('permission denied')) return 'אין הרשאה לשמור את זה בעסק הנוכחי';
