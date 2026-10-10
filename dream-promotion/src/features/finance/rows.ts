@@ -45,6 +45,8 @@ export function financeError(e: unknown): string {
 export interface IssueExtra {
   userId: string; idempotencyKey: string; vatRate: number; saleId?: string | null; leadId?: string | null; refundId?: string | null;
   paidDocumentId?: string | null; quoteId?: string | null; draftId?: string | null; source?: string;
+  /** 2.91 (T12א): the location chosen for a document of its own (else the database decides: its sale, the invoice it pays, …) */
+  locationId?: string | null;
 }
 /** the documents row of a new document (the number, issue time and issuer are set by the database) */
 export function documentRow(d: NewDoc, x: IssueExtra) {
@@ -56,5 +58,6 @@ export function documentRow(d: NewDoc, x: IssueExtra) {
     sale_id: x.saleId ?? null, lead_id: x.leadId ?? null, refund_id: x.refundId ?? null, due_date: d.dueDate ?? null, notes: d.notes ?? '',
     paid_document_id: x.paidDocumentId ?? null, quote_id: x.quoteId ?? null, draft_id: x.draftId ?? null, idempotency_key: x.idempotencyKey,
     ...(x.source ? { source: x.source } : {}),
+    ...(x.locationId ? { location_id: x.locationId } : {}),
   };
 }

@@ -19,6 +19,8 @@ export const dynamic = 'force-dynamic';
  *  PATCH { id, action: 'extend' | 'paid_until' | 'lock' | 'unlock' | 'enter', paidUntil?, reason? }
  *  PATCH { id, action: 'add_member', email, access: 'full' | 'register' } — a person who already signed up joins the
  *        business (register = "קופאי/ת": the register only) and starts working in it; 'remove_member' { email }
+ *  PATCH { id, action: 'member_locations', email, locations: string[] | null } — a member works only in these locations of the
+ *        business (T12א, migration 4600; null = all of them). The database checks them and logs the change (member.locations).
  */
 /** the super admin's id, or a ready refusal */
 async function superAdminOnly(req: Request): Promise<string | Response> {
@@ -28,6 +30,7 @@ async function superAdminOnly(req: Request): Promise<string | Response> {
   return r.admin.id;
 }
 const bad = (message: string, status = 400) => NextResponse.json({ code: 'bad_request', message }, { status });
+const NO_LOCATIONS = 'צריך להריץ את מיגרציה 20261010004600 (סניפים וקופות).';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: Request) {
@@ -35,7 +38,7 @@ export async function GET(req: Request) {
   if (typeof userId !== 'string') return userId;
   const db = adminDb();
   const monthStart = israelToIso(`${todayIL().slice(0, 7)}-01`, '00:00');
-  const [biz, members, assets, posts, leads, costs, me] = await Promise.all([
+  const [biz, members, assets, posts, leads, costs, me, places] = await Promise.all([
     db.from('businesses').select('id, name, slug, status, paid_until, grace_days, lock_reason, notes, created_at').order('created_at'),
     db.from('business_members').select('*'),
     db.from('social_accounts').select('business_id, provider, display_name, status'),
@@ -43,6 +46,8 @@ export async function GET(req: Request) {
     db.from('leads').select('business_id').gte('created_at', monthStart),
     db.from('ai_generations').select('business_id, actual_cost_usd, estimated_cost_usd, status').gte('created_at', monthStart).neq('status', 'cancelled'),
     db.from('profiles').select('current_business_id').eq('id', userId).maybeSingle(),
+    // the businesses' locations (migration 4600 — before it, none: every business is one place)
+    db.from('business_locations').select('id, business_id, name, active, sort, created_at').order('sort').order('created_at'),
   ]);
   if (biz.error) return NextResponse.json({ code: 'db', message: biz.error.message }, { status: 500 });
   const ids = [...new Set((members.data ?? []).map((m) => m.user_id))];
@@ -74,7 +79,12 @@ export async function GET(req: Request) {
         id: b.id, name: b.name, slug: b.slug, status: b.status, paidUntil: b.paid_until, graceDays: b.grace_days,
         lockReason: b.lock_reason, ...bizView(b),
         members: (members.data ?? []).filter((m) => m.business_id === b.id)
-          .map((m: any) => ({ role: m.role, access: m.access === 'register' ? 'register' : 'full', email: person.get(m.user_id)?.email ?? '', name: person.get(m.user_id)?.full_name ?? '' })),
+          .map((m: any) => ({ role: m.role, access: m.access === 'register' ? 'register' : 'full', email: person.get(m.user_id)?.email ?? '', name: person.get(m.user_id)?.full_name ?? '',
+            locations: Array.isArray(m.locations) ? m.locations.map(String) : null })),
+        // the main location first (its id is the business's)
+        locations: (places.error ? [] : places.data ?? []).filter((l: any) => l.business_id === b.id)
+          .sort((x: any, y: any) => Number(y.id === b.id) - Number(x.id === b.id))
+          .map((l: any) => ({ id: l.id, name: l.name, active: l.active !== false })),
         assets: mine.length,
         missing: mine.filter((s) => s.status === 'missing').map((s) => `${s.provider} · ${s.display_name ?? ''}`),
         month: { posts: count(posts.data, b.id), leads: count(leads.data, b.id), costUsd: Math.round(cost * 100) / 100 },
@@ -163,6 +173,23 @@ export async function PATCH(req: Request) {
       const { error } = await db.from('business_members').delete().eq('business_id', id).eq('user_id', p.id);
       if (error) return bad(error.message);
       await db.from('profiles').update({ current_business_id: null }).eq('id', p.id).eq('current_business_id', id);
+      return NextResponse.json({ ok: true });
+    }
+    case 'member_locations': {
+      const email = String(body.email ?? '').trim().toLowerCase();
+      const uid = await signedUpUser(db, email);
+      if (!uid) return bad('המשתמש לא נמצא');
+      // null = every location; else at least one, each of this business
+      const list = body.locations == null ? null : Array.isArray(body.locations) ? [...new Set(body.locations.map(String))] as string[] : undefined;
+      if (list === undefined || (list && !list.length)) return bad('בוחרים לפחות סניף אחד, או "כל הסניפים".');
+      if (list) {
+        const { data: ls, error: le } = await db.from('business_locations').select('id').eq('business_id', id).in('id', list);
+        if (le) return bad(NO_LOCATIONS);
+        if ((ls ?? []).length !== list.length) return bad('אחד הסניפים לא שייך לעסק הזה.');
+      }
+      const { data: m, error } = await db.from('business_members').update({ locations: list }).eq('business_id', id).eq('user_id', uid).select('user_id').maybeSingle();
+      if (error) return bad(/locations/.test(error.message) ? NO_LOCATIONS : error.message);
+      if (!m) return bad(`${email} לא חבר/ה בעסק הזה.`);
       return NextResponse.json({ ok: true });
     }
     default: return bad('פעולה לא מוכרת');

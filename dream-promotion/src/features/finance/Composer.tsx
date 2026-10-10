@@ -15,6 +15,8 @@ import { quoteKey } from './keys';
 import type { PaymentEntry } from './payments';
 import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from './ui';
 import { documentDateRateNote } from './vat';
+import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
+import { useLocations } from '@/features/locations/store';
 
 /**
  * One composer for a new document, a draft and a quote: customer (from the contacts or typed), lines (free or from
@@ -52,6 +54,9 @@ export function Composer({ mode, initial, onClose, onDone }: {
   const [validUntil, setValidUntil] = useState(quote?.validUntil ?? validUntilFor(today, profile.quoteValidDays));
   const [key] = useState(() => newKey('direct'));
   const [draftId, setDraftId] = useState<string | null>(mode.kind === 'document' ? mode.draftId ?? null : null);
+  // the location of a document of its own (T12א) — a field only with several locations and "כל הסניפים" picked; a draft keeps its own
+  const locState = useLocations((x) => x.state);
+  const [locationId, setLocationId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -72,7 +77,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
     const row = { doc_type: docType, customer_name: customer.name.trim().slice(0, 120), lead_id: leadId, total: preview.totals.total, body: body(),
       quote_id: mode.kind === 'document' ? mode.quoteId ?? null : null };
     const r = draftId ? await supabase().from('document_drafts').update(row).eq('id', draftId).select('id').single()
-      : await supabase().from('document_drafts').insert({ ...row, user_id: userId }).select('id').single();
+      : await supabase().from('document_drafts').insert({ ...row, user_id: userId, ...locationColumn(locState, locationId) }).select('id').single();
     setBusy(false);
     if (r.error || !r.data) { setErrors([financeError(r.error)]); return; }
     setDraftId(r.data.id); onDone({ kind: 'draft', id: r.data.id });
@@ -86,7 +91,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
     const quoteId = mode.kind === 'document' ? mode.quoteId ?? null : null;
     // a draft is one document, a quote is one document (whoever converts it, on any device), otherwise this form's own key
     const idempotencyKey = draftId ? `draft:${draftId}` : quoteId ? quoteKey(quoteId) : key;
-    const out = await issueDocumentRow(documentRow(res.doc, { userId, idempotencyKey, vatRate: res.totals.vatRate, leadId, quoteId, draftId }));
+    const out = await issueDocumentRow(documentRow(res.doc, { userId, idempotencyKey, vatRate: res.totals.vatRate, leadId, quoteId, draftId,
+      locationId: draftId ? null : locationColumn(locState, locationId).location_id ?? null }));
     setBusy(false);
     if (!out.ok) { setErrors([out.error]); return; }
     if (out.again && quoteId) { setErrors([`ההצעה כבר הפכה ל${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}.`]); return; }
@@ -157,7 +163,10 @@ export function Composer({ mode, initial, onClose, onDone }: {
           </div>
         </Field>
         {mode.kind === 'document' ? (
-          <Field label="תאריך המסמך"><Input type="date" value={docDate} max={today} onChange={(e) => setDocDate(e.target.value || today)} /></Field>
+          <>
+            <Field label="תאריך המסמך"><Input type="date" value={docDate} max={today} onChange={(e) => setDocDate(e.target.value || today)} /></Field>
+            {!draftId && <LocationField value={locationId} onChange={setLocationId} />}
+          </>
         ) : (
           <Field label="בתוקף עד"><Input type="date" value={validUntil} min={today} onChange={(e) => setValidUntil(e.target.value)} /></Field>
         )}

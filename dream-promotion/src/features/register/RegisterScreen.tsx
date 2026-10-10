@@ -26,6 +26,8 @@ import { issueDocumentRow } from '@/features/finance/api';
 import { MIGRATION_3300, applyVariantStock, catalogError, lineName, toCatalogItem, toVariant, variantLevel, variantStockText, variantsOf, type CatalogItem, type CatalogVariant } from '@/features/catalog/catalog';
 import { PublishSwitch, type EditorFocus } from '@/features/catalog/PublishSwitch';
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
+import { useLocations } from '@/features/locations/store';
+import { pickRegister, registerLabel, registersHere, saleTag, showRegisterPicker } from '@/features/locations/locations';
 
 /** Toolbox stage 3: sell, record payments, refunds, reports, close of day, commissions, documents, price list & stock. */
 type Item = PosItem & { sort: number };
@@ -40,6 +42,7 @@ const toSale = (r: any): Sale => ({
   payments: r.payments ?? [], employeeId: r.employee_id ?? null, employeeName: r.employee_name ?? '',
   billingName: r.billing_name ?? '', customerDealer: r.customer_dealer ?? '', customerStreet: r.customer_street ?? '', customerCity: r.customer_city ?? '',
   cashReceived: r.cash_received == null ? null : Number(r.cash_received), changeGiven: r.change_given == null ? null : Number(r.change_given),
+  registerId: r.register_id ?? null, locationId: r.location_id ?? null,
 } as Sale & { cashReceived: number | null; changeGiven: number | null });
 const toItem = (r: any): Item => ({ id: r.id, name: r.name, price: Number(r.price), kind: r.kind, active: r.active, sort: r.sort ?? 0,
   favorite: Boolean(r.favorite), favOrder: r.fav_order ?? 0, imageUrl: r.image_url ?? '',
@@ -59,6 +62,19 @@ export function RegisterScreen() {
   const cashier = useApp((s) => s.access === 'register');
   const kiosk = useApp((s) => s.kiosk);
   const setKiosk = useApp((s) => s.setKiosk);
+  // the register this device stands at (T12א): remembered on the device, one of the registers here — the main one with only one
+  const loc = useLocations((x) => x.state);
+  const regKey = loc.businessId ? `dp-register:${loc.businessId}` : null;
+  const [registerId, setRegisterId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!loc.ready) { setRegisterId(null); return; }
+    let remembered: string | null = null;
+    try { remembered = regKey ? localStorage.getItem(regKey) : null; } catch { /* private mode */ }
+    setRegisterId(pickRegister(loc, remembered));
+  }, [loc, regKey]);
+  const chooseRegister = (id: string) => { setRegisterId(id); try { if (regKey) localStorage.setItem(regKey, id); } catch { /* private mode */ } };
+  // a sale, a refund and a day of the register name it (before migration 4600 there is no such column — nothing is sent)
+  const onThisRegister = loc.ready && registerId ? { register_id: registerId } : {};
   type Tab = 'sell' | 'sales' | 'shift' | 'commissions' | 'catalog' | 'docs' | 'settings';
   const [tab, setTab] = useState<Tab>('sell');
   const [items, setItems] = useState<Item[]>([]);
@@ -222,7 +238,7 @@ export function RegisterScreen() {
       id, user_id: userId, lead_id: leadId, appointment_id: c.customer.appointmentId, customer_name: c.customer.name.trim(), customer_phone: c.customer.phone.trim(),
       items: c.lines.filter((l) => l.qty > 0), subtotal: tt.subtotal, discount: tt.discount, total: tt.total, vat_rate: tt.vatRate, vat_amount: tt.vatAmount,
       method: c.paidNow ? c.method : 'link', payments: c.method === 'split' ? c.payments : [], status: c.paidNow ? 'paid' : 'pending', note: c.note, paid_at: c.paidNow ? now : null,
-      employee_id: c.employee?.id ?? null, employee_name: c.employee?.name ?? '',
+      employee_id: c.employee?.id ?? null, employee_name: c.employee?.name ?? '', ...onThisRegister,
       ...(c.cashReceived != null ? { cash_received: c.cashReceived, change_given: Math.round((c.cashReceived - tt.total) * 100) / 100 } : {}),
       ...(c.billing ? billingColumns(c.billing) : {}),
     }).select('*').single();
@@ -326,7 +342,7 @@ export function RegisterScreen() {
     const id = plan.id ?? crypto.randomUUID();
     const ins = await supabase().from('sale_refunds').insert({
       id, user_id: userId, sale_id: sale.id, amount: plan.amount, vat_amount: plan.vatAmount, method: plan.method,
-      items: plan.items, restock: plan.restock, reason: plan.reason, employee_name: plan.employeeName,
+      items: plan.items, restock: plan.restock, reason: plan.reason, employee_name: plan.employeeName, ...onThisRegister,
     }).select('*').single();
     let data = ins.data;
     let replay = false;
@@ -375,14 +391,21 @@ export function RegisterScreen() {
       {kiosk ? <><CornersIn size={18} aria-hidden />יציאה ממסך מלא</> : <><CornersOut size={18} aria-hidden />מסך מלא</>}
     </Button>
   );
+  // which register this device is — only when there is more than one here
+  const registerPicker = showRegisterPicker(loc) ? (
+    <SmallSelect aria-label="הקופה של המכשיר הזה" value={registerId ?? ''} onChange={(e) => chooseRegister(e.target.value)} className="w-auto max-w-[60vw]">
+      {registersHere(loc).map((r) => <option key={r.id} value={r.id}>{registerLabel(loc, r.id)}</option>)}
+    </SmallSelect>
+  ) : null;
+  const headActions = registerPicker ? <div className="flex flex-wrap items-center gap-2">{registerPicker}{fullBtn}</div> : fullBtn;
   return (
     <>
       {kiosk ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <strong className="font-display text-xl font-extrabold">{brand.name || 'קופה'}</strong>{fullBtn}
+          <strong className="font-display text-xl font-extrabold">{brand.name || 'קופה'}</strong>{headActions}
         </div>
       ) : (
-        <PageHead title="קופה" sub={cashier ? 'מכירה' : `היום: ${ils(summarize(sales, today, today, refunds).net)}${pending.length ? ` · ${pending.length} ממתינים לתשלום` : ''}`} action={fullBtn} />
+        <PageHead title="קופה" sub={cashier ? 'מכירה' : `היום: ${ils(summarize(sales, today, today, refunds).net)}${pending.length ? ` · ${pending.length} ממתינים לתשלום` : ''}`} action={headActions} />
       )}
       {tabs.length > 1 && (
         <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
@@ -407,8 +430,10 @@ export function RegisterScreen() {
       )}
 
       {!loading && tab === 'sales' && <SalesTab sales={sales} refunds={refunds} onPaid={markPaid} onCancel={cancelSale} onRemind={requestPayment} canRemind={Boolean(settings.payLink)}
-        onOpen={setOpenSale} onLoadOlder={olderDone ? undefined : loadOlder} />}
-      {!loading && tab === 'shift' && <ShiftTab userId={userId} sales={sales} refunds={refunds} employees={employees} businessName={business.name} />}
+        onOpen={setOpenSale} onLoadOlder={olderDone ? undefined : loadOlder} whereOf={loc.businessId ? (s) => saleTag(loc, s, loc.businessId!) : undefined} />}
+      {!loading && tab === 'shift' && <ShiftTab userId={userId} sales={sales} refunds={refunds} employees={employees} businessName={business.name}
+        register={loc.ready && registerId ? { id: registerId, label: showRegisterPicker(loc) ? registerLabel(loc, registerId) : '', businessId: loc.businessId ?? '',
+          locationId: loc.registers.find((r) => r.id === registerId)?.locationId ?? null, several: loc.registers.length > 1 } : null} />}
       {!loading && tab === 'commissions' && <CommissionsTab sales={sales} refunds={refunds} catalog={items} onLoadOlder={olderDone ? undefined : loadOlder} />}
 
       <SaleDetail sale={openSale} onClose={() => setOpenSale(null)} business={business} refunds={refunds} employees={employees} licensed={licensed}
@@ -458,14 +483,18 @@ export function RegisterScreen() {
             <strong>עובד/ת בקופה בלבד:</strong> מנהל המערכת מוסיף עובד/ת עם הרשאת &quot;קופה בלבד&quot; (ניהול ← עסקים). מי שנכנס/ת כך רואה רק את מסך המכירה —
             בלי דוחות, הכנסות, החזרים, מחירון, הגדרות או מחיקות, ורק את העסקאות שלו/ה מהיום.
           </p>
+          <p className="mt-2 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">
+            <strong>עוד קופה או עוד סניף:</strong> קופה לכל עמדה, וסניף לכל חנות או קליניקה — כל אחד עם סגירת יום משלו, והמספור של המסמכים נשאר אחד.
+            {' '}<a href="/settings/locations" className="font-semibold text-primary">סניפים וקופות ←</a>
+          </p>
         </Card>
       )}
     </>
   );
 }
 
-function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpen, onLoadOlder }: { sales: Sale[]; refunds: Refund[]; onPaid: (s: Sale, m: Method) => void; onCancel: (s: Sale) => void; onRemind: (s: Sale) => void; canRemind: boolean;
-  onOpen: (s: Sale) => void; onLoadOlder?: () => Promise<void> }) {
+function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpen, onLoadOlder, whereOf }: { sales: Sale[]; refunds: Refund[]; onPaid: (s: Sale, m: Method) => void; onCancel: (s: Sale) => void; onRemind: (s: Sale) => void; canRemind: boolean;
+  onOpen: (s: Sale) => void; onLoadOlder?: () => Promise<void>; whereOf?: (s: Sale) => string }) {
   const [q, setQ] = useState('');
   const today = israelParts(Date.now()).date;
   const thisMonth = today.slice(0, 7);
@@ -528,7 +557,7 @@ function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpe
               className={cx('flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary', s.status === 'cancelled' && 'opacity-50')}>
               <span className="min-w-0 flex-1">
                 <strong className="block truncate">{s.customerName || 'ללא שם'} · {s.items.map((l) => l.name).join(' + ')}</strong>
-                <span className="text-xs text-muted">{formatIL(s.paidAt ?? s.createdAt, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })} · {methodLabel(s.method)} · {s.status === 'paid' ? 'שולם' : s.status === 'pending' ? 'ממתין' : 'בוטל'}</span>
+                <span className="text-xs text-muted">{formatIL(s.paidAt ?? s.createdAt, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })} · {methodLabel(s.method)} · {s.status === 'paid' ? 'שולם' : s.status === 'pending' ? 'ממתין' : 'בוטל'}{whereOf?.(s) ? ` · ${whereOf(s)}` : ''}</span>
                 {back > 0 && <span className="ms-1 rounded-full bg-zinc-500/15 px-2 py-0.5 text-[11px] font-bold">{back >= s.total ? 'הוחזר במלואו' : `הוחזרו ${ils(back)}`}</span>}
               </span>
               <strong className="tabular-nums">{ils(s.total)}</strong>

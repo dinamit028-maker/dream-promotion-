@@ -45,6 +45,8 @@ export interface Expense {
   stockLines: { itemId: string; qty: number; variantId?: string }[]; voidReason: string; voidedAt: string | null; createdAt: string;
   /** 2.89: the file's sha256, and "זו הוצאה אחרת" (which expenses it was told apart from, who and when — the database's) */
   fileSha256?: string | null; duplicateAck?: { of: string[]; reasons: string[]; by: string | null; at: string | null } | null;
+  /** 2.91 (T12א): the location it belongs to (none = the main one) */
+  locationId?: string | null;
 }
 export const toExpense = (r: any): Expense => ({
   id: r.id, number: Number(r.expense_number), status: r.status, supplierName: r.supplier_name ?? '', supplierDealer: r.supplier_dealer ?? '',
@@ -53,7 +55,7 @@ export const toExpense = (r: any): Expense => ({
   total: Number(r.total), vatDeductiblePct: Number(r.vat_deductible_pct ?? 100), paidOn: r.paid_on ?? null, paymentMethod: r.payment_method ?? null,
   filePath: r.file_path ?? '', fileMime: r.file_mime ?? '', aiModel: r.ai_model ?? '', aiExtracted: r.ai_extracted ?? null, confirmedAt: r.confirmed_at ?? null,
   stockLines: Array.isArray(r.stock_lines) ? r.stock_lines : [], voidReason: r.void_reason ?? '', voidedAt: r.voided_at ?? null, createdAt: r.created_at,
-  fileSha256: r.file_sha256 ?? null,
+  fileSha256: r.file_sha256 ?? null, locationId: r.location_id ?? null,
   duplicateAck: r.duplicate_ack && typeof r.duplicate_ack === 'object'
     ? { of: Array.isArray(r.duplicate_ack.of) ? r.duplicate_ack.of : [], reasons: Array.isArray(r.duplicate_ack.reasons) ? r.duplicate_ack.reasons : [],
         by: r.duplicate_ack.by ?? null, at: r.duplicate_ack.at ?? null } : null,

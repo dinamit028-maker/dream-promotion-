@@ -7,7 +7,7 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
-import { DOC_LABEL, PAY_LABEL, creditFor, creditedTotals, issuerFor, toDoc, type DocRow } from './documents';
+import { DOC_LABEL, PAY_LABEL, creditFor, creditedTotals, issuerFor, issuerLocationLine, toDoc, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
 
@@ -188,7 +188,8 @@ export function docBody(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueDate' | 'no
   const rate = d.lines[0]?.vatRate ?? 0;
   const vatRow = d.vatAmount || rate ? `<tr><td>מע״מ ${esc(rate)}%</td><td>${n2(d.vatAmount)}</td></tr>` : '';
   const bank = (d.docType === 305 || d.docType === 300) && i.bankAccount ? `<p>לתשלום בהעברה: ${esc([i.bankName, i.bankBranch ? `סניף ${i.bankBranch}` : '', `חשבון ${i.bankAccount}`].filter(Boolean).join(' · '))}</p>` : '';
-  return `<div class="h"><div><strong style="font-size:18px">${esc(i.name)}</strong>${i.tradingName ? `<br>${esc(i.tradingName)}` : ''}<br>${esc(issuerIdLine(i))}<br>${esc([i.street, i.houseNo, i.city].filter(Boolean).join(' '))}${contact ? `<br>${esc(contact)}` : ''}</div>
+  const where = issuerLocationLine(i);
+  return `<div class="h"><div><strong style="font-size:18px">${esc(i.name)}</strong>${i.tradingName ? `<br>${esc(i.tradingName)}` : ''}<br>${esc(issuerIdLine(i))}<br>${esc([i.street, i.houseNo, i.city].filter(Boolean).join(' '))}${contact ? `<br>${esc(contact)}` : ''}${where ? `<br>${esc(where)}` : ''}</div>
 <div style="text-align:left"><span class="mark">${esc(mark)}</span>${d.cancelled ? ' <span class="mark" style="color:#b00;border-color:#b00">בוטל</span>' : ''}<br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${esc(d.docNumber)}</strong><br>תאריך: ${esc(ddmmyyyy(d.docDate))}${d.dueDate ? `<br>לתשלום עד: ${esc(ddmmyyyy(d.dueDate))}` : ''}${extra.allocation ? `<br>${esc(extra.allocation)}` : ''}</div></div>
 <p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ / ח.פ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}${d.customerStreet || d.customerCity ? `<br>${esc([d.customerStreet, d.customerCity].filter(Boolean).join(', '))}` : ''}</p>
 ${d.baseDocNumber ? `<p>זיכוי עבור ${esc(DOC_LABEL[d.baseDocType ?? 0] ?? '')} מס׳ ${esc(d.baseDocNumber)}</p>` : ''}

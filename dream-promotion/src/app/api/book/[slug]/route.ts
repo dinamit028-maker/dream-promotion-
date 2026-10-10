@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/server/admin';
-import { attachToCrm, busyBetween, depositsOpen, loadBusiness, rulesOf } from '@/lib/server/booking';
+import { attachToCrm, bookingLocation, busyBetween, depositsOpen, loadBusiness, rulesOf } from '@/lib/server/booking';
 import { appOrigin, sendPaylink } from '@/lib/server/paylinks';
 import { isFree, openDays } from '@/features/booking/slots';
 import { formatIL } from '@/lib/il-time';
@@ -55,7 +55,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const end = new Date(+start + service.minutes * 60_000);
   const s = b.settings, userId = s.user_id as string, businessId = s.business_id as string;
 
-  const busy = await busyBetween(businessId, new Date(+start - 864e5).toISOString(), new Date(+end + 864e5).toISOString());
+  // several locations (2.91): the page books at the main one — its free hours, and the appointment goes there
+  const where = await bookingLocation(businessId);
+  const busy = await busyBetween(businessId, new Date(+start - 864e5).toISOString(), new Date(+end + 864e5).toISOString(), where);
   if (!isFree(start.toISOString(), service.minutes, rulesOf(s), busy)) {
     return NextResponse.json({ code: 'slot_taken', message: 'השעה הזו כבר לא פנויה. בחרו שעה אחרת.' }, { status: 409 });
   }
@@ -71,6 +73,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const ins = await adminDb().from('appointments').insert({
     user_id: userId, business_id: businessId, service_id: service.id, service_name: service.name, lead_id: leadId ?? null,
     name, phone, email, note, start_at: start.toISOString(), end_at: end.toISOString(), status: 'booked', source: 'public',
+    ...(where ? { location_id: where } : {}),
   }).select('id').single();
   if (ins.error) {
     if (ins.error.code === '23P01') return NextResponse.json({ code: 'slot_taken', message: 'השעה הזו נתפסה הרגע. בחרו שעה אחרת.' }, { status: 409 });

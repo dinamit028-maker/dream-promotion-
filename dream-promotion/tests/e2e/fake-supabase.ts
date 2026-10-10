@@ -6,6 +6,8 @@
  * business, its checklist before it goes on the air, theme versions, unique addresses of pages and collections).
  * 2.89 (4400): payment plans and the view receivable_lines (planLines — the view's arithmetic), the reminders' functions, a
  * duplicate expense (duplicateReasons — expense_duplicates' rule).
+ * 2.91 (4600): locations and registers — location_state and the owner's functions, where a new row goes (location_fill), what a
+ * signed-in user sees (the *_location_gate policies: the location picked, or the member's own), one open day per register.
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { randomUUID, randomBytes } from 'node:crypto';
@@ -72,8 +74,15 @@ export class FakeSupabase {
   owner = true;
   /** 2.90: migration 4500 is in the database (recurring_plans, recurring_charges and their functions) — false: as before it */
   recurringTables = true;
-  constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string }) {}
-  private today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
+  /** 2.91: migration 4600 is in the database (locations, registers and their columns) — false: as before it */
+  locationTables = true;
+  /** 2.91: the location picked at the top (profiles.current_location_id) — null: all */
+  currentLocation: string | null = null;
+  /** 2.91: the signed-in member's locations (business_members.locations, set by the super admin) — null: every one */
+  memberLocations: string[] | null = null;
+  constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string; today?: string }) {}
+  /** today in Israel — or a fixed day (opts.today), for screens compared picture by picture */
+  private today() { return this.opts.today ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
   private log(action: string, entityId: string, details: Row) {
     this.t('finance_audit_log').push({ id: ++this.auditId, business_id: this.opts.businessId, actor_id: this.opts.userId, actor_kind: this.finance.member ? 'member' : 'super_admin',
       action, entity: '', entity_id: entityId, details, at: now(), prev_hash: '', hash: `h${this.auditId}` });
@@ -233,6 +242,8 @@ export class FakeSupabase {
     r.id ??= randomUUID();
     r.created_at ??= now();
     if (!['businesses', 'business_members', 'profiles'].includes(table)) r.business_id ??= this.opts.businessId;
+    const placed = this.fillLocation(table, r);
+    if (placed) return placed;
     if (table === 'documents') {
       if (r.idempotency_key && this.t('documents').some((d) => d.idempotency_key === r.idempotency_key)) return 'duplicate key value violates unique constraint "documents_idempotency_uq"';
       if (r.doc_type === 330) {
@@ -244,7 +255,8 @@ export class FakeSupabase {
       const st = this.t('register_settings')[0] ?? {};
       const n = (this.counters.get(r.doc_type) ?? 0) + 1; this.counters.set(r.doc_type, n);
       Object.assign(r, { doc_number: n, issued_at: now(), print_count: 0, link_no: ++this.linkNo, share_token: randomBytes(32).toString('hex'),
-        issuer: { name: st.legal_name ?? '', dealerNumber: st.dealer_number ?? '', entityType: st.entity_type ?? (st.business_type === 'exempt' ? 'exempt_dealer' : 'licensed_dealer'), vatRate: st.vat_rate },
+        issuer: { name: st.legal_name ?? '', dealerNumber: st.dealer_number ?? '', entityType: st.entity_type ?? (st.business_type === 'exempt' ? 'exempt_dealer' : 'licensed_dealer'), vatRate: st.vat_rate,
+          ...this.issuerLocation(r) },
         source: r.source ?? (r.refund_id ? 'refund' : r.sale_id ? 'pos' : r.paid_document_id ? 'receipt' : r.quote_id ? 'quote' : r.doc_type === 330 ? 'credit' : 'direct'),
         due_date: r.doc_type === 305 || r.doc_type === 300 ? r.due_date ?? null : null, notes: r.notes ?? '' });
     }
@@ -306,7 +318,14 @@ export class FakeSupabase {
       if (done + Math.round(Number(r.amount) * 100) > Math.round(Number(s.total) * 100)) return `refund_exceeds_paid: ${(Number(s.total) * 100 - done) / 100} left`;
       r.created_at = now();
     }
-    if (table === 'register_shifts') { r.opened_at ??= now(); if (this.t('register_shifts').some((x) => !x.closed_at)) return 'duplicate key value violates unique constraint "register_shifts_one_open_idx"'; }
+    if (table === 'register_shifts') {
+      r.opened_at ??= now();
+      // 2.91: one open day per register (a day with no register is the main one's); before 4600: one per business
+      const reg = (x: Row) => x.register_id ?? this.opts.businessId;
+      if (this.t('register_shifts').some((x) => !x.closed_at && (!this.locationTables || reg(x) === reg(r)))) {
+        return this.locationTables ? 'register_shifts_one_open: this register already has an open day' : 'duplicate key value violates unique constraint "register_shifts_one_open_idx"';
+      }
+    }
     // the store (3400): its defaults and the unique rules the screens rely on
     const fill = (d: Row) => { for (const [k, v] of Object.entries(d)) if (r[k] === undefined) r[k] = v; };
     if (table === 'stores') {
@@ -354,7 +373,8 @@ export class FakeSupabase {
     if (table === 'documents') {
       if (r.doc_type === 320 || r.doc_type === 400) for (const p of r.payments ?? []) {
         this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'in', amount: Number(p.amount), method: p.m ?? ({ 1: 'cash', 2: 'cheque', 3: 'card', 4: 'transfer' } as Row)[p.method] ?? 'other',
-          paid_on: p.date ?? r.doc_date, source: 'document', document_id: r.id, applies_to: r.paid_document_id ?? null, sale_id: r.sale_id ?? null, lead_id: r.lead_id ?? null, reference: p.cheque ?? {}, note: '', created_at: now() });
+          paid_on: p.date ?? r.doc_date, source: 'document', document_id: r.id, applies_to: r.paid_document_id ?? null, sale_id: r.sale_id ?? null, lead_id: r.lead_id ?? null, reference: p.cheque ?? {}, note: '', created_at: now(),
+          ...(this.locationTables ? { location_id: r.location_id ?? null } : {}) });
       }
       if (r.draft_id) { const d = this.t('document_drafts').find((x) => x.id === r.draft_id); if (d) Object.assign(d, { status: 'finalized', document_id: r.id }); }
       if (r.quote_id) { const q = this.t('quotes').find((x) => x.id === r.quote_id); if (q) Object.assign(q, { status: 'converted', converted_document_id: r.id }); }
@@ -368,7 +388,8 @@ export class FakeSupabase {
       this.log('document.cancelled', r.document_id, { reason: r.reason });
     }
     if (table === 'expenses' && r.status === 'confirmed' && r.paid_on) {
-      this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'out', amount: Number(r.total), method: r.payment_method, paid_on: r.paid_on, source: 'expense', expense_id: r.id, note: r.supplier_name, created_at: now() });
+      this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'out', amount: Number(r.total), method: r.payment_method, paid_on: r.paid_on, source: 'expense', expense_id: r.id, note: r.supplier_name, created_at: now(),
+        ...(this.locationTables ? { location_id: r.location_id ?? null } : {}) });
     }
     if (table === 'expenses') this.log('expense.created', r.id, { number: r.expense_number, total: r.total });
     if (table === 'quotes') this.log('quote.created', r.id, { number: r.quote_number, total: r.total });
@@ -377,6 +398,9 @@ export class FakeSupabase {
     if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
+    if (this.locationTables && FakeSupabase.LOCATED.includes(table) && 'location_id' in patch && (patch.location_id ?? null) !== (old.location_id ?? null)) {
+      return 'location_fixed: a row keeps its location';
+    }
     if (table === 'expenses') {
       if (old.file_sha256) delete patch.file_sha256;
       if (patch.duplicate_ack) patch.duplicate_ack = { of: patch.duplicate_ack.of, reasons: patch.duplicate_ack.reasons, by: this.opts.userId, at: now() };
@@ -446,7 +470,157 @@ export class FakeSupabase {
     if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant });
   }
 
+  // ---- 2.91: locations (migration 4600) ---------------------------------------------------------------------------------------
+  static LOCATED = ['sales', 'register_shifts', 'sale_refunds', 'documents', 'document_drafts', 'payments', 'expenses', 'appointments', 'orders'];
+  /** the business's locations and registers, the main ones first — every business has them, with its own id */
+  places() {
+    const b = this.opts.businessId;
+    if (!this.t('business_locations').some((l) => l.id === b)) {
+      this.t('business_locations').unshift({ id: b, business_id: b, name: 'ראשי', kind: 'branch', address: '', phone: '', hours: '', active: true, sort: 0, created_at: '2026-01-01T00:00:00Z' });
+      if (!this.t('registers').some((x) => x.id === b)) this.t('registers').unshift({ id: b, business_id: b, location_id: b, name: 'קופה 1', device: '', active: true, sort: 0, created_at: '2026-01-01T00:00:00Z' });
+    }
+    const order = (x: Row, y: Row) => Number(y.id === b) - Number(x.id === b) || x.sort - y.sort || String(x.created_at).localeCompare(String(y.created_at));
+    return { locations: [...this.t('business_locations')].sort(order), registers: [...this.t('registers')].sort(order) };
+  }
+  private mayUse(location: string) { return !this.memberLocations || this.memberLocations.includes(location); }
+  /** location_filter(): what a signed-in user sees now — the location picked, else the member's own; null = every one */
+  private locationFilter(): string[] | null {
+    if (!this.locationTables) return null;
+    if (this.currentLocation && this.mayUse(this.currentLocation)) return [this.currentLocation];
+    return this.memberLocations;
+  }
+  private rowLocation(r: Row): string { return r.location_id ?? r.business_id ?? this.opts.businessId; }
+  /** location_pick(): where a new row goes when nothing it belongs to says */
+  private locationPick(): string | null {
+    if (this.currentLocation && this.mayUse(this.currentLocation)) return this.currentLocation;
+    const ok = this.places().locations.filter((l) => this.mayUse(l.id));
+    return (ok.find((l) => l.active) ?? ok[0])?.id ?? null;
+  }
+  /** location_fill: a new row's location (and register) — what it belongs to decides; an error string refuses the row */
+  private fillLocation(table: string, r: Row): string | null {
+    if (!this.locationTables || !FakeSupabase.LOCATED.includes(table)) return null;
+    const { locations, registers } = this.places();
+    const find = (t: string, id: unknown) => (id ? this.t(t).find((x) => x.id === id) : undefined);
+    let loc: string | null = null;
+    if (['sales', 'register_shifts', 'sale_refunds'].includes(table)) {
+      if (table === 'register_shifts' && !r.register_id) {
+        const at = r.location_id ?? this.locationPick();
+        r.register_id = registers.find((x) => x.active && x.location_id === at)?.id ?? null;
+      }
+      if (r.register_id) {
+        const reg = registers.find((x) => x.id === r.register_id);
+        if (!reg) return 'register_not_found';
+        if (!(reg.active && locations.find((l) => l.id === reg.location_id)?.active) && table !== 'sale_refunds') return 'register_inactive: this register is closed down';
+        if (r.location_id && r.location_id !== reg.location_id) return 'location_mismatch: a register stands in one location';
+        loc = reg.location_id;
+      }
+    }
+    if (!loc) {
+      let from: Row | undefined;
+      if (table === 'sale_refunds') { from = find('sales', r.sale_id); if (from) r.register_id ??= from.register_id ?? null; }
+      if (table === 'sales') from = find('orders', r.id);
+      if (table === 'documents') {
+        from = find('sales', r.sale_id) ?? find('sale_refunds', r.refund_id) ?? find('documents', r.paid_document_id) ?? find('document_drafts', r.draft_id)
+          ?? (r.base_doc_number != null ? this.t('documents').find((d) => d.doc_type === r.base_doc_type && d.doc_number === r.base_doc_number) : undefined);
+      }
+      if (table === 'payments') from = find('documents', r.document_id) ?? find('documents', r.applies_to) ?? find('sale_refunds', r.refund_id) ?? find('sales', r.sale_id) ?? find('expenses', r.expense_id);
+      if (from) loc = this.rowLocation(from);
+      if (table === 'orders') loc = find('stores', r.store_id)?.location_id ?? null;
+    }
+    if (r.location_id && loc && r.location_id !== loc) return 'location_mismatch: a row goes where what it belongs to is';
+    r.location_id = r.location_id ?? loc ?? this.locationPick();
+    if (r.location_id && !this.mayUse(r.location_id)) return 'not allowed: this location is not yours';
+    const seen = this.locationFilter();
+    if (seen && !seen.includes(this.rowLocation(r))) return 'new row violates row-level security policy (location gate)';
+    return null;
+  }
+  /** e_documents_location: with more than one active location, a document's issuer names its location */
+  private issuerLocation(r: Row): Row {
+    if (!this.locationTables) return {};
+    const { locations } = this.places();
+    if (locations.filter((l) => l.active).length < 2) return {};
+    const l = locations.find((x) => x.id === this.rowLocation(r));
+    return l ? { location: { name: l.name, address: l.address ?? '', phone: l.phone ?? '' } } : {};
+  }
+  private locationRpc(fn: string, args: any): { status: number; body: any } | null {
+    if (!['location_state', 'location_select', 'location_save', 'register_save'].includes(fn)) return null;
+    if (!this.locationTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const refuse = (message: string, code = 'P0001') => ({ status: 400, body: { code, message, details: null, hint: null } });
+    const b = this.opts.businessId;
+    const { locations, registers } = this.places();
+    const owner = this.owner && !this.memberLocations;
+    if (fn === 'location_state') {
+      const current = this.currentLocation && this.mayUse(this.currentLocation) ? this.currentLocation : null;
+      return { status: 200, body: { business: b, current, limited: Boolean(this.memberLocations), owner,
+        locations: locations.filter((l) => this.mayUse(l.id)).map((l) => ({ id: l.id, name: l.name, kind: l.kind, address: l.address, phone: l.phone, hours: l.hours,
+          active: l.active, sort: l.sort, main: l.id === b })),
+        registers: registers.filter((x) => this.mayUse(x.location_id)).map((x) => ({ id: x.id, location: x.location_id, name: x.name, device: x.device,
+          active: x.active, sort: x.sort, main: x.id === b })) } };
+    }
+    if (fn === 'location_select') {
+      const id = args.p_location ?? null;
+      if (id && !locations.some((l) => l.id === id)) return refuse('location_not_found', '22023');
+      if (id && !this.mayUse(id)) return refuse('not allowed', '42501');
+      this.currentLocation = id;
+      return { status: 200, body: { location: id } };
+    }
+    if (!owner) return refuse('not allowed', '42501');
+    const trim = (v: unknown) => String(v ?? '').trim();
+    if (fn === 'location_save') {
+      const cur = this.t('business_locations').find((l) => l.id === args.p_id);
+      const name = trim(args.p_name);
+      if (!name || name.length > 60) return refuse('new row for relation "business_locations" violates check constraint "business_locations_name_check"', '23514');
+      if (this.t('business_locations').some((l) => l.id !== args.p_id && l.name.trim().toLowerCase() === name.toLowerCase())) {
+        return refuse('duplicate key value violates unique constraint "business_locations_name_uq"', '23505');
+      }
+      if (!cur) {
+        if (this.t('business_locations').length >= 10) return refuse('locations_limit: up to 10 locations', '23514');
+        const l = { id: args.p_id ?? randomUUID(), business_id: b, name, kind: args.p_kind ?? 'branch', address: trim(args.p_address), phone: trim(args.p_phone),
+          hours: String(args.p_hours ?? ''), active: args.p_active ?? true, sort: args.p_sort ?? 0, created_at: now() };
+        this.t('business_locations').push(l);
+        if (l.kind !== 'warehouse') this.t('registers').push({ id: randomUUID(), business_id: b, location_id: l.id, name: 'קופה 1', device: '', active: true, sort: 0, created_at: now() });
+        this.log('location.created', l.id, { name: l.name, kind: l.kind });
+        return { status: 200, body: { id: l.id, created: true } };
+      }
+      if (cur.active && args.p_active === false) {
+        if (!this.t('business_locations').some((l) => l.active && l.id !== cur.id)) return refuse('locations_last: one active location stays', '23514');
+        if (this.t('register_shifts').some((s) => !s.closed_at && this.rowLocation(s) === cur.id)) return refuse('location_open_shift: close the open days of its registers first', '23514');
+      }
+      Object.assign(cur, { name, kind: args.p_kind ?? cur.kind, address: trim(args.p_address), phone: trim(args.p_phone), hours: String(args.p_hours ?? ''),
+        active: args.p_active ?? cur.active, sort: args.p_sort ?? cur.sort });
+      this.log('location.changed', cur.id, { name: cur.name, kind: cur.kind, active: cur.active });
+      return { status: 200, body: { id: cur.id, created: false } };
+    }
+    // register_save
+    const cur = this.t('registers').find((x) => x.id === args.p_id);
+    const where = cur?.location_id ?? args.p_location;
+    const name = trim(args.p_name);
+    if (!name || name.length > 40) return refuse('new row for relation "registers" violates check constraint "registers_name_check"', '23514');
+    if (this.t('registers').some((x) => x.id !== args.p_id && x.location_id === where && x.name.trim().toLowerCase() === name.toLowerCase())) {
+      return refuse('duplicate key value violates unique constraint "registers_name_uq"', '23505');
+    }
+    if (!cur) {
+      if (!this.t('business_locations').some((l) => l.id === where && l.active)) return refuse('register_location: an active location of the business', '22023');
+      if (this.t('registers').filter((x) => x.location_id === where).length >= 10) return refuse('registers_limit: up to 10 registers a location', '23514');
+      const x = { id: args.p_id ?? randomUUID(), business_id: b, location_id: where, name, device: trim(args.p_device), active: args.p_active ?? true, sort: args.p_sort ?? 0, created_at: now() };
+      this.t('registers').push(x);
+      this.log('register.created', x.id, { name: x.name, location: x.location_id });
+      return { status: 200, body: { id: x.id, created: true } };
+    }
+    if (cur.active && args.p_active === false && this.t('register_shifts').some((s) => !s.closed_at && (s.register_id ?? b) === cur.id)) {
+      return refuse('register_open_shift: close its open day first', '23514');
+    }
+    if (!cur.active && args.p_active === true && !this.t('business_locations').some((l) => l.id === cur.location_id && l.active)) {
+      return refuse('register_location_inactive: its location is not active', '23514');
+    }
+    Object.assign(cur, { name, device: trim(args.p_device), active: args.p_active ?? cur.active, sort: args.p_sort ?? cur.sort });
+    this.log('register.changed', cur.id, { name: cur.name, active: cur.active });
+    return { status: 200, body: { id: cur.id, created: false } };
+  }
+
   rpc(fn: string, args: any): { status: number; body: any } {
+    const placed = this.locationRpc(fn, args);
+    if (placed) return placed;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
     // 2.88 (migration 4300): what was really paid as a deposit for these appointments — never a test link
@@ -851,7 +1025,10 @@ export class FakeSupabase {
     if (table === 'receivables') this.tables.receivables = this.receivables();
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();
-    const rows = this.t(table);
+    // 2.91: the *_location_gate policies — a signed-in user reads and changes only the rows of the locations they see now
+    const seen = FakeSupabase.LOCATED.includes(table) ? this.locationFilter() : null;
+    const all = this.t(table);
+    const rows = seen ? all.filter((r) => seen.includes(this.rowLocation(r))) : all;
     const wantsObject = (headers.accept ?? '').includes('vnd.pgrst.object');
     const prefer = headers.prefer ?? '';
     const ret = (list: Row[], status = 200, extra: Record<string, string> = {}) => {
@@ -885,7 +1062,7 @@ export class FakeSupabase {
         if (same) { Object.assign(same, r); out.push(same); continue; }
         const e = this.beforeInsert(table, r);
         if (e) return err(e);
-        rows.push(r); this.afterInsert(table, r); out.push(r);
+        all.push(r); this.afterInsert(table, r); out.push(r);
       }
       if (!prefer.includes('return=representation')) return { status: 201 };
       return ret(out, 201);
@@ -902,7 +1079,7 @@ export class FakeSupabase {
     }
     if (method === 'DELETE') {
       const hit = rows.filter((r) => filtersOf(url).every((f) => f(r)));
-      this.tables[table] = rows.filter((r) => !hit.includes(r));
+      this.tables[table] = all.filter((r) => !hit.includes(r));
       if (table === 'catalog_variants') for (const id of new Set(hit.map((r) => r.item_id))) this.hasVariants(id);
       return prefer.includes('return=representation') ? ret(hit) : { status: 204 };
     }

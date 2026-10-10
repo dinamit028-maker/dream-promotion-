@@ -3,7 +3,7 @@ import path from 'node:path';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import bidiFactory from 'bidi-js';
-import { DOC_LABEL, PAY_LABEL, issuerFor, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, PAY_LABEL, issuerFor, issuerLocationLine, type DocRow } from '@/features/documents/documents';
 import type { Business, Doc } from '@/features/documents/openformat';
 import { issuerIdLine } from '@/features/finance/rules';
 
@@ -93,7 +93,8 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   text(o.mark, { left: M }, 10, bold);
   page.drawRectangle({ x: M - 4, y: y - 4, width: width(o.mark, 10, bold) + 8, height: 16, borderColor: ink, borderWidth: 0.8 });
   y -= 18;
-  const right: string[] = [iss.tradingName ?? '', issuerIdLine(iss), [iss.street, iss.houseNo, iss.city].filter(Boolean).join(' '), [iss.phone, iss.email].filter(Boolean).join(' · ')].filter(Boolean);
+  const right: string[] = [iss.tradingName ?? '', issuerIdLine(iss), [iss.street, iss.houseNo, iss.city].filter(Boolean).join(' '), [iss.phone, iss.email].filter(Boolean).join(' · '),
+    issuerLocationLine(iss)].filter(Boolean);
   const left: [string, number, PDFFont][] = [[`${DOC_LABEL[d.docType] ?? 'מסמך'} מס׳ ${d.docNumber}`, 15, bold], [`תאריך: ${ddmmyyyy(d.docDate)}`, 10, font]];
   if (d.dueDate) left.push([`לתשלום עד: ${ddmmyyyy(d.dueDate)}`, 10, font]);
   if (o.allocation) left.push([o.allocation, 9, bold]);

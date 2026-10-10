@@ -1,13 +1,26 @@
 /** A tiny in-memory stand-in for the Supabase query builder — enough for the booking routes. */
 type Row = Record<string, any>;
-export function fakeDb(tables: Record<string, Row[]>, rules: { onInsert?: (table: string, row: Row, all: Row[]) => { code: string; message: string } | null } = {}) {
+export function fakeDb(tables: Record<string, Row[]>, rules: {
+  onInsert?: (table: string, row: Row, all: Row[]) => { code: string; message: string } | null;
+  /** a database function the test stands in for; none = "no such function" (as before its migration) */
+  rpc?: Record<string, (args: any) => any>;
+} = {}) {
   const from = (table: string) => {
     tables[table] ||= [];
     let filters: ((r: Row) => boolean)[] = [];
     let op: 'select' | 'insert' | 'update' | 'delete' = 'select';
     let payload: any = null; let conflict: string[] = ['id']; let single = false; let maybe = false; let limit = Infinity;
     const q: any = {
-      select() { return q; }, order() { return q; }, or() { return q; }, // or(): not modelled — rows are claimed as if free
+      select() { return q; }, order() { return q; },
+      // or('a.is.null,b.eq.x'): any of them (is / eq / lt / gt — the value is the rest, so a timestamp's dots stay in it)
+      or(list: string) {
+        const parts = list.split(',').map((p) => {
+          const [k, op, ...rest] = p.split('.'); const v = rest.join('.');
+          return (r: Row) => (op === 'is' ? (r[k] ?? null) === (v === 'null' ? null : v) : op === 'eq' ? String(r[k] ?? '') === v
+            : op === 'lt' ? r[k] != null && r[k] < v : op === 'gt' ? r[k] != null && r[k] > v : true);
+        });
+        filters.push((r) => parts.some((f) => f(r))); return q;
+      },
       not(k: string, op: string, v: any) { if (op === 'is') filters.push((r) => (r[k] ?? null) !== v); return q; },
       lte(k: string, v: any) { filters.push((r) => r[k] <= v); return q; }, limit(n: number) { limit = n; return q; },
       eq(k: string, v: any) { filters.push((r) => r[k] === v); return q; },
@@ -49,5 +62,9 @@ export function fakeDb(tables: Record<string, Row[]>, rules: { onInsert?: (table
     };
     return q;
   };
-  return { from };
+  const rpc = async (fn: string, args: any) => {
+    const f = rules.rpc?.[fn];
+    return f ? { data: f(args), error: null } : { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${fn}` } };
+  };
+  return { from, rpc };
 }

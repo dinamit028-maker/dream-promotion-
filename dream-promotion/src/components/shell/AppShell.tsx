@@ -18,6 +18,8 @@ import { FINANCE_MODULE } from '@/features/finance/module';
 import { isFinancePath } from '@/features/finance/routes';
 import { STORE_MODULE } from '@/features/store/module';
 import { isStorePath } from '@/features/store/routes';
+import { LocationSwitch } from '@/features/locations/LocationSwitch';
+import { useLocations } from '@/features/locations/store';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
   UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet, Storefront, ClipboardText,
@@ -115,6 +117,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         // wait for it, or the screens would decide (e.g. "not onboarded" → the wizard) on an account not loaded yet
         await hydrating.current;
       }
+      // the locations of the business worked in (the switch at the top) — before migration 4600 there are none
+      void useLocations.getState().load();
       setChecking(false);
     });
     const { data: sub } = supabase().auth.onAuthStateChange((_e, session) => {
@@ -262,7 +266,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <ModuleShell config={moduleConfig} path={path} exitHref="/dashboard" notice={lockedNotice}
           businessName={biz?.current?.name ?? undefined} userName={me ?? undefined}
           businesses={biz?.list ?? []} currentBusinessId={biz?.current?.id ?? null}
-          canSwitch={Boolean(biz && (biz.superAdmin || biz.list.length > 1))} switching={switching} onSwitchBusiness={(id) => void switchBusiness(id)}>
+          canSwitch={Boolean(biz && (biz.superAdmin || biz.list.length > 1))} switching={switching} onSwitchBusiness={(id) => void switchBusiness(id)}
+          locationSwitch={<LocationSwitch className="h-10 max-w-[220px]" />}>
           {children}
         </ModuleShell>
         <ContentEditor />
@@ -305,6 +310,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {biz.list.map((b) => <option key={b.id} value={b.id}>{b.name}{b.state !== 'active' ? ` (${b.state === 'locked' ? 'נעול' : 'פג תוקף'})` : ''}</option>)}
               </select>
             )}
+            <LocationSwitch />
             <ThemeToggle />
             {cashier ? (
               <button type="button" onClick={signOut} className="flex h-9 items-center gap-1.5 rounded-full border border-line px-3 text-sm font-semibold text-ink-2 md:hidden">

@@ -14,6 +14,7 @@ const sh = (a: number) => a / 100;
 export const toRefund = (r: any): Refund => ({
   id: r.id, saleId: r.sale_id, createdAt: r.created_at, amount: Number(r.amount), vatAmount: Number(r.vat_amount ?? 0),
   method: r.method, items: Array.isArray(r.items) ? r.items : [], restock: Boolean(r.restock), reason: r.reason ?? '', employeeName: r.employee_name ?? '',
+  registerId: r.register_id ?? null,
 });
 
 /** how much was already given back on this sale (₪) */

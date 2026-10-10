@@ -155,3 +155,31 @@ test('admin API: a profile\'s email is not proof — the sign-in record decides 
   const { likeExact } = await import('../src/lib/server/admin-users');
   assert.equal(likeExact('dana_cohen%@x.com'), 'dana\\_cohen\\%@x.com', '"_" and "%" match themselves only');
 });
+
+test('admin API: a member works only in some locations (T12א) — the super admin decides, within the business', async () => {
+  const api = await import('../src/app/api/admin/businesses/route');
+  tables.business_locations = [
+    { id: 'fm-2', business_id: 'fm', name: 'סניף הצפון', active: true, sort: 1, created_at: '2' },
+    { id: 'fm', business_id: 'fm', name: 'ראשי', active: true, sort: 0, created_at: '1' },
+    { id: 'sg', business_id: 'sg', name: 'ראשי', active: true, sort: 0, created_at: '1' },
+  ];
+  tables.business_members.push({ business_id: 'fm', user_id: 'noa', role: 'editor', access: 'register' });
+  const card = async () => (await (await api.GET(req('aviv'))).json()).businesses.find((b: any) => b.id === 'fm');
+  const fm = await card();
+  assert.deepEqual(fm.locations.map((l: any) => l.name), ['ראשי', 'סניף הצפון'], 'the main location first');
+  assert.equal(fm.members.find((m: any) => m.email === 'noa@x.com').locations, null, 'no limit: every location');
+
+  const set = (who: string, locations: unknown, email = 'noa@x.com') => api.PATCH(req(who, 'PATCH', { id: 'fm', action: 'member_locations', email, locations }));
+  assert.equal((await set('sagit', ['fm-2'])).status, 403, 'only the super admin');
+  assert.equal((await set('aviv', ['fm-2'])).status, 200);
+  const row = () => tables.business_members.find((m) => m.business_id === 'fm' && m.user_id === 'noa');
+  assert.deepEqual(row().locations, ['fm-2']);
+  assert.deepEqual((await card()).members.find((m: any) => m.email === 'noa@x.com').locations, ['fm-2']);
+  const other = await set('aviv', ['fm-2', 'sg']);
+  assert.equal(other.status, 400); assert.match((await other.json()).message, /לא שייך/, 'a location of another business');
+  assert.equal((await set('aviv', [])).status, 400, 'at least one, or all');
+  assert.deepEqual(row().locations, ['fm-2'], 'a refused change changes nothing');
+  assert.match((await (await set('aviv', ['fm'], 'sagit@x.com')).json()).message, /לא חבר/, 'only a member of this business');
+  assert.equal((await set('aviv', null)).status, 200);
+  assert.equal(row().locations, null, 'every location again');
+});
