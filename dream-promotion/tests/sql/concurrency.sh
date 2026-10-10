@@ -20,6 +20,8 @@
 #      the timer runs 8 times at once → every late line gets its reminder once, one email each
 #  16. recurring charges (4500): the same new plan saved from 8 connections at once → one plan, once on the card and in the log;
 #      the timer 8 times at once, on two dates → one charge per plan and period, each handed to the server once; a paused plan none
+#  17. locations and registers (4600): 8 connections open a day on one register at once → one; on two registers → one each (the same
+#      person); 80 documents from 8 connections in two locations → one series, no gap; 16 new locations at once → never more than 10
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -372,3 +374,38 @@ run_parallel rdue2
 r=$(q "$RC")
 [ "$r" = "10 10 15 0" ] || fail "the timer 8 times at once on the next date: one more each, all 10 handed out once (expected 10 10 15 0, got: $r)"
 echo "ok: the recurring timer from 8 connections at once, on two dates → one charge per plan and period, each handed out once, none for a paused plan"
+
+# ---- 17. locations and registers: one open day per register, one series of numbers, at most 10 locations (4600) -----------------
+LL=00000000-0000-0000-0000-0000000cc1a1; LR=00000000-0000-0000-0000-0000000cc1a2
+q "begin; $AS select public.location_save('$LL', 'סניף עומס', 'store', '', '', '', true, 1);
+   select public.register_save('$LR', '$LL', 'קופה 2', '', true, 1); commit;" >/dev/null
+q "update public.register_shifts set closed_at = now(), counted_cash = 0, expected_cash = 0, difference = 0 where business_id = '$B' and closed_at is null;" >/dev/null
+shift() { echo "insert into public.register_shifts (user_id, opening_cash, register_id) values ('$U', 0, '$1');"; }
+for w in $(seq 8); do worker_script "$TMP/shift-$w.sql" 1 "$(shift "$B")"; done
+run_parallel shift
+r=$(q "select count(*) from public.register_shifts where business_id = '$B' and closed_at is null")
+[ "$r" = "1" ] || fail "8 connections open a day on one register at once: one open day (got: $r)"
+q "update public.register_shifts set closed_at = now(), counted_cash = 0, expected_cash = 0, difference = 0 where business_id = '$B' and closed_at is null;" >/dev/null
+rm -f "$TMP"/shift-*.sql
+for w in $(seq 8); do worker_script "$TMP/shift-$w.sql" 1 "$(shift "$([ $((w % 2)) = 0 ] && echo "$B" || echo "$LR")")"; done
+run_parallel shift
+r=$(q "select count(*) || ' ' || count(distinct register_id) from public.register_shifts where business_id = '$B' and closed_at is null")
+[ "$r" = "2 2" ] || fail "8 connections (one person) open days on two registers at once: one each (expected 2 2, got: $r)"
+echo "ok: 8 connections open a day on one register at once → one; on two registers (the same person) → one each"
+before=$(q "select coalesce(max(doc_number), 0) from public.documents where business_id = '$B' and doc_type = 320")
+for w in $(seq 8); do
+  loc=$([ $((w % 2)) = 0 ] && echo "$B" || echo "$LL")
+  worker_script "$TMP/locdocs-$w.sql" 10 "$(printf "$DOC" ', location_id' 320 100 100 18 118 100 "$(pay 118)" ", '$loc'")"
+done
+run_parallel locdocs
+r=$(q "select count(*) || ' ' || count(distinct doc_number) || ' ' || (max(doc_number) - $before) || ' ' ||
+              count(*) filter (where location_id = '$LL') || ' ' || count(*) filter (where location_id = '$B')
+         from public.documents where business_id = '$B' and doc_type = 320 and doc_number > $before")
+[ "$r" = "80 80 80 40 40" ] || fail "80 documents from 8 connections in two locations: one series, no gap (expected 80 80 80 40 40, got: $r)"
+echo "ok: 80 documents from 8 connections in two locations → one series of numbers for the business, no gap, no double"
+for w in $(seq 8); do worker_script "$TMP/newloc-$w.sql" 2 "select public.location_save(null, 'סניף ' || gen_random_uuid(), 'warehouse', '', '', '', true, 0);"; done
+run_parallel newloc
+r=$(q "select count(*) from public.business_locations where business_id = '$B'")
+[ "$r" = "10" ] || fail "16 new locations at once: never more than 10 (got: $r)"
+echo "ok: 16 new locations from 8 connections at once → 10, never more"
+

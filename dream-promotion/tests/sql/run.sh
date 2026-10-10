@@ -21,4 +21,6 @@ for f in tests/sql/*.check.sql; do
 done
 # numbering, idempotency and credit limits with several connections at once
 bash tests/sql/concurrency.sh "$DB" || failed=1
+# a business with one location: the same rows and the same view before and after migration 4600 (locations)
+bash tests/sql/locations-compare.sh "$DB" || failed=1
 exit $failed
