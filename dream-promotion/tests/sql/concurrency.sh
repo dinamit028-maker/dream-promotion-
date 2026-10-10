@@ -18,6 +18,8 @@
 #      8 times at once → paid once; 8 different transactions for one link at once → one pays it, 7 are logged as double
 #  15. plans and reminders (4400): 8 connections make a plan for one invoice at once → one plan (and with "replace", one in force);
 #      the timer runs 8 times at once → every late line gets its reminder once, one email each
+#  16. recurring charges (4500): the same new plan saved from 8 connections at once → one plan, once on the card and in the log;
+#      the timer 8 times at once, on two dates → one charge per plan and period, each handed to the server once; a paused plan none
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -334,3 +336,39 @@ r=$(q "select count(*) || ' ' || count(distinct (document_id, step)) || ' ' || c
          from public.debt_reminders where business_id = '$B'")
 [ "$r" = "6 6 6 6" ] || fail "the timer 8 times at once: each late line once, one email each (expected 6 6 6 6, got: $r)"
 echo "ok: the reminders' timer from 8 connections at once → each of 6 late invoices reminded once, one email each"
+
+# ---- 16. recurring charges: one plan saved 8 times at once, and the timer 8 times at once (4500) -----------------------------------
+RL=00000000-0000-0000-0000-0000000cc0f1
+q "insert into public.leads (id, user_id, business_id, name, phone, email) values ('$RL', '$U', '$B', 'Monthly', '0508888888', '') on conflict do nothing;" >/dev/null
+rsave() { # $1 = the plan's id: every month on today's day (at most the 28th), from today, ₪100, an invoice without a link
+  echo "select public.recurring_plan_save('$1', '$RL', 'מנוי', jsonb_build_array(jsonb_build_object('name', 'מנוי', 'qty', 1, 'unitPrice', 100)), true, 100, 1,
+        least(extract(day from public.il_today())::int, 28), public.il_today(), null, 'issue', false, '');"
+}
+P0=00000000-0000-0000-0000-0000000cc0f0
+for w in $(seq 8); do worker_script "$TMP/rsave-$w.sql" 1 "$(rsave $P0)"; done
+run_parallel rsave
+r=$(q "select (select count(*) from public.recurring_plans where business_id = '$B') || ' ' ||
+              (select count(*) from public.finance_audit_log where action = 'recurring.created' and entity_id = '$P0') || ' ' ||
+              (select count(*) from public.lead_activities where lead_id = '$RL' and body like 'חיוב חוזר: מנוי%')")
+[ "$r" = "1 1 1" ] || fail "one new plan saved from 8 connections at once: one plan, once in the log and on the card (expected 1 1 1, got: $r)"
+echo "ok: the same new plan saved from 8 connections at once → one plan, once in the log and on the card"
+# 5 more plans, one of them paused; the timer 8 times at once on their date, then on the next one
+for i in 2 3 4 5 6; do q "begin; $AS $(rsave 00000000-0000-0000-0000-0000000cc0f$i) commit;" >/dev/null; done
+q "begin; $AS select public.recurring_plan_set('00000000-0000-0000-0000-0000000cc0f6', 'pause'); commit;" >/dev/null
+N1=$(q "select next_date from public.recurring_plans where id = '$P0'")
+N2=$(q "select public.recurring_on_or_after(public.il_today(), 1, least(extract(day from public.il_today())::int, 28), '$N1'::date + 1)")
+at() { echo "(('$1'::date + case when extract(isodow from '$1'::date) = 6 then 1 else 0 end) + time '10:00') at time zone 'Asia/Jerusalem'"; }
+for w in $(seq 8); do
+  printf 'begin;\nset local role service_role;\nselect count(*) from public.recurring_due(%s);\ncommit;\n' "$(at "$N1")" > "$TMP/rdue-$w.sql"
+  printf 'begin;\nset local role service_role;\nselect count(*) from public.recurring_due(%s);\ncommit;\n' "$(at "$N2")" > "$TMP/rdue2-$w.sql"
+  chmod 644 "$TMP/rdue-$w.sql" "$TMP/rdue2-$w.sql"
+done
+run_parallel rdue
+RC="select count(*) || ' ' || count(distinct (plan_id, period_date)) || ' ' || coalesce(sum(attempts), 0) || ' ' ||
+           count(*) filter (where plan_id = '00000000-0000-0000-0000-0000000cc0f6') from public.recurring_charges where business_id = '$B'"
+r=$(q "$RC")
+[ "$r" = "5 5 5 0" ] || fail "the timer 8 times at once: one charge per active plan, each handed out once, none for the paused (expected 5 5 5 0, got: $r)"
+run_parallel rdue2
+r=$(q "$RC")
+[ "$r" = "10 10 15 0" ] || fail "the timer 8 times at once on the next date: one more each, all 10 handed out once (expected 10 10 15 0, got: $r)"
+echo "ok: the recurring timer from 8 connections at once, on two dates → one charge per plan and period, each handed out once, none for a paused plan"

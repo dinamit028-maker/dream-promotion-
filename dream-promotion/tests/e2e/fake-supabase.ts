@@ -11,6 +11,7 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
+import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
 
 type Row = Record<string, any>;
 export type Tables = Record<string, Row[]>;
@@ -69,6 +70,8 @@ export class FakeSupabase {
   clientFiles = true;
   /** 2.89: the signed-in user is the business's owner (turns reminders on) */
   owner = true;
+  /** 2.90: migration 4500 is in the database (recurring_plans, recurring_charges and their functions) — false: as before it */
+  recurringTables = true;
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string }) {}
   private today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
   private log(action: string, entityId: string, details: Row) {
@@ -722,6 +725,83 @@ export class FakeSupabase {
         .map(({ e, reasons }) => ({ id: e.id, expense_number: e.expense_number, doc_date: e.doc_date, created_at: e.created_at, supplier_name: e.supplier_name, supplier_doc_number: e.supplier_doc_number ?? '', total: e.total, status: e.status, reasons }));
       return { status: 200, body: out };
     }
+    // 2.90 (4500): recurring charges — a plan (its id from the editor; the schedule only before its first charge), pause / resume /
+    // end (a charge that waited is held), "נסו שוב". The timer is the server's (tests/recurring.test.ts, recurring.check.sql)
+    if (/^recurring_/.test(fn) && !this.recurringTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn}` } };
+    if (fn === 'recurring_plan_save') {
+      const bad = (m: string, code = '22023') => ({ status: 400, body: { code, message: m } });
+      const today = this.today();
+      if (!this.t('leads').some((l) => l.id === args.p_lead)) return bad('recurring_customer: a customer of this business');
+      const lines: Row[] = Array.isArray(args.p_lines) ? args.p_lines : [];
+      if (!lines.length || lines.length > 30) return bad('recurring_lines: 1 to 30 lines');
+      if (lines.some((l) => !String(l.name ?? '').trim() || !(Number(l.qty) > 0) || !(Number(l.unitPrice) >= 0))) return bad('recurring_lines: line 1');
+      if (!(Number(args.p_amount) > 0)) return bad('recurring_amount');
+      if (![1, 2, 3, 6, 12].includes(Number(args.p_every))) return bad('recurring_every: 1, 2, 3, 6 or 12 months');
+      if (!(Number(args.p_day) >= 1 && Number(args.p_day) <= 28)) return bad('recurring_day: 1 to 28');
+      if (args.p_end && args.p_end < args.p_start) return bad('recurring_end: after the start');
+      const rows = this.t('recurring_plans');
+      const pl = rows.find((p) => p.id === args.p_id);
+      const terms = { name: String(args.p_name).trim(), lines, prices_include_vat: args.p_prices_include_vat !== false, amount: Number(args.p_amount), every_months: Number(args.p_every),
+        day_of_month: Number(args.p_day), start_date: args.p_start, end_date: args.p_end ?? null, mode: args.p_mode, send_link: args.p_send_link !== false, note: args.p_note ?? '' };
+      if (!pl) {
+        const next = firstCharge(args.p_start, Number(args.p_every), Number(args.p_day), today)!;
+        if (args.p_end && next > args.p_end) return bad('recurring_end: no charge before the end date');
+        rows.push({ id: args.p_id, business_id: this.opts.businessId, user_id: this.opts.userId, lead_id: args.p_lead, ...terms, next_date: next, status: 'active',
+          paused_at: null, ended_at: null, end_reason: '', created_at: now(), updated_at: now() });
+        const every = ({ 1: 'כל חודש', 2: 'כל חודשיים', 3: 'כל 3 חודשים', 6: 'כל חצי שנה', 12: 'כל שנה' } as Record<number, string>)[terms.every_months];
+        this.t('lead_activities').push({ id: randomUUID(), business_id: this.opts.businessId, user_id: this.opts.userId, lead_id: args.p_lead, kind: 'note',
+          body: `חיוב חוזר: ${terms.name} · ₪${terms.amount} ${every} · ראשון ב-${next.split('-').reverse().join('/')}`, created_at: now() });
+        this.log('recurring.created', args.p_id, { lead: args.p_lead, amount: terms.amount, first: next });
+        return { status: 200, body: { result: 'created', plan: args.p_id, next, status: 'active' } };
+      }
+      if (pl.status === 'ended') return bad('recurring_ended: an ended plan does not change', '23514');
+      if (pl.lead_id !== args.p_lead) return bad('recurring_customer: a plan keeps its customer (a new plan for another)', '23514');
+      const charged = this.t('recurring_charges').some((c) => c.plan_id === pl.id);
+      if (charged && (terms.every_months !== pl.every_months || terms.day_of_month !== pl.day_of_month || terms.start_date !== pl.start_date)) {
+        return bad('recurring_schedule: a plan that charged keeps its schedule — end it and make a new one', '23514');
+      }
+      const next = charged ? pl.next_date : firstCharge(terms.start_date, terms.every_months, terms.day_of_month, today)!;
+      if (!charged && terms.end_date && next > terms.end_date) return bad('recurring_end: no charge before the end date');
+      Object.assign(pl, terms, { next_date: next, updated_at: now() });
+      if (pl.end_date && pl.next_date > pl.end_date) Object.assign(pl, { status: 'ended', ended_at: now(), paused_at: null, end_reason: 'הגיע תאריך הסיום' });
+      this.log('recurring.changed', pl.id, { amount: pl.amount, next: pl.next_date, status: pl.status });
+      return { status: 200, body: { result: 'changed', plan: pl.id, next: pl.next_date, status: pl.status } };
+    }
+    if (fn === 'recurring_plan_set') {
+      const pl = this.t('recurring_plans').find((p) => p.id === args.p_plan);
+      if (!pl) return { status: 400, body: { code: '42501', message: 'recurring_not_found' } };
+      if (!['pause', 'resume', 'end'].includes(args.p_action)) return { status: 400, body: { code: '22023', message: 'recurring_request: pause, resume or end' } };
+      const already = { status: 200, body: { result: 'already', status: pl.status, next: pl.next_date } };
+      if (pl.status === 'ended') return already;
+      if (args.p_action === 'pause') {
+        if (pl.status === 'paused') return already;
+        Object.assign(pl, { status: 'paused', paused_at: now() });
+      } else if (args.p_action === 'resume') {
+        if (pl.status === 'active') return already;
+        const today = this.today();
+        const next = onOrAfter(pl.start_date, pl.every_months, pl.day_of_month, today > pl.next_date ? today : pl.next_date)!;
+        if (pl.end_date && next > pl.end_date) Object.assign(pl, { status: 'ended', ended_at: now(), paused_at: null, next_date: next, end_reason: 'הגיע תאריך הסיום' });
+        else Object.assign(pl, { status: 'active', paused_at: null, next_date: next });
+      } else Object.assign(pl, { status: 'ended', ended_at: now(), paused_at: null, end_reason: String(args.p_reason ?? '').trim() || 'הסתיים' });
+      let held = 0;
+      if (pl.status !== 'active') {
+        for (const c of this.t('recurring_charges').filter((x) => x.plan_id === pl.id && x.status === 'pending')) {
+          Object.assign(c, { status: 'blocked', claimed_at: null, error: pl.status === 'paused' ? 'התוכנית הושהתה לפני שהחיוב הופק' : 'התוכנית הסתיימה לפני שהחיוב הופק' });
+          held++;
+        }
+      }
+      const said = pl.status === 'paused' ? 'הושהה' : pl.status === 'active' ? `חזר לפעול — החיוב הבא ב-${String(pl.next_date).split('-').reverse().join('/')}` : 'הסתיים';
+      this.t('lead_activities').push({ id: randomUUID(), business_id: this.opts.businessId, user_id: this.opts.userId, lead_id: pl.lead_id, kind: 'note', body: `חיוב חוזר "${pl.name}": ${said}`, created_at: now() });
+      this.log(`recurring.${args.p_action}`, pl.id, { status: pl.status, next: pl.next_date, held });
+      return { status: 200, body: { result: 'ok', status: pl.status, next: pl.next_date, held } };
+    }
+    if (fn === 'recurring_charge_retry') {
+      const c = this.t('recurring_charges').find((x) => x.id === args.p_charge && x.status === 'blocked');
+      if (!c) return { status: 200, body: false };
+      Object.assign(c, { status: 'pending', attempts: 0, claimed_at: null, error: '' });
+      this.log('recurring.retry', c.id, { plan: c.plan_id, period: c.period_date });
+      return { status: 200, body: true };
+    }
     if (fn === 'store_slug_available') {
       const c = String(args.p_slug ?? '').trim().toLowerCase();
       if (c === 'taken-one') return { status: 200, body: { ok: false, error: 'taken', suggestion: 'taken-one-2' } };
@@ -767,6 +847,7 @@ export class FakeSupabase {
     const m = url.pathname.match(/^\/rest\/v1\/(\w+)$/);
     if (!m) return json(404, { message: 'not found' });
     const table = m[1];
+    if (/^recurring_/.test(table) && !this.recurringTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
     if (table === 'receivables') this.tables.receivables = this.receivables();
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();

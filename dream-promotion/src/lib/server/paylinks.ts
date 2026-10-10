@@ -110,12 +110,12 @@ export async function approvePaylinkReceipt(c: { businessId: string; userId: str
 // ---- the receipt ----------------------------------------------------------------------------------------------------------------
 export type ReceiptResult = { receipt: 'issued' | 'blocked' | 'waiting' | 'none'; document?: string; error?: string };
 
-async function settingsOf(db: Db, businessId: string): Promise<{ entity: EntityType; vatRate: number }> {
+export async function settingsOf(db: Db, businessId: string): Promise<{ entity: EntityType; vatRate: number }> {
   const { data } = await db.from('register_settings').select('entity_type, business_type, vat_rate').eq('business_id', businessId).maybeSingle();
   return { entity: entityOf((data as any)?.entity_type, (data as any)?.business_type), vatRate: Number((data as any)?.vat_rate ?? 18) };
 }
-/** who issues the server's document: who sent the link, else the business's owner (as commerce_owner) */
-async function issuerUser(db: Db, r: { user_id: string | null; business_id: string }): Promise<string | null> {
+/** who issues the server's document: who sent the link (or made the plan), else the business's owner (as commerce_owner) */
+export async function issuerUser(db: Db, r: { user_id: string | null; business_id: string }): Promise<string | null> {
   if (r.user_id) return r.user_id;
   const { data } = await db.from('business_members').select('user_id, role, access, created_at').eq('business_id', r.business_id).in('role', ['owner', 'editor']);
   const list = ((data ?? []) as any[]).filter((m) => (m.access ?? 'full') === 'full')
@@ -255,7 +255,7 @@ export async function issuePaylinkReceipt(id: string): Promise<ReceiptResult> {
   }
   return { receipt: 'waiting', error: 'the quote changed twice' };
 }
-async function byKey(db: Db, businessId: string, key: string): Promise<string | null> {
+export async function byKey(db: Db, businessId: string, key: string): Promise<string | null> {
   const { data } = await db.from('documents').select('id').eq('business_id', businessId).eq('idempotency_key', key).maybeSingle();
   return (data as any)?.id ?? null;
 }

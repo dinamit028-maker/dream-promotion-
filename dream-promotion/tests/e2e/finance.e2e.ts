@@ -623,7 +623,7 @@ async function main() {
       await side.waitFor({ timeout: 120_000 });
       await p.getByText('רווח משוער').waitFor();
       assert.deepEqual((await side.getByRole('link').allInnerTexts()).map((t: string) => t.trim()),
-        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'הוצאות', 'דוחות', 'רואה חשבון', 'הגדרות כספים']);
+        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'חיובים חוזרים', 'הוצאות', 'דוחות', 'רואה חשבון', 'הגדרות כספים']);
       for (const g of ['הכנסות', 'דוחות ורואה חשבון']) await side.locator('p', { hasText: new RegExp(`^${g}$`) }).waitFor();
       await heading(p, 'כספים · FollowMe');
       assert.equal(await p.getByRole('button', { name: 'תפריט', exact: true }).count(), 0, 'no bottom bar');

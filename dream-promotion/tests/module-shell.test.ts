@@ -12,7 +12,7 @@ import { proxy, config as proxyConfig } from '../src/proxy';
 
 test('every finance screen has its own address, and back', () => {
   assert.deepEqual(FINANCE_SECTIONS.map((s) => s.path), [
-    '/finance', '/finance/documents', '/finance/income', '/finance/receivables', '/finance/quotes', '/finance/packages',
+    '/finance', '/finance/documents', '/finance/income', '/finance/receivables', '/finance/quotes', '/finance/packages', '/finance/recurring',
     '/finance/expenses', '/finance/reports', '/finance/accountant', '/finance/settings',
   ]);
   for (const s of FINANCE_SECTIONS) {
@@ -68,11 +68,11 @@ test('the proxy sends an old link on (307) and lets everything else through', ()
 
 test('the module menu: every screen exactly once, in the agreed groups; the bottom bar and the "+"', () => {
   const links = FINANCE_MODULE.groups.flatMap((g) => g.links.map((l) => l.href));
-  assert.deepEqual([...links].sort(), FINANCE_SECTIONS.map((s) => s.path).sort(), 'all 10 screens');
+  assert.deepEqual([...links].sort(), FINANCE_SECTIONS.map((s) => s.path).sort(), 'all 11 screens');
   assert.equal(new Set(links).size, links.length, 'none twice');
   assert.deepEqual(FINANCE_MODULE.groups.map((g) => [g.label, g.links.map((l) => l.label)]), [
     ['לובי כספים', ['לובי כספים']],
-    ['הכנסות', ['מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות']],
+    ['הכנסות', ['מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'חיובים חוזרים']],
     ['הוצאות', ['הוצאות']],
     ['דוחות ורואה חשבון', ['דוחות', 'רואה חשבון']],
     ['הגדרות כספים', ['הגדרות כספים']],
@@ -109,6 +109,7 @@ test('the menu marks the screen on screen and opens one group at a time', () => 
   assert.ok(!isActiveLink('/finance/quotes', '/finance'), 'the lobby is not every page');
   assert.equal(groupOfPath(FINANCE_MODULE.groups, '/finance/receivables'), 'income');
   assert.equal(groupOfPath(FINANCE_MODULE.groups, '/finance/packages'), 'income', 'packages are income (2.87)');
+  assert.equal(groupOfPath(FINANCE_MODULE.groups, '/finance/recurring'), 'income', 'recurring charges are income (2.90)');
   assert.equal(groupOfPath(FINANCE_MODULE.groups, '/finance/accountant'), 'reports');
   assert.equal(groupOfPath(FINANCE_MODULE.groups, '/finance'), 'lobby');
   assert.equal(groupOfPath(FINANCE_MODULE.groups, '/dashboard'), null);

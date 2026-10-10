@@ -1,5 +1,5 @@
 import {
-  Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Package, Receipt, ShoppingCart, TrendUp, Wallet,
+  ArrowsClockwise, Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Package, Receipt, ShoppingCart, TrendUp, Wallet,
 } from '@/components/ui/Icon';
 import type { ModuleAction, ModuleConfig } from '@/components/shell/module-nav';
 import { financeHref } from './routes';
@@ -46,6 +46,7 @@ export const FINANCE_MODULE: ModuleConfig = {
         { href: financeHref('receivables'), label: 'חייבים', Icon: Hourglass },
         { href: financeHref('quotes'), label: 'הצעות מחיר', Icon: ClipboardText },
         { href: financeHref('packages'), label: 'חבילות', Icon: Package },
+        { href: financeHref('recurring'), label: 'חיובים חוזרים', Icon: ArrowsClockwise },
       ],
     },
     { id: 'expenses', label: 'הוצאות', Icon: Receipt, links: [{ href: financeHref('expenses'), label: 'הוצאות', Icon: Receipt }] },

@@ -13,12 +13,14 @@ import { SellPackageDialog } from '@/features/finance/SellPackage';
 import { PaylinkList, usePaylinks } from '@/features/finance/Paylinks';
 import { loadLines, plansReady } from '@/features/finance/plans-data';
 import { LeadReminderStop } from '@/features/finance/Reminders';
+import { planLine, scheduleLabel, type RecurringPlan } from '@/features/finance/recurring';
+import { loadRecurringPlans, recurringReady } from '@/features/finance/recurring-data';
 
 /**
  * The money of one contact, on their card: documents issued to them, what they still owe, open quotes — and
  * "הפקת מסמך" / "הצעת מחיר" straight into the money screens with the customer filled in, (2.57) their orders on the site —
  * computed from orders by lead_id, never kept twice — and (2.88) the payment links sent to them, with their statuses; (2.89) what is
- * late by the payments of a plan, and "לא לשלוח" for the automatic debt reminders. Loaded only when opened;
+ * late by the payments of a plan, and "לא לשלוח" for the automatic debt reminders; (2.90) their recurring charges. Loaded only when opened;
  * row-level security decides what is visible (a cashier never opens the CRM; a closed business shows nothing).
  */
 interface Row { id: string; type: number; number: number; date: string; total: number }
@@ -32,6 +34,17 @@ export function CrmFinance({ leadId }: { leadId: string }) {
   const [selling, setSelling] = useState(false);
   useEffect(() => { if (open) void packagesReady().then(setPkReady); }, [open]);
   const links = usePaylinks(open ? { leadId, recent: 10 } : null);
+  // "חיובים חוזרים" (2.90): only once migration 20261010004500 is in the database
+  const [recurring, setRecurring] = useState<RecurringPlan[] | null>(null);
+  const [rcReady, setRcReady] = useState(false);
+  useEffect(() => {
+    if (!open || recurring) return;
+    void recurringReady().then(async (ok) => {
+      setRcReady(ok);
+      const r = ok ? await loadRecurringPlans({ leadId }) : null;
+      setRecurring(r && r.ok ? r.data.filter((p) => p.status !== 'ended') : []);
+    });
+  }, [open, recurring, leadId]);
   useEffect(() => {
     if (!open || data) return;
     const sb = supabase();
@@ -68,6 +81,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
             <Link href={`/finance/documents?new=1&lead=${leadId}`} className="rounded-full bg-primary px-3 py-1.5 font-semibold text-white">🧾 הפקת מסמך</Link>
             <Link href={`/finance/quotes?new=1&lead=${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">הצעת מחיר</Link>
             {pkReady && !error && <button type="button" onClick={() => setSelling(true)} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">📦 מכירת חבילה</button>}
+            {rcReady && !error && <Link href={`/finance/recurring?new=1&lead=${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">🔁 חיוב חוזר</Link>}
           </div>
           {error ? <p className="text-muted">אין גישה לנתונים הכספיים כאן.</p> : !data ? <Spinner /> : <>
             <p>{data.owed > 0 ? <>חייב/ת: <strong>{ils(data.owed)}</strong>{data.overdue > 0 ? <span className="text-red-600"> (באיחור {ils(data.overdue)})</span> : null}</> : 'אין חוב פתוח.'}{data.paid > 0 ? ` · שולם במסמכים: ${ils(data.paid)}` : ''}</p>
@@ -83,6 +97,13 @@ export function CrmFinance({ leadId }: { leadId: string }) {
                   <span className="tabular-nums">{ils(x.total)}</span></Link></li>
               ))}</ul>
             </>}
+            {recurring && recurring.length > 0 && (
+              <ul className="grid gap-0.5" aria-label="חיובים חוזרים">{recurring.map((p) => (
+                <li key={p.id}><Link href={`/finance/recurring?open=${p.id}`} className="flex justify-between gap-2 hover:text-primary">
+                  <span className="min-w-0">🔁 {p.name} · {scheduleLabel(p.every, p.day, p.nextDate)} · {planLine(p)}</span>
+                  <span className="shrink-0 tabular-nums">{ils(p.amount)}</span></Link></li>
+              ))}</ul>
+            )}
             {links.links && <PaylinkList links={links.links} onChanged={() => { void links.reload(); setData(null); }} />}
             <LeadReminderStop leadId={leadId} />
             <Link href="/finance/documents" className="text-xs font-semibold text-primary">לכל המסמכים ←</Link>
