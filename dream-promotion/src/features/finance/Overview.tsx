@@ -9,6 +9,7 @@ import { financeError } from './api';
 import { categoryLabel } from './expenses';
 import { payLabel } from './payments';
 import { Note, PeriodPicker, Stat, ils, periodNow, type Period } from './ui';
+import { remindersReady } from './plans-data';
 
 /**
  * The overview: real numbers only — every figure comes from finance_summary() in the database (documents, the payments
@@ -46,6 +47,17 @@ export function Overview() {
   const [period, setPeriod] = useState<Period>(() => periodNow('month'));
   const [s, setS] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 2.89: the timer's reminders that wait for the owner to send them on WhatsApp
+  const [queued, setQueued] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void remindersReady().then(async (ok) => {
+      if (!ok) return;
+      const { count } = await supabase().from('debt_reminders').select('id', { count: 'exact', head: true }).eq('status', 'queued').eq('channel', 'whatsapp');
+      if (alive) setQueued(count ?? 0);
+    });
+    return () => { alive = false; };
+  }, []);
   useEffect(() => {
     let alive = true;
     setS(null);
@@ -71,6 +83,7 @@ export function Overview() {
           <Stat label="בקשות תשלום מהקופה" value={ils(s.pending.total)} hint={`${s.pending.count} ממתינות`} />
         </div>
 
+        {queued > 0 && <Note>📨 {queued} תזכורות חוב מחכות לשליחה בוואטסאפ. <button type="button" className="font-semibold underline" onClick={() => go('receivables')}>לחייבים</button></Note>}
         {(s.posWithoutDocument.count > 0 || s.allocationMissing > 0) && (
           <div className="grid gap-2">
             {s.posWithoutDocument.count > 0 && <Note tone="warn">{s.posWithoutDocument.count} מכירות ששולמו בקופה בתקופה הזו בלי מסמך ({ils(s.posWithoutDocument.total)}). <button type="button" className="font-semibold underline" onClick={() => go('income')}>להפקת המסמכים החסרים</button></Note>}

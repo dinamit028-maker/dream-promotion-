@@ -17,11 +17,13 @@ import { PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
 import { toReceivable, type Receivable } from './receivables';
 import { Note, PaymentsEditor, Pill, ils, todayIL } from './ui';
 import { PaylinkButton, PaylinkList, heldBy, usePaylinks } from './Paylinks';
+import { PlanSection } from './Plans';
+import { DocReminders } from './Reminders';
 
 /**
  * One document: the document itself (as printed), and what can happen to it — print (original / true copy), PDF,
  * send on WhatsApp, a receipt for what is still owed, a payment link for it (2.88: a part of the balance too; its
- * statuses below), a credit invoice (whole / sum / lines, money back recorded), cancelling a receipt or transaction
+ * statuses below), a payment plan of what is owed and its reminders (2.89), a credit invoice (whole / sum / lines, money back recorded), cancelling a receipt or transaction
  * invoice issued by mistake, its allocation number. The document never changes; every action is a new document or a new
  * record.
  */
@@ -139,6 +141,17 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
         </div>
       )}
       {links.links && <PaylinkList links={links.links} showLabel={false} onChanged={() => { void links.reload(); void load(); onChanged(); }} />}
+      {/* 2.89: a payment plan of what is owed (its payments: each with its own date, in "חייבים" and in the reminders) */}
+      {recv && !recv.cancelled && !cancelled && (
+        <PlanSection key={`${doc.id}:${recv.balance}`} documentId={doc.id} balance={recv.balance} what={`${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
+          canPlan say={say} onChanged={() => { void load(); onChanged(); }}
+          linkProps={recv.balance > 0 && links.ready && links.links ? {
+            kind: 'document', target: doc.id, what: `${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`,
+            left: Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100),
+            customer: { name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }, onSent: () => void links.reload(),
+          } : null} />
+      )}
+      {(doc.docType === 305 || doc.docType === 300) && <DocReminders documentId={doc.id} />}
       <p className="mt-2 text-xs text-muted">המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (קבלה / חשבונית עסקה, נרשם עם סיבה).</p>
 
       {dialog === 'receipt' && recv && <ReceiptDialog doc={doc} balance={recv.balance} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}

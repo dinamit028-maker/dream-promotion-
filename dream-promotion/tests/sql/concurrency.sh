@@ -16,6 +16,8 @@
 #  13. 8 connections take the last 3 treatments of a package, and 8 deduct one session (4200) → exactly 3, exactly one
 #  14. payment links (4300): 8 links of ₪300 on one invoice of ₪1,180 at once → exactly 3; the provider's answer for one link
 #      8 times at once → paid once; 8 different transactions for one link at once → one pays it, 7 are logged as double
+#  15. plans and reminders (4400): 8 connections make a plan for one invoice at once → one plan (and with "replace", one in force);
+#      the timer runs 8 times at once → every late line gets its reminder once, one email each
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -294,3 +296,41 @@ r=$(q "select (select status from public.payment_requests where id = '$PL2') || 
               (select count(*) from public.payments where applies_to = '$PLI')")
 [ "$r" = "paid 1 7 0" ] || fail "8 transactions for one link at once: one pays, 7 double, nothing in the ledger (test) (expected paid 1 7 0, got: $r)"
 echo "ok: 8 different transactions for one link at once → one pays it, 7 logged as double, no payment twice"
+
+# ---- 15. payment plans and the reminders' timer from 8 connections at once (4400) ------------------------------------------------
+q "begin; $AS $(printf "$DOC" ', due_date' 305 1000 1000 180 1180 1000 "'[]'::jsonb" ", public.il_today() + 30") commit;" >/dev/null
+PLAN_INV=$(q "select id from public.documents where business_id = '$B' and doc_type = 305 order by doc_number desc limit 1")
+ITEMS="jsonb_build_array(jsonb_build_object('amount', 590, 'due', public.il_today() + 1), jsonb_build_object('amount', 590, 'due', public.il_today() + 31))"
+for w in $(seq 8); do worker_script "$TMP/plan-$w.sql" 1 "select public.payment_plan_create(gen_random_uuid(), '$PLAN_INV', $ITEMS);"; done
+run_parallel plan
+r=$(q "select count(*) || ' ' || count(*) filter (where status = 'active') from public.payment_plans where document_id = '$PLAN_INV'")
+[ "$r" = "1 1" ] || fail "8 plans for one invoice at once: exactly one (expected 1 1, got: $r)"
+for w in $(seq 8); do worker_script "$TMP/replan-$w.sql" 1 "select public.payment_plan_create(gen_random_uuid(), '$PLAN_INV', $ITEMS, '', true);"; done
+run_parallel replan
+r=$(q "select count(*) || ' ' || count(*) filter (where status = 'active') || ' ' ||
+              (select count(*) from public.payment_plan_items i join public.payment_plans p on p.id = i.plan_id where p.document_id = '$PLAN_INV' and p.status = 'active')
+         from public.payment_plans where document_id = '$PLAN_INV'")
+[ "$r" = "9 1 2" ] || fail "8 replacing plans at once: one in force with its 2 payments, the rest cancelled (expected 9 1 2, got: $r)"
+echo "ok: 8 connections make a plan for one invoice at once → one plan; 8 replacing it at once → one in force"
+# a customer who owes 6 late invoices, reminders on (by email): the timer 8 times at once queues each once
+LEAD=00000000-0000-0000-0000-0000000cc0e1
+q "insert into public.leads (id, user_id, business_id, name, phone, email) values ('$LEAD', '$U', '$B', 'Late', '0509999999', 'late@load.test') on conflict do nothing;
+   insert into public.debt_reminder_settings (business_id, enabled, days, channel, approved_by, approved_at)
+   values ('$B', true, '{3,7,14}', 'email', '$U', now()) on conflict (business_id) do update set enabled = true, channel = 'email', approved_at = now();" >/dev/null
+LATE="insert into public.documents (user_id, doc_type, doc_number, doc_date, due_date, lead_id, customer_name, before_discount, discount, after_discount, vat_amount, total, vat_rate, lines, payments)
+  values ('$U', 305, 0, public.il_today() - %s - 1, public.il_today() - %s, '$LEAD', 'Late', 100, 0, 100, 18, 118, 18,
+  jsonb_build_array(jsonb_build_object('name', 'x', 'qty', 1, 'totalExVat', 100)), '[]'::jsonb);"
+for late in 4 5 8 10 20 30; do q "begin; $AS $(printf "$LATE" "$late" "$late") commit;" >/dev/null; done
+r=$(q "select count(*) from public.documents where business_id = '$B' and lead_id = '$LEAD' and due_date < public.il_today()")
+[ "$r" = "6" ] || fail "the 6 late invoices of the load test were not issued (got: $r)"
+AT="((public.il_today() + case when extract(isodow from public.il_today()) = 6 then 1 else 0 end) + time '10:00') at time zone 'Asia/Jerusalem'"
+for w in $(seq 8); do
+  printf 'begin;\nset local role service_role;\nselect public.debt_reminders_queue(%s);\ncommit;\n' "$AT" > "$TMP/remind-$w.sql"
+  chmod 644 "$TMP/remind-$w.sql"
+done
+run_parallel remind
+r=$(q "select count(*) || ' ' || count(distinct (document_id, step)) || ' ' || count(email_id) || ' ' ||
+              (select count(*) from public.email_outbox o where o.business_id = '$B' and o.kind = 'debt_reminder')
+         from public.debt_reminders where business_id = '$B'")
+[ "$r" = "6 6 6 6" ] || fail "the timer 8 times at once: each late line once, one email each (expected 6 6 6 6, got: $r)"
+echo "ok: the reminders' timer from 8 connections at once → each of 6 late invoices reminded once, one email each"

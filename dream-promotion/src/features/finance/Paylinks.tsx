@@ -88,17 +88,19 @@ export interface SendProps {
   what: string;
   /** the most that may be asked now; a deposit: its fixed amount */
   left: number;
+  /** 2.89: what to start from (a payment of a plan: what is open of it) — never more than `left` */
+  amount?: number;
   customer: { name: string; phone: string; email: string };
   /** a deposit's link lives until the appointment (days) */
   maxDays?: number;
   onClose: () => void;
   onSent?: () => void;
 }
-export function SendPaylinkDialog({ kind, target, packageId, what, left, customer, maxDays, onClose, onSent }: SendProps) {
+export function SendPaylinkDialog({ kind, target, packageId, what, left, amount: start, customer, maxDays, onClose, onSent }: SendProps) {
   const { terminal, error: termError } = useTerminal();
   const gate = termError ? { ok: false as const, reason: 'unknown' as const, message: termError } : paylinkGate(terminal);
   const fixed = kind === 'deposit';
-  const [amount, setAmount] = useState(String(Math.max(0, left)));
+  const [amount, setAmount] = useState(String(Math.max(0, start != null ? Math.min(start, left) : left)));
   const days0 = Math.min(maxDays ?? 7, 7);
   const [days, setDays] = useState(days0 >= 1 ? days0 : 1);
   const canWa = Boolean(waLink(customer.phone));

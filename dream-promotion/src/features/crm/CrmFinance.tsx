@@ -11,11 +11,14 @@ import { orderHref } from '@/features/store/routes';
 import { packagesReady } from '@/features/finance/packages-data';
 import { SellPackageDialog } from '@/features/finance/SellPackage';
 import { PaylinkList, usePaylinks } from '@/features/finance/Paylinks';
+import { loadLines, plansReady } from '@/features/finance/plans-data';
+import { LeadReminderStop } from '@/features/finance/Reminders';
 
 /**
  * The money of one contact, on their card: documents issued to them, what they still owe, open quotes — and
  * "הפקת מסמך" / "הצעת מחיר" straight into the money screens with the customer filled in, (2.57) their orders on the site —
- * computed from orders by lead_id, never kept twice — and (2.88) the payment links sent to them, with their statuses. Loaded only when opened;
+ * computed from orders by lead_id, never kept twice — and (2.88) the payment links sent to them, with their statuses; (2.89) what is
+ * late by the payments of a plan, and "לא לשלוח" for the automatic debt reminders. Loaded only when opened;
  * row-level security decides what is visible (a cashier never opens the CRM; a closed business shows nothing).
  */
 interface Row { id: string; type: number; number: number; date: string; total: number }
@@ -37,13 +40,17 @@ export function CrmFinance({ leadId }: { leadId: string }) {
       sb.from('receivables').select('balance, due_date, cancelled').eq('lead_id', leadId),
       sb.from('quotes').select('id, quote_number, status, total').eq('lead_id', leadId).in('status', ['draft', 'sent', 'accepted']).order('created_at', { ascending: false }).limit(10),
       sb.from('orders').select('id, number, total, created_at, payment_status, is_test').eq('lead_id', leadId).order('created_at', { ascending: false }).limit(20),
-    ]).then(([d, r, q, o]) => {
+      plansReady().then((ok) => (ok ? loadLines({ leadId, openOnly: true }) : null)),
+    ]).then(([d, r, q, o, ls]) => {
       if (d.error) { setError(true); return; }
       const today = new Date().toISOString().slice(0, 10);
       const rec = ((r.data ?? []) as any[]).filter((x) => !x.cancelled && Number(x.balance) > 0);
       const docs = ((d.data ?? []) as any[]).map((x) => ({ id: x.id, type: x.doc_type, number: Number(x.doc_number), date: x.doc_date, total: Number(x.total) }));
       setData({
-        docs, owed: rec.reduce((a, x) => a + Number(x.balance), 0), overdue: rec.filter((x) => x.due_date && x.due_date < today).reduce((a, x) => a + Number(x.balance), 0),
+        docs, owed: rec.reduce((a, x) => a + Number(x.balance), 0),
+        // late: by the payments of a plan (2.89, receivable_lines), else by each invoice's own date
+        overdue: ls ? ls.filter((l) => l.dueDate && l.dueDate < today).reduce((a, l) => a + l.open, 0)
+          : rec.filter((x) => x.due_date && x.due_date < today).reduce((a, x) => a + Number(x.balance), 0),
         quotes: ((q.data ?? []) as any[]).map((x) => ({ id: x.id, number: Number(x.quote_number), status: x.status, total: Number(x.total) })),
         orders: o.error ? [] : ((o.data ?? []) as any[]).map((x) => ({ id: x.id, number: Number(x.number), total: Number(x.total), at: x.created_at, status: x.payment_status, test: Boolean(x.is_test) })),
         paid: docs.filter((x) => x.type === 320 || x.type === 400).reduce((a, x) => a + x.total, 0) - docs.filter((x) => x.type === 330).reduce((a, x) => a + x.total, 0),
@@ -77,6 +84,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
               ))}</ul>
             </>}
             {links.links && <PaylinkList links={links.links} onChanged={() => { void links.reload(); setData(null); }} />}
+            <LeadReminderStop leadId={leadId} />
             <Link href="/finance/documents" className="text-xs font-semibold text-primary">לכל המסמכים ←</Link>
           </>}
         </div>

@@ -20,6 +20,7 @@ import {
 import { cancelPackage, giveBack, loadPackage, loadUses, packagesChanged, setPackageValidity } from './packages-data';
 import { SellPackageDialog } from './SellPackage';
 import { PaylinkButton, PaylinkList, heldBy, usePaylinks } from './Paylinks';
+import { PlanSection } from './Plans';
 
 /**
  * One sold package (docs/FINANCE_ADDITIONS_HE.md, T1): what is left, its validity, its document and money, every treatment
@@ -103,13 +104,23 @@ export function PackageView({ pkg: initial, onClose, onChanged, onOpenCard }: {
             </p>
             <p className="tabular-nums">שולם: <strong>{ils(pkg.paid)}</strong>{pkg.credited ? ` · זוכה: ${ils(pkg.credited)}` : ''}
               {owed > 0 ? <span className="text-amber-700 dark:text-amber-300"> · יתרה לתשלום: {ils(owed)}</span> : null}</p>
-            {owed > 0 && <p className="text-xs text-muted">תשלום שמגיע — &quot;קבלה על תשלום&quot; מתוך המסמך (אפשר בכמה תשלומים), או לינק לתשלום בכרטיס.</p>}
+            {owed > 0 && <p className="text-xs text-muted">תשלום שמגיע — &quot;קבלה על תשלום&quot; מתוך המסמך (אפשר בכמה תשלומים), או לינק לתשלום בכרטיס. מועדים קבועים — &quot;פריסה לתשלומים&quot;.</p>}
             {owed > 0 && links.ready && links.links && pkg.documentId && (
               <div><PaylinkButton size="sm" kind="document" target={pkg.documentId} packageId={pkg.id} what={`${pkg.name}${pkg.customerName ? ` · ${pkg.customerName}` : ''}`}
                 left={Math.max(0, Math.round((owed - heldBy(links.links)) * 100) / 100)}
                 customer={{ name: pkg.customerName, phone: lead?.phone ?? '', email: lead?.email ?? '' }} onSent={() => void links.reload()} /></div>
             )}
             {links.links && <PaylinkList links={links.links} showLabel={false} onChanged={() => { void links.reload(); changed(); }} />}
+            {/* 2.89: a payment plan of the package's invoice — the same plan as on the invoice itself */}
+            {pkg.documentId && (pkg.docType === 305 || pkg.docType === 300) && !pkg.docCancelled && (
+              <PlanSection key={`${pkg.documentId}:${owed}`} documentId={pkg.documentId} balance={owed} what={`${pkg.name}${pkg.customerName ? ` · ${pkg.customerName}` : ''}`}
+                canPlan={pkg.status === 'active'} say={say} onChanged={changed}
+                linkProps={owed > 0 && links.ready && links.links ? {
+                  kind: 'document', target: pkg.documentId, packageId: pkg.id, what: `${pkg.name}${pkg.customerName ? ` · ${pkg.customerName}` : ''}`,
+                  left: Math.max(0, Math.round((owed - heldBy(links.links)) * 100) / 100),
+                  customer: { name: pkg.customerName, phone: lead?.phone ?? '', email: lead?.email ?? '' }, onSent: () => void links.reload(),
+                } : null} />
+            )}
           </> : pkg.price > 0 ? (
             <div className="grid gap-2">
               <Note tone="warn">המסמך של החבילה לא הופק.</Note>

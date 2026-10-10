@@ -7,7 +7,10 @@ import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { Camera } from '@/components/ui/Icon';
 import { useFinance } from './FinanceScreen';
 import { financeError, logEvent } from './api';
-import { EXPENSE_CATEGORIES, SUPPLIER_DOC_TYPES, carriesVat, categoryLabel, expenseColumns, expenseError, splitTotal, toExpense, type Expense, type ExpenseForm, type Extraction } from './expenses';
+import {
+  EXPENSE_CATEGORIES, SUPPLIER_DOC_TYPES, carriesVat, categoryLabel, duplicateAck, duplicateMessage, expenseColumns, expenseError, fileSha256, splitTotal, toDuplicate,
+  toExpense, type DuplicateMatch, type Expense, type ExpenseForm, type Extraction,
+} from './expenses';
 import { expensesCsv } from './reports';
 import { PAY_METHODS } from './payments';
 import { Note, PeriodPicker, Pill, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
@@ -19,7 +22,23 @@ import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
  * "✨ קריאה אוטומטית" sends the file to the server, which asks the AI to read it; the answer only FILLS THE FORM — every field
  * is checked by the user, and nothing is saved until they press "אישור ושמירה". An expense is never deleted (void + reason).
  * Products bought come into stock through the register's stock log (no second inventory).
+ * 2.89 (migration 4400): a duplicate is a warning, never a block — the same file again (its sha256), or the same supplier and
+ * number, or supplier + total + date; "זו הוצאה אחרת" is kept with the expense (who and when: the database's) and logged.
  */
+let dupCache: boolean | null = null;
+async function duplicatesReady(): Promise<boolean> {
+  if (dupCache !== null) return dupCache;
+  const { error } = await supabase().from('expenses').select('file_sha256').limit(1);
+  dupCache = !error;
+  return dupCache;
+}
+async function findDuplicates(q: { sha: string | null; f?: ExpenseForm; exclude?: string | null }): Promise<DuplicateMatch[]> {
+  const { data, error } = await supabase().rpc('expense_duplicates', {
+    p_sha: q.sha, p_dealer: q.f?.supplierDealer ?? '', p_supplier: q.f?.supplierName ?? '', p_doc_number: q.f?.supplierDocNumber ?? '',
+    p_total: q.f && q.f.total > 0 ? q.f.total : null, p_doc_date: q.f?.docDate ?? null, p_exclude: q.exclude ?? null,
+  });
+  return error ? [] : ((data ?? []) as any[]).map(toDuplicate);
+}
 const EMPTY = (today: string): ExpenseForm => ({ supplierName: '', supplierDealer: '', supplierDocType: 'tax_invoice', supplierDocNumber: '', allocationNumber: '', docDate: today,
   category: 'other', description: '', amountBeforeVat: 0, vatAmount: 0, total: 0, vatDeductiblePct: 100, paidOn: null, paymentMethod: null });
 
@@ -68,12 +87,13 @@ export function Expenses() {
           ))}
         </div>
       </>}
-      {edit && <ExpenseEditor expense={edit === 'new' ? null : edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); void load(); }} />}
+      {edit && <ExpenseEditor key={edit === 'new' ? 'new' : edit.id} expense={edit === 'new' ? null : edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); void load(); }}
+        onOpen={async (id) => { const { data } = await supabase().from('expenses').select('*').eq('id', id).maybeSingle(); if (data) setEdit(toExpense(data)); }} />}
     </div>
   );
 }
 
-function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null; onClose: () => void; onSaved: () => void }) {
+function ExpenseEditor({ expense, onClose, onSaved, onOpen }: { expense: Expense | null; onClose: () => void; onSaved: () => void; onOpen: (id: string) => void }) {
   const { userId, settings, vat, catalog, say, access, products: allProducts, productsReady, reloadCatalog } = useFinance();
   // the one product editor (2.54): a product bought for the first time is created here, "באתר" next to a chosen one
   const [editProduct, setEditProduct] = useState<{ id: string | null; line: number | null; focus?: EditorFocus } | null>(null);
@@ -85,14 +105,27 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [voiding, setVoiding] = useState('');
+  // 2.89: the file's fingerprint, what it may repeat, and "זו הוצאה אחרת"
+  const [sha, setSha] = useState<string | null>(null);
+  const [dups, setDups] = useState<{ list: DuplicateMatch[]; atSave: boolean; draft?: boolean }>({ list: [], atSave: false });
+  const [different, setDifferent] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const locked = expense?.status === 'void' || Boolean(expense?.paidOn);
   const set = <K extends keyof ExpenseForm>(k: K, v: ExpenseForm[K]) => setF((x) => ({ ...x, [k]: v }));
   const fromTotal = (total: number, withVat = carriesVat(f.supplierDocType) && vat) => setF((x) => ({ ...x, ...splitTotal(total, withVat ? settings.vatRate : 0) }));
 
-  /** a chosen file is only attached; it goes to the AI only when the user asks ("✨ קריאה אוטומטית") — 2.52.1 */
-  function pickFile(fl: File) { setFile(fl); setScan({ busy: false, warnings: [], model: '', raw: null, error: null }); }
+  /** a chosen file is only attached; it goes to the AI only when the user asks ("✨ קריאה אוטומטית") — 2.52.1.
+   *  2.89: its sha256 at once — the same file recorded before is said here (a warning; the user decides) */
+  function pickFile(fl: File) {
+    setFile(fl); setScan({ busy: false, warnings: [], model: '', raw: null, error: null }); setSha(null); setDups({ list: [], atSave: false }); setDifferent(false);
+    void (async () => {
+      if (!(await duplicatesReady())) return;
+      const h = await fileSha256(fl).catch(() => null);
+      setSha(h);
+      if (h) setDups({ list: await findDuplicates({ sha: h }), atSave: false });
+    })();
+  }
   async function readFile(fl: File) {
     setScan({ busy: true, warnings: [], model: '', raw: null, error: null });
     try {
@@ -111,10 +144,19 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
     } catch { setScan({ busy: false, warnings: [], model: '', raw: null, error: 'אין חיבור — ממלאים ידנית.' }); }
   }
 
-  async function save(asDraft: boolean) {
+  async function save(asDraft: boolean, sure = different) {
     const err = expenseError(f, today, access.lockedUntil);
     if (err) { setError(err); return; }
     setBusy(true); setError(null);
+    // 2.89: before saving — does it repeat an expense already recorded? A warning: "זו הוצאה אחרת" saves it (and is kept)
+    const ready = await duplicatesReady();
+    // the file's fingerprint: from the pick, or now (a save pressed before it was ready)
+    const hash = ready && file ? sha ?? await fileSha256(file).catch(() => null) : null;
+    let found: DuplicateMatch[] = [];
+    if (ready && expense?.status !== 'void' && !expense?.duplicateAck) {
+      found = await findDuplicates({ sha: file ? hash : expense?.fileSha256 ?? null, f, exclude: expense?.id ?? null });
+      if (found.length && !sure) { setBusy(false); setDups({ list: found, atSave: true, draft: asDraft }); return; }
+    }
     let path = expense?.filePath ?? '', mime = expense?.fileMime ?? '';
     if (file) {
       const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(-80) || 'file';
@@ -123,7 +165,8 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
       if (up.error) { setBusy(false); setError(`הקובץ לא עלה: ${financeError(up.error)}`); return; }
     }
     const cols = { ...expenseColumns(f), file_path: path, file_mime: mime,
-      stock_lines: stock.filter((s) => s.itemId && s.qty > 0).map((s) => ({ itemId: s.itemId, qty: s.qty, ...(s.variantId ? { variantId: s.variantId } : {}) })) };
+      stock_lines: stock.filter((s) => s.itemId && s.qty > 0).map((s) => ({ itemId: s.itemId, qty: s.qty, ...(s.variantId ? { variantId: s.variantId } : {}) })),
+      ...(hash ? { file_sha256: hash } : {}), ...(ready && found.length ? { duplicate_ack: duplicateAck(found) } : {}) };
     const r = expense
       ? await supabase().from('expenses').update({ ...cols, ...(expense.status === 'draft' && !asDraft ? { status: 'confirmed' } : {}) }).eq('id', expense.id).select('*').single()
       : await supabase().from('expenses').insert({ ...cols, user_id: userId, status: asDraft ? 'draft' : 'confirmed', ...(scan.raw ? { ai_extracted: scan.raw, ai_model: scan.model.slice(0, 80) } : {}) }).select('*').single();
@@ -187,8 +230,10 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
           )}
           {scan.error && <Note tone="warn">{scan.error}</Note>}
           {scan.raw != null && !scan.busy && <Note>✨ הטופס מולא מהקובץ — <strong>בדקו כל שדה</strong> לפני השמירה. מה שלא נקרא בוודאות נשאר ריק.{scan.warnings.map((w) => <span key={w} className="block text-xs">• {w}</span>)}</Note>}
+          {!dups.atSave && dups.list.length > 0 && <DuplicateNote list={dups.list} onOpen={onOpen} />}
         </div>
       )}
+      {expense?.duplicateAck && <p className="mb-3 text-xs text-muted">סומנה &quot;הוצאה אחרת&quot; (לא כפילות) {expense.duplicateAck.at ? `ב-${ddmmyyyy(expense.duplicateAck.at.slice(0, 10))}` : ''}.</p>}
       {expense?.filePath && <Button size="sm" variant="ghost" className="mb-3" onClick={() => void openFile()}>📎 פתיחת הקובץ</Button>}
       {locked && <div className="mb-3"><Note tone="warn">{expense?.status === 'void' ? `ההוצאה מבוטלת: ${expense.voidReason}` : 'ההוצאה שולמה — הסכומים נעולים. לתיקון: מבטלים ורושמים מחדש.'}</Note></div>}
 
@@ -247,6 +292,16 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
         </div>
       )}
       {error && <div className="mb-3"><Note tone="warn">{error}</Note></div>}
+      {dups.atSave && dups.list.length > 0 && (
+        <div className="mb-3 grid gap-2" role="alert">
+          <DuplicateNote list={dups.list} onOpen={onOpen} />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" disabled={busy} onClick={() => { setDifferent(true); setDups({ list: dups.list, atSave: false }); void save(Boolean(dups.draft), true); }}>זו הוצאה אחרת — לשמור</Button>
+            <Button variant="ghost" onClick={() => setDups({ list: [], atSave: false })}>חזרה לטופס</Button>
+          </div>
+          <p className="text-xs text-muted">ההחלטה נשמרת עם ההוצאה ונרשמת ביומן.</p>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         {expense?.status !== 'void' && <Button variant="primary" disabled={busy} onClick={() => void save(false)}>{busy ? 'שומר…' : expense?.status === 'confirmed' ? 'שמירה' : 'אישור ושמירה'}</Button>}
         {!expense && <Button variant="ghost" disabled={busy} onClick={() => void save(true)}>שמירה לאישור מאוחר יותר</Button>}
@@ -260,5 +315,16 @@ function ExpenseEditor({ expense, onClose, onSaved }: { expense: Expense | null;
       )}
       {productEditor}
     </Modal>
+  );
+}
+
+/** "the same expense?" — what it may repeat, each with a way to open it */
+function DuplicateNote({ list, onOpen }: { list: DuplicateMatch[]; onOpen: (id: string) => void }) {
+  return (
+    <Note tone="warn">
+      {list.map((m) => (
+        <span key={m.id} className="block">{duplicateMessage(m)} <button type="button" className="font-semibold underline" onClick={() => onOpen(m.id)}>פתיחת הוצאה #{m.number}</button></span>
+      ))}
+    </Note>
   );
 }

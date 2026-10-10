@@ -4,9 +4,13 @@
  * screens rely on (document numbering, stock moving with sales / refunds / cancels, refunds never beyond what
  * was paid; 2.54: stock per variant, an item's sum of its variants, a signed upload to storage; 2.55: the store — one per
  * business, its checklist before it goes on the air, theme versions, unique addresses of pages and collections).
+ * 2.89 (4400): payment plans and the view receivable_lines (planLines — the view's arithmetic), the reminders' functions, a
+ * duplicate expense (duplicateReasons — expense_duplicates' rule).
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { randomUUID, randomBytes } from 'node:crypto';
+import { planLines } from '../../src/features/finance/plans';
+import { duplicateReasons } from '../../src/features/finance/expenses';
 
 type Row = Record<string, any>;
 export type Tables = Record<string, Row[]>;
@@ -63,6 +67,8 @@ export class FakeSupabase {
   applyKitCalls = 0;
   /** 2.87: client_files_allowed() for the signed-in user (the owner: yes) */
   clientFiles = true;
+  /** 2.89: the signed-in user is the business's owner (turns reminders on) */
+  owner = true;
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string }) {}
   private today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
   private log(action: string, entityId: string, details: Row) {
@@ -80,6 +86,39 @@ export class FakeSupabase {
         customer_phone: d.customer_phone ?? '', customer_email: d.customer_email ?? '', lead_id: d.lead_id ?? null, total: Number(d.total), share_token: d.share_token,
         credited: Math.round(credited * 100) / 100, paid: Math.round(paid * 100) / 100, balance: Math.round((Number(d.total) - credited - paid) * 100) / 100, cancelled: canc.has(d.id) };
     });
+  }
+  /** 2.89: the view receivable_lines — an invoice without a plan is one line; with a plan, a line per payment, paid in order */
+  receivableLines(): Row[] {
+    const out: Row[] = [];
+    for (const r of this.receivables().filter((x) => !x.cancelled)) {
+      const plan = this.t('payment_plans').find((p) => p.document_id === r.id && p.status === 'active');
+      const items = plan ? this.t('payment_plan_items').filter((i) => i.plan_id === plan.id).sort((a, b) => a.n - b.n) : [];
+      const ls = planLines(r.balance, plan ? { total: Number(plan.total), items: items.map((i) => ({ n: i.n, amount: Number(i.amount), dueDate: i.due_date })) } : null, r.due_date, r.doc_date);
+      for (const l of ls) {
+        out.push({ document_id: r.id, business_id: r.business_id, lead_id: r.lead_id, doc_type: r.doc_type, doc_number: r.doc_number, doc_date: r.doc_date,
+          customer_name: r.customer_name, customer_phone: r.customer_phone, customer_email: r.customer_email, share_token: r.share_token, doc_balance: r.balance,
+          plan_id: plan?.id ?? null, item_id: l.n != null ? items.find((i) => i.n === l.n)?.id ?? null : null, n: l.n, of_n: l.n != null ? items.length : null,
+          due_date: l.dueDate, amount: l.amount, open_amount: l.open });
+      }
+    }
+    return out;
+  }
+  /** 2.89: what the timer would queue now (debt_reminders_due): the last rule whose day came, once per line and step */
+  dueReminders(days: number[], channel: string, today: string) {
+    const nd = days.length, out: Row[] = [];
+    const ago = (d: string) => Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${d}T12:00:00Z`)) / 864e5);
+    for (const l of this.receivableLines()) {
+      const lead = this.t('leads').find((x) => x.id === l.lead_id);
+      if (!lead || !(l.open_amount > 0) || !l.due_date || this.t('debt_reminder_stops').some((x) => x.lead_id === l.lead_id && !x.lifted_at)) continue;
+      const late = ago(l.due_date);
+      if (late < days[0] || late > days[nd - 1] + 30) continue;
+      const step = Math.max(...days.map((d, k) => (d <= late ? k + 1 : 0)));
+      if (this.t('debt_reminders').some((q) => q.document_id === l.document_id && (q.item_id ?? null) === l.item_id && q.step >= step)) continue;
+      const mail = lead.email || l.customer_email, phone = lead.phone || l.customer_phone;
+      const ch = channel === 'email' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail) ? 'email' : String(phone).replace(/\D/g, '').length >= 9 ? 'whatsapp' : null;
+      if (ch) out.push({ ...l, step, channel: ch, to_address: ch === 'email' ? mail : phone });
+    }
+    return out;
   }
   /** finance_summary(): the same rules as the database function, on the fake's rows */
   summary(from: string, to: string) {
@@ -108,8 +147,10 @@ export class FakeSupabase {
       expenses: { net: r2(eNet), vat: r2(eVat), vatDeductible: r2(eDed), total: r2(eNet + eVat), count: exp.length, byCategory: cats },
       vatPayable: vat ? r2(outVat - eDed) : 0, profit: r2(rev(docs) - (eNet + eVat - eDed)),
       cash: { in: r2(cin), out: r2(cout), net: r2(cin - cout), byMethod: methods },
-      receivables: { open: r2(recv.reduce((a, x) => a + x.balance, 0)), count: recv.length, overdue: r2(recv.filter((x) => x.due_date && x.due_date < today).reduce((a, x) => a + x.balance, 0)),
-        overdueCount: recv.filter((x) => x.due_date && x.due_date < today).length },
+      // 2.89: "overdue" by the lines (a plan's payments by their own dates)
+      receivables: { open: r2(recv.reduce((a, x) => a + x.balance, 0)), count: recv.length,
+        overdue: r2(this.receivableLines().filter((l) => l.open_amount > 0 && l.due_date && l.due_date < today).reduce((a, l) => a + l.open_amount, 0)),
+        overdueCount: new Set(this.receivableLines().filter((l) => l.open_amount > 0 && l.due_date && l.due_date < today).map((l) => l.document_id)).size },
       pending: { count: this.t('sales').filter((x) => x.status === 'pending').length, total: 0 }, posWithoutDocument: { count: 0, total: 0 }, allocationMissing: 0,
       months: [{ month, revenue: r2(rev(docs)), expenses: r2(eNet + eVat - eDed) }], lockedUntil: this.finance.lockedUntil,
     };
@@ -209,6 +250,8 @@ export class FakeSupabase {
       Object.assign(r, { quote_number: n, share_token: randomBytes(32).toString('hex'), sent_at: r.status === 'sent' ? now() : null, decided_at: null, decision_by: '', converted_document_id: null, updated_at: now() });
     }
     if (table === 'expenses') {
+      if (r.file_sha256 != null && !/^[0-9a-f]{64}$/.test(r.file_sha256)) return 'new row for relation "expenses" violates check constraint "expenses_file_sha256_check"';
+      if (r.duplicate_ack) r.duplicate_ack = { of: r.duplicate_ack.of, reasons: r.duplicate_ack.reasons, by: this.opts.userId, at: now() };
       const n = (this.numbers.get('expense') ?? 0) + 1; this.numbers.set('expense', n);
       Object.assign(r, { expense_number: n, status: r.status ?? 'confirmed', confirmed_at: (r.status ?? 'confirmed') === 'confirmed' ? now() : null, stock_lines: r.stock_lines ?? [], updated_at: now() });
     }
@@ -331,6 +374,11 @@ export class FakeSupabase {
     if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
+    if (table === 'expenses') {
+      if (old.file_sha256) delete patch.file_sha256;
+      if (patch.duplicate_ack) patch.duplicate_ack = { of: patch.duplicate_ack.of, reasons: patch.duplicate_ack.reasons, by: this.opts.userId, at: now() };
+      else if ('duplicate_ack' in patch) delete patch.duplicate_ack;
+    }
     if (table === 'quotes' && patch.status && patch.status !== old.status) {
       const next: Record<string, string[]> = { draft: ['sent', 'cancelled', 'converted'], sent: ['draft', 'accepted', 'rejected', 'expired', 'cancelled', 'converted'], accepted: ['converted', 'cancelled'], expired: ['sent', 'cancelled'] };
       if (!(next[old.status] ?? []).includes(patch.status)) return `quote_status: ${old.status} → ${patch.status} is not allowed`;
@@ -584,6 +632,96 @@ export class FakeSupabase {
       return { status: 200, body: { ok: true } };
     }
     if (fn === 'store_alerts_seen') return { status: 200, body: null };
+    // 2.89 (4400): a payment plan — the sum is the balance to the agora, one plan in force (a new one only when replacing)
+    if (fn === 'payment_plan_create') {
+      const bad = (m: string, code = '23514') => ({ status: 400, body: { code, message: m } });
+      const r = this.receivables().find((x) => x.id === args.p_document);
+      if (!r) return bad('plan_not_found', '42501');
+      if (this.t('payment_plans').some((p) => p.id === args.p_id)) return { status: 200, body: { result: 'already', plan: args.p_id } };
+      if (r.cancelled) return bad('plan_not_invoice: the invoice was cancelled');
+      if (!(r.balance > 0)) return bad('plan_paid: nothing is owed on this invoice');
+      const items: Row[] = args.p_items ?? [];
+      if (items.length < 2 || items.length > 36) return bad('plan_count: 2 to 36 payments', '22023');
+      if (Math.round(items.reduce((a, i) => a + Number(i.amount) * 100, 0)) !== Math.round(r.balance * 100)) return bad(`plan_sum: the payments add up to x, the balance is ${r.balance}`);
+      if (items.some((i, k) => i.due < this.today() || (k > 0 && i.due <= items[k - 1].due))) return bad('plan_date: a payment', '22023');
+      const old = this.t('payment_plans').find((p) => p.document_id === r.id && p.status === 'active');
+      if (old && !args.p_replace) return bad('plan_exists: the invoice already has a plan', '23505');
+      if (old) Object.assign(old, { status: 'cancelled', cancelled_at: now(), cancelled_by: this.opts.userId, cancel_reason: 'הוחלפה בפריסה חדשה' });
+      this.t('payment_plans').push({ id: args.p_id, business_id: this.opts.businessId, user_id: this.opts.userId, document_id: r.id, lead_id: r.lead_id, total: r.balance,
+        payments: items.length, status: 'active', note: args.p_note ?? '', created_at: now(), cancelled_at: null, cancelled_by: null, cancel_reason: '' });
+      items.forEach((i, k) => this.t('payment_plan_items').push({ id: randomUUID(), plan_id: args.p_id, business_id: this.opts.businessId, n: k + 1, due_date: i.due, amount: Number(i.amount) }));
+      this.log('plan.created', r.id, { plan: args.p_id, total: r.balance, payments: items.length });
+      return { status: 200, body: { result: 'ok', plan: args.p_id } };
+    }
+    if (fn === 'payment_plan_cancel') {
+      const p = this.t('payment_plans').find((x) => x.id === args.p_plan);
+      if (!p) return { status: 400, body: { code: '42501', message: 'plan_not_found' } };
+      if (p.status === 'cancelled') return { status: 200, body: { result: 'already' } };
+      Object.assign(p, { status: 'cancelled', cancelled_at: now(), cancelled_by: this.opts.userId, cancel_reason: args.p_reason ?? '' });
+      this.log('plan.cancelled', p.document_id, { plan: p.id });
+      return { status: 200, body: { result: 'ok' } };
+    }
+    // 2.89: the reminders — on only by the owner (kept: who and when); off by anyone who may write, and what waits is cancelled
+    if (fn === 'debt_reminders_configure') {
+      const days = [...new Set((args.p_days ?? []).map(Number))].sort((a: any, b: any) => a - b) as number[];
+      if (!days.length || days.length > 5 || days[0] < 1 || days[days.length - 1] > 120) return { status: 400, body: { code: '22023', message: 'reminders_days: 1 to 5 days, each 1 to 120' } };
+      const rows = this.t('debt_reminder_settings');
+      let s = rows.find((x) => x.business_id === this.opts.businessId);
+      if (!s) { s = { business_id: this.opts.businessId, enabled: false, days, channel: 'whatsapp', approved_by: null, approved_at: null }; rows.push(s); }
+      if (args.p_enabled) {
+        if (!this.owner) return { status: 400, body: { code: '42501', message: 'reminders_owner: only the business owner turns reminders on' } };
+        Object.assign(s, { enabled: true, days, channel: args.p_channel, approved_by: this.opts.userId, approved_at: now(), updated_at: now() });
+        this.log('reminders.enabled', this.opts.businessId, { days, channel: args.p_channel });
+      } else {
+        Object.assign(s, { enabled: false, days, channel: args.p_channel, updated_at: now() });
+        for (const q of this.t('debt_reminders').filter((x) => x.status === 'queued')) Object.assign(q, { status: 'cancelled', cancelled_at: now(), cancel_reason: 'off' });
+        this.log('reminders.disabled', this.opts.businessId, { days });
+      }
+      return { status: 200, body: s };
+    }
+    if (fn === 'debt_reminders_preview') {
+      const due = this.dueReminders([...new Set((args.p_days ?? []).map(Number))].sort((a: any, b: any) => a - b) as number[], args.p_channel, this.today());
+      return { status: 200, body: { email: due.filter((d) => d.channel === 'email').length, whatsapp: due.filter((d) => d.channel === 'whatsapp').length } };
+    }
+    if (fn === 'debt_reminders_stop') {
+      const stops = this.t('debt_reminder_stops');
+      if (args.p_stop) {
+        if (!stops.some((x) => x.lead_id === args.p_lead && !x.lifted_at)) stops.push({ id: randomUUID(), business_id: this.opts.businessId, lead_id: args.p_lead, created_by: this.opts.userId, created_at: now(), lifted_at: null });
+        for (const q of this.t('debt_reminders').filter((x) => x.lead_id === args.p_lead && x.status === 'queued')) Object.assign(q, { status: 'cancelled', cancelled_at: now(), cancel_reason: 'stopped' });
+        this.log('reminders.stopped', args.p_lead, {});
+        return { status: 200, body: true };
+      }
+      for (const x of stops.filter((y) => y.lead_id === args.p_lead && !y.lifted_at)) Object.assign(x, { lifted_at: now(), lifted_by: this.opts.userId });
+      return { status: 200, body: false };
+    }
+    if (fn === 'debt_reminder_whatsapp') {
+      const q = this.t('debt_reminders').find((x) => x.id === args.p_id);
+      if (!q) return { status: 400, body: { code: '42501', message: 'reminder_not_found' } };
+      if (q.status !== 'queued') return { status: 200, body: { result: q.status } };
+      const l = this.receivableLines().find((x) => x.document_id === q.document_id && (q.item_id ? x.item_id === q.item_id : !x.item_id && !x.plan_id));
+      const state = !l ? 'changed' : !(l.open_amount > 0) ? 'paid' : this.t('debt_reminder_stops').some((x) => x.lead_id === q.lead_id && !x.lifted_at) ? 'stopped' : 'ok';
+      if (state !== 'ok') { Object.assign(q, { status: 'cancelled', cancelled_at: now(), cancel_reason: state }); return { status: 200, body: { result: state } }; }
+      Object.assign(q, { status: 'sent', sent_at: now(), sent_by: this.opts.userId, amount: l!.open_amount });
+      this.t('lead_activities').push({ id: randomUUID(), business_id: this.opts.businessId, user_id: this.opts.userId, lead_id: q.lead_id, kind: 'whatsapp', body: `תזכורת תשלום בוואטסאפ: ₪${l!.open_amount}`, created_at: now() });
+      this.log('reminder.sent', q.document_id, { reminder: q.id, step: q.step, channel: 'whatsapp' });
+      return { status: 200, body: { result: 'ok', state: 'ok', open: l!.open_amount, due: l!.due_date, n: l!.n, of: l!.of_n, docType: l!.doc_type, docNumber: l!.doc_number,
+        customer: l!.customer_name, shareToken: l!.share_token, lead: q.lead_id, step: q.step, tone: q.tone } };
+    }
+    if (fn === 'debt_reminder_skip') {
+      const q = this.t('debt_reminders').find((x) => x.id === args.p_id && x.status === 'queued');
+      if (!q) return { status: 200, body: false };
+      Object.assign(q, { status: 'cancelled', cancelled_at: now(), cancel_reason: 'skipped' });
+      return { status: 200, body: true };
+    }
+    // 2.89: what this expense may repeat (expense_duplicates' rule; a void one never counts)
+    if (fn === 'expense_duplicates') {
+      const q = { sha: args.p_sha ?? null, dealer: args.p_dealer ?? '', supplier: args.p_supplier ?? '', docNumber: args.p_doc_number ?? '', total: args.p_total == null ? null : Number(args.p_total), docDate: args.p_doc_date ?? null };
+      const out = this.t('expenses').filter((e) => e.id !== args.p_exclude).map((e) => ({ e, reasons: duplicateReasons(q, { fileSha256: e.file_sha256 ?? null, supplierDealer: e.supplier_dealer ?? '',
+        supplierName: e.supplier_name ?? '', supplierDocNumber: e.supplier_doc_number ?? '', total: Number(e.total), docDate: e.doc_date, status: e.status }) }))
+        .filter((x) => x.reasons.length).slice(0, 5)
+        .map(({ e, reasons }) => ({ id: e.id, expense_number: e.expense_number, doc_date: e.doc_date, created_at: e.created_at, supplier_name: e.supplier_name, supplier_doc_number: e.supplier_doc_number ?? '', total: e.total, status: e.status, reasons }));
+      return { status: 200, body: out };
+    }
     if (fn === 'store_slug_available') {
       const c = String(args.p_slug ?? '').trim().toLowerCase();
       if (c === 'taken-one') return { status: 200, body: { ok: false, error: 'taken', suggestion: 'taken-one-2' } };
@@ -597,6 +735,14 @@ export class FakeSupabase {
     const url = new URL(href);
     const json = (status: number, body: any, extra: Record<string, string> = {}) => ({ status, body: body === undefined ? '' : JSON.stringify(body), headers: { 'content-type': 'application/json', ...extra } });
     // ---- storage: an upload with a signed link (the store's pictures, 2.54) — a binary body, before any JSON ----
+    // 2.89: a file uploaded straight to a private bucket (an expense's file, finance-files): kept by path
+    const direct = url.pathname.match(/^\/storage\/v1\/object\/(?!upload\/|sign\/|public\/)([^/]+)\/(.+)$/);
+    if (direct && method === 'POST') {
+      const key = `${direct[1]}/${decodeURIComponent(direct[2])}`;
+      if (this.files.has(key)) return json(400, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
+      this.files.set(key, { size: (bodyText ?? '').length, type: headers['content-type'] ?? '' });
+      return json(200, { Key: key, Id: randomUUID() });
+    }
     const signed = url.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/([^/]+)\/(.+)$/);
     if (signed && (method === 'PUT' || method === 'POST')) {
       if (!url.searchParams.get('token')) return json(400, { message: 'no token' });
@@ -622,6 +768,7 @@ export class FakeSupabase {
     if (!m) return json(404, { message: 'not found' });
     const table = m[1];
     if (table === 'receivables') this.tables.receivables = this.receivables();
+    if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();
     const rows = this.t(table);
     const wantsObject = (headers.accept ?? '').includes('vnd.pgrst.object');
