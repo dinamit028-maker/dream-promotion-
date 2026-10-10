@@ -43,6 +43,8 @@ export interface Expense {
   paidOn: string | null; paymentMethod: string | null; filePath: string; fileMime: string; aiModel: string; aiExtracted: unknown; confirmedAt: string | null;
   /** products bought (2.54: a size / colour too — its stock moves) */
   stockLines: { itemId: string; qty: number; variantId?: string }[]; voidReason: string; voidedAt: string | null; createdAt: string;
+  /** 2.89: the file's sha256, and "זו הוצאה אחרת" (which expenses it was told apart from, who and when — the database's) */
+  fileSha256?: string | null; duplicateAck?: { of: string[]; reasons: string[]; by: string | null; at: string | null } | null;
 }
 export const toExpense = (r: any): Expense => ({
   id: r.id, number: Number(r.expense_number), status: r.status, supplierName: r.supplier_name ?? '', supplierDealer: r.supplier_dealer ?? '',
@@ -51,6 +53,10 @@ export const toExpense = (r: any): Expense => ({
   total: Number(r.total), vatDeductiblePct: Number(r.vat_deductible_pct ?? 100), paidOn: r.paid_on ?? null, paymentMethod: r.payment_method ?? null,
   filePath: r.file_path ?? '', fileMime: r.file_mime ?? '', aiModel: r.ai_model ?? '', aiExtracted: r.ai_extracted ?? null, confirmedAt: r.confirmed_at ?? null,
   stockLines: Array.isArray(r.stock_lines) ? r.stock_lines : [], voidReason: r.void_reason ?? '', voidedAt: r.voided_at ?? null, createdAt: r.created_at,
+  fileSha256: r.file_sha256 ?? null,
+  duplicateAck: r.duplicate_ack && typeof r.duplicate_ack === 'object'
+    ? { of: Array.isArray(r.duplicate_ack.of) ? r.duplicate_ack.of : [], reasons: Array.isArray(r.duplicate_ack.reasons) ? r.duplicate_ack.reasons : [],
+        by: r.duplicate_ack.by ?? null, at: r.duplicate_ack.at ?? null } : null,
 });
 
 /** the amounts from a total that includes VAT (a supplier tax invoice) or none (a receipt / an exempt supplier) */
@@ -133,4 +139,61 @@ export function sanitizeExtraction(raw: unknown, today: string): { fields: Extra
   f.description = str(r.description, 300);
   for (const k of Object.keys(f) as (keyof Extraction)[]) if (f[k] === undefined) delete f[k];
   return { fields: f, warnings };
+}
+
+// ---- a duplicate expense (2.89, migration 20261010004400): a warning, never a block --------------------------------------
+/** the same rule as the database's expense_norm_supplier: lower case, letters (Latin / Hebrew) and digits only */
+export const normalizeSupplier = (s: string) => (s ?? '').toLowerCase().replace(/[^0-9a-zא-ת]+/g, '');
+/** expense_norm_number: letters and digits only, no leading zeros ("INV-0012" → "inv0012", "000345" → "345") */
+export function normalizeDocNumber(s: string): string {
+  const x = (s ?? '').toLowerCase().replace(/[^0-9a-zא-ת]+/g, '');
+  if (!x) return '';
+  return x.replace(/^0+/, '') || '0';
+}
+export type DuplicateReason = 'file' | 'number' | 'amount_date';
+export interface DuplicateMatch {
+  id: string; number: number; docDate: string; createdAt: string; supplierName: string; supplierDocNumber: string; total: number; status: string; reasons: DuplicateReason[];
+}
+export const toDuplicate = (r: any): DuplicateMatch => ({
+  id: r.id, number: Number(r.expense_number), docDate: r.doc_date, createdAt: r.created_at, supplierName: r.supplier_name ?? '',
+  supplierDocNumber: r.supplier_doc_number ?? '', total: Number(r.total), status: r.status, reasons: (Array.isArray(r.reasons) ? r.reasons : []) as DuplicateReason[],
+});
+export interface DuplicateQuery { sha: string | null; dealer: string; supplier: string; docNumber: string; total: number | null; docDate: string | null }
+const SHA = /^[0-9a-f]{64}$/;
+/**
+ * Why an expense may repeat another (the database's expense_duplicates, for one row — the e2e fake and the tests use this):
+ *   file         the same file (its sha256)
+ *   number       the same supplier (both dealer numbers when both have one, else the name) and the same document number
+ *   amount_date  the same supplier, total and date
+ * A void expense never counts.
+ */
+export function duplicateReasons(q: DuplicateQuery, e: { fileSha256?: string | null; supplierDealer: string; supplierName: string; supplierDocNumber: string;
+                                                          total: number; docDate: string; status: string }): DuplicateReason[] {
+  if (e.status === 'void') return [];
+  const out: DuplicateReason[] = [];
+  if (q.sha && SHA.test(q.sha) && e.fileSha256 === q.sha) out.push('file');
+  const dealers = /^\d{9}$/.test(q.dealer) && /^\d{9}$/.test(e.supplierDealer);
+  const sup = normalizeSupplier(q.supplier);
+  const sameSupplier = dealers ? e.supplierDealer === q.dealer : sup !== '' && normalizeSupplier(e.supplierName) === sup;
+  const num = normalizeDocNumber(q.docNumber);
+  if (sameSupplier && num !== '' && normalizeDocNumber(e.supplierDocNumber) === num) out.push('number');
+  if (sameSupplier && q.total != null && q.docDate && ag(e.total) === ag(q.total) && e.docDate === q.docDate) out.push('amount_date');
+  return out;
+}
+const ddmmyy = (d: string) => (d ? d.split('-').reverse().join('/') : '');
+/** the warning, in the words of the owner's screen */
+export function duplicateMessage(m: Pick<DuplicateMatch, 'number' | 'docDate' | 'reasons'>): string {
+  if (m.reasons.includes('file')) return `הקובץ הזה כבר נקלט בהוצאה #${m.number} מתאריך ${ddmmyy(m.docDate)}.`;
+  const why = m.reasons.includes('number') ? 'אותו ספק ואותו מספר מסמך' : 'אותו ספק, אותו סכום ואותו תאריך';
+  return `נראה שההוצאה הזו כבר קיימת: ${why} — הוצאה #${m.number} מתאריך ${ddmmyy(m.docDate)}.`;
+}
+/** what "זו הוצאה אחרת" keeps (the database adds who and when) */
+export const duplicateAck = (matches: Pick<DuplicateMatch, 'id' | 'reasons'>[]) => ({
+  of: matches.slice(0, 10).map((m) => m.id),
+  reasons: [...new Set(matches.flatMap((m) => m.reasons))].slice(0, 3),
+});
+/** a file's sha256, in hex (Web Crypto: the browser, and Node in the tests) */
+export async function fileSha256(file: Blob): Promise<string> {
+  const h = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }

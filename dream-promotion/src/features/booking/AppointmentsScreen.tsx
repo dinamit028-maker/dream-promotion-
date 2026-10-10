@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
-import { isCloudConfigured } from '@/lib/supabase/client';
+import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { Button, Card, Chip, Field, Input, PageHead, Select, Textarea } from '@/components/ui/primitives';
 import { EmptyState, Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
@@ -12,6 +12,9 @@ import { ContactSheet } from '@/features/crm/ContactSheet';
 import { freeSlots, reminderText, type Hours } from './slots';
 import { authHeaders } from '@/lib/services/http';
 import { BookingAPI, DEFAULT_SETTINGS, bookingError, type Appointment, type ApptStatus, type BookingServiceRow, type BookingSettings } from './booking.service';
+import { PaylinkList, SendPaylinkDialog, usePaylinks } from '@/features/finance/Paylinks';
+import { afterDeposit, depositDays, paylinkOpen, paylinkPill } from '@/features/finance/paylinks';
+import { ils } from '@/features/register/money';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
@@ -23,7 +26,11 @@ const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
 };
 const hm = (iso: string) => israelParts(new Date(iso)).time;
 
-/** Appointments: the agenda, services, opening hours and the public booking page (toolbox stage 2). */
+/**
+ * Appointments: the agenda, services, opening hours and the public booking page (toolbox stage 2). 2.88: a service may ask a
+ * deposit (paid by link — sent from the appointment, or from the public booking page itself); the agenda shows its status,
+ * and "💳 חיוב" offsets a deposit that was really paid (appointment_deposits — never a test one) from the final payment.
+ */
 export function AppointmentsScreen() {
   const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
   const [tab, setTab] = useState<'agenda' | 'services' | 'hours' | 'page'>('agenda');
@@ -36,6 +43,10 @@ export function AppointmentsScreen() {
   const [adding, setAdding] = useState(false);
   const [contactId, setContactId] = useState<string | null>(null);
   const [showPast, setShowPast] = useState(false);
+  // deposits (2.88): what was really paid per appointment (the register offsets it), and the links of the appointments that ask one
+  const [deposits, setDeposits] = useState<Record<string, number>>({});
+  const [depositFor, setDepositFor] = useState<Appointment | null>(null);
+  const [depOpen, setDepOpen] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -46,6 +57,9 @@ export function AppointmentsScreen() {
       const [s, sv, ap] = await Promise.all([BookingAPI.settings(userId), BookingAPI.services(userId), BookingAPI.appointments(userId, from, to)]);
       setSettings(s.slug ? s : { ...s, title: s.title || brand.name, address: s.address || brand.city || '' });
       setServices(sv); setAppts(ap);
+      const ids = ap.filter((a) => (sv.find((x) => x.id === a.serviceId)?.deposit ?? 0) > 0).map((a) => a.id);
+      const d = ids.length ? await supabase().rpc('appointment_deposits', { p_ids: ids }) : { data: [], error: null };
+      setDeposits(d.error ? {} : Object.fromEntries(((d.data ?? []) as any[]).map((x) => [x.appointment_id, Number(x.amount)])));
     } catch (e) { setError(bookingError(e)); }
     finally { setLoading(false); }
   }, [userId, showPast, brand.name, brand.city]);
@@ -73,6 +87,11 @@ export function AppointmentsScreen() {
     })();
     return () => { live = false; };
   }, [appts, contactId]);
+
+  const depositOf = (a: Appointment) => services.find((x) => x.id === a.serviceId)?.deposit ?? 0;
+  const depositIds = useMemo(() => appts.filter((a) => depositOf(a) > 0).map((a) => a.id), [appts, services]); // eslint-disable-line react-hooks/exhaustive-deps
+  const depLinks = usePaylinks(depositIds.length ? { appointmentIds: depositIds } : null);
+  const linksOf = (id: string) => (depLinks.links ?? []).filter((l) => l.appointmentId === id);
 
   const flash = (m: string) => { setSaved(m); setTimeout(() => setSaved(null), 2500); };
   async function saveSettings(next = settings) {
@@ -157,13 +176,31 @@ export function AppointmentsScreen() {
                             <button type="button" className="underline" onClick={() => setContactId(a.leadId!)}>שלח עכשיו</button>
                           </div>
                         )}
+                        {depositOf(a) > 0 && depLinks.ready && (() => {
+                          const ls = linksOf(a.id), last = ls[0];
+                          const pill = last ? paylinkPill(last) : null;
+                          const canSend = (a.status === 'booked' || a.status === 'confirmed') && a.end > new Date().toISOString()
+                            && !ls.some((l) => paylinkOpen(l) || l.status === 'paid');
+                          return (
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                              <span className="font-semibold">מקדמה {ils(depositOf(a))}:</span>
+                              {pill ? <button type="button" onClick={() => setDepOpen(depOpen === a.id ? null : a.id)}
+                                className={cx('rounded-full px-2 py-0.5 font-bold', pill.tone === 'ok' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : pill.tone === 'bad' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : pill.tone === 'warn' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : pill.tone === 'info' ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-muted')}>
+                                {pill.text} {depOpen === a.id ? '▲' : '▼'}</button> : <span className="text-muted">לא נשלח לינק</span>}
+                              {canSend && <Button size="sm" variant="ghost" onClick={() => setDepositFor(a)}>💳 לינק למקדמה</Button>}
+                            </div>
+                          );
+                        })()}
+                        {depOpen === a.id && <PaylinkList links={linksOf(a.id)} title="לינקים למקדמה" showLabel={false} onChanged={() => { void depLinks.reload(); void load(); }} />}
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {waLink(a.phone) && a.status !== 'done' && <Button size="sm" variant="ghost" onClick={() => remind(a)}>💬 תזכורת</Button>}
                           {a.phone && <a href={telLink(a.phone)} className="rounded-full border border-line px-3 py-1 text-sm">📞</a>}
                           {a.status !== 'cancelled' && a.status !== 'no_show' && (() => {
                             const price = services.find((x) => x.id === a.serviceId)?.price;
-                            const q = new URLSearchParams({ name: a.name, phone: a.phone, appt: a.id, item: a.serviceName || 'טיפול', price: String(price ?? 0), ...(a.leadId ? { lead: a.leadId } : {}) });
-                            return <a href={`/register?${q}`} className="rounded-full border border-line px-3 py-1 text-sm">💳 חיוב</a>;
+                            // a deposit that was really paid comes off the final payment (its own document is issued already)
+                            const line = afterDeposit(a.serviceName || 'טיפול', price ?? 0, deposits[a.id] ?? 0);
+                            const q = new URLSearchParams({ name: a.name, phone: a.phone, appt: a.id, item: line.name, price: String(line.price), ...(a.leadId ? { lead: a.leadId } : {}) });
+                            return <a href={`/register?${q}`} className="rounded-full border border-line px-3 py-1 text-sm">💳 חיוב{deposits[a.id] ? ` (אחרי מקדמה ${ils(deposits[a.id])})` : ''}</a>;
                           })()}
                           {a.status === 'booked' && <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'confirmed')}>אישור</Button>}
                           {(a.status === 'booked' || a.status === 'confirmed') && <>
@@ -236,34 +273,77 @@ export function AppointmentsScreen() {
         }} />
 
       <ContactSheet leadId={contactId} onClose={() => setContactId(null)} />
+      {depositFor && (
+        <SendPaylinkDialog kind="deposit" target={depositFor.id} left={depositOf(depositFor)} maxDays={depositDays(depositFor.start)}
+          what={`מקדמה לתור: ${depositFor.serviceName} · ${formatIL(depositFor.start)} · ${depositFor.name}`}
+          customer={{ name: depositFor.name, phone: depositFor.phone, email: depositFor.email }}
+          onClose={() => setDepositFor(null)} onSent={() => void depLinks.reload()} />
+      )}
     </>
   );
 }
 
+/** a deposit typed by the owner: '' = none; else a sum of more than zero, up to the price (the database checks it again) */
+export function depositError(raw: string, price: number | null): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (!/^\d{1,6}(\.\d{1,2})?$/.test(t) || !(Number(t) > 0)) return 'המקדמה: סכום בשקלים, גדול מאפס.';
+  if (price != null && Number(t) > price) return 'המקדמה לא יכולה להיות גדולה ממחיר השירות.';
+  return null;
+}
+
 function ServicesTab({ userId, services, onChange, onError }: { userId: string; services: BookingServiceRow[]; onChange: () => void; onError: (e: unknown) => void }) {
-  const [draft, setDraft] = useState({ name: '', minutes: 30, price: '' });
+  const [draft, setDraft] = useState({ name: '', minutes: 30, price: '', deposit: '' });
+  const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   async function add() {
     if (!draft.name.trim()) return;
-    try { await BookingAPI.saveService(userId, { name: draft.name, minutes: draft.minutes, price: draft.price === '' ? null : Number(draft.price), active: true, sort: services.length }); setDraft({ name: '', minutes: 30, price: '' }); onChange(); }
-    catch (e) { onError(e); }
+    const price = draft.price === '' ? null : Number(draft.price);
+    const bad = depositError(draft.deposit, price);
+    if (bad) { setErr(bad); return; }
+    setErr(null);
+    try {
+      await BookingAPI.saveService(userId, { name: draft.name, minutes: draft.minutes, price, active: true, sort: services.length,
+        ...(draft.deposit.trim() ? { deposit: Number(draft.deposit) } : {}) });
+      setDraft({ name: '', minutes: 30, price: '', deposit: '' }); onChange();
+    } catch (e) { onError(e); }
+  }
+  async function saveDeposit(s: BookingServiceRow, value: string) {
+    const bad = depositError(value, s.price);
+    if (bad) { setErr(bad); return; }
+    setErr(null);
+    try { await BookingAPI.saveService(userId, { ...s, deposit: value.trim() ? Number(value) : null }); setEditing(null); onChange(); } catch (e) { onError(e); }
   }
   return (
     <div className="grid gap-3">
+      {err && <p className="rounded-2xl bg-warn/10 p-3 text-sm text-warn">{err}</p>}
       {services.map((s) => (
-        <Card key={s.id} className="flex min-w-0 flex-wrap items-center gap-2 p-3">
-          <span className="min-w-0 flex-1"><strong className={cx('block truncate', !s.active && 'text-muted line-through')}>{s.name}</strong><span className="text-xs text-muted">{s.minutes} דק׳{s.price != null ? ` · ₪${s.price}` : ''}</span></span>
-          <Button size="sm" variant="ghost" onClick={async () => { try { await BookingAPI.saveService(userId, { ...s, active: !s.active }); onChange(); } catch (e) { onError(e); } }}>{s.active ? 'הסתרה' : 'הצגה'}</Button>
-          <Button size="sm" variant="ghost" onClick={async () => { if (!window.confirm(`למחוק את "${s.name}"? תורים קיימים יישארו.`)) return; try { await BookingAPI.deleteService(s.id); onChange(); } catch (e) { onError(e); } }}>מחיקה</Button>
+        <Card key={s.id} className="min-w-0 p-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="min-w-0 flex-1"><strong className={cx('block truncate', !s.active && 'text-muted line-through')}>{s.name}</strong>
+              <span className="text-xs text-muted">{s.minutes} דק׳{s.price != null ? ` · ₪${s.price}` : ''}{s.deposit ? ` · מקדמה ₪${s.deposit}` : ''}</span></span>
+            {s.deposit !== undefined && <Button size="sm" variant="ghost" onClick={() => setEditing(editing?.id === s.id ? null : { id: s.id, value: s.deposit ? String(s.deposit) : '' })}>מקדמה</Button>}
+            <Button size="sm" variant="ghost" onClick={async () => { try { await BookingAPI.saveService(userId, { ...s, active: !s.active }); onChange(); } catch (e) { onError(e); } }}>{s.active ? 'הסתרה' : 'הצגה'}</Button>
+            <Button size="sm" variant="ghost" onClick={async () => { if (!window.confirm(`למחוק את "${s.name}"? תורים קיימים יישארו.`)) return; try { await BookingAPI.deleteService(s.id); onChange(); } catch (e) { onError(e); } }}>מחיקה</Button>
+          </div>
+          {editing?.id === s.id && (
+            <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); void saveDeposit(s, editing.value); }}>
+              <Field label="מקדמה ₪ (ריק = בלי מקדמה)"><Input value={editing.value} onChange={(e) => setEditing({ id: s.id, value: e.target.value })} inputMode="decimal" dir="ltr" className="w-32" /></Field>
+              <Button size="sm" variant="primary" type="submit">שמירה</Button>
+              <p className="w-full text-xs text-muted">בהזמנה אונליין הלקוח/ה מקבלים לינק לתשלום המקדמה (רק ממסוף סליקה מאומת); המקדמה תקוזז מהתשלום על התור.</p>
+            </form>
+          )}
         </Card>
       ))}
       <Card className="p-3">
         <p className="mb-2 text-sm font-semibold">שירות חדש</p>
-        <div className="grid gap-2 sm:grid-cols-[1fr_120px_120px_auto]">
+        <div className="grid gap-2 sm:grid-cols-[1fr_120px_120px_120px_auto]">
           <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="למשל: הסרת שיער בלייזר — פנים" />
           <Select value={draft.minutes} onChange={(e) => setDraft({ ...draft, minutes: Number(e.target.value) })} aria-label="משך">
             {[10, 15, 20, 30, 45, 60, 75, 90, 120, 180].map((m) => <option key={m} value={m}>{m} דקות</option>)}
           </Select>
           <Input type="number" inputMode="decimal" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="מחיר ₪ (לא חובה)" />
+          <Input type="number" inputMode="decimal" value={draft.deposit} onChange={(e) => setDraft({ ...draft, deposit: e.target.value })} placeholder="מקדמה ₪ (לא חובה)" aria-label="מקדמה" />
           <Button variant="primary" onClick={add} disabled={!draft.name.trim()}>הוספה</Button>
         </div>
       </Card>

@@ -10,6 +10,8 @@ export interface PageRequest {
   customer: { name: string; email: string; phone: string };
   successUrl: string; failureUrl: string; callbackUrl: string;
   storeName: string;
+  /** what the customer pays, as the page shows it (a payment link: its label); an order: "הזמנה <number> — <store>" */
+  itemName?: string;
 }
 export interface Verified {
   status: 'approved' | 'declined' | 'pending';

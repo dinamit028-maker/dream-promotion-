@@ -10,7 +10,7 @@ import { waLink } from '@/features/crm/crm';
  * The public booking page of one business: dream-promotion.vercel.app/book/<slug>.
  * No account needed: service → day → time → name & phone → booked (and it lands in the CRM).
  */
-type Biz = { title: string; address: string; phone: string; message: string; services: { id: string; name: string; minutes: number; price: number | null }[]; days: string[] };
+type Biz = { title: string; address: string; phone: string; message: string; services: { id: string; name: string; minutes: number; price: number | null; deposit?: number | null }[]; days: string[] };
 const DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const dayLabel = (d: string) => {
   const wd = new Date(`${d}T12:00:00Z`).getUTCDay();
@@ -29,7 +29,8 @@ export default function BookPage(props: { params: Promise<{ slug: string }> }) {
   const [form, setForm] = useState({ name: '', phone: '', email: '', note: '', website: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ id: string; start: string; end: string; service: string; whenHe: string; title: string; address: string } | null>(null);
+  const [done, setDone] = useState<{ id: string; start: string; end: string; service: string; whenHe: string; title: string; address: string;
+    deposit?: { amount: number; url: string } | null } | null>(null);
 
   useEffect(() => {
     fetch(`/api/book/${params.slug}`).then(async (r) => {
@@ -80,6 +81,13 @@ export default function BookPage(props: { params: Promise<{ slug: string }> }) {
         <p className="font-semibold">{done.whenHe}</p>
         {done.address && <p className="mt-1 text-sm text-ink-2">{done.address}</p>}
       </div>
+      {done.deposit && (
+        <div className="mt-4 rounded-3xl border border-line bg-surface p-4 text-center">
+          <p className="font-semibold">מקדמה לתור: ₪{Number(done.deposit.amount).toLocaleString('he-IL')}</p>
+          <p className="mt-1 text-sm text-ink-2">אפשר לשלם עכשיו בלינק מאובטח. המקדמה תקוזז מהתשלום על התור.</p>
+          <a href={done.deposit.url} className="mt-3 inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-6 font-bold text-white">לתשלום המקדמה</a>
+        </div>
+      )}
       <div className="mt-4 grid gap-2">
         <Button variant="primary" onClick={downloadIcs}>הוספה ליומן שלי</Button>
         {waLink(biz.phone) && <a href={waLink(biz.phone)} target="_blank" rel="noopener" className="rounded-full border border-line px-4 py-3 text-center font-semibold">שאלה לעסק בוואטסאפ</a>}
@@ -96,7 +104,7 @@ export default function BookPage(props: { params: Promise<{ slug: string }> }) {
           {biz.services.map((s) => (
             <button key={s.id} type="button" onClick={() => { setServiceId(s.id); setStart(null); }}
               className={cx('flex items-center justify-between rounded-2xl border p-4 text-start', serviceId === s.id ? 'border-primary bg-primary-soft' : 'border-line bg-surface')}>
-              <span><strong className="block">{s.name}</strong><span className="text-sm text-muted">{s.minutes} דקות</span></span>
+              <span><strong className="block">{s.name}</strong><span className="text-sm text-muted">{s.minutes} דקות{s.deposit ? ` · מקדמה ₪${Number(s.deposit).toLocaleString('he-IL')}` : ''}</span></span>
               {s.price != null && <span className="font-bold">₪{Number(s.price).toLocaleString('he-IL')}</span>}
             </button>
           ))}

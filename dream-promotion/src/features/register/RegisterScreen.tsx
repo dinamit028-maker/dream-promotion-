@@ -132,8 +132,12 @@ export function RegisterScreen() {
       const empList = emps.error ? (await sb.from('employees').select('id, name').eq('active', true).order('created_at')).data ?? [] : emps.data ?? [];
       setEmployees(empList as any);
       const price = new Map(((svcs.data ?? []) as any[]).map((x) => [x.id, x.price == null ? null : Number(x.price)]));
-      setTodayAppts(appts.error ? [] : ((appts.data ?? []) as any[]).filter((a) => a.status !== 'cancelled' && a.status !== 'no_show')
-        .map((a) => ({ id: a.id, name: a.name, phone: a.phone ?? '', leadId: a.lead_id, serviceName: a.service_name ?? '', start: a.start_at, price: price.get(a.service_id) ?? null })));
+      const today = appts.error ? [] : ((appts.data ?? []) as any[]).filter((a) => a.status !== 'cancelled' && a.status !== 'no_show');
+      // a deposit really paid by link for an appointment (2.88, migration 4300) comes off its final payment — also the cashier's
+      const dep = today.length ? await sb.rpc('appointment_deposits', { p_ids: today.map((a) => a.id) }) : { data: [], error: null };
+      const deposit = new Map(dep.error ? [] : ((dep.data ?? []) as any[]).map((x) => [x.appointment_id, Number(x.amount)]));
+      setTodayAppts(today.map((a) => ({ id: a.id, name: a.name, phone: a.phone ?? '', leadId: a.lead_id, serviceName: a.service_name ?? '', start: a.start_at,
+        price: price.get(a.service_id) ?? null, deposit: deposit.get(a.id) ?? 0 })));
       setSales((sa.data ?? []).filter(isPosSale).map(toSale));   // the site's sales are not the register's (2.57)
       // before the migration there are no refunds; a refund of a site order (2.57) is not the register's money either
       const online = new Set(((sa.data ?? []) as any[]).filter((x) => !isPosSale(x)).map((x) => x.id));

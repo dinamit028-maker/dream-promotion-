@@ -1,4 +1,5 @@
 import { ag, sh } from './vat';
+import type { Line } from './plans';
 
 /**
  * Receivables ("חייבים"): invoices that ask for money (305 / 300) less their credit invoices and payments.
@@ -55,6 +56,26 @@ export function aging(list: Receivable[], today: string) {
   }
   return { current: sh(b.current), d30: sh(b.d30), d60: sh(b.d60), d90: sh(b.d90), over90: sh(b.over90), total: sh(b.current + b.d30 + b.d60 + b.d90 + b.over90) };
 }
+
+// ---- an invoice with a payment plan (2.89, T3): its date and status by the plan's payments -------------------------------------
+type LineLike = Pick<Line, 'open' | 'dueDate' | 'planId'>;
+const daysLate = (due: string, today: string) => Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${due}T12:00:00Z`)) / 864e5);
+/**
+ * The status, the date and the lateness of an invoice — by its lines (receivable_lines) when it has a plan: late when a payment
+ * of the plan is late (from that payment's date), else the next payment's date. Without a plan: as before (its own date).
+ */
+export function byLines(r: Receivable, lines: LineLike[] | undefined, today: string): { status: ReceivableStatus; dueDate: string | null; late: number; planned: boolean } {
+  if (!lines?.some((l) => l.planId)) return { status: receivableStatus(r, today), dueDate: r.dueDate, late: daysOverdue(r, today), planned: false };
+  const open = lines.filter((l) => ag(l.open) > 0).sort((a, b) => (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'));
+  const base = receivableStatus({ ...r, dueDate: null }, today);
+  if (base === 'cancelled' || base === 'credit' || base === 'paid') return { status: base, dueDate: open[0]?.dueDate ?? null, late: 0, planned: true };
+  const late = open.find((l) => l.dueDate && l.dueDate < today);
+  if (late?.dueDate) return { status: 'overdue', dueDate: late.dueDate, late: daysLate(late.dueDate, today), planned: true };
+  return { status: base, dueDate: open[0]?.dueDate ?? null, late: 0, planned: true };
+}
+/** open money by how late it is — by lines: a plan's payment counts from its own date (an invoice without a plan: as aging) */
+export const agingByLines = (lines: Pick<Line, 'open' | 'dueDate'>[], today: string) =>
+  aging(lines.map((l) => ({ cancelled: false, balance: l.open, dueDate: l.dueDate }) as Receivable), today);
 
 // ---- reminders ----------------------------------------------------------------------------------------------------
 export type Tone = 'friendly' | 'firm' | 'final';

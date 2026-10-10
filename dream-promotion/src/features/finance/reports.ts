@@ -2,7 +2,8 @@ import { DOC_LABEL, PAY_LABEL } from '@/features/documents/documents';
 import type { DocRow } from '@/features/documents/documents';
 import { categoryLabel, SUPPLIER_DOC_TYPES, vatDeductible, type Expense } from './expenses';
 import { LEDGER_SOURCE_HE, payLabel, type LedgerRow } from './payments';
-import { STATUS_HE, receivableStatus, type Receivable } from './receivables';
+import { STATUS_HE, byLines, type Receivable } from './receivables';
+import type { Line } from './plans';
 
 /**
  * Report periods and the accountant's files (CSV, UTF-8 with BOM so Excel shows Hebrew). The totals themselves come
@@ -53,10 +54,14 @@ export function ledgerCsv(rows: LedgerRow[]) {
   return csv(['תאריך', 'כיוון', 'סכום', 'אמצעי', 'מקור', 'הערה'],
     rows.map((r) => [day(r.paidOn), r.direction === 'in' ? 'נכנס' : 'יצא', money(r.direction === 'in' ? r.amount : -r.amount), payLabel(r.method), LEDGER_SOURCE_HE[r.source], r.note]));
 }
-export function receivablesCsv(list: Receivable[], today: string) {
+/** 2.89: an invoice with a payment plan — its date and status by the plan (the next payment / the late one; `lines` by invoice) */
+export function receivablesCsv(list: Receivable[], today: string, lines?: Map<string, Pick<Line, 'open' | 'dueDate' | 'planId'>[]>) {
   return csv(['סוג', 'מספר', 'תאריך', 'לקוח', 'טלפון', 'סה״כ', 'זוכה', 'שולם', 'יתרה', 'לתשלום עד', 'סטטוס'],
-    list.map((r) => [DOC_LABEL[r.docType] ?? r.docType, r.docNumber, day(r.docDate), r.customerName, r.customerPhone, money(r.total), money(r.credited), money(r.paid),
-      money(r.balance), day(r.dueDate), STATUS_HE[receivableStatus(r, today)]]));
+    list.map((r) => {
+      const b = byLines(r, lines?.get(r.id), today);
+      return [DOC_LABEL[r.docType] ?? r.docType, r.docNumber, day(r.docDate), r.customerName, r.customerPhone, money(r.total), money(r.credited), money(r.paid),
+        money(r.balance), day(b.dueDate), STATUS_HE[b.status] + (b.planned ? ' (פריסה)' : '')];
+    }));
 }
 /** the VAT report of a period, as the accountant reads it (a working paper — not a filing) */
 export function vatReportRows(s: { revenue: { net: number; vat: number }; expenses: { net: number; vat: number; vatDeductible: number }; vatPayable: number }) {

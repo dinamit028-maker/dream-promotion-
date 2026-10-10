@@ -106,6 +106,19 @@ export interface CartResult { ok: boolean; error?: string; available?: number; m
 
 export interface PaymentAccount { provider: 'payplus' | 'mock'; mode: 'test' | 'live'; sealed: string; page_uid: string }
 
+/** a payment link (migration 4300, sf_paylink): what is paid, how much, its status and the provider's pages for it */
+export type PaylinkStatus = 'sent' | 'paid' | 'failed' | 'expired' | 'cancelled';
+export interface PaylinkPage { page: string; url: string; at: string; state: 'pending' | 'approved' | 'declined' }
+export interface PaylinkView {
+  id: string; business: string; status: PaylinkStatus; amount: number; currency: string; test: boolean;
+  provider: 'payplus' | 'mock'; expires_at: string; expired: boolean; pages: PaylinkPage[]; label: string;
+  customer: { name: string; email: string; phone: string };
+  business_name: string;
+  account: PaymentAccount | null;
+}
+/** the terminal of a business, for "בדיקת חיבור" (sf_paylink_account) */
+export interface PaylinkAccount extends PaymentAccount { business_name: string }
+
 export interface CheckoutStart {
   ok: boolean; error?: string; fields?: string[]; reason?: CouponError; min?: number;
   lines?: { item: string; variant: string | null; name: string; available: number }[];

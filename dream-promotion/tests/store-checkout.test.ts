@@ -167,7 +167,8 @@ const connect = { action: 'connect', apiKey: 'abcd-1234-efgh', secretKey: 'zzzz-
 test('payments: the owner connects a test terminal — sealed, of their own business, never sent back', async () => {
   const r = await call(OWN, connect);
   assert.equal(r.status, 200);
-  assert.deepEqual({ ...r.body, connectedAt: undefined }, { connected: true, provider: 'payplus', mode: 'test', hint: 'efgh', connectedAt: undefined, ready: true, liveOpen: false });
+  assert.deepEqual({ ...r.body, connectedAt: undefined }, { connected: true, provider: 'payplus', mode: 'test', hint: 'efgh', connectedAt: undefined, ready: true, liveOpen: false,
+    verifiedAt: null, linksLive: false }, 'new keys are not checked yet (2.88: payment links wait for "בדיקת חיבור")');
   assert.ok(!JSON.stringify(r.body).includes('zzzz-9999-yyyy') && !JSON.stringify(r.body).includes('abcd-1234-efgh'), 'no key in the answer');
   const row = tables.payment_accounts.find((x) => x.business_id === B1);
   assert.equal(row.mode, 'test', 'a test terminal unless live was asked for');
@@ -202,6 +203,35 @@ test('payments: not a cashier, not a viewer; nothing without a session or a seal
   assert.equal(r.status, 503);
   assert.match(r.body.message, /PAYMENT_SEAL_KEY/);
   assert.equal(tables.payment_accounts.filter((x) => x.business_id === B1).length, 0);
+});
+
+test('payments: "בדיקת חיבור" (2.88) — the storefront\'s server makes a page with the keys; verified only by its answer', async () => {
+  const sent: { url: string; init: any }[] = [];
+  const saved = globalThis.fetch;
+  let answer: { status: number; json: any } = { status: 200, json: { ok: true } };
+  (globalThis as any).fetch = async (url: string, init: any) => {
+    sent.push({ url: String(url), init });
+    // the storefront marks the terminal verified (sf_paylink_verified) when the provider accepted the keys
+    if (answer.json.ok) { const row = tables.payment_accounts.find((x) => x.business_id === B1); if (row) row.verified_at = '2026-10-10T10:00:00Z'; }
+    return new Response(JSON.stringify(answer.json), { status: answer.status });
+  };
+  Object.assign(process.env, { STOREFRONT_URL: 'https://sf.test', COMMERCE_SECRET: 'commerce-secret-0123456789' });
+  try {
+    assert.equal((await call(OWN, { action: 'check' })).status, 404, 'no terminal: nothing to check');
+    await call(OWN, connect);
+    const r = await call(OWN, { action: 'check' });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.verifiedAt, '2026-10-10T10:00:00Z');
+    assert.equal(sent[0].url, 'https://sf.test/api/paylink');
+    assert.equal(sent[0].init.headers['x-commerce-secret'], 'commerce-secret-0123456789');
+    assert.deepEqual(JSON.parse(sent[0].init.body), { action: 'check', business: B1 }, 'the business worked in now — never another');
+    assert.ok(!sent[0].init.body.includes('zzzz-9999-yyyy'), 'the keys never travel: the storefront opens its own sealed copy');
+    answer = { status: 200, json: { ok: false, error: 'provider' } };
+    const no = await call(OWN, { action: 'check' });
+    assert.equal(no.status, 502);
+    assert.match(no.body.message, /סירב למפתחות/);
+    assert.equal((await call(VIEW, { action: 'check' })).status, 403, 'a viewer checks nothing');
+  } finally { (globalThis as any).fetch = saved; delete process.env.STOREFRONT_URL; delete process.env.COMMERCE_SECRET; }
 });
 
 test('payments: disconnecting switches selling off first, only for the business worked in now', async () => {

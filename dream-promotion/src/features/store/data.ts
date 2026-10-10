@@ -281,6 +281,8 @@ export const terminalInfo = () => apiGet<TerminalInfo>('/api/store/payments');
 export const connectTerminal = (apiKey: string, secretKey: string, pageUid: string, mode: 'test' | 'live' = 'test') =>
   api<TerminalInfo>('/api/store/payments', { action: 'connect', apiKey, secretKey, pageUid, mode });
 export const disconnectTerminal = () => api<TerminalInfo>('/api/store/payments', { action: 'disconnect' });
+/** "בדיקת חיבור" (2.88): the storefront's server makes a page of ₪1 with the keys → verified */
+export const checkTerminalNow = () => api<TerminalInfo>('/api/store/payments', { action: 'check' });
 
 export async function loadCoupons(): Promise<Result<Coupon[]>> {
   const { data, error } = await supabase().from('store_coupons').select('*').order('created_at', { ascending: false });

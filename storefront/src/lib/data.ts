@@ -1,4 +1,4 @@
-import type { Cart, CartResult, CheckoutStart, CollectionCard, HostInfo, OrderRequestResult, OrderView, Page, PaymentAccount, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
+import type { Cart, CartResult, CheckoutStart, CollectionCard, HostInfo, OrderRequestResult, OrderView, Page, PaylinkAccount, PaylinkStatus, PaylinkView, PaymentAccount, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
 
 /**
  * The storefront's only door to the database: the sf_* functions (migrations 20261005003400 and 20261006003500), from the
@@ -14,7 +14,9 @@ type SfFunction = 'sf_resolve_host' | 'sf_domain_seen' | 'sf_store' | 'sf_produc
   | 'sf_cart' | 'sf_cart_set' | 'sf_cart_coupon' | 'sf_checkout_start' | 'sf_order_page' | 'sf_payment_account' | 'sf_payment_event'
   | 'sf_order_paid' | 'sf_order_failed' | 'sf_order' | 'sf_order_by_id' | 'sf_orders_unconfirmed' | 'sf_rate_hit'
   | 'sf_order_request' | 'sf_order_request_by_id' | 'sf_order_request_by_number'
-  | 'sf_resolve_slug' | 'sf_slug_seen' | 'sf_store_unlock';
+  | 'sf_resolve_slug' | 'sf_slug_seen' | 'sf_store_unlock'
+  | 'sf_paylink' | 'sf_paylink_page' | 'sf_paylink_event' | 'sf_paylink_paid' | 'sf_paylink_failed' | 'sf_paylinks_unconfirmed'
+  | 'sf_paylink_account' | 'sf_paylink_verified';
 
 export class DataError extends Error {}
 
@@ -39,7 +41,10 @@ const CASTS: Record<string, string> = {
   p_customer: 'jsonb', p_ip_hash: 'text', p_order: 'uuid', p_page: 'text', p_provider: 'text', p_key: 'text',
   p_signature_ok: 'boolean', p_payload: 'jsonb', p_txn: 'text', p_amount: 'numeric', p_currency: 'text', p_reason: 'text',
   p_limit: 'int', p_window: 'int', p_max: 'int', p_number: 'int', p_email: 'text', p_note: 'text',
+  p_request: 'uuid', p_url: 'text', p_business: 'uuid', p_sealed: 'text',
 };
+/** the functions that return text (the rest return JSON) */
+const TEXT_RESULT = new Set<SfFunction>(['sf_redirect', 'sf_store_unlock', 'sf_paylink_page']);
 
 function pgRpc(connectionString: string): Rpc {
   let pool: Promise<{ query: (sql: string, values: unknown[]) => Promise<{ rows: { r: unknown }[] }> }> | null = null;
@@ -55,7 +60,7 @@ function pgRpc(connectionString: string): Rpc {
     const { rows } = await (await getPool()).query(sql, values);
     const r = rows[0]?.r;
     if (r == null || r === '') return null;          // a function that returns nothing (void)
-    return fn === 'sf_redirect' || fn === 'sf_store_unlock' ? r : JSON.parse(String(r));   // the two that return text
+    return TEXT_RESULT.has(fn) ? r : JSON.parse(String(r));
   };
 }
 
@@ -118,6 +123,21 @@ export const data = {
   orderRequestByNumber: (store: string, num: number, email: string, kind: 'cancel' | 'return', note: string) =>
     call<OrderRequestResult>('sf_order_request_by_number', { p_store: store, p_number: num, p_email: email, p_kind: kind, p_note: note }),
   rateHit: (key: string, windowSeconds: number, max: number) => call<boolean>('sf_rate_hit', { p_key: key, p_window: windowSeconds, p_max: max }),
+  // payment links (migration 4300): the dashboard's server asks for a page, the provider's answer settles it
+  paylink: (request: string) => call<PaylinkView>('sf_paylink', { p_request: request }),
+  /** 'ok' | 'closed' | 'too_many' | 'bad' | 'not_found' */
+  paylinkPage: (request: string, page: string, url: string) => call<string>('sf_paylink_page', { p_request: request, p_page: page, p_url: url }),
+  paylinkEvent: (request: string, provider: string, key: string, kind: 'callback' | 'verify' | 'poll', signatureOk: boolean | null,
+                 payload: Record<string, unknown>) =>
+    call<boolean>('sf_paylink_event', { p_request: request, p_provider: provider, p_key: key, p_kind: kind, p_signature_ok: signatureOk, p_payload: payload }),
+  paylinkPaid: (request: string, page: string, provider: string, txn: string, amount: number, currency: string) =>
+    call<{ result: 'ok' | 'already' | 'double' | 'mismatch' | 'rejected' | 'not_found'; status?: PaylinkStatus; test?: boolean; late?: boolean }>(
+      'sf_paylink_paid', { p_request: request, p_page: page, p_provider: provider, p_txn: txn, p_amount: amount, p_currency: currency }),
+  paylinkFailed: (request: string, page: string, reason: string) =>
+    call<{ result: 'ok' | 'ignored' | 'not_found'; status?: PaylinkStatus }>('sf_paylink_failed', { p_request: request, p_page: page, p_reason: reason }),
+  paylinksUnconfirmed: (limit = 50) => call<string[]>('sf_paylinks_unconfirmed', { p_limit: limit }),
+  paylinkAccount: (business: string) => call<PaylinkAccount>('sf_paylink_account', { p_business: business }),
+  paylinkVerified: (business: string, sealed: string) => call<boolean>('sf_paylink_verified', { p_business: business, p_sealed: sealed }),
 };
 
 /** the query of a list, as sf_products reads it (strings for numbers: the function parses them itself) */

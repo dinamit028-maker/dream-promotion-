@@ -14,6 +14,12 @@
 #  11. 8 paid orders of one new customer (her phone in 8 spellings) recorded at once (3600) → one lead, 8 sales
 #  12. 8 connections record the same paid order at once (3600) → one sale, one stock movement
 #  13. 8 connections take the last 3 treatments of a package, and 8 deduct one session (4200) → exactly 3, exactly one
+#  14. payment links (4300): 8 links of ₪300 on one invoice of ₪1,180 at once → exactly 3; the provider's answer for one link
+#      8 times at once → paid once; 8 different transactions for one link at once → one pays it, 7 are logged as double
+#  15. plans and reminders (4400): 8 connections make a plan for one invoice at once → one plan (and with "replace", one in force);
+#      the timer runs 8 times at once → every late line gets its reminder once, one email each
+#  16. recurring charges (4500): the same new plan saved from 8 connections at once → one plan, once on the card and in the log;
+#      the timer 8 times at once, on two dates → one charge per plan and period, each handed to the server once; a paused plan none
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -246,3 +252,123 @@ run_parallel pks
 r=$(q "select count(*) from public.client_package_uses where session_id = '$PKS'")
 [ "$r" = "1" ] || fail "one session deducted from 8 connections at once: exactly one deduction (got: $r)"
 echo "ok: one session deducted from 8 connections at once → exactly one deduction"
+
+# ---- 14. payment links from 8 connections at once (4300) -----------------------------------------------------------------------
+# the terminal back to a test one, checked (section 11 made it live; new mode → not verified until checked again)
+q "update public.payment_accounts set mode = 'test' where business_id = '$B';
+   update public.payment_accounts set verified_at = now() where business_id = '$B';" >/dev/null
+q "begin; $AS $(printf "$DOC" ', due_date' 305 1000 1000 180 1180 1000 "'[]'::jsonb" ", public.il_today() + 30") commit;" >/dev/null
+PLI=$(q "select id from public.documents where business_id = '$B' and doc_type = 305 order by doc_number desc limit 1")
+# 8 links of ₪300 at once on ₪1,180: the invoice's lock lets exactly 3 through
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.paylink_create(%s, %s, %s, %s, 300, 7, %s, %s);\ncommit;\n' \
+    "$SR" "'$B'" "'$U'" "'document'" "'$PLI'" "'https://app.load.test'" "'link'" > "$TMP/plk-$w.sql"
+  chmod 644 "$TMP/plk-$w.sql"
+done
+run_parallel plk
+r=$(q "select count(*) || ' ' || coalesce(sum(amount), 0) from public.payment_requests where document_id = '$PLI'")
+[ "$r" = "3 900.00" ] || fail "8 links of ₪300 on ₪1,180 at once: exactly 3 (expected 3 900.00, got: $r)"
+echo "ok: 8 links of ₪300 on one invoice of ₪1,180 at once → exactly 3, never more asked for than the balance"
+# the provider's answer for one link, 8 times at once (8 copies of the webhook): paid once
+PL1=$(q "select id from public.payment_requests where document_id = '$PLI' order by created_at, id limit 1")
+PL2=$(q "select id from public.payment_requests where document_id = '$PLI' order by created_at, id offset 1 limit 1")
+q "$SR select public.sf_paylink_page('$PL1', 'race-1', 'https://pay.test/race-1'); select public.sf_paylink_page('$PL2', 'race-2', 'https://pay.test/race-2');" >/dev/null
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.sf_paylink_event(%s, %s, %s, %s, true, %s);\nselect public.sf_paylink_paid(%s, %s, %s, %s, 300, %s);\ncommit;\n' \
+    "$SR" "'$PL1'" "'mock'" "'mock:link-callback:race'" "'callback'" "'{}'" "'$PL1'" "'race-1'" "'mock'" "'txn-race'" "'ILS'" > "$TMP/plp-$w.sql"
+  chmod 644 "$TMP/plp-$w.sql"
+done
+run_parallel plp
+r=$(q "select (select status || ' ' || provider_txn from public.payment_requests where id = '$PL1') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL1' and action = 'paylink.test_paid') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL1' and action = 'paylink.double') || ' ' ||
+              (select count(*) from public.payment_events where event_key = 'mock:link-callback:race')")
+[ "$r" = "paid txn-race 1 0 1" ] || fail "one webhook 8 times at once: paid once, one logged notice (expected paid txn-race 1 0 1, got: $r)"
+echo "ok: the same webhook 8 times at once → the link paid once, one logged notice"
+# 8 different transactions for one link at once: one pays it, the other 7 are logged for the owner — never paid twice
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.sf_paylink_paid(%s, %s, %s, %s, 300, %s);\ncommit;\n' \
+    "$SR" "'$PL2'" "'race-2'" "'mock'" "'txn-other-$w'" "'ILS'" > "$TMP/pld-$w.sql"
+  chmod 644 "$TMP/pld-$w.sql"
+done
+run_parallel pld
+r=$(q "select (select status from public.payment_requests where id = '$PL2') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL2' and action = 'paylink.test_paid') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL2' and action = 'paylink.double') || ' ' ||
+              (select count(*) from public.payments where applies_to = '$PLI')")
+[ "$r" = "paid 1 7 0" ] || fail "8 transactions for one link at once: one pays, 7 double, nothing in the ledger (test) (expected paid 1 7 0, got: $r)"
+echo "ok: 8 different transactions for one link at once → one pays it, 7 logged as double, no payment twice"
+
+# ---- 15. payment plans and the reminders' timer from 8 connections at once (4400) ------------------------------------------------
+q "begin; $AS $(printf "$DOC" ', due_date' 305 1000 1000 180 1180 1000 "'[]'::jsonb" ", public.il_today() + 30") commit;" >/dev/null
+PLAN_INV=$(q "select id from public.documents where business_id = '$B' and doc_type = 305 order by doc_number desc limit 1")
+ITEMS="jsonb_build_array(jsonb_build_object('amount', 590, 'due', public.il_today() + 1), jsonb_build_object('amount', 590, 'due', public.il_today() + 31))"
+for w in $(seq 8); do worker_script "$TMP/plan-$w.sql" 1 "select public.payment_plan_create(gen_random_uuid(), '$PLAN_INV', $ITEMS);"; done
+run_parallel plan
+r=$(q "select count(*) || ' ' || count(*) filter (where status = 'active') from public.payment_plans where document_id = '$PLAN_INV'")
+[ "$r" = "1 1" ] || fail "8 plans for one invoice at once: exactly one (expected 1 1, got: $r)"
+for w in $(seq 8); do worker_script "$TMP/replan-$w.sql" 1 "select public.payment_plan_create(gen_random_uuid(), '$PLAN_INV', $ITEMS, '', true);"; done
+run_parallel replan
+r=$(q "select count(*) || ' ' || count(*) filter (where status = 'active') || ' ' ||
+              (select count(*) from public.payment_plan_items i join public.payment_plans p on p.id = i.plan_id where p.document_id = '$PLAN_INV' and p.status = 'active')
+         from public.payment_plans where document_id = '$PLAN_INV'")
+[ "$r" = "9 1 2" ] || fail "8 replacing plans at once: one in force with its 2 payments, the rest cancelled (expected 9 1 2, got: $r)"
+echo "ok: 8 connections make a plan for one invoice at once → one plan; 8 replacing it at once → one in force"
+# a customer who owes 6 late invoices, reminders on (by email): the timer 8 times at once queues each once
+LEAD=00000000-0000-0000-0000-0000000cc0e1
+q "insert into public.leads (id, user_id, business_id, name, phone, email) values ('$LEAD', '$U', '$B', 'Late', '0509999999', 'late@load.test') on conflict do nothing;
+   insert into public.debt_reminder_settings (business_id, enabled, days, channel, approved_by, approved_at)
+   values ('$B', true, '{3,7,14}', 'email', '$U', now()) on conflict (business_id) do update set enabled = true, channel = 'email', approved_at = now();" >/dev/null
+LATE="insert into public.documents (user_id, doc_type, doc_number, doc_date, due_date, lead_id, customer_name, before_discount, discount, after_discount, vat_amount, total, vat_rate, lines, payments)
+  values ('$U', 305, 0, public.il_today() - %s - 1, public.il_today() - %s, '$LEAD', 'Late', 100, 0, 100, 18, 118, 18,
+  jsonb_build_array(jsonb_build_object('name', 'x', 'qty', 1, 'totalExVat', 100)), '[]'::jsonb);"
+for late in 4 5 8 10 20 30; do q "begin; $AS $(printf "$LATE" "$late" "$late") commit;" >/dev/null; done
+r=$(q "select count(*) from public.documents where business_id = '$B' and lead_id = '$LEAD' and due_date < public.il_today()")
+[ "$r" = "6" ] || fail "the 6 late invoices of the load test were not issued (got: $r)"
+AT="((public.il_today() + case when extract(isodow from public.il_today()) = 6 then 1 else 0 end) + time '10:00') at time zone 'Asia/Jerusalem'"
+for w in $(seq 8); do
+  printf 'begin;\nset local role service_role;\nselect public.debt_reminders_queue(%s);\ncommit;\n' "$AT" > "$TMP/remind-$w.sql"
+  chmod 644 "$TMP/remind-$w.sql"
+done
+run_parallel remind
+r=$(q "select count(*) || ' ' || count(distinct (document_id, step)) || ' ' || count(email_id) || ' ' ||
+              (select count(*) from public.email_outbox o where o.business_id = '$B' and o.kind = 'debt_reminder')
+         from public.debt_reminders where business_id = '$B'")
+[ "$r" = "6 6 6 6" ] || fail "the timer 8 times at once: each late line once, one email each (expected 6 6 6 6, got: $r)"
+echo "ok: the reminders' timer from 8 connections at once → each of 6 late invoices reminded once, one email each"
+
+# ---- 16. recurring charges: one plan saved 8 times at once, and the timer 8 times at once (4500) -----------------------------------
+RL=00000000-0000-0000-0000-0000000cc0f1
+q "insert into public.leads (id, user_id, business_id, name, phone, email) values ('$RL', '$U', '$B', 'Monthly', '0508888888', '') on conflict do nothing;" >/dev/null
+rsave() { # $1 = the plan's id: every month on today's day (at most the 28th), from today, ₪100, an invoice without a link
+  echo "select public.recurring_plan_save('$1', '$RL', 'מנוי', jsonb_build_array(jsonb_build_object('name', 'מנוי', 'qty', 1, 'unitPrice', 100)), true, 100, 1,
+        least(extract(day from public.il_today())::int, 28), public.il_today(), null, 'issue', false, '');"
+}
+P0=00000000-0000-0000-0000-0000000cc0f0
+for w in $(seq 8); do worker_script "$TMP/rsave-$w.sql" 1 "$(rsave $P0)"; done
+run_parallel rsave
+r=$(q "select (select count(*) from public.recurring_plans where business_id = '$B') || ' ' ||
+              (select count(*) from public.finance_audit_log where action = 'recurring.created' and entity_id = '$P0') || ' ' ||
+              (select count(*) from public.lead_activities where lead_id = '$RL' and body like 'חיוב חוזר: מנוי%')")
+[ "$r" = "1 1 1" ] || fail "one new plan saved from 8 connections at once: one plan, once in the log and on the card (expected 1 1 1, got: $r)"
+echo "ok: the same new plan saved from 8 connections at once → one plan, once in the log and on the card"
+# 5 more plans, one of them paused; the timer 8 times at once on their date, then on the next one
+for i in 2 3 4 5 6; do q "begin; $AS $(rsave 00000000-0000-0000-0000-0000000cc0f$i) commit;" >/dev/null; done
+q "begin; $AS select public.recurring_plan_set('00000000-0000-0000-0000-0000000cc0f6', 'pause'); commit;" >/dev/null
+N1=$(q "select next_date from public.recurring_plans where id = '$P0'")
+N2=$(q "select public.recurring_on_or_after(public.il_today(), 1, least(extract(day from public.il_today())::int, 28), '$N1'::date + 1)")
+at() { echo "(('$1'::date + case when extract(isodow from '$1'::date) = 6 then 1 else 0 end) + time '10:00') at time zone 'Asia/Jerusalem'"; }
+for w in $(seq 8); do
+  printf 'begin;\nset local role service_role;\nselect count(*) from public.recurring_due(%s);\ncommit;\n' "$(at "$N1")" > "$TMP/rdue-$w.sql"
+  printf 'begin;\nset local role service_role;\nselect count(*) from public.recurring_due(%s);\ncommit;\n' "$(at "$N2")" > "$TMP/rdue2-$w.sql"
+  chmod 644 "$TMP/rdue-$w.sql" "$TMP/rdue2-$w.sql"
+done
+run_parallel rdue
+RC="select count(*) || ' ' || count(distinct (plan_id, period_date)) || ' ' || coalesce(sum(attempts), 0) || ' ' ||
+           count(*) filter (where plan_id = '00000000-0000-0000-0000-0000000cc0f6') from public.recurring_charges where business_id = '$B'"
+r=$(q "$RC")
+[ "$r" = "5 5 5 0" ] || fail "the timer 8 times at once: one charge per active plan, each handed out once, none for the paused (expected 5 5 5 0, got: $r)"
+run_parallel rdue2
+r=$(q "$RC")
+[ "$r" = "10 10 15 0" ] || fail "the timer 8 times at once on the next date: one more each, all 10 handed out once (expected 10 10 15 0, got: $r)"
+echo "ok: the recurring timer from 8 connections at once, on two dates → one charge per plan and period, each handed out once, none for a paused plan"

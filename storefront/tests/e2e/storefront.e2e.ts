@@ -140,9 +140,14 @@ async function main() {
   // the dashboard's server, as far as the storefront sees it: "finalize" records the sale the way the dashboard does
   // (commerce_record_sale, VAT 18% of the total), and a document's PDF by its share token
   const finalized: string[] = [];
+  const paylinksTold: string[] = [];   // 2.88: "a payment link was paid" (the dashboard's /api/finance/paylinks/finalize)
   const dashboard = http.createServer((req, res) => {
     let body = ''; req.on('data', (c) => { body += c; });
     req.on('end', () => {
+      if (req.method === 'POST' && req.url === '/api/finance/paylinks/finalize' && req.headers['x-commerce-secret'] === COMMERCE) {
+        paylinksTold.push(String(JSON.parse(body || '{}').requestId ?? ''));
+        res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return;
+      }
       if (req.method === 'POST' && req.url === '/api/commerce/finalize' && req.headers['x-commerce-secret'] === COMMERCE) {
         const id = String(JSON.parse(body || '{}').orderId ?? '');
         if (/^[0-9a-f-]{36}$/.test(id)) {
@@ -1305,6 +1310,106 @@ async function main() {
         await ctx.close();
       } finally {
         psql(`update public.platform_flags set enabled = false where key = 'commerce_live';
+              update public.payment_accounts set mode = 'test' where business_id = '${BIZ}';`);
+      }
+    });
+
+    await step('payment links (2.88): a page for the dashboard only, the notice signed and once — THE SAME WEBHOOK TWICE PAYS ONCE —, a decline, the cron, "בדיקת חיבור", a real one', async () => {
+      const BIZ = 'aaaaaaaa-0000-4000-8000-00000000000a', OWNER = 'aaaaaaaa-0000-4000-8000-0000000000f1';
+      const INV = 'aaaaaaaa-0000-4000-8000-0000000d0c05';
+      const DASH = `http://127.0.0.1:${DASH_PORT}`;
+      // an open tax invoice of FollowMe (a fixture: the document's own checks are the SQL tests'), and its terminal checked
+      psql(`set session_replication_role = replica;
+            insert into public.documents (id, user_id, business_id, doc_type, doc_number, doc_date, before_discount, after_discount, vat_amount, total, vat_rate, customer_name,
+              customer_phone, customer_email, lines, payments)
+            values ('${INV}', '${OWNER}', '${BIZ}', 305, 9, current_date, 100, 100, 18, 118, 18, 'דנה כהן', '0501234567', 'dana@example.com',
+              '[{"name": "הדפסה על שקיות", "qty": 1, "totalExVat": 100}]', '[]');
+            set session_replication_role = origin;
+            update public.payment_accounts set verified_at = now() where business_id = '${BIZ}';`);
+      const link = (amount: number) => psql(`select public.paylink_create('${BIZ}', '${OWNER}', 'document', '${INV}', ${amount}, 7, '${DASH}', 'link')->>'id'`);
+      const ask = (body: unknown, secret = COMMERCE) => rawPost('platform.test', '/api/paylink', JSON.stringify(body), { 'x-commerce-secret': secret });
+      const status = (id: string) => psql(`select status || ':' || is_test || ':' || receipt_status from public.payment_requests where id = '${id}'`);
+      const sign = (b: string) => createHmac('sha256', MOCK_KEYS.secret_key).update(b).digest('base64');
+      const notice = (id: string, pageId: string, extra: Record<string, unknown> = {}) =>
+        JSON.stringify({ transaction: { payment_page_request_uid: pageId, more_info: id, status_code: '000', ...extra } });
+
+      // 1. only the dashboard's server asks for a page (the shared secret); the page is the link's: its amount, its label
+      const a = link(30);
+      assert.equal((await ask({ action: 'page', request: a, returnUrl: `${DASH}/pay/x` }, 'wrong-secret-0123456789')).status, 401);
+      assert.equal((await ask({ action: 'page', request: a, returnUrl: 'javascript:alert(1)' })).status, 400);
+      const p1 = JSON.parse((await ask({ action: 'page', request: a, returnUrl: `${DASH}/pay/ref-a` })).body);
+      assert.equal(p1.ok, true);
+      assert.match(p1.url, /\/pay-mock\/mp_/);
+      const p2 = JSON.parse((await ask({ action: 'page', request: a, returnUrl: `${DASH}/pay/ref-a` })).body);
+      assert.equal(p2.url, p1.url, 'an open page of the last minutes is given again');
+      const pageA = psql(`select pages->0->>'page' from public.payment_requests where id = '${a}'`);
+      const { ctx, page } = await phone();
+      await page.goto(p1.url);
+      await page.getByRole('heading', { level: 1, name: 'תשלום לבדיקה' }).waitFor();
+      assert.match(await text(page), /חשבונית מס מס׳ 9 — /);
+      assert.match(await text(page), /30/);
+      await page.screenshot({ path: path.join(SHOTS, 'paylink-mock-390.png'), fullPage: true });
+      await ctx.close();
+      // 2. the notice: forged → refused; signed but not paid yet → nothing; paid → once, however many copies
+      const forged = notice(a, pageA);
+      assert.equal((await rawPost('platform.test', '/api/paylink/mock/webhook', forged, { hash: 'AAAA', 'user-agent': 'PayPlus' })).status, 401);
+      const early = notice(a, pageA, { n: 1 });
+      assert.equal((await rawPost('platform.test', '/api/paylink/mock/webhook', early, { hash: sign(early), 'user-agent': 'PayPlus' })).status, 200);
+      assert.equal(status(a), 'sent:true:none', 'the provider says not paid yet: nothing changes');
+      assert.equal((await rawPost('platform.test', `/api/pay-mock/${pageA}?a=approve`, '')).status, 303);
+      const paid = notice(a, pageA, { n: 2 });
+      for (let i = 0; i < 2; i++) {
+        assert.equal((await rawPost('followme.test', '/api/paylink/mock/webhook', paid, { hash: sign(paid), 'user-agent': 'PayPlus' })).status, 200, 'on any host');
+      }
+      assert.equal(status(a), 'paid:true:none', 'paid (test): no receipt');
+      assert.equal(psql(`select count(*) from public.finance_audit_log where entity_id = '${a}' and action = 'paylink.test_paid'`), '1', 'THE SAME WEBHOOK TWICE: paid once');
+      assert.equal(psql(`select count(*) from public.payment_events where request_id = '${a}' and kind = 'callback'`), '3', 'forged, early, paid — each logged once');
+      assert.equal(psql(`select count(*) from public.payments where applies_to = '${INV}'`), '0', 'a test payment: nothing in the ledger');
+      for (let i = 0; i < 50 && !paylinksTold.includes(a); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.equal(paylinksTold.filter((x) => x === a).length, 1, 'the dashboard was told once (the owner\'s alert)');
+      assert.equal(JSON.parse((await ask({ action: 'page', request: a, returnUrl: `${DASH}/pay/ref-a` })).body).error, 'paid', 'a paid link opens no page');
+      // 3. declined → failed (never paid); the customer tries again with the same link
+      const b = link(20);
+      const pb = JSON.parse((await ask({ action: 'page', request: b, returnUrl: `${DASH}/pay/ref-b` })).body);
+      const pageB = pb.url.split('/pay-mock/')[1];
+      assert.equal((await rawPost('platform.test', `/api/pay-mock/${pageB}?a=decline`, '')).status, 303);
+      const declined = notice(b, pageB, { status_code: '001' });
+      assert.equal((await rawPost('platform.test', '/api/paylink/mock/webhook', declined, { hash: sign(declined), 'user-agent': 'PayPlus' })).status, 200);
+      assert.equal(status(b), 'failed:true:none', 'a failed payment shows as failed');
+      const again = JSON.parse((await ask({ action: 'page', request: b, returnUrl: `${DASH}/pay/ref-b` })).body);
+      assert.equal(again.ok, true); assert.notEqual(again.url, pb.url, 'a new page');
+      assert.equal(status(b), 'sent:true:none', 'open again');
+      // 4. nobody came back and no notice arrived: the cron asks the provider (also about a link)
+      const pageB2 = again.url.split('/pay-mock/')[1];
+      assert.equal((await rawPost('platform.test', `/api/pay-mock/${pageB2}?a=approve`, '')).status, 303);
+      psql(`update public.payment_requests set pages = jsonb_set(pages, '{1,at}', to_jsonb(now() - interval '11 minutes')) where id = '${b}'`);
+      const cron = await rawPost('platform.test', '/api/cron/payments', '{}', { 'x-cron-secret': CRON });
+      assert.equal(cron.status, 200);
+      assert.ok(JSON.parse(cron.body).links.asked >= 1);
+      assert.equal(status(b), 'paid:true:none');
+      // 5. back on the dashboard's page: it asks the storefront to confirm (nothing open: the status as it is)
+      assert.equal(JSON.parse((await ask({ action: 'confirm', request: b })).body).status, 'paid');
+      // 6. "בדיקת חיבור": a page with the terminal's keys → verified
+      psql(`update public.payment_accounts set verified_at = null where business_id = '${BIZ}'`);
+      assert.deepEqual(JSON.parse((await ask({ action: 'check', business: BIZ })).body), { ok: true });
+      assert.equal(psql(`select verified_at is not null from public.payment_accounts where business_id = '${BIZ}'`), 't');
+      // 7. a real link (the platform's switch of links on, a live terminal — here only): paid → the receipt waits for the dashboard
+      psql(`update public.platform_flags set enabled = true where key = 'payment_links_live';
+            update public.payment_accounts set mode = 'live' where business_id = '${BIZ}';
+            update public.payment_accounts set verified_at = now() where business_id = '${BIZ}';`);
+      try {
+        const c = link(50);
+        const pc = JSON.parse((await ask({ action: 'page', request: c, returnUrl: `${DASH}/pay/ref-c` })).body);
+        const pageC = pc.url.split('/pay-mock/')[1];
+        assert.equal((await rawPost('platform.test', `/api/pay-mock/${pageC}?a=approve`, '')).status, 303);
+        const real = notice(c, pageC);
+        for (let i = 0; i < 2; i++) await rawPost('platform.test', '/api/paylink/mock/webhook', real, { hash: sign(real), 'user-agent': 'PayPlus' });
+        assert.equal(status(c), 'paid:false:pending', 'a real payment: its receipt is the dashboard\'s to issue, now');
+        for (let i = 0; i < 50 && !paylinksTold.includes(c); i++) await new Promise((r) => setTimeout(r, 100));
+        assert.equal(paylinksTold.filter((x) => x === c).length, 1, 'told once — the receipt is issued once');
+        assert.equal(psql(`select count(*) from public.finance_audit_log where entity_id = '${c}' and action = 'paylink.paid'`), '1');
+      } finally {
+        psql(`update public.platform_flags set enabled = false where key = 'payment_links_live';
               update public.payment_accounts set mode = 'test' where business_id = '${BIZ}';`);
       }
     });
