@@ -31,6 +31,15 @@ const nextConfig = {
         headers: [{ key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' }],
       },
       {
+        // a customer's payment link (/pay/<ref>, 2.88): never indexed, never framed, and its address never leaves in a Referer
+        source: '/pay/:path*',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+        ],
+      },
+      {
         // a customer's health declaration (/h/<token>): never indexed, never framed, no script, style or connection
         // from anywhere but this site (Next's own inline scripts need 'unsafe-inline'; development also needs eval)
         source: '/h/:path*',

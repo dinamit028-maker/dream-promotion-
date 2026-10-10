@@ -953,3 +953,83 @@ select count(*) from information_schema.columns where table_schema = 'public'
 6. **"חבילות" → החבילה → "ביטול החבילה":** המערכת מציעה זיכוי על מה שלא נוצל, והחזר. לבדוק את הסכומים → סיבה → "הפקת זיכוי וביטול החבילה".
    - **אמור לקרות:** חשבונית זיכוי במסמכים, ההחזר ביומן התשלומים, והחבילה "בוטלה". "שולם מראש ועוד לא נוצל" בדוח — 0.
 7. **כקופאי/ת:** אין "כספים", ובכרטיס אין חבילות.
+
+## 26. לינק לתשלום, webhook ומקדמה על תור (2.88.0, מיגרציה 4300)
+
+**אוטומטי (רץ כאן):**
+- **`npm run test:sql` — `tests/sql/payment-links.check.sql`** (מיגרציה 4300; קליניקה א — חברה, עם מסוף בדיקה של הספק המדומה; קליניקה ב — עוסק פטור, עם מסוף בדיקה של PayPlus; כל התפקידים):
+  1. **המתג והמסוף:** המתג כבוי. מסוף שלא נבדק לא שולח לינק. "מאומת" רק עם המפתחות שנבדקו, ומפתחות חדשים — לא מאומת. מסוף אמיתי בלי המתג — לא.
+  2. **חשבונית:** לינק על חלק מהיתרה. לא יותר ממה שנשאר אחרי הלינקים הפתוחים. חשבונית מס/קבלה ששולמה, חשבונית של עסק אחר, סכום 0, 31 ימים וכתובת לא תקינה — נדחים. ביטול משחרר את הסכום. שליחה שוב — נספרת.
+  3. **הצעה ומקדמה:** הצעה רק אחרי שאושרה. מקדמה — הסכום של השירות (לא מה שהוקלד), אחת לתור, רק לתור פתוח ועתידי, ולא לשירות בלי מקדמה. מקדמה גדולה מהמחיר — נדחית.
+  4. **לינק בדיקה ששולם:** עמוד, הודעה פעם אחת (השנייה — לא חדשה). עמוד שאינו של הלינק או סכום אחר — לא משולם. "שולם (בדיקה)": בלי `payments` ובלי קבלה. אותה תשובה שוב — already; עסקה אחרת — double (נרשמת, לא משולמת). בכרטיס הלקוח: "(בדיקה — לא כסף אמיתי)". לינק ששולם לא פותח עמוד.
+  5. **נכשל** מוצג כנכשל, עם הסיבה. ניסיון חוזר באותו לינק — עמוד חדש ששולם.
+  6. **באיחור:** תשלום אחרי ביטול / אחרי שפג תוקף — נרשם ומסומן. ה-cron מוצא עמוד שאף אחד לא אישר אחרי 10 דקות (גם של לינק שבוטל), ולא עמוד חדש.
+  7. **לינק אמיתי** (כאן בלבד: המתג דולק ומסוף אמיתי): **אותו webhook פעמיים — תשלום אחד וקבלה אחת** (המפתח `paylink:<id>`; קבלה שנייה עם אותו מפתח נדחית), ושורה אחת ב-`payments`. "אחרי אישור": הקבלה ממתינה ועדיין מחזיקה את הסכום; עסק אחר לא מאשר; נחסמה — עם הסיבה; אישור מחדש מנסה שוב.
+  8. **`appointment_deposits`:** רק מקדמה אמיתית ששולמה. גם קופאי/ת מקבל/ת את הסכום. עסק אחר — כלום.
+  9. **מי רואה ומי כותב:** הבעלים, צוות עם גישה לכספים ו-viewer — קוראים. קופאי/ת, עסק אחר ומנהל-על בלי גישה — לא רואים. אף אחד לא כותב או משנה לינק ביד, ולא קורא לפונקציות של השרתים. סכום לא משתנה, לינק ששולם לא חוזר להיות פתוח, לינק שבוטל לא נפתח, ולינק לא נמחק.
+  10. **מייל:** פעם אחת לכל שליחה. בלי מייל — לא נכנס לתור. מייל של הזמנה עדיין צריך הזמנה. `email_outbox_done` של לינק — בלי הזמנה ובלי התראה לחנות.
+  11. **היומן:** כל הפעולות רשומות, ו-`finance_audit_verify` תקין.
+  12. **מה שהלינק משלם השתנה — אין עמוד חדש:** חשבונית שבוטלה, חשבונית ששולמה בינתיים (נשאר פחות ממה שהלינק מבקש), הצעה שבוטלה, תור שבוטל. תשלום שכבר היה בדרך — עדיין נרשם.
+- **`tests/sql/concurrency.sh` §14:** 8 לינקים של ₪300 על חשבונית של ₪1,180, במקביל → בדיוק 3. אותו webhook 8 פעמים במקביל → שולם פעם אחת, הודעה אחת. 8 עסקאות שונות על אותו לינק במקביל → אחת משלמת, 7 "double", ואין כסף פעמיים.
+- **בדשבורד, `npm test`:**
+  - `tests/paylinks.test.ts`: הסטטוסים ("נכשל" אדום ולא שולם; "שולם (בדיקה)"), השער "חבר ספק תשלום", הודעת הוואטסאפ והמייל, הכתובת החתומה (חתימה של הזמנה לא פותחת לינק), הקיזוז. ובשרת: **אותו webhook פעמיים → קבלה אחת**; כל סוג קבלה (305 → 400, 300 → 320 או 400 בפטור, מקדמה → 320, הצעה במלואה → 320 שממירה אותה, הצעה בחלקים → חשבונית אחת וקבלה על כל חלק); קבלה שנחסמה ואישור מחדש, וחשבונית שבוטלה אחרי שהלינק נשלח (התשלום נשמר, בלי קבלה עליה); מי שולח (לא viewer, לא קופאי/ת, העסק מהשרת); הדף ללקוח (בלי מזהים, טלפון ומייל; רק השרת של החזית יוצר עמוד; החזרה — לכתובת שהלינק נשלח איתה, לא לכתובת שבקשה מציינת); ה-cron, וגם לפני המיגרציה.
+  - `tests/store-checkout.test.ts`: "בדיקת חיבור" — רק התשובה של החזית מאמתת, רק לעסק שעובדים בו, המפתחות לא נשלחים.
+- **בחזית, `npm test` — `tests/unit/paylinks.test.ts`:** העמוד (הסכום, המזהה, כתובת החזרה, ההודעה לחזית), עמוד פתוח ניתן שוב, לינק ששולם / סגור / מסוף שהוחלף — בלי עמוד, התשובה של הספק (approved / declined / עמוד של משהו אחר / ספק שלא עונה), **אותו webhook פעמיים — שאלה אחת ותשלום אחד**, הודעה מזויפת, "בדיקת חיבור".
+- **בחזית, `npm run test:e2e`** — שלב "payment links (2.88)": רק הדשבורד מבקש עמוד (הסוד), עמוד הבדיקה מציג את התווית והסכום, הודעה מזויפת — 401, **אותו webhook פעמיים — שולם פעם אחת והדשבורד קיבל הודעה אחת**, סירוב → "נכשל" ואז עמוד חדש, ה-cron, "בדיקת חיבור", ולינק אמיתי (רק כאן) שהקבלה שלו ממתינה לדשבורד.
+- **בדשבורד, `tests/e2e/paylinks.e2e.ts`** (Chromium בטלפון, 390 ו-375): "בדיקת חיבור" → "מאומת" והגדרת הקבלה; לינק מחשבונית (חלק, לא יותר מהיתרה, מה שלינק פתוח מחזיק לא מוצע שוב); "חבר ספק תשלום"; "נכשל" באדום, "שולם (בדיקה)", "הפקת הקבלה", ביטול; הצעה שאושרה (ולא הצעה שנשלחה); הדף ללקוח — תשלום וחזרה ("התשלום התקבל"), כישלון ("לנסות שוב"), פג תוקף; מקדמה — לינק מהתור, "💳 חיוב" אחרי המקדמה, מקדמה בשירות. בלי שגיאות בדפדפן.
+
+**לפני הבדיקה בטלפון:**
+1. **מיגרציה 4300 על המסד החי — רק אחרי אישור, ב-SQL Editor** (יש בה `drop not null` / `drop constraint`, וה-MCP עוצר על drop), בלי הערת ה-rollback שבסוף הקובץ. לפני ההחלה, בקריאה בלבד:
+```sql
+select to_regclass('public.payment_requests') as requests,
+  (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'payment_accounts' and column_name = 'verified_at') as verified_col,
+  (select pg_get_constraintdef(oid) from pg_constraint where conname = 'email_outbox_kind_check') as kinds,
+  (select count(*) from public.email_outbox) as emails;
+```
+   - **אמור לחזור:** `null`, `0`, הכלל עם 4 הסוגים של ההזמנות, ומספר המיילים (לרשום — אחרי ההחלה הוא לא משתנה).
+2. **אחרי ההחלה,** בקריאה בלבד:
+```sql
+select c.relname, c.relrowsecurity,
+  (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = c.relname and p.permissive = 'RESTRICTIVE') as restrictive,
+  (select count(*) from pg_policies p where p.schemaname = 'public' and p.tablename = c.relname and p.permissive = 'PERMISSIVE') as permissive,
+  (select count(*) from pg_trigger t where t.tgrelid = c.oid and not t.tgisinternal) as triggers
+from pg_class c where c.relnamespace = 'public'::regnamespace and c.relname = 'payment_requests';
+select p.proname, p.prosecdef, array_to_string(p.proacl, ' ') as acl from pg_proc p
+where p.pronamespace = 'public'::regnamespace
+  and (p.proname like 'paylink%' or p.proname like 'sf_paylink%' or p.proname in ('appointment_deposits', 'payment_links_live', 'email_outbox_done', 'payment_accounts_unverify', 'payment_requests_guard'))
+order by 1;
+select key, enabled from public.platform_flags where key = 'payment_links_live';
+select conname, pg_get_constraintdef(oid) from pg_constraint where conname in ('email_outbox_kind_check', 'email_outbox_about_check') order by 1;
+select count(*) as columns from information_schema.columns where table_schema = 'public'
+  and ((table_name = 'payment_accounts' and column_name = 'verified_at') or (table_name = 'business_finance_profile' and column_name = 'paylink_receipt')
+       or (table_name = 'booking_services' and column_name = 'deposit') or (table_name = 'payment_events' and column_name = 'request_id')
+       or (table_name = 'email_outbox' and column_name = 'request_id'));
+select count(*) as emails from public.email_outbox;
+```
+   - **אמור לחזור** (כמו במסד המקומי, 10.10.2026):
+     - `payment_requests`: RLS פעיל, 6 RESTRICTIVE, 1 רגילה (קריאה), 2 טריגרים.
+     - 21 פונקציות. כולן security definer, חוץ מ-`payment_accounts_unverify` ו-`payment_requests_guard` (טריגרים). רק `postgres` ו-`service_role` מריצים — חוץ מ-`appointment_deposits` ו-`payment_links_live`, שגם `authenticated` קורא להן.
+     - `payment_links_live | f` — **כבוי**.
+     - הכלל של הסוגים כולל `payment_link`, והכלל החדש `email_outbox_about_check`.
+     - 5 עמודות, ומספר המיילים כמו לפני.
+3. **"בדיקת חיבור" מול PayPlus** (סביבת הבדיקה): כספים → הגדרות → "לינק לתשלום" → "בדיקת חיבור".
+   - **אמור לקרות:** "PayPlus קיבל את המפתחות — המסוף מאומת", ו"מאומת" ליד "מחובר". אם לא: ההודעה אומרת מה (מפתחות שנדחו, `PAYMENT_SEAL_KEY` שונה בין הפרויקטים, `STOREFRONT_URL` / `COMMERCE_SECRET` חסרים).
+
+**בטלפון (מסוף בדיקה — שום כרטיס לא מחויב באמת):**
+1. **חשבונית מס פתוחה → "💳 שלח לינק לתשלום":** "מסוף בדיקה" למעלה. סכום — היתרה. לשנות לחלק, "🔗 העתקת לינק" → "שליחת הלינק".
+   - **אמור לקרות:** הלינק מוכן, וברשימה במסמך — "נשלח". שוב "שלח לינק" — הסכום שהוצע קטן במה שכבר נשלח.
+2. **לפתוח את הלינק בטלפון אחר (או בחלון פרטי):** השם של העסק, על מה, כמה, "תשלום בדיקה". "לתשלום מאובטח" → עמוד הבדיקה של PayPlus → לשלם בכרטיס בדיקה.
+   - **אמור לקרות:** חזרה לדף — "התשלום התקבל. תודה!". במסמך: "שולם (בדיקה)" ו"תשלום בדיקה — לא כסף אמיתי, בלי קבלה". התראה בטלפון של הבעלים. **בהכנסות — שום תשלום חדש.**
+3. **לינק חדש → לשלם בכרטיס שנדחה** (כרטיס בדיקה של סירוב).
+   - **אמור לקרות:** "התשלום לא הצליח" ו"לנסות שוב". במסמך: "נכשל" באדום. אף פעם לא "שולם".
+4. **Supabase SQL (קריאה בלבד):**
+```sql
+select status, is_test, receipt_status, jsonb_array_length(pages) as pages from public.payment_requests order by created_at desc limit 5;
+select kind, signature_ok, count(*) from public.payment_events where request_id is not null group by 1, 2 order by 1, 2;
+```
+   - **אמור לחזור:** הלינק ששולם — `paid | t | none`, שנדחה — `failed | t | none`. ב-`payment_events`: הודעות (`callback`) עם `signature_ok = t` ושאלות (`verify`). **אם אין אף `callback`** — ההודעה של PayPlus לא הגיעה לחזית (הכתובת `…/api/paylink/payplus/webhook`): לבדוק ב-Vercel Logs של החזית. התשלום עדיין נרשם — מהחזרה לדף או מה-cron.
+5. **מקדמה:** תורים → שירותים → "מקדמה" → 100. בדף ההזמנה הציבורי — לקבוע תור לשירות הזה.
+   - **אמור לקרות:** במסך "התור נקבע" — "מקדמה לתור: ₪100" ו"לתשלום המקדמה". ביומן התורים — "מקדמה ₪100: נשלח". אחרי תשלום בדיקה — "שולם (בדיקה)", ו"💳 חיוב" **בלי** קיזוז (מקדמה של בדיקה לא מקוזזת).
+6. **כקופאי/ת:** אין "שלח לינק", אין רשימת לינקים, ואין הגדרות לינק.
+
+**לא נבדק כאן, ונשאר נעול:** כסף אמיתי (המתג `payment_links_live`) — ולכן גם קבלה אמיתית על לינק. נבדק רק במסד המקומי ובשרת, עם מסמכים מדומים.

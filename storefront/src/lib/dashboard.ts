@@ -18,6 +18,25 @@ export async function notifyPaid(orderId: string): Promise<boolean> {
   }
 }
 
+/**
+ * A payment link was paid for real (migration 4300): the dashboard's server issues its receipt now (or keeps it for the owner's
+ * approval). Never waited on by the customer, never fatal: the dashboard's cron issues whatever this missed.
+ */
+export async function notifyPaylinkPaid(requestId: string): Promise<boolean> {
+  const base = (process.env.DASHBOARD_URL ?? '').replace(/\/+$/, '');
+  const secret = process.env.COMMERCE_SECRET ?? '';
+  if (!/^https?:\/\//.test(base) || secret.length < 16) return false;
+  try {
+    const r = await fetch(`${base}/api/finance/paylinks/finalize`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-commerce-secret': secret },
+      body: JSON.stringify({ requestId }), cache: 'no-store', signal: AbortSignal.timeout(25_000),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** the document's PDF, from the dashboard, by its share token — served on the business's own domain */
 export async function documentPdf(docToken: string): Promise<Response | null> {
   const base = (process.env.DASHBOARD_URL ?? '').replace(/\/+$/, '');

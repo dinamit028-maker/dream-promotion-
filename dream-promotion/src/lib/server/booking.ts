@@ -11,9 +11,25 @@ export async function loadBusiness(slug: string) {
   const { data: s } = await db.from('booking_settings').select('*').eq('slug', slug).eq('enabled', true).maybeSingle();
   if (!s) return null;
   if (!(await businessOpen((s as any).business_id))) return 'locked' as const;
-  const { data: services } = await db.from('booking_services').select('id, name, minutes, price')
-    .eq('business_id', (s as any).business_id).eq('active', true).order('sort').order('created_at');
-  return { settings: s as any, services: (services ?? []) as { id: string; name: string; minutes: number; price: number | null }[] };
+  const list = (cols: string) => db.from('booking_services').select(cols).eq('business_id', (s as any).business_id).eq('active', true).order('sort').order('created_at');
+  // a service's deposit comes with migration 4300 — before it, the services read as they did
+  let res = await list('id, name, minutes, price, deposit');
+  if (res.error) res = await list('id, name, minutes, price');
+  const services = ((res.data ?? []) as any[]).map((x) => ({ id: x.id as string, name: x.name as string, minutes: Number(x.minutes), price: x.price == null ? null : Number(x.price),
+    deposit: x.deposit == null ? null : Number(x.deposit) }));
+  return { settings: s as any, services };
+}
+
+/**
+ * Does the business take a deposit by link now (migration 4300)? Its terminal is connected and checked ("בדיקת חיבור"), and a
+ * live one only while the platform's switch of payment links is on. Before the migration: no.
+ */
+export async function depositsOpen(businessId: string): Promise<boolean> {
+  const { data, error } = await adminDb().from('payment_accounts').select('mode, verified_at').eq('business_id', businessId).maybeSingle();
+  if (error || !data || !(data as any).verified_at) return false;
+  if ((data as any).mode !== 'live') return true;
+  const live = await adminDb().rpc('payment_links_live');
+  return live.data === true;
 }
 
 export const rulesOf = (s: any): SlotRules => ({

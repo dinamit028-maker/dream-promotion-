@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/server/admin';
-import { attachToCrm, busyBetween, loadBusiness, rulesOf } from '@/lib/server/booking';
+import { attachToCrm, busyBetween, depositsOpen, loadBusiness, rulesOf } from '@/lib/server/booking';
+import { appOrigin, sendPaylink } from '@/lib/server/paylinks';
 import { isFree, openDays } from '@/features/booking/slots';
 import { formatIL } from '@/lib/il-time';
 import { phoneDigits } from '@/features/crm/crm';
@@ -13,6 +14,9 @@ export const runtime = 'nodejs';
  * Public booking page API — no login. GET: the business card (name, address, services, open days).
  * POST: book. Every booking is re-validated here (service, time inside the rules, not taken), and
  * the database's no-overlap constraint is the last word if two people book the same second.
+ * A service with a deposit (migration 4300), at a business that takes payment links now: the booking's answer carries the
+ * deposit's link (the customer's /pay page; also by email when one was given). The deposit is the service's, never the
+ * browser's; a link that could not be made leaves the booking as it is (the owner can send one from the appointment).
  */
 export async function GET(req: Request, ctx: { params: Promise<{ slug: string }> }) {
   const params = await ctx.params;   // Next 15: the route's params arrive as a promise
@@ -22,9 +26,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   if (!b) return NextResponse.json({ code: 'not_found' }, { status: 404 });
   if (b === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   const s = b.settings;
+  const deposits = b.services.some((x) => (x.deposit ?? 0) > 0) && await depositsOpen(s.business_id);
   return NextResponse.json({
     title: s.title, address: s.address, phone: s.phone, message: s.message,
-    services: b.services, days: openDays(rulesOf(s)),
+    services: b.services.map((x) => ({ id: x.id, name: x.name, minutes: x.minutes, price: x.price, deposit: deposits && (x.deposit ?? 0) > 0 ? x.deposit : null })),
+    days: openDays(rulesOf(s)),
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
@@ -71,5 +77,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     console.error('[book]', ins.error.message);
     return NextResponse.json({ code: 'error', message: 'לא הצלחנו לקבוע את התור. נסו שוב.' }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, id: ins.data.id, start: start.toISOString(), end: end.toISOString(), service: service.name, whenHe, title: s.title, address: s.address });
+  let deposit: { amount: number; url: string } | null = null;
+  if ((service.deposit ?? 0) > 0 && await depositsOpen(businessId)) {
+    const days = Math.min(7, Math.max(1, Math.ceil((+start - Date.now()) / 864e5)));
+    const r = await sendPaylink({ businessId, userId: null }, { kind: 'deposit', target: ins.data.id, amount: Number(service.deposit), days, via: email ? 'email' : 'link' }, appOrigin(req))
+      .catch((e) => { console.error('[book] deposit', e?.message ?? e); return null; });
+    if (r?.ok) deposit = { amount: Number(r.link.amount), url: r.url };
+  }
+  return NextResponse.json({ ok: true, id: ins.data.id, start: start.toISOString(), end: end.toISOString(), service: service.name, whenHe, title: s.title, address: s.address, deposit });
 }

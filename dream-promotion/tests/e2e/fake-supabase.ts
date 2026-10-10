@@ -398,6 +398,17 @@ export class FakeSupabase {
   rpc(fn: string, args: any): { status: number; body: any } {
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
+    // 2.88 (migration 4300): what was really paid as a deposit for these appointments — never a test link
+    if (fn === 'appointment_deposits') {
+      const ids: string[] = args.p_ids ?? [];
+      const m = new Map<string, number>();
+      for (const r of this.t('payment_requests')) {
+        if (r.kind === 'deposit' && r.status === 'paid' && !r.is_test && ids.includes(r.appointment_id) && r.business_id === this.opts.businessId) {
+          m.set(r.appointment_id, (m.get(r.appointment_id) ?? 0) + Number(r.paid_amount));
+        }
+      }
+      return { status: 200, body: [...m].map(([appointment_id, amount]) => ({ appointment_id, amount })) };
+    }
     if (fn === 'reserved_stock') {
       const m = new Map<string, { item_id: string; variant_id: string | null; qty: number }>();
       for (const r of this.t('stock_reservations').filter((x) => x.business_id === this.opts.businessId)) {

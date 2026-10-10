@@ -2,7 +2,9 @@ import { adminDb } from '@/lib/server/admin';
 import { financeCaller } from '@/lib/server/finance';
 import { paymentSealReady, sealPaymentKeys } from '@/lib/server/payment-seal';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
-import { checkTerminal, keyHint, type TerminalInfo } from '@/features/store/checkout';
+import { checkTerminal, keyHint } from '@/features/store/checkout';
+import { checkTerminalLink } from '@/lib/server/paylinks';
+import type { PaylinkTerminal } from '@/features/finance/paylinks';
 
 export const runtime = 'nodejs';
 
@@ -13,18 +15,24 @@ export const runtime = 'nodejs';
  *   POST {action: 'connect'}  → the keys are checked, sealed (PAYMENT_SEAL_KEY) and kept for the business worked in now;
  *                               they are never sent back to any browser
  *   POST {action: 'disconnect'} → selling on the site is switched off first, then the terminal is removed
+ *   POST {action: 'check'}    → "בדיקת חיבור" (migration 4300): the storefront's server makes a page of ₪1 with these keys;
+ *                               accepted → verified (a payment link is sent only on a verified terminal; new keys: again)
  * Money: financeCaller — a member who may write (not a cashier, not a viewer, not a locked business); the business is the
  * server's, never the browser's.
  */
 const json = (status: number, body: unknown) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const bad = (message: string, code = 'bad_request', status = 400) => json(status, { code, message });
 
-async function info(businessId: string): Promise<TerminalInfo> {
-  const { data } = await adminDb().from('payment_accounts').select('provider, mode, hint, connected_at').eq('business_id', businessId).maybeSingle();
-  const r = data as { provider: 'payplus' | 'mock'; mode: 'test' | 'live'; hint: string; connected_at: string } | null;
-  const live = await adminDb().rpc('commerce_live');
+async function info(businessId: string): Promise<PaylinkTerminal> {
+  // verified_at comes with migration 4300 — before it, the terminal reads as it did (and links are not offered)
+  let res = await adminDb().from('payment_accounts').select('provider, mode, hint, connected_at, verified_at').eq('business_id', businessId).maybeSingle();
+  const before4300 = Boolean(res.error && /verified_at|column|schema cache/i.test(res.error.message));
+  if (before4300) res = await adminDb().from('payment_accounts').select('provider, mode, hint, connected_at').eq('business_id', businessId).maybeSingle() as typeof res;
+  const r = res.data as { provider: 'payplus' | 'mock'; mode: 'test' | 'live'; hint: string; connected_at: string; verified_at?: string | null } | null;
+  const [live, links] = await Promise.all([adminDb().rpc('commerce_live'), adminDb().rpc('payment_links_live')]);
   return { connected: Boolean(r), provider: r?.provider ?? null, mode: r?.mode ?? null, hint: r?.hint ?? '', connectedAt: r?.connected_at ?? null, ready: paymentSealReady(),
-    liveOpen: live.data === true };
+    // before migration 4300 there is nothing to check (verifiedAt left out: the screen offers no "בדיקת חיבור")
+    liveOpen: live.data === true, ...(before4300 ? {} : { verifiedAt: r?.verified_at ?? null }), linksLive: links.data === true };
 }
 
 export async function GET(req: Request) {
@@ -57,6 +65,14 @@ export async function POST(req: Request) {
       hint: keyHint(t.keys.api_key), connected_at: new Date().toISOString(), updated_by: c.userId,
     }, { onConflict: 'business_id' });
     if (error) return bad(/does not exist|schema cache/i.test(error.message) ? 'צריך קודם להריץ את מיגרציה 20261006003500_commerce_checkout.sql.' : 'המסוף לא נשמר — נסו שוב.', 'save_failed', 500);
+    return json(200, await info(c.businessId));
+  }
+
+  if (body?.action === 'check') {
+    const { data: t } = await db.from('payment_accounts').select('business_id').eq('business_id', c.businessId).maybeSingle();
+    if (!t) return bad('לא מחובר מסוף.', 'no_terminal', 404);
+    const r = await checkTerminalLink(c.businessId);
+    if (!r.ok) return bad(r.message, 'check_failed', 502);
     return json(200, await info(c.businessId));
   }
 

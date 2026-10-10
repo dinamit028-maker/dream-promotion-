@@ -10,11 +10,12 @@ import { orderLabel } from '@/features/store/checkout';
 import { orderHref } from '@/features/store/routes';
 import { packagesReady } from '@/features/finance/packages-data';
 import { SellPackageDialog } from '@/features/finance/SellPackage';
+import { PaylinkList, usePaylinks } from '@/features/finance/Paylinks';
 
 /**
  * The money of one contact, on their card: documents issued to them, what they still owe, open quotes — and
- * "הפקת מסמך" / "הצעת מחיר" straight into the money screens with the customer filled in, and (2.57) their orders on the site —
- * computed from orders by lead_id, never kept twice. Loaded only when opened;
+ * "הפקת מסמך" / "הצעת מחיר" straight into the money screens with the customer filled in, (2.57) their orders on the site —
+ * computed from orders by lead_id, never kept twice — and (2.88) the payment links sent to them, with their statuses. Loaded only when opened;
  * row-level security decides what is visible (a cashier never opens the CRM; a closed business shows nothing).
  */
 interface Row { id: string; type: number; number: number; date: string; total: number }
@@ -27,6 +28,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
   const [pkReady, setPkReady] = useState(false);
   const [selling, setSelling] = useState(false);
   useEffect(() => { if (open) void packagesReady().then(setPkReady); }, [open]);
+  const links = usePaylinks(open ? { leadId, recent: 10 } : null);
   useEffect(() => {
     if (!open || data) return;
     const sb = supabase();
@@ -74,6 +76,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
                   <span className="tabular-nums">{ils(x.total)}</span></Link></li>
               ))}</ul>
             </>}
+            {links.links && <PaylinkList links={links.links} onChanged={() => { void links.reload(); setData(null); }} />}
             <Link href="/finance/documents" className="text-xs font-semibold text-primary">לכל המסמכים ←</Link>
           </>}
         </div>

@@ -3,6 +3,7 @@ import { businessOpen } from './business';
 import { notifyManagers } from './notify';
 import { emailConfigured, sendEmail } from './email';
 import { orderRef } from './order-link';
+import { sendPaylinkEmail } from './paylink-mail';
 import { documentRow } from '@/features/finance/rows';
 import { creditForRefund, toDoc } from '@/features/documents/documents';
 import { toRefund } from '@/features/register/refunds';
@@ -125,7 +126,10 @@ export async function sendQueuedEmails(): Promise<{ sent: number; failed: number
   return { sent, failed };
 }
 
-async function sendOne(db: Db, e: { id: string; order_id: string; store_id: string; business_id: string; kind: EmailKind; ref: string; to_email: string }) {
+async function sendOne(db: Db, e: { id: string; order_id: string; store_id: string; business_id: string; kind: EmailKind | 'payment_link'; ref: string; to_email: string;
+                                     request_id?: string | null }) {
+  // a payment link's email (migration 4300): no order — its own text and link
+  if (e.kind === 'payment_link') return sendPaylinkEmail(db, e);
   const [{ data: o }, { data: lines }, { data: st }, { data: dom }] = await Promise.all([
     db.from('orders').select('*').eq('id', e.order_id).eq('business_id', e.business_id).maybeSingle(),
     db.from('order_lines').select('name, variant_label, qty, line_total, position').eq('order_id', e.order_id).order('position'),

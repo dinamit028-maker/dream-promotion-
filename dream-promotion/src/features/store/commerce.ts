@@ -123,7 +123,7 @@ export function orderEmail(kind: EmailKind, s: EmailStore, o: EmailOrder, x: { o
   return { subject: subject.slice(0, 200), html, text };
 }
 /** a line with one https address in it: the address becomes a link (both escaped) */
-function linkify(line: string): string {
+export function linkify(line: string): string {
   const m = /https:\/\/[^\s<>"']+/.exec(line);
   if (!m) return esc(line);
   return `${esc(line.slice(0, m.index))}<a href="${esc(m[0])}">${esc(m[0])}</a>${esc(line.slice(m.index + m[0].length))}`;

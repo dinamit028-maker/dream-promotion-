@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { Button, PageHead, Pill } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
-import { checkCheckout, checkTerminal, SELLING_MISSING, sellingMissing, type CheckoutSettings, type TerminalInfo } from './checkout';
-import { connectEmailDomain, connectTerminal, disconnectTerminal, loadEmailDomain, terminalInfo, updateStore, verifyEmailDomain, type EmailDomain } from './data';
+import { checkCheckout, SELLING_MISSING, sellingMissing, type CheckoutSettings, type TerminalInfo } from './checkout';
+import { connectEmailDomain, loadEmailDomain, terminalInfo, updateStore, verifyEmailDomain, type EmailDomain } from './data';
+import { PaymentTerminal } from './PaymentTerminal';
 import { EMAIL_DOMAIN_HE } from './commerce';
 import { storeHref } from './routes';
 import type { StoreRow } from './store';
@@ -86,7 +87,7 @@ function Selling({ store, setStore }: { store: StoreRow; setStore: (s: StoreRow)
         )}
       </Block>
 
-      <Terminal terminal={terminal} error={terminalError} onChange={(t) => { setTerminal(t); setTerminalError(''); }} />
+      <PaymentTerminal terminal={terminal} error={terminalError} onChange={(t) => { setTerminal(t); setTerminalError(''); }} />
       <EmailDomainBlock />
 
       <Block title="איך מקבלים את ההזמנה" id="shipping" sub="לפחות אחת משתי הדרכים. המחיר מחושב בשרת, לא בדפדפן של הקונה.">
@@ -125,62 +126,6 @@ const formOf = (c: CheckoutSettings) => ({
   reserveMinutes: String(c.reserveMinutes), pickupEnabled: c.pickupEnabled, pickupNote: c.pickupNote, deliveryEnabled: c.deliveryEnabled,
   deliveryPrice: c.deliveryPrice ? String(c.deliveryPrice) : '', freeDeliveryOver: c.freeDeliveryOver != null ? String(c.freeDeliveryOver) : '', deliveryNote: c.deliveryNote,
 });
-
-function Terminal({ terminal, error, onChange }: { terminal: TerminalInfo | null; error: string; onChange: (t: TerminalInfo) => void }) {
-  const [f, setF] = useState({ apiKey: '', secretKey: '', pageUid: '' });
-  const [live, setLive] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<Msg>(null);
-  const connect = async () => {
-    const t = checkTerminal(f);
-    if (!t.ok) { setMsg({ tone: 'error', text: t.error }); return; }
-    setBusy(true); setMsg(null);
-    if (live && !window.confirm('מסוף אמיתי: כל הזמנה באתר תחייב את הקונה באמת, תירשם כמכירה ויופק לה מסמך. להמשיך?')) { setBusy(false); return; }
-    const r = await connectTerminal(t.keys.api_key, t.keys.secret_key, t.pageUid, live ? 'live' : 'test');
-    setBusy(false);
-    if (!r.ok) { setMsg({ tone: 'error', text: r.error }); return; }
-    setF({ apiKey: '', secretKey: '', pageUid: '' });
-    onChange(r.data);
-    setMsg({ tone: 'ok', text: 'המסוף נשמר. הוא ייבדק בפועל בהזמנת הבדיקה הראשונה.' });
-  };
-  return (
-    <Block title={`מסוף סליקה — PayPlus${terminal?.liveOpen ? '' : ' (סביבת בדיקה)'}`} id="terminal" sub="הקונה מזין את הכרטיס בעמוד של PayPlus, לא אצלנו. PayPlus לא מפיק חשבונית — המסמכים יוצאים מהמערכת.">
-      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
-      {error && <Notice tone="error">{error}</Notice>}
-      {!terminal && !error ? <p className="flex items-center gap-2 text-muted"><Spinner /> בודק…</p> : terminal?.connected ? (
-        <div className="stack-y-3">
-          <p className="text-sm">
-            <Pill tone="ok">מחובר</Pill>{' '}
-            <span className="text-muted">PayPlus · {terminal.mode === 'test' ? 'סביבת בדיקה' : 'אמיתי'} · מפתח שמסתיים ב-<bdi dir="ltr">{terminal.hint}</bdi></span>
-          </p>
-          <p className="text-xs text-muted">"מחובר" = המפתחות נשמרו. עוד לא נבדק מול PayPlus — זה קורה בהזמנת הבדיקה הראשונה.</p>
-          <Button variant="ghost" disabled={busy} onClick={async () => {
-            if (!window.confirm('להסיר את המסוף? המכירה באתר תיכבה.')) return;
-            setBusy(true); const r = await disconnectTerminal(); setBusy(false);
-            if (!r.ok) setMsg({ tone: 'error', text: r.error }); else { onChange(r.data); setMsg({ tone: 'ok', text: 'המסוף הוסר והמכירה באתר כבויה.' }); }
-          }}>הסרת המסוף</Button>
-        </div>
-      ) : (
-        <form className="stack-y-1" onSubmit={(e) => { e.preventDefault(); void connect(); }} autoComplete="off">
-          {terminal && !terminal.ready && <Notice tone="warn">השרת עוד לא מוכן לשמור מפתחות סליקה: צריך להגדיר PAYMENT_SEAL_KEY ב-Vercel (בשני הפרויקטים, אותו ערך).</Notice>}
-          {terminal?.liveOpen && (
-            <div role="radiogroup" aria-label="סוג המסוף" className="mb-3 flex flex-wrap gap-2">
-              {([[false, 'סביבת בדיקה'], [true, 'מסוף אמיתי']] as const).map(([v, t]) => (
-                <button key={t} type="button" role="radio" aria-checked={live === v} onClick={() => setLive(v)}
-                  className={live === v ? 'min-h-11 rounded-full border border-ink bg-ink px-4 text-sm font-semibold text-white' : 'min-h-11 rounded-full border border-line px-4 text-sm font-semibold'}>{t}</button>
-              ))}
-            </div>
-          )}
-          <p className="mb-2 text-sm text-muted">ב-PayPlus ({live ? 'החשבון האמיתי' : 'חשבון הבדיקה'}): הגדרות ← API. מעתיקים לכאן את שלושת הערכים.</p>
-          <TextRow label="API key" value={f.apiKey} onChange={(v) => setF((x) => ({ ...x, apiKey: v }))} dir="ltr" />
-          <TextRow label="Secret key" value={f.secretKey} onChange={(v) => setF((x) => ({ ...x, secretKey: v }))} dir="ltr" type="password" />
-          <TextRow label="Payment page UID" value={f.pageUid} onChange={(v) => setF((x) => ({ ...x, pageUid: v }))} dir="ltr" />
-          <Button type="submit" variant="primary" disabled={busy || !f.apiKey || !f.secretKey || !f.pageUid}>{busy ? <><Spinner /> שומר…</> : 'חיבור המסוף'}</Button>
-        </form>
-      )}
-    </Block>
-  );
-}
 
 /**
  * The customers' emails (confirmation, shipped, refund) leave from the store's own domain once Resend verified it; until

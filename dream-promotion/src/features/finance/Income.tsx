@@ -10,11 +10,13 @@ import { documentRow, financeError, issueDocumentRow, logEvent } from './api';
 import { LEDGER_SOURCE_HE, ledgerTotals, payLabel, toLedgerRow, type LedgerRow } from './payments';
 import { ledgerCsv } from './reports';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Stat, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
+import { PaylinkList, usePaylinks } from './Paylinks';
 
 /**
  * "הכנסות": income by its documents (the legal source) and the money that actually came in (the payments ledger), side by
- * side; and the register's paid sales that have no document yet — issued here with the same idempotency key as the
- * register uses ("sale:<id>"), so a sale never gets two documents.
+ * side; the register's paid sales that have no document yet — issued here with the same idempotency key as the
+ * register uses ("sale:<id>"), so a sale never gets two documents; and (2.88) the latest payment links with their statuses
+ * — a receipt waiting for the owner's approval is issued from there.
  */
 interface Paid { id: string; customer: string; total: number; at: string; raw: any }
 
@@ -26,6 +28,7 @@ export function Income() {
   const [missing, setMissing] = useState<Paid[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const links = usePaylinks({ recent: 20 });
   const load = useCallback(async () => { try {
     setS(null); setLoadError(null);
     const sb = supabase();
@@ -96,6 +99,12 @@ export function Income() {
           )}
           <p className="mt-2 text-xs text-muted">היומן נכתב רק על ידי המערכת (מסמכים, החזרים, הוצאות, ביטולים) ולא נערך מהאפליקציה — תיקון נרשם כתנועה הפוכה. רישום תשלום אינו סליקה.</p>
         </Card>
+        {links.links && links.links.length > 0 && (
+          <Card className="p-4">
+            <PaylinkList links={links.links} title="לינקים לתשלום — האחרונים" onChanged={() => { void links.reload(); void load(); }} />
+            <p className="mt-2 text-xs text-muted">תשלום בלינק נכנס ליומן רק עם הקבלה שלו. תשלום בדיקה לא נכנס בכלל.</p>
+          </Card>
+        )}
         {Object.keys(s.documents).length > 0 && (
           <Card className="p-4"><p className="mb-2 font-bold">לפי סוג מסמך</p>
             <ul className="grid gap-1 text-sm">{Object.entries(s.documents).map(([k, v]) => <li key={k} className="flex justify-between gap-2"><span>{DOC_LABEL[Number(k)] ?? k} · {v.count}</span><strong className="tabular-nums">{ils(Number(v.total))}</strong></li>)}</ul>

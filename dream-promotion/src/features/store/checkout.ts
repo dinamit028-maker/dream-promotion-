@@ -92,7 +92,9 @@ export function checkTerminal(f: TerminalForm): { ok: true; keys: { api_key: str
 export const keyHint = (apiKey: string) => apiKey.trim().slice(-4);
 export interface TerminalInfo { connected: boolean; provider: 'payplus' | 'mock' | null; mode: 'test' | 'live' | null; hint: string; connectedAt: string | null; ready: boolean;
   /** the platform's switch of real sales (commerce_live) — off until the owner's separate approval */
-  liveOpen?: boolean }
+  liveOpen?: boolean;
+  /** 2.88 (migration 4300): when "בדיקת חיבור" last passed with these keys (null: not checked); the switch of real payment links */
+  verifiedAt?: string | null; linksLive?: boolean }
 
 // ---- coupons -------------------------------------------------------------------------------------------------------------------
 export interface Coupon {

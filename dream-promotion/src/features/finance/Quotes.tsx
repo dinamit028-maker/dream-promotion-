@@ -13,6 +13,7 @@ import { computeLines } from './compose';
 import { invoiceDocType } from './rules';
 import { QUOTE_STATUS_HE, canMove, editable, quoteMessage, quoteState, toQuote, type ComposerBody, type Quote, type QuoteStatus } from './quotes';
 import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
+import { PaylinkButton, PaylinkList, heldBy, usePaylinks } from './Paylinks';
 
 /**
  * "הצעות מחיר": numbered per business, sent to the customer as a private link (WhatsApp), accepted / rejected by the
@@ -102,8 +103,10 @@ function sendQuote(q: Quote, business = '', w: Window | null = null) {
 }
 
 function QuoteView({ q, onClose, onChanged, onEdit, onConvert }: { q: Quote; onClose: () => void; onChanged: (msg?: string) => Promise<void>; onEdit: () => void; onConvert: () => void }) {
-  const { fail, business } = useFinance();
+  const { fail, business, vat } = useFinance();
   const st = quoteState(q, todayIL());
+  // 2.88: an accepted quote is paid by link (a part too); its first payment makes it its document
+  const links = usePaylinks({ quoteId: q.id });
   const lines = computeLines(q.body.lines ?? [], { pricesIncludeVat: q.body.pricesIncludeVat ?? true, discount: q.body.discount, rate: q.vatRate }).lines;
   async function move(to: QuoteStatus, label: string): Promise<boolean> {
     if (!canMove(q.status, to)) return false;
@@ -150,10 +153,17 @@ function QuoteView({ q, onClose, onChanged, onEdit, onConvert }: { q: Quote; onC
         {q.status === 'sent' && <Button variant="ghost" onClick={() => void move('accepted', 'ההצעה סומנה כמאושרת')}>✓ אושרה</Button>}
         {q.status === 'sent' && <Button variant="ghost" onClick={() => void move('rejected', 'ההצעה סומנה כנדחתה')}>נדחתה</Button>}
         {canMove(q.status, 'converted') && <Button variant="primary" onClick={onConvert}>הפיכה למסמך</Button>}
+        {q.status === 'accepted' && links.ready && links.links && (
+          <PaylinkButton kind="quote" target={q.id} what={`הצעת מחיר ${q.number}${q.customerName ? ` · ${q.customerName}` : ''}`}
+            left={Math.max(0, Math.round((q.total - heldBy(links.links)) * 100) / 100)}
+            customer={{ name: q.customerName, phone: q.customerPhone, email: q.customerEmail }} onSent={() => void links.reload()} />
+        )}
         {canMove(q.status, 'cancelled') && <Button variant="ghost" onClick={() => window.confirm('לבטל את ההצעה?') && void move('cancelled', 'ההצעה בוטלה')}>ביטול</Button>}
         <Button variant="ghost" onClick={() => void duplicate()}>שכפול</Button>
         <a href={`/q/${q.shareToken}`} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">כפי שהלקוח רואה</a>
       </div>
+      {q.status === 'accepted' && links.ready && <p className="mt-2 text-xs text-muted">תשלום בלינק על הצעה שאושרה מפיק לה מסמך: תשלום מלא — {vat ? 'חשבונית מס / קבלה' : 'קבלה'}; תשלום חלקי — {vat ? 'חשבונית מס' : 'חשבונית עסקה'} וקבלה על החלק ששולם (את היתרה משלמים על החשבונית).</p>}
+      {links.links && <PaylinkList links={links.links} showLabel={false} onChanged={() => { void links.reload(); void onChanged(); }} />}
     </Modal>
   );
 }

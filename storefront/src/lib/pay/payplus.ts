@@ -43,7 +43,7 @@ export function payplus(fetchImpl: Fetch = fetch): Provider {
         refURL_success: r.successUrl, refURL_failure: r.failureUrl, refURL_cancel: r.failureUrl, refURL_callback: r.callbackUrl,
         more_info: r.orderId, initial_invoice: false, sendEmailApproval: false, sendEmailFailure: false,
         customer: { customer_name: r.customer.name, email: r.customer.email, phone: r.customer.phone },
-        items: [{ name: `הזמנה ${r.number} — ${r.storeName}`.slice(0, 100), quantity: 1, price: r.amount }],
+        items: [{ name: (r.itemName || `הזמנה ${r.number} — ${r.storeName}`).slice(0, 100), quantity: 1, price: r.amount }],
       });
       const url = str(j?.data?.payment_page_link), page = str(j?.data?.page_request_uid);
       if (str(j?.results?.status) !== 'success' || !/^https:\/\//.test(url) || !page) throw new ProviderError('payplus: no payment page');

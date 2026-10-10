@@ -11,6 +11,7 @@ import { MAX_HELD, holdCart, loadHeld, removeHeld, resumeHeld, saveHeld, type Ca
 import { heldOf, stockLevel, stockText, type HeldMap } from './stock';
 import { cartKey, findByCode, lineName, posPrice, variantLabel, variantLevel, variantsOf, type CatalogVariant } from '@/features/catalog/catalog';
 import { EMPTY_BILLING, billingError, dealerDigits, type Billing } from './billing';
+import { afterDeposit } from '@/features/finance/paylinks';
 
 /**
  * The register, touch-first (UX redesign — same sales logic, CRM link, VAT and documents underneath).
@@ -24,7 +25,9 @@ export type PosItem = {
   /** the one catalog (2.54): sizes / colours to choose from, and the codes a scanner types */
   hasVariants?: boolean; sku?: string; barcode?: string;
 };
-export type TodayAppt = { id: string; name: string; phone: string; leadId: string | null; serviceName: string; start: string; price: number | null };
+export type TodayAppt = { id: string; name: string; phone: string; leadId: string | null; serviceName: string; start: string; price: number | null;
+  /** a deposit really paid by link for it (2.88): comes off the final payment */
+  deposit?: number };
 export type Customer = { name: string; phone: string; leadId: string | null; appointmentId: string | null };
 export interface CheckoutInput {
   lines: Line[]; discount: { kind: 'sum' | 'percent'; value: number }; customer: Customer; note: string;
@@ -162,7 +165,8 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
     setCustomer({ name: a.name, phone: a.phone, leadId: a.leadId, appointmentId: a.id });
     setBilling(billingOf(leads.find((l) => l.id === a.leadId)));
     const item = active.find((i) => i.name === a.serviceName);
-    add(a.serviceName || 'טיפול', item?.price ?? a.price ?? 0, 1, item ? { itemId: item.id, kind: item.kind } : { kind: 'service' });
+    const line = afterDeposit(a.serviceName || 'טיפול', item?.price ?? a.price ?? 0, a.deposit ?? 0);
+    add(line.name, line.price, 1, item ? { itemId: item.id, kind: item.kind } : { kind: 'service' });
   };
   const snap = customer.leadId ? customerSnapshot(customer.leadId, sales) : null;
   const lead = customer.leadId ? leads.find((l) => l.id === customer.leadId) : null;
@@ -339,6 +343,7 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
                 <div key={a.id} className="min-w-[200px] shrink-0 rounded-2xl border border-line bg-surface p-3 text-sm">
                   <span className="block text-xs text-muted">התור של {a.name.split(' ')[0]} היום · {formatIL(a.start, { hour: '2-digit', minute: '2-digit' })}</span>
                   <strong className="block truncate">{a.serviceName}</strong>
+                  {(a.deposit ?? 0) > 0 && <span className="block text-xs text-emerald-700 dark:text-emerald-300">שולמה מקדמה {ils(a.deposit ?? 0)} — תקוזז</span>}
                   <button type="button" onClick={() => fromAppt(a)} className="mt-1 font-semibold text-primary">+ הוסף לקופה</button>
                 </div>
               ))}

@@ -14,12 +14,14 @@ import { TERMS } from './receivables';
 import { allocationRules } from './DocView';
 import type { AllocationRule } from './allocation';
 import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
+import { PaylinkSettings } from './Paylinks';
 
 /**
  * Money settings: the business's legal identity (what every document prints — and keeps, as it was, from 2.51), VAT,
- * bank details for payment by transfer, payment terms, the accountant, the Tax Authority connection (status only — the
- * tokens never reach the browser), the allocation rules (with "not verified" where they are not), and who opened the
- * business's money as a super admin.
+ * bank details for payment by transfer, payment terms, the accountant, payment links (2.88: the terminal — the same one as
+ * the site's checkout — and when a link's receipt is issued), the Tax Authority connection (status only — the tokens never
+ * reach the browser), the allocation rules (with "not verified" where they are not), and who opened the business's money
+ * as a super admin.
  */
 /** back from the Tax Authority's login page (callback/route.ts adds ?tax=…) */
 const TAX_BACK: Record<string, string> = {
@@ -120,6 +122,8 @@ export function FinanceSettings() {
         </div>
       </Card>
       <div><Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'שומר…' : 'שמירת ההגדרות'}</Button></div>
+
+      <Card className="p-4"><PaylinkSettings userId={userId} /></Card>
 
       <Card className="p-4">
         <p className="mb-1 font-bold">רשות המסים — מספרי הקצאה</p>

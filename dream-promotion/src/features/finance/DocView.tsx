@@ -16,12 +16,14 @@ import { followKey } from './keys';
 import { PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
 import { toReceivable, type Receivable } from './receivables';
 import { Note, PaymentsEditor, Pill, ils, todayIL } from './ui';
+import { PaylinkButton, PaylinkList, heldBy, usePaylinks } from './Paylinks';
 
 /**
  * One document: the document itself (as printed), and what can happen to it — print (original / true copy), PDF,
- * send on WhatsApp, a receipt for what is still owed, a credit invoice (whole / sum / lines, money back recorded),
- * cancelling a receipt or transaction invoice issued by mistake, its allocation number. The document never changes;
- * every action is a new document or a new record.
+ * send on WhatsApp, a receipt for what is still owed, a payment link for it (2.88: a part of the balance too; its
+ * statuses below), a credit invoice (whole / sum / lines, money back recorded), cancelling a receipt or transaction
+ * invoice issued by mistake, its allocation number. The document never changes; every action is a new document or a new
+ * record.
  */
 let rulesCache: AllocationRule[] | null = null;
 export async function allocationRules(): Promise<AllocationRule[]> {
@@ -41,6 +43,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
   const [alloc, setAlloc] = useState<{ rows: AllocationRow[]; state: AllocationState } | null>(null);
   const [dialog, setDialog] = useState<'credit' | 'receipt' | 'cancel' | 'manual' | null>(null);
   const [busy, setBusy] = useState(false);
+  const links = usePaylinks(doc.docType === 305 || doc.docType === 300 ? { documentId: doc.id } : null);
 
   const load = useCallback(async () => {
     const sb = supabase();
@@ -115,6 +118,11 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
         {doc.shareToken && <a href={`/api/doc/${doc.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">📄 PDF</a>}
         {doc.shareToken && <Button variant="ghost" onClick={share}>💬 שליחה ללקוח</Button>}
         {recv && !recv.cancelled && recv.balance > 0 && <Button variant="ghost" onClick={() => setDialog('receipt')}>קבלה על תשלום</Button>}
+        {recv && !recv.cancelled && !cancelled && recv.balance > 0 && links.ready && links.links && (
+          <PaylinkButton kind="document" target={doc.id} what={`${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
+            left={Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100)}
+            customer={{ name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }} onSent={() => void links.reload()} />
+        )}
         {vat && (doc.docType === 305 || doc.docType === 320) && !fullyCredited && <Button variant="ghost" onClick={() => setDialog('credit')}>חשבונית זיכוי</Button>}
         {(doc.docType === 300 || doc.docType === 400) && !cancelled && !doc.saleId && <Button variant="ghost" onClick={() => setDialog('cancel')}>ביטול מסמך</Button>}
       </div>
@@ -130,6 +138,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
           </div>
         </div>
       )}
+      {links.links && <PaylinkList links={links.links} showLabel={false} onChanged={() => { void links.reload(); void load(); onChanged(); }} />}
       <p className="mt-2 text-xs text-muted">המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (קבלה / חשבונית עסקה, נרשם עם סיבה).</p>
 
       {dialog === 'receipt' && recv && <ReceiptDialog doc={doc} balance={recv.balance} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}

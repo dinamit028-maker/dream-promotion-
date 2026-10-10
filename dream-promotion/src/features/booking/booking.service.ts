@@ -7,7 +7,9 @@ export interface BookingSettings {
   slug: string | null; enabled: boolean; title: string; address: string; phone: string; message: string;
   slotMinutes: number; minNoticeMinutes: number; maxDaysAhead: number; hours: Hours; closedDates: string[];
 }
-export interface BookingServiceRow { id: string; name: string; minutes: number; price: number | null; active: boolean; sort: number }
+export interface BookingServiceRow { id: string; name: string; minutes: number; price: number | null; active: boolean; sort: number;
+  /** 2.88 (migration 4300): a deposit paid by link when the appointment is booked; offset from the final payment */
+  deposit?: number | null }
 export type ApptStatus = 'booked' | 'confirmed' | 'done' | 'no_show' | 'cancelled';
 export interface Appointment {
   id: string; serviceId: string | null; serviceName: string; leadId: string | null; name: string; phone: string; email: string;
@@ -31,6 +33,8 @@ export const bookingError = (e: any): string => {
   if (e?.code === '23P01' || /no_overlap|exclusion/i.test(m)) return 'כבר יש תור בשעה הזו. בחרו שעה אחרת.';
   if (e?.code === '23505' || /duplicate key.*slug/i.test(m)) return 'הכתובת הזו כבר תפוסה. בחרו כתובת אחרת.';
   if (/slug_check|check constraint.*slug/i.test(m)) return 'כתובת הדף: אותיות באנגלית קטנות, ספרות ומקף, 3–40 תווים.';
+  if (/booking_services_deposit_check/.test(m)) return 'המקדמה: סכום גדול מאפס, ולא יותר ממחיר השירות.';
+  if (/deposit/.test(m) && /column|schema cache/i.test(m)) return 'צריך להריץ את מיגרציה 20261010004300 (לינק לתשלום ומקדמה) ב-Supabase לפני שמגדירים מקדמה.';
   if (/relation .* does not exist|schema cache/i.test(m)) return 'צריך להריץ את מיגרציית זימון התורים ב-Supabase (20261003001000).';
   return 'משהו השתבש. נסו שוב.';
 };
@@ -56,10 +60,14 @@ export const BookingAPI = {
   async services(userId: string): Promise<BookingServiceRow[]> {
     const { data, error } = await supabase().from('booking_services').select('*').order('sort').order('created_at');
     if (error) throw error;
-    return (data ?? []).map((r: any) => ({ id: r.id, name: r.name, minutes: r.minutes, price: r.price == null ? null : Number(r.price), active: r.active, sort: r.sort }));
+    return (data ?? []).map((r: any) => ({ id: r.id, name: r.name, minutes: r.minutes, price: r.price == null ? null : Number(r.price), active: r.active, sort: r.sort,
+      // before migration 4300 there is no such column: left out, so saving a service never names it
+      deposit: !('deposit' in r) ? undefined : r.deposit == null ? null : Number(r.deposit) }));
   },
   async saveService(userId: string, s: Omit<BookingServiceRow, 'id'> & { id?: string }) {
-    const row = { user_id: userId, name: s.name.trim(), minutes: s.minutes, price: s.price, active: s.active, sort: s.sort };
+    const row: Record<string, unknown> = { user_id: userId, name: s.name.trim(), minutes: s.minutes, price: s.price, active: s.active, sort: s.sort };
+    // the deposit column comes with migration 4300: sent only when there is one to set or to clear
+    if (s.deposit !== undefined) row.deposit = s.deposit;
     const { error } = s.id ? await supabase().from('booking_services').update(row).eq('id', s.id) : await supabase().from('booking_services').insert(row);
     if (error) throw error;
   },

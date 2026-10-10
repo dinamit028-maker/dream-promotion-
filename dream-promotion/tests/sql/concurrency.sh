@@ -14,6 +14,8 @@
 #  11. 8 paid orders of one new customer (her phone in 8 spellings) recorded at once (3600) → one lead, 8 sales
 #  12. 8 connections record the same paid order at once (3600) → one sale, one stock movement
 #  13. 8 connections take the last 3 treatments of a package, and 8 deduct one session (4200) → exactly 3, exactly one
+#  14. payment links (4300): 8 links of ₪300 on one invoice of ₪1,180 at once → exactly 3; the provider's answer for one link
+#      8 times at once → paid once; 8 different transactions for one link at once → one pays it, 7 are logged as double
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -246,3 +248,49 @@ run_parallel pks
 r=$(q "select count(*) from public.client_package_uses where session_id = '$PKS'")
 [ "$r" = "1" ] || fail "one session deducted from 8 connections at once: exactly one deduction (got: $r)"
 echo "ok: one session deducted from 8 connections at once → exactly one deduction"
+
+# ---- 14. payment links from 8 connections at once (4300) -----------------------------------------------------------------------
+# the terminal back to a test one, checked (section 11 made it live; new mode → not verified until checked again)
+q "update public.payment_accounts set mode = 'test' where business_id = '$B';
+   update public.payment_accounts set verified_at = now() where business_id = '$B';" >/dev/null
+q "begin; $AS $(printf "$DOC" ', due_date' 305 1000 1000 180 1180 1000 "'[]'::jsonb" ", public.il_today() + 30") commit;" >/dev/null
+PLI=$(q "select id from public.documents where business_id = '$B' and doc_type = 305 order by doc_number desc limit 1")
+# 8 links of ₪300 at once on ₪1,180: the invoice's lock lets exactly 3 through
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.paylink_create(%s, %s, %s, %s, 300, 7, %s, %s);\ncommit;\n' \
+    "$SR" "'$B'" "'$U'" "'document'" "'$PLI'" "'https://app.load.test'" "'link'" > "$TMP/plk-$w.sql"
+  chmod 644 "$TMP/plk-$w.sql"
+done
+run_parallel plk
+r=$(q "select count(*) || ' ' || coalesce(sum(amount), 0) from public.payment_requests where document_id = '$PLI'")
+[ "$r" = "3 900.00" ] || fail "8 links of ₪300 on ₪1,180 at once: exactly 3 (expected 3 900.00, got: $r)"
+echo "ok: 8 links of ₪300 on one invoice of ₪1,180 at once → exactly 3, never more asked for than the balance"
+# the provider's answer for one link, 8 times at once (8 copies of the webhook): paid once
+PL1=$(q "select id from public.payment_requests where document_id = '$PLI' order by created_at, id limit 1")
+PL2=$(q "select id from public.payment_requests where document_id = '$PLI' order by created_at, id offset 1 limit 1")
+q "$SR select public.sf_paylink_page('$PL1', 'race-1', 'https://pay.test/race-1'); select public.sf_paylink_page('$PL2', 'race-2', 'https://pay.test/race-2');" >/dev/null
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.sf_paylink_event(%s, %s, %s, %s, true, %s);\nselect public.sf_paylink_paid(%s, %s, %s, %s, 300, %s);\ncommit;\n' \
+    "$SR" "'$PL1'" "'mock'" "'mock:link-callback:race'" "'callback'" "'{}'" "'$PL1'" "'race-1'" "'mock'" "'txn-race'" "'ILS'" > "$TMP/plp-$w.sql"
+  chmod 644 "$TMP/plp-$w.sql"
+done
+run_parallel plp
+r=$(q "select (select status || ' ' || provider_txn from public.payment_requests where id = '$PL1') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL1' and action = 'paylink.test_paid') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL1' and action = 'paylink.double') || ' ' ||
+              (select count(*) from public.payment_events where event_key = 'mock:link-callback:race')")
+[ "$r" = "paid txn-race 1 0 1" ] || fail "one webhook 8 times at once: paid once, one logged notice (expected paid txn-race 1 0 1, got: $r)"
+echo "ok: the same webhook 8 times at once → the link paid once, one logged notice"
+# 8 different transactions for one link at once: one pays it, the other 7 are logged for the owner — never paid twice
+for w in $(seq 8); do
+  printf 'begin;\n%s\nselect public.sf_paylink_paid(%s, %s, %s, %s, 300, %s);\ncommit;\n' \
+    "$SR" "'$PL2'" "'race-2'" "'mock'" "'txn-other-$w'" "'ILS'" > "$TMP/pld-$w.sql"
+  chmod 644 "$TMP/pld-$w.sql"
+done
+run_parallel pld
+r=$(q "select (select status from public.payment_requests where id = '$PL2') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL2' and action = 'paylink.test_paid') || ' ' ||
+              (select count(*) from public.finance_audit_log where entity_id = '$PL2' and action = 'paylink.double') || ' ' ||
+              (select count(*) from public.payments where applies_to = '$PLI')")
+[ "$r" = "paid 1 7 0" ] || fail "8 transactions for one link at once: one pays, 7 double, nothing in the ledger (test) (expected paid 1 7 0, got: $r)"
+echo "ok: 8 different transactions for one link at once → one pays it, 7 logged as double, no payment twice"
