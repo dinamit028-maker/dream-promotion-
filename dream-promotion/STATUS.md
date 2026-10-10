@@ -3400,7 +3400,7 @@
 | דשבורד | `npm run build` | עבר (`/settings/locations` בבנייה) | 0 |
 | דשבורד | `tests/e2e/locations.e2e.ts` (**חדש**) | 11/11 | 0 |
 | דשבורד | `tests/e2e/single-location.e2e.ts` (**חדש**, השוואת צילומים) | 7/7 — **13 מסכים זהים לפני ואחרי, פיקסל בפיקסל** | 0 |
-| דשבורד | `npm run test:e2e` — כל 9 הקבצים, אחד אחרי השני (עם ה-fake של "אחרי 4600": סניף אחד וקופה אחת) | `register` 10/10, `finance` 23/23, `packages` 12/12, `paylinks` 9/9, `plans-reminders` 10/10, `recurring` 9/9, `locations` 11/11; `commerce`, `reels` — הריצה עוד נמשכת (התוצאה בעדכון הבא) | 0 |
+| דשבורד | `npm run test:e2e` — כל 9 הקבצים, אחד אחרי השני (עם ה-fake של "אחרי 4600": סניף אחד וקופה אחת) | `register` 10/10, `finance` 23/23, `packages` 12/12, `paylinks` 9/9, `plans-reminders` 10/10, `recurring` 9/9, `locations` 11/11, `commerce` 29/29, `reels` 8/8 — הכל עבר | 0 |
 
 **Definition of Done:**
 - **"עסק עם סניף אחד נראה ועובד בדיוק כמו קודם (בדיקת השוואה)":**
