@@ -916,6 +916,7 @@ select public.store_slug_reserved('admin') as admin_reserved, public.store_slug_
 select to_regclass('public.client_sessions') as sessions, to_regclass('public.client_packages') as packages;
 ```
    - **אמור לחזור:** `client_sessions` ו-`null` (4100 קיימת, 4200 עוד לא).
+   - **תוצאה (10.10.2026, לפני ההחלה):** בדיוק כך. בנוסף: 26 מיגרציות, ו-17 הפונקציות ש-4200 נשענת עליהן זהות (md5) למסד המקומי.
 2. **אחרי ההחלה,** בקריאה בלבד:
 ```sql
 select c.relname, c.relrowsecurity,
@@ -935,6 +936,7 @@ select count(*) from information_schema.columns where table_schema = 'public'
      - פונקציות הטריגרים: security definer, ורק `postgres` ו-`service_role` יכולים להריץ.
      - `client_session_add`: לא security definer, ו-`authenticated` יכול לקרוא לה.
      - `{security_invoker=true}`, ו-6 עמודות.
+   - **תוצאה (10.10.2026, אחרי ההחלה ב-SQL Editor):** בדיוק כך. בנוסף: 8 הפונקציות זהות (md5) לקובץ אחרי הסרת `\r` מההדבקה; 8 מתוך 9 המדיניות בכל טבלה זהות (md5) למדיניות באותו שם בטבלאות הכספים הקיימות, וה-update — לתנאי של `_business_gate`; הנתונים לא השתנו; ב-Security Advisor אין שום דבר חדש.
 3. **לבדוק בעסק בדיקה** — המסמכים שמופקים כאן אמיתיים: מספור רציף, לא נמחקים, ותיקון רק בזיכוי.
 
 **בטלפון:**
