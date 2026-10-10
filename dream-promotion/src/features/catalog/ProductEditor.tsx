@@ -144,7 +144,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
     });
     return () => { alive = false; };
   }, [isPackage]);
-  /** a treatment type of the clinic (the client file's list, docs/CLIENT FILE ENGINEERING HE.md §3) — the owner and marked practitioners add */
+  /** a treatment type of the clinic (the client file's list, docs/CLIENT_FILE_ENGINEERING_HE.md §3) — the owner and marked practitioners add */
   async function addType() {
     const name = newType?.name.trim() ?? '';
     if (!name) return;

@@ -21,7 +21,7 @@ import { cancelPackage, giveBack, loadPackage, loadUses, packagesChanged, setPac
 import { SellPackageDialog } from './SellPackage';
 
 /**
- * One sold package (docs/FINANCE ADDITIONS HE.md, T1): what is left, its validity, its document and money, every treatment
+ * One sold package (docs/FINANCE_ADDITIONS_HE.md, T1): what is left, its validity, its document and money, every treatment
  * taken from it (and given back) — and what can happen to it: its document issued (when it was not), the validity moved,
  * a treatment given back, or the package cancelled. Cancelling puts the money right through the existing documents only:
  * a credit invoice (330) on a tax invoice, or the cancellation of a receipt / transaction invoice issued for nothing used.

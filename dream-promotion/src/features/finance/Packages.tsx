@@ -16,7 +16,7 @@ import { PackageView } from './PackageView';
 import { SellPackageDialog } from './SellPackage';
 
 /**
- * "חבילות" (docs/FINANCE ADDITIONS HE.md, T1): the packages sold and what is left of them, the report — open packages,
+ * "חבילות" (docs/FINANCE_ADDITIONS_HE.md, T1): the packages sold and what is left of them, the report — open packages,
  * treatments left, what was paid in advance and not used yet — and the packages of the catalog. A sale opens here or from
  * the client card (?sell=1&lead=…); a package opens from the card's link (?open=<id>).
  * The report is information for the owner, not an accounting determination.

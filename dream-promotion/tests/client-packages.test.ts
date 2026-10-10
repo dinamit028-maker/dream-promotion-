@@ -1,5 +1,5 @@
 /**
- * Packages and series of treatments paid in advance (docs/FINANCE ADDITIONS HE.md, T1): the pure rules the finance screen, the
+ * Packages and series of treatments paid in advance (docs/FINANCE_ADDITIONS_HE.md, T1): the pure rules the finance screen, the
  * client card and the product editor share — validity, what is left and the warnings, which package is offered for a session,
  * the document of a sale (the existing engine, the income once), the cancellation's suggestion (agorot-exact; the owner
  * approves), the report, the catalog's package terms, and the database's refusals in Hebrew. The database side (one deduction

@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration 20261010004200 — packages and series of treatments paid in advance (docs/FINANCE ADDITIONS HE.md, T1).
+-- Migration 20261010004200 — packages and series of treatments paid in advance (docs/FINANCE_ADDITIONS_HE.md, T1).
 -- Prepared only: NOT applied to the live database (needs the owner's explicit approval). Tested on a local Postgres:
 -- tests/sql/client-packages.check.sql and tests/sql/concurrency.sh §13.
 --

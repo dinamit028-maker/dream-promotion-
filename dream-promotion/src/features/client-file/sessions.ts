@@ -5,7 +5,7 @@ import type { PackageUse } from '@/features/finance/packages';
  * Client file — sessions: a treatment given, recorded from the card by the owner and the practitioners the owner marked
  * (client_sessions of migration 4100; recording and cancelling from 20261010004200). Pure rules, shared by the card and the
  * tests. A session is never deleted: cancelling it is final, and the database gives back in the same statement the
- * treatment it took from a package (docs/FINANCE ADDITIONS HE.md, T1).
+ * treatment it took from a package (docs/FINANCE_ADDITIONS_HE.md, T1).
  */
 export interface SessionRow {
   id: string; treatmentId: string; leadId: string; at: string; notes: string; byUser: string | null; cancelledAt: string | null; cancelReason: string;

@@ -8,7 +8,7 @@ import { packageLine, packageState, packageWarnings, type ClientPackage } from '
 import { PACKAGES_CHANGED, loadPackages } from '@/features/finance/packages-data';
 
 /**
- * The customer's packages on their card (docs/FINANCE ADDITIONS HE.md, T1): "נותרו 4 מתוך 6 · בתוקף עד…", a warning when one
+ * The customer's packages on their card (docs/FINANCE_ADDITIONS_HE.md, T1): "נותרו 4 מתוך 6 · בתוקף עד…", a warning when one
  * treatment is left or the validity is about to end, and what is still to pay. Money data: row-level security shows it to
  * whoever sees the business's money (never a cashier); nothing is shown when the customer has no package, or before
  * migration 20261010004200 is in the database. Selling one: "💰 כספים" ← "מכירת חבילה".

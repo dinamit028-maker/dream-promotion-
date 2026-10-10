@@ -14,7 +14,7 @@ import { CLIENT_FILE_CHANGED, type TreatmentRow } from './photos';
 import { MAX_SESSION_NOTES, SESSION_COLUMNS, activeUseOf, sessionAt, sessionsOf, toSession, type SessionRow } from './sessions';
 
 /**
- * "טיפולים שבוצעו" in the client card (docs/FINANCE ADDITIONS HE.md, T1, on the client file of 4100) — for the owner and the
+ * "טיפולים שבוצעו" in the client card (docs/FINANCE_ADDITIONS_HE.md, T1, on the client file of 4100) — for the owner and the
  * practitioners the owner marked (client_files_allowed(); nobody else sees anything here). "+ רישום טיפול שבוצע" records a
  * session of one of the customer's treatments, and when a package of the customer fits it (same type, or any; active, valid,
  * with treatments left) the screen offers to take it from that package — preselected, "בלי ניכוי" is one tap. The session and

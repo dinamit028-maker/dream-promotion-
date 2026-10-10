@@ -5,7 +5,7 @@ import { financeError } from './rows';
 import { ag, sh } from './vat';
 
 /**
- * Packages and series of treatments paid in advance (docs/FINANCE ADDITIONS HE.md, T1; migration 20261010004200).
+ * Packages and series of treatments paid in advance (docs/FINANCE_ADDITIONS_HE.md, T1; migration 20261010004200).
  * Pure rules (no React, no network) — the finance screen, the client card and the tests use the same ones:
  *  - a package is an item of the one catalog (catalog_items, kind 'package' — the register's "🎁 חבילות") with its terms: how
  *    many treatments, of which treatment type (none = any), for how many months. A sold package (client_packages) COPIES

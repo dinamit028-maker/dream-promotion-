@@ -22,7 +22,7 @@
   - מע״מ רק דרך finance/vat.ts: המסמך מקבל את השיעור שבהגדרות העסק; טבלת השיעורים לפי תאריך משמשת לאזהרה (מסמך בתאריך עבר — שאלה לרו״ח, לא משנים לבד). מה מותר לכל סוג עוסק — רק דרך finance/rules.ts.
   - payments, finance_audit_log, tax_allocations ו-document_cancellations לא נערכים ולא נמחקים — רק שורה הפוכה.
   - התיקון של חשבונית מס הוא חשבונית זיכוי (330). ביטול — רק 300/400 שהופקו בטעות.
-  - חבילות (מ-2.87.0, מיגרציה 4200 — T1 של `docs/FINANCE ADDITIONS HE.md`):
+  - חבילות (מ-2.87.0, מיגרציה 4200 — T1 של `docs/FINANCE_ADDITIONS_HE.md`):
     - חבילה בקטלוג = פריט `kind='package'` בקטלוג האחד, עם תנאים (`package_sessions`, `package_type_id`, `package_valid_months`), שנערכים רק ב-`ProductEditor`. אין קטלוג חבילות שני.
     - מכירה = שורה ב-`client_packages` (התנאים מועתקים) + מסמך דרך `issueDocumentRow` עם `package:<id>`. המסד קושר את המסמך לחבילה לפי המפתח, רק באותו לקוח, מחיר ועסק. תשלום = קבלה על המסמך (`followKey`), רק ב-`payments`.
     - ניכוי = שורה ב-`client_package_uses`, שהמסד בודק (`client_session_add` — הטיפול והניכוי בפעולה אחת, עם מזהה שנקבע במכשיר: `p_id`). ניכוי לא נמחק ולא משתנה — רק "הוחזר" (`returned_at`), פעם אחת. ביטול טיפול (`client_sessions.cancelled_at`) מחזיר את הניכוי במסד. טיפול לא נמחק.

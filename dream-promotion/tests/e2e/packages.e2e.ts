@@ -1,5 +1,5 @@
 /**
- * Packages and series of treatments (docs/FINANCE ADDITIONS HE.md, T1; 2.87) in a real browser (Chromium via Playwright), on a
+ * Packages and series of treatments (docs/FINANCE_ADDITIONS_HE.md, T1; 2.87) in a real browser (Chromium via Playwright), on a
  * phone (390×844, and 375), against the in-memory Supabase of fake-supabase.ts — the rules themselves are proven on Postgres
  * (tests/sql/client-packages.check.sql, concurrency.sh §13).
  * The Definition of Done of T1, clicked through: a package sold from the client card (its tax invoice by the existing engine,

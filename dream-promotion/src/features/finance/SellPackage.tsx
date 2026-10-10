@@ -22,7 +22,7 @@ import { insertPackage, loadCatalogPackages, loadPackage, loadTreatmentTypes, pa
 import { financeHref } from './routes';
 
 /**
- * "מכירת חבילה" (docs/FINANCE ADDITIONS HE.md, T1) — from the client card or the packages screen. The package's terms are
+ * "מכירת חבילה" (docs/FINANCE_ADDITIONS_HE.md, T1) — from the client card or the packages screen. The package's terms are
  * copied from the catalog at the sale; its document comes from the existing engine only: composeDocument → issueDocumentRow,
  * with the key "package:<id>" (the database links it to the package in the same transaction — a retry is the same document).
  *   paid now   a tax invoice-receipt (320) — an exempt dealer: a receipt (400) — with how it was paid

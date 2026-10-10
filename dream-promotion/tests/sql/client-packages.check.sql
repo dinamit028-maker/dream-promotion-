@@ -1,4 +1,4 @@
--- Packages (migration 20261010004200, docs/FINANCE ADDITIONS HE.md T1) on a real Postgres (tests/sql/run.sh), tried as the
+-- Packages (migration 20261010004200, docs/FINANCE_ADDITIONS_HE.md T1) on a real Postgres (tests/sql/run.sh), tried as the
 -- signed-in roles — never as the superuser, except to build the world and to run the owner's purge as the server does.
 -- Fixtures only, with ids of their own:
 --   Clinic A (company, VAT 18%)  owner OA, practitioner PA (marked by OA), staff SA (editor, not marked), cashier KA,
