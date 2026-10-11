@@ -342,9 +342,12 @@ async function main() {
       await reports();
       await pick('מקדמות');
       await page.getByText('הערכה בלבד', { exact: true }).waitFor();
-      await page.getByText('₪90').first().waitFor();
+      // 2.97 — the accountant (11.10.2026): ₪1,200 × 7.5% = ₪90, less the ₪59 withheld at source in the period = ₪31
+      await page.getByText('₪31').first().waitFor();
+      await page.getByText(/= ₪90 − ניכוי במקור ₪59/).waitFor();
       const t = await cells(table('מקדמות מס הכנסה — הערכה'));
-      assert.ok(t.some((r) => /מקדמה משוערת.*90\.00/.test(r)) && t.some((r) => /7\.5%/.test(r)), t.join(' | '));
+      assert.ok(t.some((r) => /מקדמה לפני קיזוז.*90\.00/.test(r)) && t.some((r) => /ניכוי במקור בתקופה.*59\.00/.test(r))
+        && t.some((r) => /מקדמה משוערת \(אחרי קיזוז הניכוי במקור\).*31\.00/.test(r)) && t.some((r) => /7\.5%/.test(r)), t.join(' | '));
       await shot('rep-5-advances.png');
     });
 

@@ -14,6 +14,7 @@ import { LocationCompare } from './LocationCompare';
 import { useLocations } from '@/features/locations/store';
 import { multiLocation, switchLabel } from '@/features/locations/locations';
 import { useReportsReady } from './reports-data';
+import { periodFromQuery } from './overview-lists';
 import {
   AdvancesView, CustomerLedgerView, CustomersView, ItemsView, PnlCompare, REPORT_VIEWS, SupplierLedgerView, SuppliersView, WithholdingView, isReportView, type ReportView,
 } from './ReportBook';
@@ -46,8 +47,10 @@ export function Reports() {
   const multi = useLocations((x) => multiLocation(x.state));
   const where = useLocations((x) => switchLabel(x.state));
   const ready = useReportsReady();
-  // a customer's card opened from the CRM shows the year; every other report starts on the VAT period
-  const [period, setPeriod] = useState<Period>(() => periodNow(params.get('view') === 'cledger' ? 'year' : profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'));
+  // a customer's card opened from the CRM shows the year; every other report starts on the VAT period — and (2.97, T7) a card of
+  // the overview opens its report on the overview's period (?from&to)
+  const [period, setPeriod] = useState<Period>(() => periodFromQuery(params)
+    ?? periodNow(params.get('view') === 'cledger' ? 'year' : profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'));
   // which report (the address may say: ?view=cledger&key=l:…&name=… opens a customer's card)
   const [view, setView] = useState<ReportView>(() => { const v = params.get('view'); return isReportView(v) ? v : 'summary'; });
   const [customer, setCustomer] = useState<{ key: string; name: string } | null>(() =>

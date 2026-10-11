@@ -12,7 +12,7 @@ import { heldOf, stockLevel, stockText, type HeldMap } from './stock';
 import { cartKey, findByCode, lineName, listsFor, posPrice, priceFor, variantLabel, variantLevel, variantsOf, type CatalogVariant, type ListPrice, type PriceList } from '@/features/catalog/catalog';
 import { addSerialToLines, removeSerialFromLines, sameSerial, type Serial } from '@/features/catalog/serials';
 import { EMPTY_BILLING, billingError, dealerDigits, type Billing } from './billing';
-import { afterDeposit } from '@/features/finance/paylinks';
+import { afterDeposit, type DepositDoc } from '@/features/finance/paylinks';
 
 /**
  * The register, touch-first (UX redesign — same sales logic, CRM link, VAT and documents underneath).
@@ -31,8 +31,8 @@ export type PosItem = {
 /** the price lists (2.93, migration 4800): the register's location, and every list and its prices — none: the catalog's prices */
 export interface PosPricing { lists: PriceList[]; prices: ListPrice[]; locationId: string | null }
 export type TodayAppt = { id: string; name: string; phone: string; leadId: string | null; serviceName: string; start: string; price: number | null;
-  /** a deposit really paid by link for it (2.88): comes off the final payment */
-  deposit?: number };
+  /** a deposit really paid by link for it (2.88): comes off the final payment — and (2.97) the documents issued for it, named on the line */
+  deposit?: number; depositDocs?: DepositDoc[] };
 export type Customer = { name: string; phone: string; leadId: string | null; appointmentId: string | null };
 export interface CheckoutInput {
   lines: Line[]; discount: { kind: 'sum' | 'percent'; value: number }; customer: Customer; note: string;
@@ -226,7 +226,7 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
     setCustomer({ name: a.name, phone: a.phone, leadId: a.leadId, appointmentId: a.id });
     setBilling(billingOf(leads.find((l) => l.id === a.leadId)));
     const item = active.find((i) => i.name === a.serviceName);
-    const line = afterDeposit(a.serviceName || 'טיפול', item ? priceOf(item, null, a.leadId) : a.price ?? 0, a.deposit ?? 0);
+    const line = afterDeposit(a.serviceName || 'טיפול', item ? priceOf(item, null, a.leadId) : a.price ?? 0, a.deposit ?? 0, a.depositDocs ?? []);
     add(line.name, line.price, 1, item ? { itemId: item.id, kind: item.kind } : { kind: 'service' });
   };
   const snap = customer.leadId ? customerSnapshot(customer.leadId, sales) : null;

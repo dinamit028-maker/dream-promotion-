@@ -5,8 +5,9 @@ import { chargesVat, entityOf } from './rules';
  * may claim about one. Nothing here talks to the Tax Authority (that is src/lib/server/tax, server only).
  *
  * The rules are versioned (table tax_allocation_rules, a new row per change) and carry verified = false until an
- * accountant confirms them against the official publication: the thresholds below come from secondary sources,
- * because the Tax Authority's site was not reachable from the development environment.
+ * accountant confirms them: the thresholds below came from secondary sources, because the Tax Authority's site was not
+ * reachable from the development environment. 2.97: the four were confirmed with the accountant on 11.10.2026 (migration
+ * 20261011005200 — "אושר מול רואה חשבון"); the mark changes labels only, and the request to the Tax Authority is still not built.
  *
  * A number is "real" only when it is digits only, not a test, and approved by the gateway or typed in by the
  * business ("manual" — shown as such). A test number ("TEST-…") is never shown as an allocation number.
@@ -14,12 +15,13 @@ import { chargesVat, entityOf } from './rules';
 export interface AllocationRule {
   version: number; effectiveFrom: string; thresholdBeforeVat: number; docTypes: number[]; requiresCustomerDealer: boolean; verified: boolean; sourceNote: string;
 }
-/** the same four rows the migration seeds (for tests and before the rules are loaded) */
+/** the four rows in the database (seeded by 20261004003100, confirmed by 20261011005200) — for tests and before the rules are loaded */
+export const CONFIRMED_NOTE = 'אושר מול רואה חשבון (11.10.2026): הסף ותאריך התחולה. לא נבדק כאן מול פרסום רשמי של רשות המסים.';
 export const SEED_RULES: AllocationRule[] = [
-  { version: 1, effectiveFrom: '2024-05-05', thresholdBeforeVat: 25000, docTypes: [305, 320], requiresCustomerDealer: true, verified: false, sourceNote: 'מקורות משניים' },
-  { version: 2, effectiveFrom: '2025-01-01', thresholdBeforeVat: 20000, docTypes: [305, 320], requiresCustomerDealer: true, verified: false, sourceNote: 'מקורות משניים' },
-  { version: 3, effectiveFrom: '2026-01-01', thresholdBeforeVat: 10000, docTypes: [305, 320], requiresCustomerDealer: true, verified: false, sourceNote: 'מקורות משניים' },
-  { version: 4, effectiveFrom: '2026-06-01', thresholdBeforeVat: 5000, docTypes: [305, 320], requiresCustomerDealer: true, verified: false, sourceNote: 'מקורות משניים' },
+  { version: 1, effectiveFrom: '2024-05-05', thresholdBeforeVat: 25000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
+  { version: 2, effectiveFrom: '2025-01-01', thresholdBeforeVat: 20000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
+  { version: 3, effectiveFrom: '2026-01-01', thresholdBeforeVat: 10000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
+  { version: 4, effectiveFrom: '2026-06-01', thresholdBeforeVat: 5000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
 ];
 export const toRule = (r: any): AllocationRule => ({
   version: r.version, effectiveFrom: r.effective_from, thresholdBeforeVat: Number(r.threshold_before_vat), docTypes: (r.doc_types ?? []).map(Number),

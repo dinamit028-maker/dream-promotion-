@@ -249,16 +249,18 @@ export function AdvancesView({ period, subtitle }: ViewProps) {
     return <Note>לא נקבע שיעור מקדמה. את השיעור (מפנקס המקדמות של מס הכנסה) רושמים ב<button type="button" className="font-semibold underline" onClick={() => go('settings')}>הגדרות הכספים</button>, ואז רואים כאן הערכה לכל תקופה.</Note>;
   }
   if (!r.data) return <Waiting r={r} />;
-  const e = advanceEstimate(r.data.revenue.net, profile.advancePct)!;
+  // 2.97: the tax withheld at source in the period is offset from the estimate (the accountant, 11.10.2026)
+  const e = advanceEstimate(r.data.revenue.net, profile.advancePct, r.data.withheld)!;
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
       <Card className="p-4">
         <p className="mb-1 text-xs font-bold text-amber-700 dark:text-amber-300">הערכה בלבד</p>
         <p className="text-sm">מקדמה משוערת לתקופה: <strong className="text-lg tabular-nums">{ils(e.amount)}</strong></p>
-        <p className="text-xs text-muted">{ils(e.base)} {vat ? 'הכנסות לפני מע״מ' : 'הכנסות (קבלות)'} × {e.pct}%</p>
+        <p className="text-xs text-muted">{ils(e.base)} {vat ? 'הכנסות לפני מע״מ' : 'הכנסות (קבלות)'} × {e.pct}% = {ils(e.gross)}{e.offset ? ` − ניכוי במקור ${ils(e.offset)}` : ''}</p>
+        {e.left > 0 && <p className="text-xs text-muted">הניכוי במקור בתקופה ({ils(e.withheld)}) גדול מההערכה — {ils(e.left)} נשארו לרואה החשבון.</p>}
         <p className="mt-2 text-xs text-muted">{ADVANCE_NOTE}</p>
       </Card>
-      <TableCard table={advanceTable(e, r.data.withheld, vat)} period={period} subtitle={subtitle} />
+      <TableCard table={advanceTable(e, vat)} period={period} subtitle={subtitle} />
     </div>
   );
 }

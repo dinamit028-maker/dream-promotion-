@@ -103,6 +103,8 @@ export class FakeSupabase {
   journalTables = true;
   /** 2.96: the signed-in person's own data (auth user_metadata) — the favorites of the menu (dp_favorites) are kept in it */
   userMeta: Row = {};
+  /** 2.97: migration 5200 is in the database (appointment_deposit_receipts; the thresholds confirmed) — false: as before it */
+  depositDocsFn = true;
   static CASH = ['bank_deposits', 'bank_deposit_cheques', 'bank_statements', 'bank_lines', 'bank_matches', 'cheque_reminders'];
   private serialEventId = 0;
   static ITEMS = ['catalog_serials', 'catalog_serial_events', 'price_lists', 'price_list_items', 'sku_series'];
@@ -205,7 +207,27 @@ export class FakeSupabase {
       receivables: { open: r2(recv.reduce((a, x) => a + x.balance, 0)), count: recv.length,
         overdue: r2(this.receivableLines().filter((l) => l.open_amount > 0 && l.due_date && l.due_date < today).reduce((a, l) => a + l.open_amount, 0)),
         overdueCount: new Set(this.receivableLines().filter((l) => l.open_amount > 0 && l.due_date && l.due_date < today).map((l) => l.document_id)).size },
-      pending: { count: this.t('sales').filter((x) => x.status === 'pending').length, total: 0 }, posWithoutDocument: { count: 0, total: 0 }, allocationMissing: 0,
+      // 2.97 (T7): the register's requests with their sum, the paid sales of the period (by their day in Israel) without a document,
+      // and the invoices above the threshold without an allocation number — as the database function counts them
+      pending: { count: this.t('sales').filter((x) => x.status === 'pending').length, total: r2(this.t('sales').filter((x) => x.status === 'pending').reduce((a, x) => a + Number(x.total), 0)) },
+      posWithoutDocument: (() => {
+        const ilDay = (ts: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date(ts));
+        const list = this.t('sales').filter((x) => x.status === 'paid' && x.business_id === this.opts.businessId && ilDay(x.paid_at ?? x.created_at) >= from && ilDay(x.paid_at ?? x.created_at) <= to
+          && !this.t('documents').some((d) => d.sale_id === x.id && [305, 320, 400].includes(Number(d.doc_type))));
+        return { count: list.length, total: r2(list.reduce((a, x) => a + Number(x.total), 0)) };
+      })(),
+      allocationMissing: (() => {
+        const rules = [...this.t('tax_allocation_rules')].sort((a, b) => String(b.effective_from).localeCompare(String(a.effective_from)));
+        const ent = this.t('register_settings')[0]?.entity_type;
+        return docs.filter((d) => {
+          if (![305, 320].includes(Number(d.doc_type)) || !(d.customer_dealer ?? '')) return false;
+          const e = d.issuer?.entityType ?? ent;
+          if (e === 'exempt_dealer' || e === 'nonprofit') return false;
+          const rule = rules.find((r) => String(r.effective_from) <= d.doc_date);
+          if (!rule || !(Number(d.after_discount) > Number(rule.threshold_before_vat))) return false;
+          return !this.t('tax_allocations').some((a) => a.document_id === d.id && ['approved', 'manual'].includes(a.status) && !a.is_test);
+        }).length;
+      })(),
       months: [{ month, revenue: r2(income), expenses: r2(eNet + eVat - eDed + jr.expNet) }], lockedUntil: this.finance.lockedUntil,
       ...(this.reportsTables ? { withheld: r2(withheld) } : {}),
       ...(this.journalTables ? { manual: { count: je.length, income: { net: r2(jr.incNet), vat: r2(jr.incVat) }, expense: { net: r2(jr.expNet), vat: r2(jr.expVat) },
@@ -1817,6 +1839,22 @@ export class FakeSupabase {
         }
       }
       return { status: 200, body: [...m].map(([appointment_id, amount]) => ({ appointment_id, amount })) };
+    }
+    // 2.97 (migration 5200): the same amounts — and the documents issued for them (not cancelled), for the register's line
+    if (fn === 'appointment_deposit_receipts') {
+      if (!this.depositDocsFn) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+      const ids: string[] = args.p_ids ?? [];
+      const canc = new Set(this.t('document_cancellations').map((c) => c.document_id));
+      const m = new Map<string, { amount: number; receipts: { type: number; number: number }[] }>();
+      for (const r of this.t('payment_requests')) {
+        if (!(r.kind === 'deposit' && r.status === 'paid' && !r.is_test && ids.includes(r.appointment_id) && r.business_id === this.opts.businessId)) continue;
+        const e = m.get(r.appointment_id) ?? { amount: 0, receipts: [] };
+        e.amount += Number(r.paid_amount);
+        const d = r.receipt_status === 'issued' && r.receipt_document_id ? this.t('documents').find((x) => x.id === r.receipt_document_id && x.business_id === r.business_id) : null;
+        if (d && !canc.has(d.id)) e.receipts.push({ type: Number(d.doc_type), number: Number(d.doc_number) });
+        m.set(r.appointment_id, e);
+      }
+      return { status: 200, body: [...m].map(([appointment_id, e]) => ({ appointment_id, amount: e.amount, receipts: e.receipts.sort((a, b) => a.number - b.number) })) };
     }
     if (fn === 'reserved_stock') {
       const m = new Map<string, { item_id: string; variant_id: string | null; qty: number }>();

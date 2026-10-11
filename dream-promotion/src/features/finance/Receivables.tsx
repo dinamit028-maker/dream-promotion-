@@ -14,6 +14,7 @@ import { STATUS_HE, TONES, aging, agingByLines, aiDraftIsSafe, byLines, daysOver
 import { lineLabel, nextOpen, type Line } from './plans';
 import { loadLines, plansReady } from './plans-data';
 import { reminderDoc } from './reminders';
+import { daysBehind, overdueDocs, type LateDoc } from './overview-lists';
 import { ReminderQueue } from './Reminders';
 import { receivablesCsv } from './reports';
 import { Note, Pill, Stat, ddmmyyyy, download, ils, todayIL } from './ui';
@@ -25,6 +26,8 @@ import type { DocRow } from '@/features/documents/documents';
  * or writes amounts — they stay {{placeholders}}); WhatsApp opens with the text and the user sends it.
  * 2.89: an invoice with a payment plan is owed by its payments (receivable_lines) — each with its own date, in the aging, the
  * status and the reminder; the timer's reminders that wait for WhatsApp are on top ("📨 תזכורות לשליחה").
+ * 2.97 (T7): "באיחור" — what is late of each invoice, by the same lines as the overview's card (overdueDocs: its sum and count are
+ * finance_summary's), and "בקשות מהקופה" with their sum; the overview's cards open them (?show=overdue / ?show=pending).
  */
 export function Receivables() {
   const { fail, params, clearParams, business } = useFinance();
@@ -32,7 +35,11 @@ export function Receivables() {
   // ?receipt=1 — from the module's "+" → "קבלה": a receipt is issued on the invoice that was paid, from this list
   const [receiptHint, setReceiptHint] = useState(false);
   useEffect(() => { if (params.get('receipt')) { setReceiptHint(true); clearParams(); } }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [all, setAll] = useState(false);
+  // which list (2.97, T7): ?show=overdue / ?show=pending — the overview's cards "באיחור" and "בקשות תשלום מהקופה" open here
+  const [view, setView] = useState<View>(() => viewOf(params.get('show')));
+  useEffect(() => { const v = params.get('show'); if (v) setView(viewOf(v)); }, [params]);
+  const pick = (v: View) => { setView(v); if (params.get('show')) clearParams(); };
+  const all = view === 'all';
   const [open, setOpen] = useState<DocRow | null>(null);
   const [remind, setRemind] = useState<{ r: Receivable; line: Line | null } | null>(null);
   // 2.89 (migration 4400): the open lines by invoice — a plan's payments with their own dates (null: before the migration)
@@ -45,7 +52,7 @@ export function Receivables() {
     const sb = supabase();
     let q = sb.from('receivables').select('*').eq('cancelled', false).order('due_date', { ascending: true, nullsFirst: false }).limit(500);
     if (!all) q = q.gt('balance', 0);
-    const [r, p] = await Promise.all([q, sb.from('sales').select('id, customer_name, total, created_at').eq('status', 'pending').order('created_at').limit(100)]);
+    const [r, p] = await Promise.all([q, sb.from('sales').select('id, customer_name, total, created_at').eq('status', 'pending').order('created_at').limit(1000)]);
     if (r.error) { fail(financeError(r.error)); setList([]); return; }
     const ls = (await plansReady()) ? await loadLines({ openOnly: true }) : null;
     const m = ls ? new Map<string, Line[]>() : null;
@@ -59,6 +66,12 @@ export function Receivables() {
   }, [all, fail, today]);
   useEffect(() => { void load(); }, [load]);
   const a = useMemo(() => (lines ? agingByLines([...lines.values()].flat(), today) : aging(list ?? [], today)), [list, lines, today]);
+  // late (2.97): by the same lines as finance_summary's "overdue" — before migration 4400, by each invoice's own date
+  const late = useMemo(() => overdueDocs(lines ? [...lines.values()].flat() : (list ?? []).map(asLine), today), [list, lines, today]);
+  const pendingTotal = useMemo(() => pending.reduce((x, p) => x + Math.round(p.total * 100), 0) / 100, [pending]);
+  const receivableOf = (d: LateDoc): Receivable => (list ?? []).find((r) => r.id === d.documentId) ?? {
+    id: d.documentId, docType: d.docType, docNumber: d.docNumber, docDate: d.docDate, dueDate: d.since, customerName: d.customerName, customerPhone: d.customerPhone,
+    customerEmail: d.customerEmail, leadId: d.leadId, total: d.balance, credited: 0, paid: 0, balance: d.balance, cancelled: false, shareToken: d.shareToken };
 
   if (list === null) return <div className="py-8 text-center"><Spinner /></div>;
   return (
@@ -67,30 +80,54 @@ export function Receivables() {
         ? 'קבלה מופקת על החשבונית ששולמה: בוחרים אותה ברשימה, ואז "קבלה על תשלום".'
         : 'קבלה מופקת על חשבונית פתוחה, ואין כרגע חשבוניות פתוחות. על מכירה חדשה ששולמה — "חשבונית מס / קבלה".'}</Note>}
       <ReminderQueue key={queueKey} business={business.name} onChanged={() => void load()} />
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="סה״כ פתוח" value={ils(a.total)} />
-        <Stat label="טרם הגיע מועד" value={ils(a.current)} />
-        <Stat label="1–30 יום" value={ils(a.d30)} tone={a.d30 ? 'warn' : undefined} />
-        <Stat label="31–60 יום" value={ils(a.d60)} tone={a.d60 ? 'warn' : undefined} />
-        <Stat label="61–90 יום" value={ils(a.d90)} tone={a.d90 ? 'bad' : undefined} />
-        <Stat label="מעל 90 יום" value={ils(a.over90)} tone={a.over90 ? 'bad' : undefined} />
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Chip on={!all} onClick={() => setAll(false)}>פתוחים</Chip>
-        <Chip on={all} onClick={() => setAll(true)}>כולל ששולמו</Chip>
+      {view !== 'pending' && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <Stat label="סה״כ פתוח" value={ils(a.total)} />
+          <Stat label="טרם הגיע מועד" value={ils(a.current)} />
+          <Stat label="1–30 יום" value={ils(a.d30)} tone={a.d30 ? 'warn' : undefined} />
+          <Stat label="31–60 יום" value={ils(a.d60)} tone={a.d60 ? 'warn' : undefined} />
+          <Stat label="61–90 יום" value={ils(a.d90)} tone={a.d90 ? 'bad' : undefined} />
+          <Stat label="מעל 90 יום" value={ils(a.over90)} tone={a.over90 ? 'bad' : undefined} />
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="איזו רשימה">
+        <Chip on={view === 'open'} onClick={() => pick('open')}>פתוחים</Chip>
+        <Chip on={view === 'overdue'} onClick={() => pick('overdue')}>באיחור</Chip>
+        <Chip on={view === 'all'} onClick={() => pick('all')}>כולל ששולמו</Chip>
+        {(pending.length > 0 || view === 'pending') && <Chip on={view === 'pending'} onClick={() => pick('pending')}>בקשות מהקופה</Chip>}
         <span className="flex-1" />
-        <Button size="sm" variant="ghost" onClick={() => { download(`חייבים-${today}.csv`, receivablesCsv(list, today, lines ?? undefined)); void logEvent('export.csv', 'receivables', '', { rows: list.length }); }}>ייצוא לאקסל</Button>
+        {view !== 'pending' && <Button size="sm" variant="ghost" onClick={() => { download(`חייבים-${today}.csv`, receivablesCsv(list, today, lines ?? undefined)); void logEvent('export.csv', 'receivables', '', { rows: list.length }); }}>ייצוא לאקסל</Button>}
       </div>
-      {!list.length ? <Note>אין חובות פתוחים. חשבונית מס (305) או חשבונית עסקה (300) שלא שולמו יופיעו כאן.</Note> : (
+      {view === 'overdue' ? (
+        <section aria-label="באיחור" className="grid gap-1.5">
+          {/* the overview's "באיחור": the same number, from the same lines */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3"><Stat label="באיחור" value={ils(late.total)} tone={late.count ? 'bad' : undefined} hint={`${late.count} מסמכים`} /></div>
+          {!late.docs.length ? <Note>אין תשלומים באיחור.</Note> : late.docs.map((d) => {
+            const r = receivableOf(d);
+            return (
+              <div key={d.documentId} data-late={d.documentId} className="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface p-3 text-sm">
+                <button type="button" className="min-w-0 flex-1 text-start" onClick={async () => setOpen(await loadDoc(d.documentId))}>
+                  <strong className="block truncate">{d.customerName || 'לקוח'} · {DOC_LABEL[d.docType]} {d.docNumber}</strong>
+                  <span className="text-xs text-muted">באיחור מ-{ddmmyyyy(d.since)} · {daysBehind(d.since, today)} ימים{d.lines.some((l) => l.planId) ? ` · ${d.lines.map((l) => lineLabel(l)).filter(Boolean).join(', ')}` : ''}</span>
+                  {ag(d.balance) !== ag(d.late) && <span className="block text-xs text-muted">היתרה בחשבונית: {ils(d.balance)}</span>}
+                </button>
+                <Pill tone="bad">{STATUS_HE.overdue}</Pill>
+                <strong className="tabular-nums">{ils(d.late)}</strong>
+                <Button size="sm" variant="ghost" onClick={() => setRemind({ r, line: d.lines.find((l) => l.planId) ?? null })}>תזכורת</Button>
+              </div>
+            );
+          })}
+        </section>
+      ) : view === 'pending' ? null : !list.length ? <Note>אין חובות פתוחים. חשבונית מס (305) או חשבונית עסקה (300) שלא שולמו יופיעו כאן.</Note> : (
         <div className="grid gap-1.5">
           {list.map((r) => {
-            const b = byLines(r, lines?.get(r.id), today), st = b.status, late = b.late;
+            const b = byLines(r, lines?.get(r.id), today), st = b.status, lateDays = b.late;
             const next = b.planned ? nextOpen(lines?.get(r.id) ?? []) : null;
             return (
               <div key={r.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface p-3 text-sm">
                 <button type="button" className="min-w-0 flex-1 text-start" onClick={async () => setOpen(await loadDoc(r.id))}>
                   <strong className="block truncate">{r.customerName || 'לקוח'} · {DOC_LABEL[r.docType]} {r.docNumber}</strong>
-                  <span className="text-xs text-muted">{ddmmyyyy(r.docDate)}{!b.planned && r.dueDate ? ` · לתשלום עד ${ddmmyyyy(r.dueDate)}` : ''}{late ? ` · ${late} ימי איחור` : ''}</span>
+                  <span className="text-xs text-muted">{ddmmyyyy(r.docDate)}{!b.planned && r.dueDate ? ` · לתשלום עד ${ddmmyyyy(r.dueDate)}` : ''}{lateDays ? ` · ${lateDays} ימי איחור` : ''}</span>
                   {next && <span className="block text-xs text-muted">📅 {lineLabel(next)} עד {ddmmyyyy(next.dueDate)} · {ils(next.open)}</span>}
                 </button>
                 <Pill tone={st === 'overdue' ? 'bad' : st === 'paid' ? 'ok' : st === 'partial' ? 'warn' : 'default'}>{STATUS_HE[st]}{b.planned ? ' · פריסה' : ''}</Pill>
@@ -101,9 +138,12 @@ export function Receivables() {
           })}
         </div>
       )}
-      {pending.length > 0 && (
-        <div className="grid gap-1.5">
+      {(view === 'pending' || (view !== 'overdue' && pending.length > 0)) && (
+        <section aria-label="בקשות תשלום מהקופה" className="grid gap-1.5">
           <p className="text-sm font-bold">בקשות תשלום מהקופה ({pending.length})</p>
+          {/* the overview's "בקשות תשלום מהקופה": the same sales, the same sum */}
+          {view === 'pending' && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3"><Stat label="בקשות תשלום מהקופה" value={ils(pendingTotal)} hint={`${pending.length} ממתינות`} /></div>}
+          {!pending.length && <Note>אין בקשות תשלום פתוחות מהקופה.</Note>}
           {pending.map((p) => (
             <div key={p.id} className="flex items-center gap-2 rounded-2xl border border-dashed border-line p-2.5 text-sm">
               <span className="min-w-0 flex-1 truncate">{p.customer || 'לקוח'} · {ddmmyyyy(p.createdAt.slice(0, 10))}</span>
@@ -111,13 +151,21 @@ export function Receivables() {
               <a href="/register" className="text-xs font-semibold text-primary">לקופה</a>
             </div>
           ))}
-        </div>
+        </section>
       )}
       {open && <DocView doc={open} onClose={() => setOpen(null)} onChanged={() => { void load(); setQueueKey((k) => k + 1); }} />}
       {remind && <Reminder r={remind.r} line={remind.line} onClose={() => setRemind(null)} />}
     </div>
   );
 }
+
+type View = 'open' | 'all' | 'overdue' | 'pending';
+const viewOf = (v: string | null): View => (v === 'overdue' || v === 'pending' || v === 'all' ? v : 'open');
+/** before migration 4400 (no lines): an invoice is one line, by its own date — as the money summary counted it then */
+const asLine = (r: Receivable): Line => ({ documentId: r.id, leadId: r.leadId, docType: r.docType, docNumber: r.docNumber, docDate: r.docDate, customerName: r.customerName,
+  customerPhone: r.customerPhone, customerEmail: r.customerEmail, shareToken: r.shareToken, docBalance: r.balance, planId: null, itemId: null, n: null, ofN: null,
+  dueDate: r.dueDate, amount: r.balance, open: Math.max(0, r.balance) });
+const ag = (n: number) => Math.round(n * 100);
 
 /** a payment reminder: the template with the real values; an AI may reword the template only; the user sends it.
  *  2.89: an invoice with a plan — the next payment of it (its amount, its date: "תשלום 2 מתוך 3 של …") */

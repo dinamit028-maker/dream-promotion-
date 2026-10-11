@@ -17,6 +17,7 @@ import {
   type ChargeRefs,
 } from './recurring-data';
 import { LinesEditor, LoadFailed, Note, Pill, Stat, ddmmyyyy, ils, todayIL } from './ui';
+import { weekCharges } from './overview-lists';
 
 /**
  * "חיובים חוזרים" (docs/FINANCE_ADDITIONS_HE.md T4; 2.90, migration 20261010004500): a retainer, a monthly subscription, a standing
@@ -24,8 +25,10 @@ import { LinesEditor, LoadFailed, Note, Pill, Stat, ddmmyyyy, ils, todayIL } fro
  * once per plan and period — and, when asked, a payment link with it (T2). No card and no bank account is ever charged.
  * New: here or from the client card (?new=1&lead=…); a plan opens from the card's link (?open=<id>).
  */
-type Filter = PlanStatus | 'all';
-const FILTERS: { id: Filter; label: string }[] = [{ id: 'active', label: 'פעילים' }, { id: 'paused', label: 'מושהים' }, { id: 'ended', label: 'הסתיימו' }, { id: 'all', label: 'הכל' }];
+type Filter = PlanStatus | 'all' | 'week';
+// 2.97 (T7): "השבוע" — the overview's "חיובים השבוע" opens it (?show=week): the same plans, the same sum (weekCharges)
+const FILTERS: { id: Filter; label: string }[] = [{ id: 'active', label: 'פעילים' }, { id: 'week', label: 'השבוע' }, { id: 'paused', label: 'מושהים' },
+  { id: 'ended', label: 'הסתיימו' }, { id: 'all', label: 'הכל' }];
 const TONE: Record<PlanStatus, 'ok' | 'warn' | 'default'> = { active: 'ok', paused: 'warn', ended: 'default' };
 const EMPTY_REFS: ChargeRefs = { docs: new Map(), drafts: new Map(), links: new Map() };
 const LINK_HE: Record<string, string> = { sent: 'לינק נשלח', paid: 'שולם בלינק', failed: 'התשלום בלינק נכשל', expired: 'הלינק פג', cancelled: 'הלינק בוטל' };
@@ -38,7 +41,7 @@ export function Recurring() {
   const [charges, setCharges] = useState<RecurringCharge[]>([]);
   const [refs, setRefs] = useState<ChargeRefs>(EMPTY_REFS);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>('active');
+  const [filter, setFilter] = useState<Filter>(() => (params.get('show') === 'week' ? 'week' : 'active'));
   const [editor, setEditor] = useState<{ plan: RecurringPlan | null; leadId: string | null } | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -66,7 +69,8 @@ export function Recurring() {
   const monthly = active.reduce((a, p) => a + Math.round((p.amount * 100) / p.every), 0) / 100;
   const blocked = charges.filter((c) => c.status === 'blocked');
   const drafts = charges.filter((c) => c.status === 'draft' && c.draftId && refs.drafts.get(c.draftId)?.open !== false);
-  const shown = (plans ?? []).filter((p) => filter === 'all' || p.status === filter);
+  const week = useMemo(() => weekCharges(plans ?? [], todayIL()), [plans]);
+  const shown = filter === 'week' ? week.plans : (plans ?? []).filter((p) => filter === 'all' || p.status === filter);
 
   async function retry(c: RecurringCharge) {
     const r = await retryRecurringCharge(c.id);
@@ -111,10 +115,15 @@ export function Recurring() {
         <Button variant="primary" onClick={() => setEditor({ plan: null, leadId: null })}>+ חיוב חוזר</Button>
       </div>
       <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0" role="group" aria-label="סינון חיובים חוזרים">
-        {FILTERS.map((f) => <Chip key={f.id} on={filter === f.id} onClick={() => setFilter(f.id)} className="shrink-0">{f.label}</Chip>)}
+        {FILTERS.map((f) => <Chip key={f.id} on={filter === f.id} onClick={() => { setFilter(f.id); if (params.get('show')) clearParams(); }} className="shrink-0">{f.label}</Chip>)}
       </div>
+      {filter === 'week' && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Stat label="חיובים השבוע" value={ils(week.total)} hint={`${week.count} חיובים חוזרים · עד ${ddmmyyyy(week.until)}`} />
+        </div>
+      )}
       {!shown.length ? (
-        <Note>{plans.length ? 'אין חיובים חוזרים במצב הזה.' : 'עוד אין חיובים חוזרים. ריטיינר, מנוי חודשי או הוראת קבע — מוסיפים כאן או מכרטיס הלקוח ("💰 כספים").'}</Note>
+        <Note>{filter === 'week' && plans.length ? `אין חיובים חוזרים עד ${ddmmyyyy(week.until)}.` : plans.length ? 'אין חיובים חוזרים במצב הזה.' : 'עוד אין חיובים חוזרים. ריטיינר, מנוי חודשי או הוראת קבע — מוסיפים כאן או מכרטיס הלקוח ("💰 כספים").'}</Note>
       ) : (
         <div className="grid gap-1.5">
           {shown.map((p) => (

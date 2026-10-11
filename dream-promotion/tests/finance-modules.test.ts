@@ -4,9 +4,10 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { PLACEHOLDERS, aging, aiDraftIsSafe, daysOverdue, dueDateFor, fillReminder, receivableStatus, reminderTemplate, termsLabel, toReceivable, type Receivable } from '../src/features/finance/receivables';
 import { QUOTE_NEXT, canMove, editable, quoteMessage, quoteState, validUntilFor, type QuoteStatus } from '../src/features/finance/quotes';
-import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, isRealAllocation, minimizedRequest, ruleOn, type AllocationRow } from '../src/features/finance/allocation';
+import { CONFIRMED_NOTE, SEED_RULES, allocationNeed, allocationPrintLine, allocationState, isRealAllocation, minimizedRequest, ruleOn, type AllocationRow } from '../src/features/finance/allocation';
 import { EXPENSE_CATEGORIES, carriesVat, expenseError, sanitizeExtraction, splitTotal, vatDeductible, type ExpenseForm } from '../src/features/finance/expenses';
 import { documentDateRateNote, pctOf } from '../src/features/finance/vat';
 import { documentsCsv, expensesCsv, ledgerCsv, periodOf, previousPeriod, receivablesCsv, vatReportRows } from '../src/features/finance/reports';
@@ -75,7 +76,12 @@ test('allocation numbers: the rule of the document\'s date, what is required, an
   assert.equal(ruleOn(SEED_RULES, '2025-12-31')!.thresholdBeforeVat, 20000);
   assert.equal(ruleOn(SEED_RULES, '2026-05-31')!.thresholdBeforeVat, 10000);
   assert.equal(ruleOn(SEED_RULES, TODAY)!.thresholdBeforeVat, 5000);
-  assert.ok(SEED_RULES.every((r) => !r.verified), 'nothing claims to be verified');
+  // 2.97 (migration 20261011005200): confirmed with the accountant on 11.10.2026 — and the note says it is not the official publication
+  assert.ok(SEED_RULES.every((r) => r.verified && r.sourceNote === CONFIRMED_NOTE), 'confirmed with the accountant');
+  assert.match(CONFIRMED_NOTE, /אושר מול רואה חשבון \(11\.10\.2026\)/);
+  assert.match(CONFIRMED_NOTE, /לא נבדק כאן מול פרסום רשמי/, 'never claims the official publication was checked');
+  assert.ok(readFileSync('supabase/migrations/20261011005200_accountant_answers.sql', 'utf8').includes(`source_note = '${CONFIRMED_NOTE}'`),
+    'the same note as the migration writes');
   const doc = { docType: 305, docDate: TODAY, afterDiscount: 6000, customerDealer: '514000012' };
   assert.equal(allocationNeed(doc, { entityType: 'company' }, SEED_RULES).required, true);
   assert.equal(allocationNeed({ ...doc, afterDiscount: 5000 }, { entityType: 'company' }, SEED_RULES).required, false, 'exactly the threshold: not above it');

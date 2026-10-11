@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
-import { isCloudConfigured, supabase } from '@/lib/supabase/client';
+import { isCloudConfigured } from '@/lib/supabase/client';
 import { Button, Card, Chip, Field, Input, PageHead, Select, Textarea } from '@/components/ui/primitives';
 import { EmptyState, Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
@@ -13,7 +13,8 @@ import { freeSlots, reminderText, type Hours } from './slots';
 import { authHeaders } from '@/lib/services/http';
 import { BookingAPI, DEFAULT_SETTINGS, bookingError, type Appointment, type ApptStatus, type BookingServiceRow, type BookingSettings } from './booking.service';
 import { PaylinkList, SendPaylinkDialog, usePaylinks } from '@/features/finance/Paylinks';
-import { afterDeposit, depositDays, paylinkOpen, paylinkPill } from '@/features/finance/paylinks';
+import { afterDeposit, depositDays, paylinkOpen, paylinkPill, type DepositDoc } from '@/features/finance/paylinks';
+import { loadDeposits } from '@/features/finance/deposits-data';
 import { ils } from '@/features/register/money';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { atLocation, locationTag } from '@/features/locations/locations';
@@ -51,6 +52,8 @@ export function AppointmentsScreen() {
   const [showPast, setShowPast] = useState(false);
   // deposits (2.88): what was really paid per appointment (the register offsets it), and the links of the appointments that ask one
   const [deposits, setDeposits] = useState<Record<string, number>>({});
+  // 2.97 (migration 5200): the documents issued for them — the register's line names them
+  const [depositDocs, setDepositDocs] = useState<Record<string, DepositDoc[]>>({});
   const [depositFor, setDepositFor] = useState<Appointment | null>(null);
   const [depOpen, setDepOpen] = useState<string | null>(null);
 
@@ -64,8 +67,9 @@ export function AppointmentsScreen() {
       setSettings(s.slug ? s : { ...s, title: s.title || brand.name, address: s.address || brand.city || '' });
       setServices(sv); setAppts(ap);
       const ids = ap.filter((a) => (sv.find((x) => x.id === a.serviceId)?.deposit ?? 0) > 0).map((a) => a.id);
-      const d = ids.length ? await supabase().rpc('appointment_deposits', { p_ids: ids }) : { data: [], error: null };
-      setDeposits(d.error ? {} : Object.fromEntries(((d.data ?? []) as any[]).map((x) => [x.appointment_id, Number(x.amount)])));
+      const d = await loadDeposits(ids);
+      setDeposits(Object.fromEntries([...d].map(([id, x]) => [id, x.amount])));
+      setDepositDocs(Object.fromEntries([...d].map(([id, x]) => [id, x.docs])));
     } catch (e) { setError(bookingError(e)); }
     finally { setLoading(false); }
   }, [userId, showPast, brand.name, brand.city]);
@@ -204,7 +208,7 @@ export function AppointmentsScreen() {
                           {a.status !== 'cancelled' && a.status !== 'no_show' && (() => {
                             const price = services.find((x) => x.id === a.serviceId)?.price;
                             // a deposit that was really paid comes off the final payment (its own document is issued already)
-                            const line = afterDeposit(a.serviceName || 'טיפול', price ?? 0, deposits[a.id] ?? 0);
+                            const line = afterDeposit(a.serviceName || 'טיפול', price ?? 0, deposits[a.id] ?? 0, depositDocs[a.id] ?? []);
                             const q = new URLSearchParams({ name: a.name, phone: a.phone, appt: a.id, item: line.name, price: String(line.price), ...(a.leadId ? { lead: a.leadId } : {}) });
                             return <a href={`/register?${q}`} className="rounded-full border border-line px-3 py-1 text-sm">💳 חיוב{deposits[a.id] ? ` (אחרי מקדמה ${ils(deposits[a.id])})` : ''}</a>;
                           })()}

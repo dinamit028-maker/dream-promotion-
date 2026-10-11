@@ -16,6 +16,7 @@ const str = (v: unknown) => (v == null ? '' : String(v));
 const strOrNull = (v: unknown) => (v == null || v === '' ? null : String(v));
 const arr = (v: unknown): any[] => (Array.isArray(v) ? v : []);
 const ag = (n: number) => Math.round(n * 100);
+const sh = (a: number) => a / 100;
 
 /**
  * who a customer (or a supplier) of a report is — the database's party_key: the CRM card; else the dealer / company number;
@@ -328,19 +329,35 @@ export function advancePctError(v: string): string | null {
   if (!/^\d{1,3}(\.\d{1,2})?$/.test(t) || Number(t) > 100) return 'שיעור המקדמה: מספר בין 0 ל-100 (עד 2 ספרות אחרי הנקודה) — או ריק.';
   return null;
 }
-/** the estimate as a table (the screen, the CSV, the PDF): the income it is figured on, the percent, the estimate, and tax withheld */
-export function advanceTable(e: { base: number; pct: number; amount: number }, withheld: number, vat: boolean): ReportTable {
+/** the estimate as a table (the screen, the CSV, the PDF): the income it is figured on, the percent, the estimate before the offset,
+ *  the tax withheld at source in the period, and the estimate after it (2.97 — the accountant, 11.10.2026: offset it) */
+export function advanceTable(e: AdvanceEstimate, vat: boolean): ReportTable {
   return {
     title: 'מקדמות מס הכנסה — הערכה',
     columns: [{ label: '', type: 'text' }, { label: 'סכום', type: 'money' }],
-    rows: [[vat ? 'הכנסות בתקופה (לפני מע״מ)' : 'הכנסות בתקופה (קבלות)', e.base], ['שיעור המקדמה', `${e.pct}%`], ['מקדמה משוערת', e.amount],
-      ['ניכוי במקור בתקופה (לבדוק עם רואה החשבון אם לקזז)', withheld]],
+    rows: [[vat ? 'הכנסות בתקופה (לפני מע״מ)' : 'הכנסות בתקופה (קבלות)', e.base], ['שיעור המקדמה', `${e.pct}%`], ['מקדמה לפני קיזוז', e.gross],
+      ['ניכוי במקור בתקופה', e.withheld], ['מקדמה משוערת (אחרי קיזוז הניכוי במקור)', e.amount],
+      ...(e.left > 0 ? [['ניכוי במקור שנשאר אחרי הקיזוז (לרואה החשבון)', e.left] as [string, number]] : [])],
     total: null,
     note: ADVANCE_NOTE,
   };
 }
-/** the estimate of a period: its income (as the money screens: before VAT, or an exempt dealer's receipts) × the percent */
-export function advanceEstimate(revenueNet: number, pct: number | null): { base: number; pct: number; amount: number } | null {
+export interface AdvanceEstimate {
+  /** the income it is figured on; the percent; the estimate before the offset */
+  base: number; pct: number; gross: number;
+  /** tax withheld at source in the period (finance_summary's "withheld"); what of it is offset; what is left of it (more than the estimate) */
+  withheld: number; offset: number; left: number;
+  /** the estimate after the offset — never below zero when there is income */
+  amount: number;
+}
+/**
+ * The estimate of a period: its income (as the money screens: before VAT, or an exempt dealer's receipts) × the percent, less the
+ * tax withheld at source in the period (2.97 — the accountant, 11.10.2026). Withheld beyond the estimate is not money back: it is
+ * said apart ("left"), for the accountant. In agorot, so no floating point slips in. An estimate only — never an amount to pay.
+ */
+export function advanceEstimate(revenueNet: number, pct: number | null, withheld = 0): AdvanceEstimate | null {
   if (pct == null || !Number.isFinite(pct)) return null;
-  return { base: revenueNet, pct, amount: Math.round(ag(revenueNet) * pct / 100) / 100 };
+  const g = Math.round(ag(revenueNet) * pct / 100), w = ag(withheld);
+  const off = Math.min(Math.max(0, w), Math.max(0, g));
+  return { base: revenueNet, pct, gross: sh(g), withheld: sh(w), offset: sh(off), left: sh(Math.max(0, w) - off), amount: sh(g - off) };
 }

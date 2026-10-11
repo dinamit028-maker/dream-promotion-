@@ -8,13 +8,20 @@ import { useFinance } from './FinanceScreen';
 import { financeError } from './api';
 import { categoryLabel } from './expenses';
 import { payLabel } from './payments';
-import { Note, PeriodPicker, Stat, ils, periodNow, type Period } from './ui';
+import { Note, PeriodPicker, Stat, ddmmyyyy, ils, periodNow, todayIL, type Period } from './ui';
 import { remindersReady } from './plans-data';
 import { toManual, type ManualSummary } from './journal';
+import { cardTarget, draftsTotal, weekCharges, type CardId } from './overview-lists';
+import { loadRecurringPlans, recurringReady } from './recurring-data';
+import { useReportsReady } from './reports-data';
+import { toExpense } from './expenses';
 
 /**
  * The overview: real numbers only — every figure comes from finance_summary() in the database (documents, the payments
  * ledger, confirmed expenses, receivables). Nothing is estimated on the screen; empty means zero, and says so.
+ * 2.97 (T7): every card opens its list — filtered by the card's own rules, for the same period (overview-lists.ts: cardTarget),
+ * and the list shows the card's number. Two cards of their own: the week's recurring charges and the expenses waiting for
+ * approval — each figured by the same function as its list (weekCharges / draftsTotal).
  */
 export interface Summary {
   from: string; to: string; entity: string; vat: boolean;
@@ -54,6 +61,24 @@ export function Overview() {
   const [period, setPeriod] = useState<Period>(() => periodNow('month'));
   const [s, setS] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 2.97 (T7): a card opens its list — for this period
+  const reports = useReportsReady();
+  const open = (card: CardId) => { const t = cardTarget(card, period, { reports }); go(t.section, t.params); };
+  // the expenses waiting for approval (any date), and the recurring charges due in the next 7 days (once migration 4500 is in)
+  const [drafts, setDrafts] = useState<{ count: number; total: number } | null>(null);
+  const [week, setWeek] = useState<{ count: number; total: number; until: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void supabase().from('expenses').select('status, total, supplier_doc_type').eq('status', 'draft').limit(2000).then(({ data, error: e }) => {
+      if (alive && !e) setDrafts(draftsTotal(((data ?? []) as any[]).map(toExpense)));
+    });
+    void recurringReady().then(async (ok) => {
+      if (!ok) return;
+      const r = await loadRecurringPlans();
+      if (alive && r.ok) setWeek(weekCharges(r.data, todayIL()));
+    });
+    return () => { alive = false; };
+  }, []);
   // 2.89: the timer's reminders that wait for the owner to send them on WhatsApp
   const [queued, setQueued] = useState(0);
   useEffect(() => {
@@ -80,23 +105,25 @@ export function Overview() {
       {s && <>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Stat label={vat ? 'הכנסות (לפני מע״מ)' : 'הכנסות (קבלות)'} value={ils(s.revenue.net)}
-            hint={`${vat ? `מע״מ עסקאות ${ils(s.revenue.vat)}` : 'עוסק פטור — לפי קבלות'}${s.manual.income.net ? ` · מתוכן פקודות ידניות ${ils(s.manual.income.net)}` : ''}`} />
+            hint={`${vat ? `מע״מ עסקאות ${ils(s.revenue.vat)}` : 'עוסק פטור — לפי קבלות'}${s.manual.income.net ? ` · מתוכן פקודות ידניות ${ils(s.manual.income.net)}` : ''}`} onClick={() => open('income')} />
           <Stat label="הוצאות" value={ils(s.expenses.net + s.expenses.vat - s.expenses.vatDeductible)}
-            hint={`${s.expenses.count} הוצאות מאושרות${s.manual.expense.net ? ` · ופקודות ידניות ${ils(s.manual.expense.net)}` : ''}`} onClick={() => go('expenses')} />
-          <Stat label="רווח משוער" value={ils(s.profit)} tone={s.profit >= 0 ? 'ok' : 'bad'} hint="הכנסות פחות הוצאות (לפני מס הכנסה)" />
-          {vat ? <Stat label="מע״מ לתשלום (משוער)" value={ils(s.vatPayable)} hint={`תשומות לקיזוז ${ils(s.expenses.vatDeductible)}`} onClick={() => go('reports')} />
+            hint={`${s.expenses.count} הוצאות מאושרות${s.manual.expense.net ? ` · ופקודות ידניות ${ils(s.manual.expense.net)}` : ''}`} onClick={() => open('expenses')} />
+          <Stat label="רווח משוער" value={ils(s.profit)} tone={s.profit >= 0 ? 'ok' : 'bad'} hint="הכנסות פחות הוצאות (לפני מס הכנסה)" onClick={() => open('profit')} />
+          {vat ? <Stat label="מע״מ לתשלום (משוער)" value={ils(s.vatPayable)} hint={`תשומות לקיזוז ${ils(s.expenses.vatDeductible)}`} onClick={() => open('vat')} />
             : <Stat label="מע״מ" value="—" hint="עוסק פטור לא גובה מע״מ" />}
-          <Stat label="נכנס לקופה ולבנק" value={ils(s.cash.in)} hint={`יצא ${ils(s.cash.out)} · נטו ${ils(s.cash.net)}${s.withheld ? ` · ניכוי במקור ${ils(s.withheld)}` : ''}`} onClick={() => go('income')} />
-          <Stat label="חייבים פתוחים" value={ils(s.receivables.open)} hint={`${s.receivables.count} מסמכים`} onClick={() => go('receivables')} />
-          <Stat label="באיחור" value={ils(s.receivables.overdue)} tone={s.receivables.overdueCount ? 'bad' : undefined} hint={`${s.receivables.overdueCount} מסמכים`} onClick={() => go('receivables')} />
-          <Stat label="בקשות תשלום מהקופה" value={ils(s.pending.total)} hint={`${s.pending.count} ממתינות`} />
+          <Stat label="נכנס לקופה ולבנק" value={ils(s.cash.in)} hint={`יצא ${ils(s.cash.out)} · נטו ${ils(s.cash.net)}${s.withheld ? ` · ניכוי במקור ${ils(s.withheld)}` : ''}`} onClick={() => open('cash')} />
+          <Stat label="חייבים פתוחים" value={ils(s.receivables.open)} hint={`${s.receivables.count} מסמכים`} onClick={() => open('open')} />
+          <Stat label="באיחור" value={ils(s.receivables.overdue)} tone={s.receivables.overdueCount ? 'bad' : undefined} hint={`${s.receivables.overdueCount} מסמכים`} onClick={() => open('overdue')} />
+          <Stat label="בקשות תשלום מהקופה" value={ils(s.pending.total)} hint={`${s.pending.count} ממתינות`} onClick={() => open('pending')} />
+          {week && <Stat label="חיובים השבוע" value={ils(week.total)} hint={`${week.count} חיובים חוזרים · עד ${ddmmyyyy(week.until)}`} onClick={() => open('week')} />}
+          {drafts && <Stat label="הוצאות לאישור" value={ils(drafts.total)} tone={drafts.count ? 'warn' : undefined} hint={`${drafts.count} ממתינות לאישור`} onClick={() => open('drafts')} />}
         </div>
 
         {queued > 0 && <Note>📨 {queued} תזכורות חוב מחכות לשליחה בוואטסאפ. <button type="button" className="font-semibold underline" onClick={() => go('receivables')}>לחייבים</button></Note>}
         {(s.posWithoutDocument.count > 0 || s.allocationMissing > 0) && (
           <div className="grid gap-2">
-            {s.posWithoutDocument.count > 0 && <Note tone="warn">{s.posWithoutDocument.count} מכירות ששולמו בקופה בתקופה הזו בלי מסמך ({ils(s.posWithoutDocument.total)}). <button type="button" className="font-semibold underline" onClick={() => go('income')}>להפקת המסמכים החסרים</button></Note>}
-            {s.allocationMissing > 0 && <Note tone="warn">{s.allocationMissing} חשבוניות מס מעל הסף לעוסק — בלי מספר הקצאה. <button type="button" className="font-semibold underline" onClick={() => go('documents', { filter: 'allocation' })}>לרשימה</button></Note>}
+            {s.posWithoutDocument.count > 0 && <Note tone="warn">{s.posWithoutDocument.count} מכירות ששולמו בקופה בתקופה הזו בלי מסמך ({ils(s.posWithoutDocument.total)}). <button type="button" className="font-semibold underline" onClick={() => open('nodoc')}>להפקת המסמכים החסרים</button></Note>}
+            {s.allocationMissing > 0 && <Note tone="warn">{s.allocationMissing} חשבוניות מס מעל הסף לעוסק — בלי מספר הקצאה. <button type="button" className="font-semibold underline" onClick={() => open('allocation')}>לרשימה</button></Note>}
           </div>
         )}
 

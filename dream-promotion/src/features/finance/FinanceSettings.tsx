@@ -183,10 +183,13 @@ export function FinanceSettings() {
         {!rules ? <Spinner /> : (
           <ul className="grid gap-1 text-sm">{rules.map((r) => (
             <li key={r.version} className="flex flex-wrap items-center gap-2"><span>מ-{ddmmyyyy(r.effectiveFrom)}: מעל {ils(r.thresholdBeforeVat)} לפני מע״מ, לעוסק</span>
-              <Pill tone={r.verified ? 'ok' : 'warn'}>{r.verified ? 'אומת' : 'לא אומת מול פרסום רשמי'}</Pill></li>
+              {/* 2.97 (migration 5200): confirmed with the accountant on 11.10.2026 — the note says by whom and when */}
+              <Pill tone={r.verified ? 'ok' : 'warn'}>{r.verified ? 'אושר מול רואה חשבון' : 'לא אומת מול פרסום רשמי'}</Pill></li>
           ))}</ul>
         )}
-        <p className="mt-2 text-xs text-muted">הספים נלקחו ממקורות משניים ומסומנים "לא אומת" עד שרו״ח מאשר מול פרסום רשות המסים. Dream Promotion לא מאושרת על ידי רשות המסים, ולא מדווחת אליה בלי חיבור אמיתי שאושר.</p>
+        <p className="mt-2 text-xs text-muted">{rules && rules.length > 0 && rules.every((r) => r.verified)
+          ? `${rules[0].sourceNote || 'הספים אושרו מול רואה חשבון.'} `
+          : 'הספים נלקחו ממקורות משניים ומסומנים "לא אומת" עד שרו״ח מאשר אותם. '}Dream Promotion לא מאושרת על ידי רשות המסים, ולא מדווחת אליה בלי חיבור אמיתי שאושר.</p>
       </Card>
 
       <Card className="p-4">

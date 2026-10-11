@@ -146,10 +146,21 @@ test('income tax advances: a percent the business sets, an estimate only', () =>
   assert.ok(advancePctError('-1'));
   assert.ok(advancePctError('חמש'));
   assert.equal(advanceEstimate(4770, null), null, 'no percent: no estimate');
-  assert.deepEqual(advanceEstimate(4770, 7.5), { base: 4770, pct: 7.5, amount: 357.75 });
-  assert.deepEqual(advanceEstimate(333.33, 3), { base: 333.33, pct: 3, amount: 10 });
-  const t = advanceTable({ base: 4770, pct: 7.5, amount: 357.75 }, 183.5, true);
-  assert.deepEqual(t.rows.map((r) => r[1]), [4770, '7.5%', 357.75, 183.5]);
+  assert.deepEqual(advanceEstimate(4770, 7.5), { base: 4770, pct: 7.5, gross: 357.75, withheld: 0, offset: 0, left: 0, amount: 357.75 });
+  assert.deepEqual(advanceEstimate(333.33, 3), { base: 333.33, pct: 3, gross: 10, withheld: 0, offset: 0, left: 0, amount: 10 });
+  // 2.97 — the accountant (11.10.2026): the tax withheld at source in the period is offset from the estimate
+  const e = advanceEstimate(4770, 7.5, 183.5)!;
+  assert.deepEqual(e, { base: 4770, pct: 7.5, gross: 357.75, withheld: 183.5, offset: 183.5, left: 0, amount: 174.25 });
+  assert.deepEqual(advanceEstimate(1200, 7.5, 59), { base: 1200, pct: 7.5, gross: 90, withheld: 59, offset: 59, left: 0, amount: 31 }, 'the reports e2e');
+  assert.deepEqual(advanceEstimate(1000, 5, 80), { base: 1000, pct: 5, gross: 50, withheld: 80, offset: 50, left: 30, amount: 0 },
+    'never below zero: what is withheld beyond the estimate is said apart, for the accountant');
+  assert.deepEqual(advanceEstimate(1000, 5, -20), { base: 1000, pct: 5, gross: 50, withheld: -20, offset: 0, left: 0, amount: 50 },
+    'a withholding given back in the period (its receipt cancelled) offsets nothing');
+  assert.equal(advanceEstimate(0.1, 33.33, 0.01)!.amount, 0.02, 'in agorot: 0.1 × 33.33% = 0.03, less 0.01 — no floating point trap');
+  const t = advanceTable(e, true);
+  assert.deepEqual(t.rows.map((r) => r[1]), [4770, '7.5%', 357.75, 183.5, 174.25]);
+  assert.match(String(t.rows[4][0]), /אחרי קיזוז הניכוי במקור/);
+  assert.deepEqual(advanceTable(advanceEstimate(1000, 5, 80)!, false).rows.map((r) => r[1]), [1000, '5%', 50, 80, 0, 30], 'what is left, on a row of its own');
   assert.ok(t.note?.includes('הערכה בלבד'));
 });
 
