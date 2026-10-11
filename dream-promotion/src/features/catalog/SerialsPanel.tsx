@@ -133,7 +133,7 @@ export function SerialsPanel({ item, variants, onChanged, say, fail }: {
             )}
           </div>
           <Textarea value={text} rows={3} onChange={(e) => setText(e.target.value)} dir="ltr" className="min-h-20 font-mono text-sm"
-            placeholder={'מספר בכל שורה — סורק מקליד ו-Enter\nA1001\nA1002'} aria-label="המספרים הסידוריים" />
+            placeholder={'מספר בכל שורה — סורק מקליד מספר ואנטר\nA1001\nA1002'} aria-label="המספרים הסידוריים" />
           <Input value={note} maxLength={120} onChange={(e) => setNote(e.target.value)} placeholder="הערה (לא חובה) — למשל ספק או תעודת משלוח" className="py-2" aria-label="הערה לקליטה" />
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="primary" disabled={busy || !text.trim()} onClick={() => void receive(false)}>{busy ? <Spinner /> : null}קליטה — יחידות חדשות</Button>
