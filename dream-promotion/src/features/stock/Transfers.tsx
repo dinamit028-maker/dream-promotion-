@@ -12,6 +12,25 @@ import {
 } from './stock-locations';
 import { cancelTransfer, loadTransfers, receiveTransfer, sendTransfer, type StockCatalog } from './stock-data';
 import type { TransferDraft } from './StockScreen';
+import { loadSerialsInStock } from '@/features/catalog/items-data';
+import { sameSerial, type Serial } from '@/features/catalog/serials';
+import { cx } from '@/lib/utils';
+
+/** a product with serial numbers goes by its numbers (2.93): chips to tick — the line's quantity is theirs */
+function SerialChips({ all, picked, onToggle, label, tone = 'pick' }: { all: string[]; picked: string[]; onToggle: (s: string) => void; label: string; tone?: 'pick' | 'missing' }) {
+  return (
+    <span className="flex w-full flex-wrap gap-1.5" role="group" aria-label={label}>
+      {all.map((sn) => {
+        const on = picked.some((x) => sameSerial(x, sn));
+        return (
+          <button key={sn} type="button" aria-pressed={on} dir="ltr" onClick={() => onToggle(sn)}
+            className={cx('rounded-full border px-2.5 py-1 font-mono text-xs', on ? (tone === 'missing' ? 'border-(--danger) bg-red-500/10 font-bold line-through' : 'border-primary bg-primary-soft font-bold') : 'border-line')}>{sn}</button>
+        );
+      })}
+      {!all.length && <span className="text-xs text-muted">אין יחידות עם מספר במלאי כאן.</span>}
+    </span>
+  );
+}
 
 const PILL = { sent: 'info', received: 'ok', cancelled: 'default' } as const;
 
@@ -81,8 +100,8 @@ export function Transfers({ rows, catalog, loc, draft, onDraftUsed, onMoved }: {
               <ul className="mt-2 grid gap-1 text-sm">
                 {t.lines.map((l) => (
                   <li key={stockKey(l.itemId, l.variantId)} className="flex flex-wrap justify-between gap-2 rounded-xl bg-surface-2 px-3 py-1.5">
-                    <span>{lineName(l)}</span>
-                    <span className="tabular-nums">{l.qty}{l.received != null && l.received !== l.qty ? ` · הגיעו ${l.received}${l.reason ? ` — ${l.reason}` : ''}` : ''}</span>
+                    <span>{lineName(l)}{l.serials?.length ? <span className="block font-mono text-xs text-muted" dir="ltr">{l.serials.join(', ')}</span> : null}</span>
+                    <span className="tabular-nums">{l.qty}{l.received != null && l.received !== l.qty ? ` · הגיעו ${l.received}${l.missing?.length ? ` (לא הגיעו: ${l.missing.join(', ')})` : ''}${l.reason ? ` — ${l.reason}` : ''}` : ''}</span>
                   </li>
                 ))}
               </ul>
@@ -117,6 +136,20 @@ function TransferForm({ initial, rows, catalog, loc, onClose, onSent }: {
   const [err, setErr] = useState<string | null>(null);
   const [id] = useState(() => crypto.randomUUID());   // a second try of the same form is the same transfer
   const tracked = catalog.items.filter((i) => i.trackStock && i.active);
+  // the numbers in stock at the source, of the products that have them (2.93)
+  const numbered = tracked.filter((i) => i.trackSerials).map((i) => i.id);
+  const [serials, setSerials] = useState<Serial[]>([]);
+  const numberedKey = numbered.join(',');
+  useEffect(() => {
+    let alive = true;
+    void (numberedKey && from ? loadSerialsInStock(numberedKey.split(','), from) : Promise.resolve([])).then((r) => { if (alive) setSerials(r); });
+    // another source: the numbers picked were of the one before
+    setLines((ls) => ls.map((l) => (l.serials ? { ...l, serials: [], qty: 0 } : l)));
+    return () => { alive = false; };
+  }, [numberedKey, from]);
+  const isNumbered = (itemId: string) => numbered.includes(itemId);
+  const numbersOf = (l: DraftLine) => serials.filter((x) => x.itemId === l.itemId && x.variantId === (l.variantId ?? null)).map((x) => x.serial)
+    .sort((a, b) => a.localeCompare(b, 'he', { numeric: true }));
   const options = tracked.flatMap((it) => it.hasVariants
     ? catalog.variants.filter((v) => v.itemId === it.id && v.active).map((v) => ({ key: stockKey(it.id, v.id), itemId: it.id, variantId: v.id as string | null, name: `${it.name} · ${v.label}` }))
     : [{ key: stockKey(it.id, null), itemId: it.id, variantId: null as string | null, name: it.name }]);
@@ -125,7 +158,7 @@ function TransferForm({ initial, rows, catalog, loc, onClose, onSent }: {
     const o = options.find((x) => x.key === pick);
     if (!o) return;
     if (lines.some((l) => stockKey(l.itemId, l.variantId) === o.key)) { setPick(''); return; }
-    setLines([...lines, { itemId: o.itemId, variantId: o.variantId, qty: 1 }]); setPick('');
+    setLines([...lines, isNumbered(o.itemId) ? { itemId: o.itemId, variantId: o.variantId, qty: 0, serials: [] } : { itemId: o.itemId, variantId: o.variantId, qty: 1 }]); setPick('');
   }
   async function send() {
     const e = transferError(from, to, lines, catalog.items);
@@ -151,13 +184,21 @@ function TransferForm({ initial, rows, catalog, loc, onClose, onSent }: {
       <ul className="mb-2 grid gap-1.5">
         {lines.map((l, k) => {
           const have = qtyAt(rows, from, l.itemId, l.variantId);
+          const byNumber = isNumbered(l.itemId);
           return (
             <li key={stockKey(l.itemId, l.variantId)} className="flex flex-wrap items-center gap-2 rounded-2xl bg-surface-2 px-3 py-2 text-sm">
               <span className="min-w-0 flex-1"><strong>{nameOf(l)}</strong><span className={have < l.qty ? 'block text-xs text-warn' : 'block text-xs text-muted'}>
-                יש ב{locationName(loc, from)}: {have}</span></span>
-              <Input type="number" inputMode="numeric" min={1} value={String(l.qty)} aria-label={`כמה: ${nameOf(l)}`} className="h-9 max-w-20 shrink-0 py-0 text-center"
-                onChange={(e) => setLines(lines.map((x, i) => (i === k ? { ...x, qty: Math.floor(Number(e.target.value) || 0) } : x)))} />
+                יש ב{locationName(loc, from)}: {have}{byNumber ? ` · נבחרו ${l.serials?.length ?? 0} — בוחרים את המספרים שעוברים` : ''}</span></span>
+              {!byNumber && <Input type="number" inputMode="numeric" min={1} value={String(l.qty)} aria-label={`כמה: ${nameOf(l)}`} className="h-9 max-w-20 shrink-0 py-0 text-center"
+                onChange={(e) => setLines(lines.map((x, i) => (i === k ? { ...x, qty: Math.floor(Number(e.target.value) || 0) } : x)))} />}
               <button type="button" className="text-xs font-semibold text-muted underline" onClick={() => setLines(lines.filter((_, i) => i !== k))}>הסרה</button>
+              {byNumber && <SerialChips all={numbersOf(l)} picked={l.serials ?? []} label={`המספרים שעוברים: ${nameOf(l)}`}
+                onToggle={(sn) => setLines(lines.map((x, i) => {
+                  if (i !== k) return x;
+                  const cur = x.serials ?? [];
+                  const next = cur.some((y) => sameSerial(y, sn)) ? cur.filter((y) => !sameSerial(y, sn)) : [...cur, sn];
+                  return { ...x, serials: next, qty: next.length };
+                }))} />}
             </li>
           );
         })}
@@ -199,19 +240,28 @@ function ReceiveDialog({ t, loc, onClose, onDone }: { t: Transfer; loc: Location
       <p className="mb-4 text-sm text-muted">מ{locationName(loc, t.from)} אל {locationName(loc, t.to)} · מה שהגיע אחרת ממה שנשלח נרשם כפער, עם הסיבה.</p>
       <ul className="mb-4 grid gap-2">
         {t.lines.map((l) => {
-          const k = stockKey(l.itemId, l.variantId), g = got[k], rec = g ? g.received : l.qty;
+          const k = stockKey(l.itemId, l.variantId), g = got[k];
+          const missing = l.serials?.length ? (g?.missing ?? []).filter((m) => l.serials!.some((x) => sameSerial(x, m))) : [];
+          const rec = l.serials?.length ? l.qty - missing.length : g ? g.received : l.qty;
           return (
             <li key={k} className="rounded-2xl bg-surface-2 p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span><strong>{lineName(l)}</strong> · נשלחו {l.qty}</span>
-                <label className="flex items-center gap-1.5">הגיעו
-                  <Input type="number" inputMode="numeric" min={0} value={String(rec)} aria-label={`הגיעו: ${lineName(l)}`} className="h-9 max-w-20 shrink-0 py-0 text-center"
-                    onChange={(e) => setGot({ ...got, [k]: { received: Math.floor(Number(e.target.value) || 0), reason: g?.reason ?? '' } })} />
-                </label>
+                {l.serials?.length ? <span className="text-xs text-muted">הגיעו {rec} — מסמנים מספר שלא הגיע</span> : (
+                  <label className="flex items-center gap-1.5">הגיעו
+                    <Input type="number" inputMode="numeric" min={0} value={String(rec)} aria-label={`הגיעו: ${lineName(l)}`} className="h-9 max-w-20 shrink-0 py-0 text-center"
+                      onChange={(e) => setGot({ ...got, [k]: { received: Math.floor(Number(e.target.value) || 0), reason: g?.reason ?? '' } })} />
+                  </label>
+                )}
               </div>
+              {l.serials?.length ? <div className="mt-2"><SerialChips all={l.serials} picked={missing} tone="missing" label={`לא הגיעו: ${lineName(l)}`}
+                onToggle={(sn) => {
+                  const next = missing.some((m) => sameSerial(m, sn)) ? missing.filter((m) => !sameSerial(m, sn)) : [...missing, sn];
+                  setGot({ ...got, [k]: { received: l.qty - next.length, reason: g?.reason ?? '', missing: next } });
+                }} /></div> : null}
               {rec !== l.qty && (
                 <Input className="mt-2" value={g?.reason ?? ''} maxLength={200} aria-label={`למה: ${lineName(l)}`} placeholder="למה? למשל: נשבר בדרך"
-                  onChange={(e) => setGot({ ...got, [k]: { received: rec, reason: e.target.value } })} />
+                  onChange={(e) => setGot({ ...got, [k]: { received: rec, reason: e.target.value, ...(missing.length ? { missing } : {}) } })} />
               )}
             </li>
           );

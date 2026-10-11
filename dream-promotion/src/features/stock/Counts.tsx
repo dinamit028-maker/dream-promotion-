@@ -126,6 +126,12 @@ function CountSheet({ count, catalog, loc, onBack, onClosed }: {
   function go(scanned: string) {
     const hit = findByCode(scanned, catalog.items, catalog.variants);
     if (!hit) { setMsg(`לא נמצא מוצר עם הקוד "${scanned.trim()}".`); return; }
+    // a product with serial numbers is checked by its numbers, not counted here (2.93)
+    const numbered = catalog.items.find((i) => i.id === hit.itemId && i.trackSerials);
+    if (numbered) {
+      setMsg(`${numbered.name}: מוצר עם מספרים סידוריים — בודקים אותו לפי המספרים ("מספרים סידוריים"), לא בספירה.`);
+      return;
+    }
     const key = stockKey(hit.itemId, hit.variantId);
     setQ(''); setCode(''); setMsg(`נמצא: ${nameOf(hit.itemId, hit.variantId)}`);
     setTimeout(() => { const el = sheet.current?.querySelector<HTMLInputElement>(`input[data-key="${key}"]`); el?.scrollIntoView({ block: 'center' }); el?.focus(); el?.select(); }, 50);

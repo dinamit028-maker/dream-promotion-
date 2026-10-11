@@ -49,11 +49,14 @@ export async function loadTransfers(): Promise<R<Transfer[]>> {
 /** send: the id is chosen here — a second try is the same transfer */
 export async function sendTransfer(from: string, to: string, lines: DraftLine[], note: string, id = crypto.randomUUID()): Promise<R<{ id: string; number: number }>> {
   const { data, error } = await supabase().rpc('stock_transfer_send', {
-    p_id: id, p_from: from, p_to: to, p_lines: lines.map((l) => ({ itemId: l.itemId, variantId: l.variantId, qty: l.qty })), p_note: note.trim(),
+    p_id: id, p_from: from, p_to: to, p_note: note.trim(),
+    // a product with serial numbers names them (2.93); the others as before
+    p_lines: lines.map((l) => ({ itemId: l.itemId, variantId: l.variantId, qty: l.qty, ...(l.serials?.length ? { serials: l.serials } : {}) })),
   });
   return error ? fail(error) : { ok: true, data: { id: String((data as any)?.id ?? id), number: Number((data as any)?.number) } };
 }
-export async function receiveTransfer(id: string, lines: { itemId: string; variantId: string | null; received: number; reason: string }[], note = ''): Promise<R<{ gaps: number }>> {
+export async function receiveTransfer(id: string, lines: ({ itemId: string; variantId: string | null; reason: string } & ({ received: number } | { missing: string[] }))[],
+  note = ''): Promise<R<{ gaps: number }>> {
   const { data, error } = await supabase().rpc('stock_transfer_receive', { p_id: id, p_lines: lines, p_note: note.trim() });
   return error ? fail(error) : { ok: true, data: { gaps: Number((data as any)?.gaps ?? 0) } };
 }
@@ -91,19 +94,26 @@ export async function cancelCount(count: string): Promise<R<true>> {
 
 /** the products and variants the stock screens list (names, alert levels, codes) */
 export interface StockCatalog {
-  items: { id: string; name: string; kind: string; trackStock: boolean; lowStock: number; hasVariants: boolean; active: boolean; sku: string; barcode: string }[];
+  items: { id: string; name: string; kind: string; trackStock: boolean; lowStock: number; hasVariants: boolean; active: boolean; sku: string; barcode: string; trackSerials: boolean }[];
   variants: { id: string; itemId: string; label: string; lowStock: number | null; active: boolean; sku: string; barcode: string }[];
 }
 export async function loadStockCatalog(): Promise<R<StockCatalog>> {
+  const cols = 'id, name, kind, track_stock, low_stock, has_variants, active, sku, barcode, sort';
+  // serial numbers from migration 4800 — before it the column is not there (the list is as before)
+  const items = async () => {
+    const withSerials = await supabase().from('catalog_items').select(`${cols}, track_serials`).order('sort').order('name');
+    return withSerials.error && /track_serials|42703/.test(`${withSerials.error.message} ${withSerials.error.code}`)
+      ? supabase().from('catalog_items').select(cols).order('sort').order('name') : withSerials;
+  };
   const [i, v] = await Promise.all([
-    supabase().from('catalog_items').select('id, name, kind, track_stock, low_stock, has_variants, active, sku, barcode, sort').order('sort').order('name'),
+    items(),
     supabase().from('catalog_variants').select('id, item_id, option1, option2, option3, low_stock, active, sku, barcode, position').order('position'),
   ]);
   if (i.error) return fail(i.error);
   return { ok: true, data: {
     items: ((i.data ?? []) as any[]).filter((r) => r.kind === 'product' || r.track_stock).map((r) => ({
       id: String(r.id), name: String(r.name ?? ''), kind: String(r.kind ?? ''), trackStock: Boolean(r.track_stock), lowStock: Number(r.low_stock ?? 2),
-      hasVariants: Boolean(r.has_variants), active: r.active !== false, sku: String(r.sku ?? ''), barcode: String(r.barcode ?? '') })),
+      hasVariants: Boolean(r.has_variants), active: r.active !== false, sku: String(r.sku ?? ''), barcode: String(r.barcode ?? ''), trackSerials: Boolean(r.track_serials) })),
     variants: v.error ? [] : ((v.data ?? []) as any[]).map((r) => ({
       id: String(r.id), itemId: String(r.item_id), label: [r.option1, r.option2, r.option3].filter((x: string) => x).join(' / '),
       lowStock: r.low_stock == null ? null : Number(r.low_stock), active: r.active !== false, sku: String(r.sku ?? ''), barcode: String(r.barcode ?? '') })),

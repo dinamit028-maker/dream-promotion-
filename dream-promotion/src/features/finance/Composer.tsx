@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
@@ -17,6 +17,9 @@ import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from 
 import { documentDateRateNote } from './vat';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { useLocations } from '@/features/locations/store';
+import { defaultLocation } from '@/features/locations/locations';
+import { listsFor, priceFor } from '@/features/catalog/catalog';
+import { loadPriceBook, type PriceBook } from '@/features/catalog/items-data';
 
 /**
  * One composer for a new document, a draft and a quote: customer (from the contacts or typed), lines (free or from
@@ -59,6 +62,28 @@ export function Composer({ mode, initial, onClose, onDone }: {
   const [locationId, setLocationId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  // price lists (2.93, migration 4800): a product's price by the customer's group, else the document's location, else the catalog's
+  // (catalog.ts priceFor — the register's rule). Changing it on the line stays with whoever may write the document, as before.
+  const [book, setBook] = useState<PriceBook | null>(null);
+  useEffect(() => { void loadPriceBook().then(setBook, () => setBook(null)); }, []);
+  const priceLoc = locationColumn(locState, locationId).location_id ?? locState.current ?? defaultLocation(locState);
+  const listed = (c: { id: string; variantId?: string; price: number }, lead: string | null = leadId) =>
+    book ? priceFor({ id: c.id, price: c.price }, c.variantId ? { id: c.variantId, price: c.price } : null,
+      listsFor(book.lists, { locationId: priceLoc, tags: leads.find((l) => l.id === lead)?.tags ?? [] }), book.prices) : { price: c.price, list: null };
+  const pickOf = (l: ComposeLine) => (l.itemId ? catalog.find((x) => x.id === l.itemId && (x.variantId ?? null) === (l.variantId ?? null)) ?? null : null);
+  // another customer: the lines priced by the list of the one before are priced again (a price changed by hand stays)
+  const prevLead = useRef(leadId);
+  useEffect(() => {
+    const from = prevLead.current;
+    prevLead.current = leadId;
+    if (!book || from === leadId) return;
+    setLines((ls) => ls.map((l) => {
+      const c = pickOf(l);
+      if (!c) return l;
+      const was = listed(c, from).price, now = listed(c, leadId).price;
+      return l.unitPrice === was && was !== now ? { ...l, unitPrice: now } : l;
+    }));
+  }, [leadId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setDueDate(dueDateFor(docDate, terms)); }, [docDate, terms]);
   const rate = vat && docType !== 400 ? settings.vatRate : 0;
@@ -152,7 +177,9 @@ export function Composer({ mode, initial, onClose, onDone }: {
           </div>
         )}
       </div>
-      <LinesEditor lines={lines} onChange={setLines} catalog={catalog} products={products} productsReady={productsReady} onCatalogChanged={reloadCatalog} />
+      <LinesEditor lines={lines} onChange={setLines} catalog={catalog} products={products} productsReady={productsReady} onCatalogChanged={reloadCatalog}
+        priceOf={book ? (c) => listed(c).price : undefined}
+        listOf={book ? (l) => { const c = pickOf(l); const p = c ? listed(c) : null; return p?.list && p.price === l.unitPrice ? p.list.name : null; } : undefined} />
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <Field label="הנחה">

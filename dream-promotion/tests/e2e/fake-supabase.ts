@@ -10,6 +10,8 @@
  * signed-in user sees (the *_location_gate policies: the location picked, or the member's own), one open day per register.
  * 2.92 (4700): stock by location — the counts of the locations other than the main one (stock_levels; the main one's is the
  * rest), every move at its row's location, the view stock_by_location, stock_adjust, transfers and counts.
+ * 2.93 (4800): serial numbers (received, sold once at the register, back on a cancel / refund, moved in a transfer, written off by
+ * the owner; any other move of such a product refused), price lists and SKU series (their functions), location_compare.
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { randomUUID, randomBytes } from 'node:crypto';
@@ -24,7 +26,7 @@ const now = () => new Date().toISOString();
 const unq = (v: string) => (v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v);
 
 function cond(col: string, op: string, raw: string): (r: Row) => boolean {
-  const v = decodeURIComponent(raw);
+  const v = raw; // URLSearchParams has decoded it already — a second decode breaks the "%" of an ilike
   const val = (r: Row) => r[col];
   const cmp = (x: any) => (typeof x === 'number' ? x : String(x ?? ''));
   const num = (x: string, ref: any) => (typeof ref === 'number' ? Number(x) : x);
@@ -84,6 +86,10 @@ export class FakeSupabase {
   memberLocations: string[] | null = null;
   /** 2.92: migration 4700 is in the database (stock_levels, stock_transfers, stock_counts, stock_by_location) — false: as before it */
   stockTables = true;
+  /** 2.93: migration 4800 is in the database (serial numbers, price lists, SKU series, location_compare) — false: as before it */
+  itemsTables = true;
+  private serialEventId = 0;
+  static ITEMS = ['catalog_serials', 'catalog_serial_events', 'price_lists', 'price_list_items', 'sku_series'];
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string; today?: string }) {}
   /** today in Israel — or a fixed day (opts.today), for screens compared picture by picture */
   private today() { return this.opts.today ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
@@ -215,9 +221,11 @@ export class FakeSupabase {
   /** as stock_move_v (3300): the item's sum moves, and the variant named by the line when it is one of this item's;
    *  2.92 (stock_move_at, 4700): at a location — one that is not the main one keeps its own count (stock_levels) */
   private stock(itemId: string, delta: number, reason: string,
-    ref: { sale?: string; refund?: string; note?: string; variant?: string | null; location?: string | null; transfer?: string; count?: string } = {}) {
+    ref: { sale?: string; refund?: string; note?: string; variant?: string | null; location?: string | null; transfer?: string; count?: string; serial?: boolean } = {}) {
     const it = this.t('catalog_items').find((i) => i.id === itemId && i.track_stock);
     if (!it || !delta) return;
+    // 4800: a product with serial numbers moves only with them — the callers that may move it say so (the database refuses the rest)
+    if (it.track_serials && !ref.serial) throw new Error('serial_item: a product with serial numbers moves with its numbers (received, sold, returned)');
     it.stock_qty = Number(it.stock_qty ?? 0) + delta;
     const v = ref.variant ? this.t('catalog_variants').find((x) => x.id === ref.variant && x.item_id === itemId) : null;
     if (v) v.stock_qty = Number(v.stock_qty ?? 0) + delta;
@@ -321,13 +329,16 @@ export class FakeSupabase {
         if (held && l.qty > have - held) return `שמור להזמנה באתר: ${it.name}`;
       }
     }
+    // 4800 (sale_serials_take): a unit of a product with numbers is named — in stock at the sale's location, sold once
+    if (table === 'sales' && this.itemsTables && ['paid', 'pending'].includes(r.status)) { const e = this.salesSerialsCheck(r); if (e) return e; }
     // the one catalog (3300): the database's defaults and checks the screens rely on
     if (table === 'catalog_items') {
       Object.assign(r, { active: r.active ?? true, favorite: r.favorite ?? false, fav_order: r.fav_order ?? 0, sort: r.sort ?? 0, image_url: r.image_url ?? '',
         track_stock: r.track_stock ?? false, stock_qty: r.stock_qty ?? 0, low_stock: r.low_stock ?? 2, kind: r.kind ?? 'service',
         slug: r.slug ?? null, description: r.description ?? '', seo_title: r.seo_title ?? '', seo_description: r.seo_description ?? '', publish_online: r.publish_online ?? false,
         online_price: r.online_price ?? null, compare_at_price: r.compare_at_price ?? null, sku: r.sku ?? '', barcode: r.barcode ?? '', has_variants: false,
-        tags: r.tags ?? [], custom_fields: r.custom_fields ?? {}, manufacturer: r.manufacturer ?? '', country_of_origin: r.country_of_origin ?? '', updated_at: now() });
+        tags: r.tags ?? [], custom_fields: r.custom_fields ?? {}, manufacturer: r.manufacturer ?? '', country_of_origin: r.country_of_origin ?? '', updated_at: now(),
+        ...(this.itemsTables ? { track_serials: r.track_serials ?? false } : {}) });
       if (r.published_at == null && r.publish_online) r.published_at = now();
     }
     if (table === 'catalog_variants') {
@@ -344,6 +355,7 @@ export class FakeSupabase {
       if (s.status !== 'paid') return 'only a paid sale can be refunded';
       const done = this.t('sale_refunds').filter((x) => x.sale_id === r.sale_id).reduce((a, x) => a + Math.round(Number(x.amount) * 100), 0);
       if (done + Math.round(Number(r.amount) * 100) > Math.round(Number(s.total) * 100)) return `refund_exceeds_paid: ${(Number(s.total) * 100 - done) / 100} left`;
+      if (this.itemsTables) { const e = this.refundSerialsCheck(r); if (e) return e; }
       r.created_at = now();
     }
     if (table === 'register_shifts') {
@@ -421,8 +433,12 @@ export class FakeSupabase {
     }
     if (table === 'expenses') this.log('expense.created', r.id, { number: r.expense_number, total: r.total });
     if (table === 'quotes') this.log('quote.created', r.id, { number: r.quote_number, total: r.total });
-    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) for (const l of this.lines(r.items)) this.stock(l.id, -l.qty, 'sale', { sale: r.id, variant: l.variant, location: this.rowLocation(r) });
-    if (table === 'sale_refunds' && r.restock) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'refund', { sale: r.sale_id, refund: r.id, variant: l.variant, location: this.rowLocation(r) });
+    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) {
+      if (this.itemsTables) this.salesSerialsTake(r);
+      for (const l of this.lines(r.items)) this.stock(l.id, -l.qty, 'sale', { sale: r.id, variant: l.variant, location: this.rowLocation(r), serial: true });
+    }
+    if (table === 'sale_refunds' && this.itemsTables) this.refundSerialsApply(r);
+    if (table === 'sale_refunds' && r.restock) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'refund', { sale: r.sale_id, refund: r.id, variant: l.variant, location: this.rowLocation(r), serial: true });
     if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
@@ -461,6 +477,9 @@ export class FakeSupabase {
     if (table === 'sales' && patch.status === 'cancelled' && old.status !== 'cancelled' && this.t('sale_refunds').some((x) => x.sale_id === old.id)) return 'a refunded sale can not be cancelled';
     if (table === 'catalog_items' && 'stock_qty' in patch && patch.stock_qty !== old.stock_qty) return 'stock changes only through adjust_stock';
     if (table === 'catalog_variants' && 'stock_qty' in patch && patch.stock_qty !== old.stock_qty) return 'stock changes only through a delivery or a count (adjust_variant_stock)';
+    if (table === 'catalog_items' && old.track_serials && (patch.publish_online === true || (patch.kind && patch.kind !== 'product') || patch.track_stock === false)) {
+      return 'new row for relation "catalog_items" violates check constraint "catalog_items_serials_check"';
+    }
     if (table === 'catalog_items' && patch.publish_online && !old.published_at) patch.published_at = now();
     if (table === 'stores') {
       patch.updated_at = now();
@@ -495,7 +514,10 @@ export class FakeSupabase {
         Object.assign(u, { returned_at: now(), returned_by: this.opts.userId, return_reason: `הטיפול בוטל${r.cancel_reason ? `: ${r.cancel_reason}` : ''}` });
       }
     }
-    if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant, location: this.rowLocation(r) });
+    if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) {
+      if (this.itemsTables) this.salesSerialsBack(r);
+      for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant, location: this.rowLocation(r), serial: true });
+    }
   }
 
   // ---- 2.91: locations (migration 4600) ---------------------------------------------------------------------------------------
@@ -694,6 +716,7 @@ export class FakeSupabase {
       const v = variantOf(it, args.p_variant ?? null);
       if (args.p_variant && !v) return refuse('variant_not_found: a variant of this item');
       if (args.p_mode === 'set' && !this.locationOwner()) return refuse('not allowed: the owner counts on the spot (others count in a stock count the owner approves)', '42501');
+      if (it.track_serials) return refuse('serial_item: a product with serial numbers moves with its numbers (received, sold, returned)');
       const qty = Number(args.p_qty);
       if (args.p_mode === 'add' ? !(qty > 0) : !(qty >= 0)) return refuse(args.p_mode === 'add' ? 'a delivery adds at least one unit' : 'a count is zero or more');
       if (!it.track_stock) it.track_stock = true;
@@ -724,12 +747,35 @@ export class FakeSupabase {
           const held = this.heldQty(it.id, v?.id ?? null);
           if (held > 0 && l.qty > this.stockAt(from.id, it.id, v?.id ?? null) - held) return refuse(`reserved_for_online: ${it.name}${v ? ` — ${label(v)}` : ''}`, 'P0001');
         }
-        out.push({ itemId: it.id, variantId: v?.id ?? null, name: it.name, variant: label(v), qty: l.qty });
+        // 4800: a product with numbers goes by its numbers — each in stock at the source
+        let serials: string[] | null = null;
+        if (this.itemsTables && it.track_serials) {
+          const named = (args.p_lines as Row[]).filter((x) => x.itemId === it.id && (x.variantId ?? null) === (v?.id ?? null)).flatMap((x) => Array.isArray(x.serials) ? x.serials.map(String) : []);
+          if (named.length !== l.qty) return refuse(`transfer_serials: ${it.name}${v ? ` — ${label(v)}` : ''}`);
+          serials = [];
+          for (const sn of named) {
+            const x = this.serialOf(it.id, sn);
+            if (!x) return refuse(`serial_not_found: ${sn.trim()}`);
+            if ((x.variant_id ?? null) !== (v?.id ?? null)) return refuse(`serial_variant: ${sn.trim()}`);
+            if (x.status === 'sold') return refuse(`serial_sold: ${sn.trim()}`, '23514');
+            if (x.status !== 'in_stock' || serials.includes(x.serial)) return refuse(`serial_not_in_stock: ${sn.trim()}`, '23514');
+            if (x.location_id !== from.id) return refuse(`serial_elsewhere: ${sn.trim()}`, '23514');
+            serials.push(x.serial);
+          }
+        }
+        out.push({ itemId: it.id, variantId: v?.id ?? null, name: it.name, variant: label(v), qty: l.qty, ...(serials ? { serials } : {}) });
       }
       const number = Math.max(0, ...this.t('stock_transfers').map((x) => x.number)) + 1;
       this.t('stock_transfers').push({ id: args.p_id, business_id: b, number, from_location: from.id, to_location: to.id, status: 'sent', lines: out,
         note: String(args.p_note ?? '').trim().slice(0, 300), sent_by: this.opts.userId, sent_at: now(), received_at: null, received_note: '', cancelled_at: null, cancel_reason: '' });
-      for (const l of out) this.stock(l.itemId, -l.qty, 'transfer', { variant: l.variantId, location: from.id, transfer: args.p_id, note: `העברה ${number} אל ${to.name}` });
+      for (const l of out) {
+        for (const sn of l.serials ?? []) {
+          const x = this.serialOf(l.itemId, sn)!;
+          Object.assign(x, { status: 'in_transit', updated_at: now() });
+          this.serialEvent(x.id, 'transfer_sent', { location_id: from.id, transfer_id: args.p_id, note: `העברה ${number} אל ${to.name}` });
+        }
+        this.stock(l.itemId, -l.qty, 'transfer', { variant: l.variantId, location: from.id, transfer: args.p_id, note: `העברה ${number} אל ${to.name}`, serial: true });
+      }
       return ok({ id: args.p_id, number, created: true });
     }
     if (fn === 'stock_transfer_receive') {
@@ -745,6 +791,17 @@ export class FakeSupabase {
       for (const e of t.lines) {
         const g = got.find((x) => x.itemId === e.itemId && (x.variantId ?? null) === (e.variantId ?? null));
         let rec = e.qty, why = '';
+        if (Array.isArray(e.serials) && e.serials.length) {
+          // 4800: a line with numbers names the ones that did not arrive
+          const miss: string[] = Array.isArray(g?.missing) ? g!.missing.map(String) : [];
+          if (miss.some((m) => !e.serials.some((x: string) => x.toLowerCase() === m.trim().toLowerCase()))) return refuse(`transfer_serial_missing: ${e.name}`);
+          const missing = e.serials.filter((x: string) => miss.some((m) => m.trim().toLowerCase() === x.toLowerCase()));
+          rec = e.qty - missing.length; why = String(g?.reason ?? '').trim().slice(0, 200);
+          if (g && g.received != null && Number(g.received) !== rec) return refuse(`transfer_serial_missing: ${e.name}`);
+          if (rec !== e.qty && !why) return refuse(`transfer_gap_reason: ${e.name}`);
+          outl.push({ ...e, received: rec, reason: why, missing });
+          continue;
+        }
         if (g && g.received != null) {
           if (!/^[0-9]{1,6}$/.test(String(g.received))) return refuse('transfer_received: a whole number of units, zero or more');
           rec = Number(g.received); why = String(g.reason ?? '').trim().slice(0, 200);
@@ -753,8 +810,16 @@ export class FakeSupabase {
         outl.push({ ...e, received: rec, reason: why });
       }
       for (const e of outl) {
-        this.stock(e.itemId, e.qty, 'transfer', { variant: e.variantId, location: t.to_location, transfer: t.id, note: `קבלת העברה ${t.number} מ${from}` });
-        if (e.received !== e.qty) { this.stock(e.itemId, e.received - e.qty, 'adjust', { variant: e.variantId, location: t.to_location, transfer: t.id, note: `פער בהעברה ${t.number}: ${e.reason}` }); gaps++; }
+        this.stock(e.itemId, e.qty, 'transfer', { variant: e.variantId, location: t.to_location, transfer: t.id, note: `קבלת העברה ${t.number} מ${from}`, serial: true });
+        if (e.received !== e.qty) { this.stock(e.itemId, e.received - e.qty, 'adjust', { variant: e.variantId, location: t.to_location, transfer: t.id, note: `פער בהעברה ${t.number}: ${e.reason}`, serial: true }); gaps++; }
+        for (const sn of e.serials ?? []) {
+          const x = this.serialOf(e.itemId, sn);
+          if (!x || x.status !== 'in_transit') continue;
+          const lost = (e.missing ?? []).includes(sn);
+          Object.assign(x, { status: lost ? 'removed' : 'in_stock', location_id: t.to_location, updated_at: now() });
+          this.serialEvent(x.id, lost ? 'transfer_missing' : 'transfer_received', { location_id: t.to_location, transfer_id: t.id,
+            note: lost ? `לא הגיע בהעברה ${t.number}: ${e.reason}` : `קבלת העברה ${t.number} מ${from}` });
+        }
       }
       Object.assign(t, { status: 'received', lines: outl, received_by: this.opts.userId, received_at: now(), received_note: String(args.p_note ?? '').trim().slice(0, 300) });
       return ok({ result: 'ok', number: t.number, gaps });
@@ -766,7 +831,15 @@ export class FakeSupabase {
       if (t.status !== 'sent') return refuse('transfer_received: a received transfer is not cancelled', '23514');
       if (!(this.mayUse(t.from_location) || this.locationOwner())) return refuse('not allowed: this location is not yours', '42501');
       if (!String(args.p_reason ?? '').trim()) return refuse('transfer_cancel_reason: why it is cancelled');
-      for (const e of t.lines) this.stock(e.itemId, e.qty, 'transfer', { variant: e.variantId, location: t.from_location, transfer: t.id, note: `ביטול העברה ${t.number}` });
+      for (const e of t.lines) {
+        this.stock(e.itemId, e.qty, 'transfer', { variant: e.variantId, location: t.from_location, transfer: t.id, note: `ביטול העברה ${t.number}`, serial: true });
+        for (const sn of e.serials ?? []) {
+          const x = this.serialOf(e.itemId, sn);
+          if (!x || x.status !== 'in_transit') continue;
+          Object.assign(x, { status: 'in_stock', location_id: t.from_location, updated_at: now() });
+          this.serialEvent(x.id, 'transfer_cancelled', { location_id: t.from_location, transfer_id: t.id, note: `ביטול העברה ${t.number}` });
+        }
+      }
       Object.assign(t, { status: 'cancelled', cancelled_by: this.opts.userId, cancelled_at: now(), cancel_reason: String(args.p_reason).trim().slice(0, 300) });
       return ok({ result: 'ok', number: t.number });
     }
@@ -802,6 +875,7 @@ export class FakeSupabase {
       if (!it) return refuse('count_item: a product of the business');
       if (!args.p_variant && it.has_variants) return refuse('variant_required: an item with variants is counted per variant');
       if (args.p_variant && !variantOf(it, args.p_variant)) return refuse('variant_not_found: a variant of this item');
+      if (args.p_counted != null && it.track_serials) return refuse(`count_serial: ${it.name}`);
       const k = `${it.id}:${args.p_variant ?? ''}`;
       if (args.p_counted == null) { const { [k]: _gone, ...rest } = count.lines; count.lines = rest; }
       else {
@@ -832,11 +906,282 @@ export class FakeSupabase {
     return refuse(`unknown stock function ${fn}`, '42883');
   }
 
+  // ---- 2.93: serial numbers, price lists, SKU series, comparing locations (migration 4800) -----------------------------------------
+  private serialOf(itemId: string, serial: string) {
+    const s = String(serial ?? '').trim().toLowerCase();
+    return this.t('catalog_serials').find((x) => x.item_id === itemId && String(x.serial).toLowerCase() === s);
+  }
+  private serialEvent(serialId: string, kind: string, extra: Row = {}) {
+    this.t('catalog_serial_events').push({ id: ++this.serialEventId, business_id: this.opts.businessId, serial_id: serialId, kind, location_id: null, sale_id: null,
+      refund_id: null, transfer_id: null, note: '', by_user: this.opts.userId, at: now(), ...extra });
+  }
+  /** sale_serials_take's checks: a line of a product with numbers names one a unit, each in stock at the sale's location */
+  private salesSerialsCheck(r: Row): string | null {
+    const seen = new Set<string>();
+    for (const e of Array.isArray(r.items) ? r.items : []) {
+      const it = e?.itemId ? this.t('catalog_items').find((i) => i.id === e.itemId) : null;
+      if (!it?.track_serials) continue;
+      const q = Math.floor(Number(e.qty) || 0);
+      if (q <= 0) continue;
+      const arr: string[] = Array.isArray(e.serials) ? e.serials.map(String) : [];
+      if (!arr.length && (r.channel ?? 'pos') !== 'pos') continue;
+      if (arr.length !== q) return `serial_required: ${it.name}`;
+      for (const sn of arr) {
+        const x = this.serialOf(it.id, sn);
+        if (!x) return `serial_not_found: ${sn.trim()}`;
+        if ((x.variant_id ?? null) !== (e.variantId ?? null)) return `serial_variant: ${sn.trim()}`;
+        if (x.status === 'sold' || seen.has(x.id)) return `serial_sold: ${sn.trim()}`;
+        if (x.status !== 'in_stock') return `serial_not_in_stock: ${sn.trim()}`;
+        if (x.location_id !== this.rowLocation(r)) return `serial_elsewhere: ${sn.trim()}`;
+        seen.add(x.id);
+      }
+    }
+    return null;
+  }
+  private salesSerialsTake(r: Row) {
+    for (const e of Array.isArray(r.items) ? r.items : []) {
+      const it = e?.itemId ? this.t('catalog_items').find((i) => i.id === e.itemId) : null;
+      if (!it?.track_serials) continue;
+      for (const sn of Array.isArray(e.serials) ? e.serials : []) {
+        const x = this.serialOf(it.id, sn);
+        if (!x) continue;
+        Object.assign(x, { status: 'sold', sale_id: r.id, updated_at: now() });
+        this.serialEvent(x.id, 'sold', { location_id: this.rowLocation(r), sale_id: r.id });
+      }
+    }
+  }
+  private salesSerialsBack(r: Row) {
+    for (const x of this.t('catalog_serials').filter((y) => y.sale_id === r.id && y.status === 'sold')) {
+      Object.assign(x, { status: 'in_stock', sale_id: null, location_id: this.rowLocation(r), updated_at: now() });
+      this.serialEvent(x.id, 'cancelled', { location_id: this.rowLocation(r), sale_id: r.id });
+    }
+  }
+  /** refund_serials' checks: a line of a product its sale sold by number names the numbers that came back, each of that sale */
+  private refundSerialsCheck(r: Row): string | null {
+    const soldBy = (itemId: string) => this.t('catalog_serial_events').some((e) => e.sale_id === r.sale_id && e.kind === 'sold'
+      && this.t('catalog_serials').find((x) => x.id === e.serial_id)?.item_id === itemId);
+    for (const e of Array.isArray(r.items) ? r.items : []) {
+      if (!e?.itemId) continue;
+      const arr: string[] = Array.isArray(e.serials) ? e.serials.map(String) : [];
+      if (!arr.length && !soldBy(e.itemId)) continue;
+      const q = Math.floor(Number(e.qty) || 0);
+      if (q <= 0) continue;
+      const name = this.t('catalog_items').find((i) => i.id === e.itemId)?.name ?? e.name ?? '';
+      if (arr.length !== q) return `serial_required: ${name}`;
+      for (const sn of arr) {
+        const x = this.serialOf(e.itemId, sn);
+        if (!x || x.sale_id !== r.sale_id || x.status !== 'sold') return `serial_not_in_sale: ${sn.trim()}`;
+      }
+    }
+    return null;
+  }
+  private refundSerialsApply(r: Row) {
+    for (const e of Array.isArray(r.items) ? r.items : []) {
+      for (const sn of Array.isArray(e?.serials) ? e.serials : []) {
+        const x = e.itemId ? this.serialOf(e.itemId, sn) : null;
+        if (!x) continue;
+        Object.assign(x, { status: r.restock ? 'in_stock' : 'returned', sale_id: null, location_id: this.rowLocation(r), updated_at: now() });
+        this.serialEvent(x.id, 'returned', { location_id: this.rowLocation(r), sale_id: r.sale_id, refund_id: r.id, note: r.restock ? '' : 'לא חזר למלאי' });
+      }
+    }
+  }
+  private itemsRpc(fn: string, args: any): { status: number; body: any } | null {
+    if (!['serial_tracking', 'serial_receive', 'serial_remove', 'price_list_save', 'price_list_set', 'sku_series_save', 'sku_next', 'location_compare'].includes(fn)) return null;
+    if (!this.itemsTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const b = this.opts.businessId;
+    const refuse = (message: string, code = '22023') => ({ status: 400, body: { code, message, details: null, hint: null } });
+    const ok = (body: any) => ({ status: 200, body });
+    const item = (id: string) => this.t('catalog_items').find((i) => i.id === id);
+    const trim = (v: unknown) => String(v ?? '').trim();
+    if (fn === 'serial_tracking') {
+      const it = item(args.p_item);
+      if (!it) return refuse('not allowed', '42501');
+      if (Boolean(it.track_serials) === Boolean(args.p_on)) return ok({ item: it.id, on: Boolean(args.p_on), changed: false });
+      if (args.p_on) {
+        if (it.kind !== 'product') return refuse('serial_kind: only a product has serial numbers');
+        if (it.publish_online) return refuse('serial_online: a product with serial numbers is not sold on the site yet');
+        if (this.t('stock_counts').some((c) => c.status === 'open' && Object.values(c.lines ?? {}).some((l: any) => l.itemId === it.id))) return refuse('serial_counting: the product is in an open stock count', '23514');
+        if (this.t('stock_transfers').some((t) => t.status === 'sent' && t.lines.some((l: Row) => l.itemId === it.id))) return refuse('serial_on_the_way: the product is on the way in a transfer', '23514');
+        if (this.heldQty(it.id, null) > 0) return refuse('serial_reserved: units of it are held for an order of the site', '23514');
+        Object.assign(it, { track_serials: true, track_stock: true });
+      } else {
+        const n = this.t('catalog_serials').filter((x) => x.item_id === it.id && ['in_stock', 'in_transit'].includes(x.status)).length;
+        if (n) return refuse(`serial_in_stock: ${n} units with serial numbers are in stock`, '23514');
+        it.track_serials = false;
+      }
+      return ok({ item: it.id, on: Boolean(args.p_on), changed: true });
+    }
+    if (fn === 'serial_receive') {
+      const it = item(args.p_item);
+      if (!it) return refuse('not allowed', '42501');
+      if (!it.track_serials) return refuse('serial_untracked: the product has no serial numbers');
+      if (!args.p_variant && it.has_variants) return refuse('variant_required: an item with variants is counted per variant');
+      if (args.p_variant && !this.t('catalog_variants').some((v) => v.id === args.p_variant && v.item_id === it.id)) return refuse('variant_not_found: a variant of this item');
+      const loc = args.p_location ?? b;
+      if (!this.places().locations.some((l) => l.id === loc)) return refuse('stock_location: a location of the business');
+      if (!this.mayUse(loc)) return refuse('not allowed: this location is not yours', '42501');
+      const list: string[] = [];
+      for (const raw of Array.isArray(args.p_serials) ? args.p_serials : []) {
+        const t = trim(raw);
+        if (!t) continue;
+        if (t.length > 64) return refuse(`serial_long: ${t.slice(0, 64)}`);
+        if (list.some((x) => x.toLowerCase() === t.toLowerCase())) return refuse(`serial_twice: ${t}`);
+        list.push(t);
+      }
+      if (!list.length || list.length > 200) return refuse('serial_list: 1 to 200 serial numbers');
+      const taken = list.find((x) => this.serialOf(it.id, x));
+      if (taken) return refuse(`serial_taken: ${taken}`, '23505');
+      const variant = args.p_variant ?? null;
+      if (args.p_existing) {
+        const free = this.stockAt(loc, it.id, variant) - this.t('catalog_serials').filter((x) => x.item_id === it.id && (x.variant_id ?? null) === variant && x.location_id === loc && x.status === 'in_stock').length;
+        if (list.length > free) return refuse(`serial_more_than_stock: ${Math.max(free, 0)} units here have no number`, '23514');
+      }
+      const note = trim(args.p_note).slice(0, 200);
+      for (const sn of list) {
+        const row = { id: randomUUID(), business_id: b, item_id: it.id, variant_id: variant, serial: sn, status: 'in_stock', location_id: loc, sale_id: null,
+          received_at: now(), received_by: this.opts.userId, updated_at: now() };
+        this.t('catalog_serials').push(row);
+        this.serialEvent(row.id, args.p_existing ? 'registered' : 'received', { location_id: loc, note });
+      }
+      if (!args.p_existing) this.stock(it.id, list.length, 'receive', { variant, location: loc, serial: true, note: `קליטה · ${list.join(', ')}${note ? ` · ${note}` : ''}`.slice(0, 200) });
+      return ok({ count: list.length, stock: this.stockAt(loc, it.id, variant) });
+    }
+    if (fn === 'serial_remove') {
+      if (!this.locationOwner()) return refuse('not allowed: the owner counts on the spot (others count in a stock count the owner approves)', '42501');
+      const x = this.t('catalog_serials').find((y) => y.id === args.p_serial);
+      if (!x) return refuse('not allowed', '42501');
+      if (x.status !== 'in_stock') return refuse(`serial_not_in_stock: ${x.serial}`, '23514');
+      const why = trim(args.p_reason).slice(0, 200);
+      if (!why) return refuse('serial_reason: why it leaves the stock');
+      Object.assign(x, { status: 'removed', updated_at: now() });
+      this.serialEvent(x.id, 'removed', { location_id: x.location_id, note: why });
+      this.stock(x.item_id, -1, 'adjust', { variant: x.variant_id, location: x.location_id, serial: true, note: `הוצאה · ${x.serial} · ${why}`.slice(0, 200) });
+      return ok({ serial: x.serial, status: 'removed' });
+    }
+    if (fn === 'price_list_save') {
+      if (!args.p_id) return refuse('price_list_id: a new list has an id');
+      const name = trim(args.p_name);
+      if (!name || name.length > 40) return refuse('price_list_name: a name of 1 to 40 characters');
+      const tag = trim(args.p_tag) || null;
+      const lists = this.t('price_lists');
+      const cur = lists.find((l) => l.id === args.p_id);
+      const kind = cur?.kind ?? args.p_kind;
+      const active = args.p_active ?? cur?.active ?? true;
+      if (lists.some((l) => l.id !== args.p_id && l.name.toLowerCase() === name.toLowerCase())) return refuse('duplicate key value violates unique constraint "price_lists_name_uq"', '23505');
+      const theTag = kind === 'group' ? (tag ?? cur?.tag ?? null) : null;
+      if (kind === 'group' && active && lists.some((l) => l.id !== args.p_id && l.kind === 'group' && l.active && String(l.tag).toLowerCase() === String(theTag).toLowerCase())) {
+        return refuse('duplicate key value violates unique constraint "price_lists_tag_uq"', '23505');
+      }
+      if (cur) { Object.assign(cur, { name, tag: theTag, active, sort: args.p_sort ?? cur.sort }); return ok({ id: cur.id, created: false }); }
+      if (kind === 'location') {
+        if (!args.p_location || !this.places().locations.some((l) => l.id === args.p_location)) return refuse('stock_location: a location of the business');
+        if (active && lists.some((l) => l.kind === 'location' && l.active && l.location_id === args.p_location)) return refuse('duplicate key value violates unique constraint "price_lists_location_uq"', '23505');
+      } else if (kind === 'group') {
+        if (!tag) return refuse("price_list_tag: the customers' tag");
+      } else return refuse("price_list_kind: a location's list or a group's");
+      lists.push({ id: args.p_id, business_id: b, name, kind, location_id: kind === 'location' ? args.p_location : null, tag: theTag, active, sort: args.p_sort ?? 0, created_at: now() });
+      return ok({ id: args.p_id, created: true });
+    }
+    if (fn === 'price_list_set') {
+      const pl = this.t('price_lists').find((l) => l.id === args.p_list);
+      if (!pl) return refuse('not allowed', '42501');
+      const lines: Row[] = Array.isArray(args.p_lines) ? args.p_lines : [];
+      if (!lines.length || lines.length > 500) return refuse('price_list_lines: 1 to 500 lines');
+      for (const e of lines) {
+        if (!e?.itemId) return refuse('price_list_lines: a product on every line');
+        if (!item(e.itemId)) return refuse('price_list_item: a product of the business');
+        const v = e.variantId ?? null;
+        if (v && !this.t('catalog_variants').some((x) => x.id === v && x.item_id === e.itemId)) return refuse('variant_not_found: a variant of this item');
+        const rows = this.t('price_list_items');
+        const at = rows.findIndex((x) => x.list_id === pl.id && x.item_id === e.itemId && (x.variant_id ?? null) === v);
+        if (e.price == null) { if (at >= 0) rows.splice(at, 1); continue; }
+        if (!/^[0-9]{1,7}(\.[0-9]{1,2})?$/.test(String(e.price))) return refuse('price_list_price: a price of 0 or more, in shekels and agorot');
+        if (at >= 0) Object.assign(rows[at], { price: Number(e.price), updated_at: now() });
+        else rows.push({ list_id: pl.id, business_id: b, item_id: e.itemId, variant_id: v, price: Number(e.price), updated_at: now() });
+      }
+      return ok({ list: pl.id, lines: lines.length });
+    }
+    if (fn === 'sku_series_save') {
+      if (!args.p_id) return refuse('sku_series_id: a new series has an id');
+      const name = trim(args.p_name), prefix = trim(args.p_prefix).toUpperCase();
+      if (!name || name.length > 40) return refuse('sku_series_name: a name of 1 to 40 characters');
+      if (!/^[A-Z0-9]{1,6}$/.test(prefix)) return refuse('sku_series_prefix: 1 to 6 letters (A-Z) or digits');
+      const digits = args.p_digits ?? 4, next = args.p_next ?? null;
+      if (!(digits >= 3 && digits <= 6)) return refuse('sku_series_digits: 3 to 6 digits');
+      if (next != null && !(next >= 1 && next <= 999999)) return refuse('sku_series_next: from 1');
+      const all = this.t('sku_series');
+      if (all.some((x) => x.id !== args.p_id && x.prefix === prefix)) return refuse('duplicate key value violates unique constraint "sku_series_prefix_uq"', '23505');
+      if (all.some((x) => x.id !== args.p_id && x.name.toLowerCase() === name.toLowerCase())) return refuse('duplicate key value violates unique constraint "sku_series_name_uq"', '23505');
+      const cur = all.find((x) => x.id === args.p_id);
+      if (cur) { Object.assign(cur, { name, prefix, digits, next_no: next ?? cur.next_no, active: args.p_active ?? cur.active }); return ok({ id: cur.id, created: false }); }
+      all.push({ id: args.p_id, business_id: b, name, prefix, digits, next_no: next ?? 1, active: args.p_active ?? true, created_at: now() });
+      return ok({ id: args.p_id, created: true });
+    }
+    if (fn === 'sku_next') {
+      const sr = this.t('sku_series').find((x) => x.id === args.p_series);
+      if (!sr) return refuse('not allowed', '42501');
+      if (!sr.active) return refuse('sku_series_closed: the series is not active', '23514');
+      const taken = (c: string) => this.t('catalog_items').some((i) => String(i.sku ?? '').toLowerCase() === c.toLowerCase())
+        || this.t('catalog_variants').some((v) => String(v.sku ?? '').toLowerCase() === c.toLowerCase());
+      for (;;) {
+        if (sr.next_no > 10 ** sr.digits - 1) return refuse('sku_series_full: the series has no number left', '23514');
+        const code = `${sr.prefix}-${String(sr.next_no).padStart(sr.digits, '0')}`;
+        sr.next_no++;
+        if (!taken(code)) return ok(code);
+      }
+    }
+    // location_compare: each location the member may use, side by side (finance_summary's rules, the sales, the stock now)
+    const from = String(args.p_from), to = String(args.p_to);
+    if (!from || !to || from > to) return refuse('bad range');
+    const inRange = (d: string | null | undefined) => Boolean(d) && d! >= from && d! <= to;
+    const ilDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date(iso));
+    const vat = this.vatBusiness();
+    const cancelled = new Set(this.t('document_cancellations').map((c) => c.document_id));
+    const rows = this.stockByLocation();
+    const locs = this.places().locations.filter((l) => this.mayUse(l.id));
+    const round = (n: number) => Math.round(n * 100) / 100;
+    return ok({ from, to, vat, locations: locs.map((l) => {
+      const at = (r: Row) => this.rowLocation(r) === l.id;
+      const docs = this.t('documents').filter((d) => at(d) && inRange(d.doc_date));
+      const net = docs.reduce((a, d) => a + (vat ? (d.doc_type === 305 || d.doc_type === 320 ? Number(d.after_discount) : d.doc_type === 330 ? -Number(d.after_discount) : 0)
+        : d.doc_type === 400 && !cancelled.has(d.id) ? Number(d.total) : 0), 0);
+      const vatA = docs.reduce((a, d) => a + (vat ? (d.doc_type === 305 || d.doc_type === 320 ? Number(d.vat_amount) : d.doc_type === 330 ? -Number(d.vat_amount) : 0) : 0), 0);
+      const ex = this.t('expenses').filter((x) => at(x) && x.status === 'confirmed' && inRange(x.doc_date));
+      const sign = (x: Row) => (x.supplier_doc_type === 'credit' ? -1 : 1);
+      const exNet = ex.reduce((a, x) => a + sign(x) * Number(x.amount_before_vat), 0);
+      const cost = ex.reduce((a, x) => a + sign(x) * (Number(x.amount_before_vat) + Number(x.vat_amount) - (vat ? round(Number(x.vat_amount) * Number(x.vat_deductible_pct ?? 100) / 100) : 0)), 0);
+      const sales = this.t('sales').filter((x) => at(x) && x.status === 'paid' && inRange(ilDay(x.paid_at ?? x.created_at)));
+      const refunds = this.t('sale_refunds').filter((x) => at(x) && inRange(ilDay(x.created_at)));
+      const lines = new Map<string, { itemId: string | null; name: string; qty: number; total: number }>();
+      for (const sa of sales) for (const e of Array.isArray(sa.items) ? sa.items : []) {
+        const k = e.itemId ? `${e.itemId}|${e.variantId ?? ''}` : `name:${e.name ?? ''}`;
+        const cur = lines.get(k) ?? { itemId: e.itemId ?? null, name: String(e.name ?? ''), qty: 0, total: 0 };
+        cur.qty += Number(e.qty) || 0; cur.total += (Number(e.qty) || 0) * (Number(e.price) || 0); lines.set(k, cur);
+      }
+      const here = rows.filter((r) => r.location_id === l.id);
+      const value = here.reduce((a, r) => {
+        const it = this.t('catalog_items').find((i) => i.id === r.item_id);
+        if (!it) return a;
+        if (r.variant_id == null) return it.has_variants ? a : a + Math.max(0, r.qty) * Number(it.price);
+        const v = this.t('catalog_variants').find((x) => x.id === r.variant_id);
+        return a + Math.max(0, r.qty) * Number(v?.price ?? it.price);
+      }, 0);
+      return { id: l.id, name: l.name, active: l.active, main: l.id === b,
+        revenue: { net: round(net), vat: round(vatA) }, expenses: { net: round(exNet), cost: round(cost) }, profit: round(net - cost),
+        sales: { count: sales.length, total: round(sales.reduce((a, x) => a + Number(x.total), 0)), online: sales.filter((x) => x.channel === 'online').length,
+          refunds: round(refunds.reduce((a, x) => a + Number(x.amount), 0)), refundCount: refunds.length },
+        items: [...lines.values()].sort((x, y) => y.total - x.total || x.name.localeCompare(y.name)).slice(0, 10).map((x) => ({ ...x, total: round(x.total) })),
+        stock: { units: here.filter((r) => r.variant_id == null).reduce((a, r) => a + r.qty, 0), value: round(value) } };
+    }) });
+  }
+
   rpc(fn: string, args: any): { status: number; body: any } {
     const placed = this.locationRpc(fn, args);
     if (placed) return placed;
     const stocked = this.stockRpc(fn, args);
     if (stocked) return stocked;
+    const itemed = this.itemsRpc(fn, args);
+    if (itemed) return itemed;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
     // 2.88 (migration 4300): what was really paid as a deposit for these appointments — never a test link
@@ -1253,6 +1598,11 @@ export class FakeSupabase {
       return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
     }
     if (table === 'stock_by_location') this.tables.stock_by_location = this.stockByLocation();
+    // 2.93 (4800): before the migration there are no such tables; after it they are written only by its functions
+    if (FakeSupabase.ITEMS.includes(table)) {
+      if (!this.itemsTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+      if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
+    }
     // 2.91: the *_location_gate policies — a signed-in user reads and changes only the rows of the locations they see now
     const seen = FakeSupabase.LOCATED.includes(table) ? this.locationFilter() : null;
     const all = this.t(table);

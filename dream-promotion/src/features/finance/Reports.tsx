@@ -9,6 +9,9 @@ import { categoryLabel } from './expenses';
 import { payLabel } from './payments';
 import { vatReportRows } from './reports';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, ils, periodNow, type Period } from './ui';
+import { LocationCompare } from './LocationCompare';
+import { useLocations } from '@/features/locations/store';
+import { multiLocation } from '@/features/locations/locations';
 
 /**
  * "דוחות": profit and loss (estimate), the VAT working paper of a period, expenses by category, money by method — all from
@@ -31,6 +34,8 @@ ${cats ? `<h3>הוצאות לפי קטגוריה</h3><table>${cats}</table>` : '
 
 export function Reports() {
   const { profile, business, vat, fail } = useFinance();
+  // "השוואת סניפים" (2.93 — T12ד): only with more than one location (a business with one sees the reports as before)
+  const multi = useLocations((x) => multiLocation(x.state));
   const [period, setPeriod] = useState<Period>(() => periodNow(profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'));
   const [s, setS] = useState<Summary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -75,6 +80,7 @@ export function Reports() {
             {!s.cash.byMethod.length ? <p className="text-sm text-muted">אין תשלומים.</p> : <ul className="grid gap-1 text-sm">{s.cash.byMethod.map((m) => <li key={m.method} className="flex justify-between gap-2"><span>{payLabel(m.method)}</span><span className="tabular-nums">נכנס {ils(Number(m.in ?? 0))} · יצא {ils(Number(m.out ?? 0))}</span></li>)}</ul>}
           </Card>
         </div>
+        {multi && <LocationCompare period={period} />}
         <div><Button variant="ghost" onClick={print}>הדפסת הדוח</Button></div>
         <p className="text-xs text-muted">דוח עבודה — לא הגשה. Dream Promotion לא מגיש דיווחים לרשות המסים.</p>
       </>}

@@ -10,23 +10,27 @@ import { loadStockCatalog, loadStockRows, loadTransfers, type StockCatalog } fro
 import { ByLocation } from './ByLocation';
 import { Transfers } from './Transfers';
 import { Counts } from './Counts';
+import { Serials } from './Serials';
 
-type Tab = 'by' | 'transfers' | 'counts';
+type Tab = 'by' | 'transfers' | 'counts' | 'serials';
 /** a transfer the screen suggests (low stock here, to spare there) — the form opens with it */
 export interface TransferDraft { from: string; to: string; lines: DraftLine[] }
 
 /**
  * "מלאי" (T12ב): every location's count of every product, low stock with where to bring it from, transfers between locations and
  * counts that the owner approves. A business with one location sees only "ספירות" (it is opened from the register's price list —
- * nothing in its menus changes); with more than one, the menu has "מלאי".
+ * nothing in its menus changes); with more than one, the menu has "מלאי". With a product with serial numbers (2.93), also
+ * "מספרים סידוריים" — a unit by its number, and its history.
  */
 export function StockScreen() {
   const { state: loc, loaded, load } = useLocations();
   const multi = multiLocation(loc);
-  const tabs: [Tab, string][] = multi ? [['by', 'לפי סניף'], ['transfers', 'העברות'], ['counts', 'ספירות']] : [['counts', 'ספירות']];
-  const [tab, setTab] = useState<Tab>('counts');
   const [rows, setRows] = useState<StockRow[] | null | undefined>(undefined);
   const [catalog, setCatalog] = useState<StockCatalog | null>(null);
+  const serials = Boolean(catalog?.items.some((i) => i.trackSerials));
+  const tabs: [Tab, string][] = [...(multi ? [['by', 'לפי סניף'], ['transfers', 'העברות'], ['counts', 'ספירות']] as [Tab, string][] : [['counts', 'ספירות']] as [Tab, string][]),
+    ...(serials ? [['serials', 'מספרים סידוריים']] as [Tab, string][] : [])];
+  const [tab, setTab] = useState<Tab>('counts');
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<TransferDraft | null>(null);
   // units sent and not yet received: in no location's count until then — "לפי סניף" shows them, and counts them in the total
@@ -37,7 +41,7 @@ export function StockScreen() {
     if (!loaded) return;
     const want = new URLSearchParams(window.location.search).get('tab') as Tab | null;
     setTab(want && tabs.some(([k]) => k === want) ? want : tabs[0][0]);
-  }, [loaded, multi]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, multi, serials]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reload = useCallback(async () => {
     const [r, c, t] = await Promise.all([loadStockRows(), loadStockCatalog(), loadTransfers()]);
@@ -52,7 +56,7 @@ export function StockScreen() {
   const places = activeLocations(loc);
   return (
     <>
-      <PageHead title={multi ? 'מלאי' : 'ספירת מלאי'}
+      <PageHead title={multi || serials ? 'מלאי' : 'ספירת מלאי'}
         sub={multi ? `${places.length} סניפים · כל מכירה מורידה מהסניף של הקופה, וההזמנות באתר — מהסניף שנקבע למשלוחים` : 'ספירה מסודרת של המלאי — הבעלים מאשרים, ורק אז הפערים נרשמים'} />
       {error && <div className="mb-4"><Note tone="warn">{error}</Note></div>}
       {tabs.length > 1 && (
@@ -64,6 +68,7 @@ export function StockScreen() {
         {tab === 'by' && <ByLocation rows={rows} way={way} catalog={catalog} loc={loc} onTransfer={(d) => { setDraft(d); setTab('transfers'); }} />}
         {tab === 'transfers' && <Transfers rows={rows} catalog={catalog} loc={loc} draft={draft} onDraftUsed={() => setDraft(null)} onMoved={reload} />}
         {tab === 'counts' && <Counts catalog={catalog} loc={loc} onMoved={reload} />}
+        {tab === 'serials' && <Serials catalog={catalog} loc={loc} />}
       </>}
     </>
   );

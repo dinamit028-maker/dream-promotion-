@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# A business with one location, without and with migration 20261011004700 (stock by location, docs/FINANCE_ADDITIONS_HE.md T12ב):
-# two databases — every migration before it, and every migration — and the same day of a business on both: deliveries and
-# counts (the screens' functions as they were), sales and a cancel, a refund back to stock, a document and its cancellation, a
-# receipt and its credit invoice, an expense's delivery and its void, variants and "לא משויך", reconciling, an order of the site
-# that holds units. Every count, every move (without the columns 4700 adds), every answer of the functions and what the site
-# says is free — the same on both.
-# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db]
+# A business with one location, without and with a migration that changes how stock moves — 20261011004700 (stock by location,
+# docs/FINANCE_ADDITIONS_HE.md T12ב), and 20261011004800 (serial numbers, T12ג — every mover again): two databases — every
+# migration before it, and every migration — and the same day of a business on both: deliveries and counts (the screens'
+# functions as they were), sales and a cancel, a refund back to stock, a document and its cancellation, a receipt and its credit
+# invoice, an expense's delivery and its void, variants and "לא משויך", reconciling, an order of the site that holds units. Every
+# count, every move (without the columns 4700 adds), every answer of the functions and what the site says is free — the same on both.
+# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default) or 4800]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BASE=${1:-${DP_TEST_DB:-dp_test}}
@@ -13,7 +13,12 @@ export PGOPTIONS="-c client_min_messages=warning"
 PSQL=(psql -X -q -v ON_ERROR_STOP=1)
 as_pg() { if [ "$(id -un)" = postgres ]; then "$@"; else su postgres -c "$(printf '%q ' "$@")"; fi; }
 fail() { echo "CHECK FAILED: $1"; exit 1; }
-STOCK=supabase/migrations/20261011004700_stock_locations.sql
+case "${2:-4700}" in
+  4700) STOCK=supabase/migrations/20261011004700_stock_locations.sql ;;
+  4800) STOCK=supabase/migrations/20261011004800_items_lists_reports.sql ;;
+  *) fail "the migration to compare: 4700 or 4800" ;;
+esac
+TAG=${2:-4700}
 TMPF=$(mktemp); trap 'rm -f "$TMPF" "$TMPF.before" "$TMPF.after"' EXIT
 
 build() { # $1 = the database, $2 = with 4700 (yes / no)
@@ -93,13 +98,19 @@ day() { # the same day of the business, on database $1 — prints every answer o
 }
 build "${BASE}_stk_before" no
 build "${BASE}_stk_after" yes
-day "${BASE}_stk_before" > "$TMPF.before" || fail "the day without 4700"
-day "${BASE}_stk_after" > "$TMPF.after" || fail "the day with 4700"
+day "${BASE}_stk_before" > "$TMPF.before" || fail "the day without $TAG"
+day "${BASE}_stk_after" > "$TMPF.after" || fail "the day with $TAG"
 before=$(cat "$TMPF.before"); after=$(cat "$TMPF.after")
 if [ -n "${CMP_SHOW:-}" ]; then cat "$TMPF.after"; fi
-[ -n "$(echo "$before" | grep '^moves ')" ] || fail "the day ran on the database without 4700"
-[ "$before" = "$after" ] || { diff <(echo "$before") <(echo "$after"); fail "one location: 4700 changed something"; }
-r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.stock_levels where business_id = '$B'")
-[ "$r" = "0" ] || fail "one location: nothing kept for other locations (got $r)"
-echo "ok: one location, without and with 4700 → the same day gives the same counts, moves, answers and the same site ($(echo "$after" | grep -c .) results compared)"
+[ -n "$(echo "$before" | grep '^moves ')" ] || fail "the day ran on the database without $TAG"
+[ "$before" = "$after" ] || { diff <(echo "$before") <(echo "$after"); fail "one location: $TAG changed something"; }
+if [ "$TAG" = 4700 ]; then
+  r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.stock_levels where business_id = '$B'")
+  [ "$r" = "0" ] || fail "one location: nothing kept for other locations (got $r)"
+else
+  r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select (select count(*) from public.catalog_serials) + (select count(*) from public.price_lists)
+                                                              + (select count(*) from public.sku_series) + (select count(*) from public.catalog_items where track_serials)")
+  [ "$r" = "0" ] || fail "one location: no serial number, price list or SKU series appeared (got $r)"
+fi
+echo "ok: one location, without and with $TAG → the same day gives the same counts, moves, answers and the same site ($(echo "$after" | grep -c .) results compared)"
 as_pg dropdb "${BASE}_stk_before" >/dev/null; as_pg dropdb "${BASE}_stk_after" >/dev/null

@@ -29,6 +29,9 @@ import { activeLocations, defaultLocation, locationName, multiLocation } from '@
 import { adjustAt, loadItemStock } from '@/features/stock/stock-data';
 import { qtyAt, type StockRow } from '@/features/stock/stock-locations';
 import { useQuickCount } from '@/features/stock/useQuickCount';
+import Link from 'next/link';
+import { SerialsPanel } from './SerialsPanel';
+import { SkuAuto, useItemsReady } from './SkuAuto';
 
 /**
  * THE product editor (Dream Commerce 2.54) — the only place a product is created and edited, opened from the register's
@@ -124,6 +127,9 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const loc = useLocations((s) => s.state);
   // "ספירה" and "סיום ספירה" on the spot — the owner only (the database refuses anyone else from 4700); "+ קבלה" — whoever may write
   const quick = useQuickCount();
+  // serial numbers, SKU series and price lists (2.93): only once migration 4800 is in the database — before it, as before
+  const itemsOk = useItemsReady();
+  const serial = Boolean(item?.trackSerials);
   const perLoc = loc.ready && (multiLocation(loc) || loc.limited);
   const [stockLoc, setStockLoc] = useState<string | null>(null);
   const [levels, setLevels] = useState<StockRow[] | null>(null);
@@ -425,6 +431,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
             <input type="checkbox" checked={draft.active} onChange={(e) => set('active', e.target.checked)} className="h-5 w-5" />מוצג בקופה
           </label>
         </div>
+        {itemsOk && item && <p className="text-xs text-muted">מחיר אחר לסניף או לקבוצת לקוחות (למשל סיטונאי) — <Link href="/prices" className="font-semibold text-primary">במחירונים</Link>.</p>}
       </Section>
 
       {isPackage && (
@@ -533,8 +540,9 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
               <strong className="block">פרסם באתר</strong>
               <span className="text-xs text-muted">{draft.publishOnline ? 'יופיע בחנות באתר' : 'כבוי — המוצר לא יופיע באתר'}{draft.publishOnline && gaps.length ? ` · מומלץ להוסיף ${gaps.map((g) => (g === 'image' ? 'תמונה' : 'תיאור')).join(' ו')}` : ''}</span>
             </span>
-            <Switch on={draft.publishOnline} onClick={() => set('publishOnline', !draft.publishOnline)} label="פרסם באתר" />
+            <Switch on={draft.publishOnline} onClick={() => set('publishOnline', !draft.publishOnline)} label="פרסם באתר" disabled={serial && !draft.publishOnline} />
           </div>
+          {serial && <p className="-mt-2 mb-4 text-xs text-muted">מוצר עם מספר סידורי לכל יחידה לא נמכר באתר (עדיין) — בקופה בוחרים את המספר שנמכר.</p>}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="מחיר באתר ₪ (לא חובה)"><Input inputMode="decimal" value={draft.onlinePrice} onChange={(e) => set('onlinePrice', e.target.value)} placeholder={`ריק = מחיר הקופה (${ils(price)})`} /></Field>
             <Field label="מחיר לפני הנחה ₪ (לא חובה)"><Input inputMode="decimal" value={draft.compareAtPrice} onChange={(e) => set('compareAtPrice', e.target.value)} placeholder="מוצג מחוק, ליד המחיר" /></Field>
@@ -622,7 +630,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
                         <span className={cx('rounded-full px-2.5 py-1 text-xs font-bold tabular-nums', lvl === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : lvl === 'low' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
                           📦 {stockAt(v.id, v.stockQty) ?? (v.stockQty <= 0 ? (v.stockQty < 0 ? `חסר (${v.stockQty})` : 'אזל') : `במלאי ${v.stockQty}`)}</span>
                       ) : <span className="text-xs text-muted">המלאי לא נספר עדיין</span>}
-                      <StockButtons label={variantLabel(v)} disabled={Boolean(busy)} count={quick === true} onMove={(mode, raw) => void moveStock({ kind: 'variant', id: v.id, label: variantLabel(v) }, mode, raw)} />
+                      {!serial && <StockButtons label={variantLabel(v)} disabled={Boolean(busy)} count={quick === true} onMove={(mode, raw) => void moveStock({ kind: 'variant', id: v.id, label: variantLabel(v) }, mode, raw)} />}
                       <label className="flex items-center gap-1 text-xs text-muted">התראה מתחת ל-
                         <Input inputMode="numeric" value={x.lowStock} onChange={(e) => setX({ lowStock: e.target.value })} placeholder={String(item.lowStock)} className="h-8 w-14 px-2 py-0 text-center" aria-label={`רמת התראה: ${variantLabel(v)}`} />
                       </label>
@@ -642,18 +650,27 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
       )}
 
       {item && !item.hasVariants && isProductKind && (
-        <Section id="stock" title="מלאי" sectionRef={ref('stock')} hint={quick === false
+        <Section id="stock" title="מלאי" sectionRef={ref('stock')} hint={serial
+          ? 'כל מכירה בקופה מורידה מהמלאי לבד, לפי המספר שנמכר. יחידות חדשות נקלטות עם המספרים שלהן — ב"מספרים סידוריים".'
+          : quick === false
           ? 'כל מכירה מורידה מהמלאי לבד. קבלה מוסיפה יחידות. ספירה — רק לבעלים; כל אחד אחר סופר בספירה מסודרת, והבעלים מאשרים.'
           : 'כל מכירה מורידה מהמלאי לבד. קבלה מוסיפה יחידות; ספירה קובעת את מה שיש בפועל.'}>
           {item.trackStock && locPick}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-full bg-surface-2 px-3 py-1 font-bold tabular-nums">📦 {item.trackStock ? (stockAt(null, item.stockQty) ?? (item.stockQty <= 0 ? 'אזל' : `במלאי ${item.stockQty}`)) : 'עוד לא נספר'}</span>
-            <StockButtons label={item.name} disabled={Boolean(busy)} count={quick === true} onMove={(mode, raw) => void moveStock({ kind: 'item', id: item.id }, mode, raw)} />
+            {!serial && <StockButtons label={item.name} disabled={Boolean(busy)} count={quick === true} onMove={(mode, raw) => void moveStock({ kind: 'item', id: item.id }, mode, raw)} />}
             <label className="flex items-center gap-1 text-xs text-muted">התראה מתחת ל-
               <Input type="number" min={0} defaultValue={item.lowStock} className="h-8 w-16 px-2 py-0 text-center" aria-label="רמת התראה"
                 onBlur={async (e) => { const v = Math.max(0, Math.floor(Number(e.target.value) || 0)); if (v !== item.lowStock) { const r = await setLowStock(item.id, v); if (!r.ok) fail(r.error); else await reload(item.id); } }} />
             </label>
           </div>
+        </Section>
+      )}
+
+      {item && itemsOk && (draft.kind === 'product' || serial) && (
+        <Section id="serials" title="מספרים סידוריים" sectionRef={ref('serials')}>
+          <SerialsPanel item={item} variants={variants} say={say} fail={fail}
+            onChanged={async () => { const fresh = await reload(item.id); if (fresh) onSaved?.(fresh); }} />
         </Section>
       )}
 
@@ -665,6 +682,16 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
             <Field label="יצרן"><Input value={draft.manufacturer} maxLength={LIMITS.manufacturer} onChange={(e) => set('manufacturer', e.target.value)} /></Field>
             <Field label="ארץ ייצור"><Input value={draft.countryOfOrigin} maxLength={LIMITS.country} onChange={(e) => set('countryOfOrigin', e.target.value)} /></Field>
           </div>
+          {itemsOk && (
+            <div className="mb-3">
+              <SkuAuto fail={fail} onCode={(code) => set('sku', code)} emptyVariants={variants.filter((v) => !(vd[v.id]?.sku ?? v.sku).trim()).length}
+                onVariantCodes={(codes) => setVd((all) => {
+                  const next = { ...all };
+                  variants.filter((v) => !(all[v.id]?.sku ?? v.sku).trim()).forEach((v, k) => { if (codes[k]) next[v.id] = { ...(all[v.id] ?? vdraftOf(v)), sku: codes[k] }; });
+                  return next;
+                })} />
+            </div>
+          )}
           <p className="text-xs text-muted">יצרן וארץ ייצור — ייתכן שחובה להציג אותם במכירה באתר. טעון בדיקה מול עורך דין לפני שהחנות עולה.</p>
         </Section>
       )}

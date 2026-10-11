@@ -12,7 +12,7 @@ import { setPublished } from './data';
  * Switching it on when the product has no picture or no description offers to complete them (or a description from the
  * AI) — a suggestion, never a block. Until the store is on the air (2.55: Store → Settings), "באתר" only marks the product for it.
  */
-export type EditorFocus = 'images' | 'description' | 'ai' | 'variants' | 'stock' | 'online';
+export type EditorFocus = 'images' | 'description' | 'ai' | 'variants' | 'stock' | 'online' | 'serials';
 
 export function Switch({ on, onClick, label, disabled, className }: { on: boolean; onClick: () => void; label: string; disabled?: boolean; className?: string }) {
   return (

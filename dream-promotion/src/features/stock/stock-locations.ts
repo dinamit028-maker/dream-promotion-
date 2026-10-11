@@ -6,7 +6,10 @@
  *                then received at the destination (what arrived otherwise is a difference, with its reason), or cancelled (back).
  *   a count      a count of one location, line by line (from the phone); the owner approves, and only then the differences move.
  * Pure functions: the database moves the stock and decides (stock_move_at, the transfer and count functions); the screens ask.
+ * A product with serial numbers (2.93, migration 4800 — features/catalog/serials.ts) goes in a transfer by its numbers, and is not
+ * counted in a count (its units are checked by number).
  */
+import { sameSerial, serialError } from '@/features/catalog/serials';
 export interface StockRow { locationId: string; itemId: string; variantId: string | null; qty: number }
 export const toStockRow = (r: any): StockRow => ({
   locationId: String(r.location_id), itemId: String(r.item_id), variantId: r.variant_id ? String(r.variant_id) : null, qty: Number(r.qty) || 0,
@@ -86,7 +89,7 @@ export function moveRows(rows: StockRow[], locationId: string, lines: { itemId?:
 }
 
 // ---- low stock at each location, and where to bring it from -------------------------------------------------------------------
-export interface StockItemLite { id: string; name: string; trackStock: boolean; lowStock: number; hasVariants: boolean; active?: boolean }
+export interface StockItemLite { id: string; name: string; trackStock: boolean; lowStock: number; hasVariants: boolean; active?: boolean; trackSerials?: boolean }
 export interface StockVariantLite { id: string; itemId: string; label: string; lowStock: number | null; active: boolean }
 export interface PlaceLite { id: string; name: string; active: boolean }
 export interface LowAt {
@@ -131,7 +134,11 @@ export function lowStock(rows: StockRow[], items: StockItemLite[], variants: Sto
 // ---- transfers -------------------------------------------------------------------------------------------------------------------
 export type TransferStatus = 'sent' | 'received' | 'cancelled';
 export const TRANSFER_STATUS_HE: Record<TransferStatus, string> = { sent: 'בדרך', received: 'התקבלה', cancelled: 'בוטלה' };
-export interface TransferLine { itemId: string; variantId: string | null; name: string; variant: string; qty: number; received?: number; reason?: string }
+export interface TransferLine {
+  itemId: string; variantId: string | null; name: string; variant: string; qty: number; received?: number; reason?: string;
+  /** a product with serial numbers: the numbers sent, and (once received) the ones that did not arrive */
+  serials?: string[]; missing?: string[];
+}
 export interface Transfer {
   id: string; number: number; from: string; to: string; status: TransferStatus; lines: TransferLine[]; note: string;
   sentAt: string; receivedAt: string | null; receivedNote: string; cancelledAt: string | null; cancelReason: string;
@@ -139,6 +146,7 @@ export interface Transfer {
 const toLine = (l: any): TransferLine => ({
   itemId: String(l.itemId), variantId: l.variantId ? String(l.variantId) : null, name: String(l.name ?? ''), variant: String(l.variant ?? ''),
   qty: Number(l.qty) || 0, ...(l.received != null ? { received: Number(l.received) } : {}), ...(l.reason ? { reason: String(l.reason) } : {}),
+  ...(Array.isArray(l.serials) ? { serials: l.serials.map(String) } : {}), ...(Array.isArray(l.missing) ? { missing: l.missing.map(String) } : {}),
 });
 export const toTransfer = (r: any): Transfer => ({
   id: String(r.id), number: Number(r.number), from: String(r.from_location), to: String(r.to_location),
@@ -155,7 +163,9 @@ const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '
 export function transferNoteHtml(t: Pick<Transfer, 'number' | 'status' | 'lines' | 'note' | 'receivedNote' | 'cancelReason'>,
   p: { business: string; from: string; to: string; sentAt: string; receivedAt?: string | null }): string {
   const got = t.status === 'received';
-  const rows = t.lines.map((l) => `<tr><td>${esc(lineName(l))}</td><td class="n">${esc(l.qty)}</td>${got ? `<td class="n">${esc(l.received ?? l.qty)}</td><td>${esc(l.reason ?? '')}</td>` : '<td class="n"></td><td></td>'}</tr>`).join('');
+  const nums = (l: TransferLine) => (l.serials?.length ? `<div class="muted">מס׳ סידורי: ${esc(l.serials.join(', '))}</div>` : '');
+  const lost = (l: TransferLine) => (l.missing?.length ? `לא הגיעו: ${l.missing.join(', ')}${l.reason ? ' · ' : ''}` : '');
+  const rows = t.lines.map((l) => `<tr><td>${esc(lineName(l))}${nums(l)}</td><td class="n">${esc(l.qty)}</td>${got ? `<td class="n">${esc(l.received ?? l.qty)}</td><td>${esc(lost(l) + (l.reason ?? ''))}</td>` : '<td class="n"></td><td></td>'}</tr>`).join('');
   const units = t.lines.reduce((a, l) => a + l.qty, 0);
   return `<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>תעודת העברה ${esc(t.number)}</title>
 <style>body{font-family:Arial,system-ui,sans-serif;color:#111;margin:24px}h1{font-size:20px;margin:0}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin:12px 0}
@@ -182,9 +192,10 @@ export function onTheWay(transfers: Transfer[]): Map<string, number> {
   return m;
 }
 
-export interface DraftLine { itemId: string; variantId: string | null; qty: number }
+export interface DraftLine { itemId: string; variantId: string | null; qty: number; serials?: string[] }
 /** the checks before sending (the database checks them again) */
-export function transferError(from: string | null, to: string | null, lines: DraftLine[], items: Pick<StockItemLite, 'id' | 'name' | 'trackStock' | 'hasVariants'>[]): string | null {
+export function transferError(from: string | null, to: string | null, lines: DraftLine[],
+  items: Pick<StockItemLite, 'id' | 'name' | 'trackStock' | 'hasVariants' | 'trackSerials'>[]): string | null {
   if (!from || !to) return 'בוחרים מאיפה ולאן.';
   if (from === to) return 'מעבירים מסניף אחד לסניף אחר.';
   if (!lines.length) return 'מוסיפים לפחות מוצר אחד.';
@@ -195,19 +206,27 @@ export function transferError(from: string | null, to: string | null, lines: Dra
     if (!Number.isInteger(l.qty) || l.qty <= 0 || l.qty > 999999) return `${it.name}: כמות ביחידות שלמות, יותר מאפס.`;
     if (!it.trackStock) return `${it.name}: המלאי שלו לא נספר — סופרים אותו קודם.`;
     if (it.hasVariants && !l.variantId) return `${it.name}: בוחרים מידה / צבע.`;
+    if (it.trackSerials && (l.serials ?? []).length !== l.qty) return `${it.name}: בוחרים מספר סידורי לכל יחידה שעוברת.`;
   }
+  const nums = lines.flatMap((l) => l.serials ?? []);
+  const twice = nums.find((x, k) => nums.findIndex((y) => sameSerial(x, y)) !== k);
+  if (twice) return `המספר ${twice} פעמיים בהעברה.`;
   const keys = lines.map((l) => stockKey(l.itemId, l.variantId));
   if (new Set(keys).size !== keys.length) return 'אותו מוצר פעמיים — מאחדים לשורה אחת.';
   return null;
 }
 
-export interface Received { received: number; reason: string }
+/** what arrived of a line: a number of units — or, for a line with serial numbers, the numbers that did not arrive */
+export interface Received { received: number; reason: string; missing?: string[] }
+const receivedOf = (l: TransferLine, g: Received | undefined) =>
+  !g ? l.qty : l.serials?.length ? l.qty - (l.serials.filter((x) => (g.missing ?? []).some((m) => sameSerial(m, x))).length) : g.received;
 /** the receipt's differences: every line where what arrived is not what was sent — each needs its reason */
-export function receiptGaps(lines: TransferLine[], got: Record<string, Received | undefined>): { key: string; name: string; gap: number; reason: string }[] {
+export function receiptGaps(lines: TransferLine[], got: Record<string, Received | undefined>): { key: string; name: string; gap: number; reason: string; missing?: string[] }[] {
   return lines.map((l) => {
     const k = stockKey(l.itemId, l.variantId), g = got[k];
-    const received = g ? g.received : l.qty;
-    return { key: k, name: lineName(l), gap: received - l.qty, reason: (g?.reason ?? '').trim() };
+    const gap = { key: k, name: lineName(l), gap: receivedOf(l, g) - l.qty, reason: (g?.reason ?? '').trim() };
+    // a line with numbers: which of them did not arrive (as the line has them)
+    return l.serials?.length ? { ...gap, missing: g ? l.serials.filter((x) => (g.missing ?? []).some((m) => sameSerial(m, x))) : [] } : gap;
   }).filter((x) => x.gap !== 0);
 }
 export function receiptError(lines: TransferLine[], got: Record<string, Received | undefined>): string | null {
@@ -218,11 +237,12 @@ export function receiptError(lines: TransferLine[], got: Record<string, Received
   const missing = receiptGaps(lines, got).find((x) => !x.reason);
   return missing ? `${missing.name}: ${missing.gap < 0 ? `חסרות ${-missing.gap}` : `הגיעו ${missing.gap} יותר`} — כותבים למה.` : null;
 }
-/** what the database is sent: only the lines that differ (the rest arrived as sent) */
+/** what the database is sent: only the lines that differ (the rest arrived as sent) — a line with numbers names the missing ones */
 export const receiptPayload = (lines: TransferLine[], got: Record<string, Received | undefined>) =>
   receiptGaps(lines, got).map((x) => {
     const l = lines.find((y) => stockKey(y.itemId, y.variantId) === x.key)!;
-    return { itemId: l.itemId, variantId: l.variantId, received: l.qty + x.gap, reason: x.reason };
+    return l.serials?.length ? { itemId: l.itemId, variantId: l.variantId, missing: x.missing ?? [], reason: x.reason }
+      : { itemId: l.itemId, variantId: l.variantId, received: l.qty + x.gap, reason: x.reason };
   });
 
 // ---- counts ----------------------------------------------------------------------------------------------------------------------
@@ -258,7 +278,8 @@ export function countList(items: (StockItemLite & { kind?: string })[], variants
   const got = new Map(count.lines.map((l) => [stockKey(l.itemId, l.variantId), l.counted]));
   const out: CountRow[] = [];
   for (const it of items) {
-    if (it.active === false || !(it.trackStock || it.kind === 'product')) continue;
+    // a product with serial numbers is checked by its numbers ("מספרים סידוריים"), not counted here
+    if (it.active === false || !(it.trackStock || it.kind === 'product') || it.trackSerials) continue;
     if (it.hasVariants) {
       for (const v of variants.filter((x) => x.itemId === it.id && x.active)) {
         const k = stockKey(it.id, v.id);
@@ -310,6 +331,8 @@ export function stockErrorHe(e: unknown): string {
   const m = `${(e as any)?.message ?? e ?? ''}\n${(e as any)?.code ?? ''}\n${(e as any)?.details ?? ''}`;
   const named = (k: string) => new RegExp(`${k}: ?([^\\n]*)`).exec(m)?.[1]?.trim() ?? '';
   if (/the owner counts/.test(m)) return QUICK_COUNT_OWNER;
+  const serial = serialError(e as any);
+  if (serial) return serial;
   if (/stock_by_location|stock_adjust|stock_transfer_|stock_count_|stock_transfers|stock_counts|PGRST202|PGRST205|42883|42P01|schema cache/i.test(m)) return STOCK_MIGRATION;
   if (/transfer_same/.test(m)) return 'מעבירים מסניף אחד לסניף אחר.';
   if (/transfer_location/.test(m)) return 'מעבירים בין שני סניפים פתוחים של העסק.';

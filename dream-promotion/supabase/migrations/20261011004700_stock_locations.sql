@@ -530,7 +530,9 @@ declare b uuid := public.stock_writer(); t record; l record; i record; v record;
         fname text; tname text;
 begin
   if p_id is null then raise exception 'transfer_id: a new transfer has an id' using errcode = '22023'; end if;
-  perform 1 from public.businesses where id = b for update;      -- one transfer of the business at a time (its number, the same id twice)
+  -- one transfer of the business at a time (its number, the same id twice) — "no key update": a sale's or a document's check of
+  -- its business (a foreign key, "key share") never waits on it, so a sale holding its products and a transfer never wait in a circle
+  perform 1 from public.businesses where id = b for no key update;
   select * into t from public.stock_transfers where id = p_id;
   if t.id is not null then
     if t.business_id <> b then raise exception 'not allowed' using errcode = '42501'; end if;
@@ -657,7 +659,7 @@ returns jsonb language plpgsql security definer set search_path = public as $$
 declare b uuid := public.stock_writer(); c record; num int; loc uuid;
 begin
   if p_id is null then raise exception 'count_id: a new count has an id' using errcode = '22023'; end if;
-  perform 1 from public.businesses where id = b for update;
+  perform 1 from public.businesses where id = b for no key update;    -- one new count at a time (as a transfer)
   select * into c from public.stock_counts where id = p_id;
   if c.id is not null then
     if c.business_id <> b then raise exception 'not allowed' using errcode = '42501'; end if;

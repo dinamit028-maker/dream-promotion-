@@ -37,6 +37,8 @@ export function financeError(e: unknown): string {
   if (/payments:/.test(m)) return 'סכום התשלומים לא שווה לסכום המסמך.';
   if (/totals:|lines:/.test(m)) return 'הסכומים במסמך לא מסתדרים. רעננו ונסו שוב.';
   if (/the draft was|draft was not found/.test(m)) return 'הטיוטה כבר הופקה כמסמך.';
+  // 2.93 (migration 20261011004800): a product with serial numbers moves only with its numbers — not on a document or an expense
+  if (/serial_item/.test(m)) return 'מוצר עם מספרים סידוריים לא יוצא ולא נכנס במסמך או בהוצאה — מוכרים אותו בקופה (לפי המספר), וקולטים אותו בעורך המוצר ("מספרים סידוריים").';
   if (/a reason is required/.test(m)) return 'צריך לכתוב סיבה (5 תווים לפחות).';
   if (/42501|row-level security|permission denied|not allowed/i.test(m)) return 'אין הרשאה לפעולה הזו.';
   return 'משהו השתבש. נסו שוב.';

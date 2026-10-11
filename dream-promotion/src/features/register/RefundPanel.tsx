@@ -5,7 +5,8 @@ import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL } from '@/lib/il-time';
 import { ils, methodLabel, type Refund, type RefundMethod, type Sale } from './money';
-import { REFUND_ERROR_HE, defaultRefundMethod, planRefund, refundLeft, returnedQty, type RefundPlan, type RefundRequest } from './refunds';
+import { REFUND_ERROR_HE, defaultRefundMethod, planRefund, refundLeft, returnedQty, serialsLeft, type RefundPlan, type RefundRequest } from './refunds';
+import { sameSerial, withSerials } from '@/features/catalog/serials';
 
 /**
  * "↩️ החזר כספי" on a paid sale: the whole sale, chosen items, or a sum — by the way the money goes back.
@@ -27,6 +28,9 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<RefundRequest['mode']>('full');
   const [qty, setQty] = useState<number[]>([]);
+  // a line sold by number (2.93): which numbers came back
+  const [picked, setPicked] = useState<string[][]>([]);
+  const numbersLeft = serialsLeft(sale, mine);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<RefundMethod>(defaultRefundMethod(sale));
   const [restock, setRestock] = useState(true);
@@ -36,9 +40,9 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   // one id per refund being recorded — a retry after a lost answer finds it instead of refunding twice
   const refundId = useRef(crypto.randomUUID());
-  useEffect(() => { setOpen(false); setMsg(null); setMode('full'); setQty(sale.items.map(() => 0)); setAmount(''); setReason(''); setMethod(defaultRefundMethod(sale)); }, [sale]);
+  useEffect(() => { setOpen(false); setMsg(null); setMode('full'); setQty(sale.items.map(() => 0)); setPicked(sale.items.map(() => [])); setAmount(''); setReason(''); setMethod(defaultRefundMethod(sale)); }, [sale]);
 
-  const req: RefundRequest = mode === 'full' ? { mode } : mode === 'items' ? { mode, qty } : { mode, amount: Number(amount) || 0 };
+  const req: RefundRequest = mode === 'full' ? { mode } : mode === 'items' ? { mode, qty, serials: picked } : { mode, amount: Number(amount) || 0 };
   const plan = planRefund(sale, mine, req, { method, restock, reason, employeeName: who });
   const canRestock = (mode === 'full' || mode === 'items') && sale.items.some((l, i) => l.itemId && l.kind === 'product' && l.qty - done[i] > 0);
 
@@ -65,7 +69,7 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
             <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2">
               <span className="min-w-0">
                 <strong className="tabular-nums">−{ils(r.amount)}</strong> · {methodLabel(r.method)} · {formatIL(r.createdAt, { dateStyle: 'short', timeStyle: 'short' })}
-                {r.items.length > 0 && <span className="block truncate text-xs text-muted">{r.items.map((l) => `${l.name}${l.qty > 1 ? ` ×${l.qty}` : ''}`).join(' + ')}{r.restock ? ' · חזר למלאי' : ''}</span>}
+                {r.items.length > 0 && <span className="block truncate text-xs text-muted">{r.items.map((l) => `${withSerials(l.name, l.serials)}${l.qty > 1 ? ` ×${l.qty}` : ''}`).join(' + ')}{r.restock ? ' · חזר למלאי' : ''}</span>}
                 {r.reason && <span className="block text-xs text-muted">סיבה: {r.reason}</span>}
               </span>
               <button type="button" className="text-xs font-semibold text-primary" onClick={() => onPrintSlip(r)}>אישור החזר להדפסה</button>
@@ -88,6 +92,19 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
             <ul className="grid gap-1.5">
               {sale.items.map((l, i) => {
                 const max = l.qty - done[i];
+                if (l.serials?.length) return (
+                  // a line sold by number: tick the numbers that came back
+                  <li key={i} className={cx('grid gap-1 text-sm', !numbersLeft[i].length && 'opacity-50')}>
+                    <span className="min-w-0 truncate">{l.name} <span className="text-xs text-muted">· {ils(l.price)}{done[i] ? ` · הוחזרו ${done[i]}` : ''}</span></span>
+                    <span className="flex flex-wrap gap-1.5" role="group" aria-label={`המספרים שחזרו: ${l.name}`}>
+                      {numbersLeft[i].map((sn) => {
+                        const on = (picked[i] ?? []).some((x) => sameSerial(x, sn));
+                        return <button key={sn} type="button" aria-pressed={on} dir="ltr" onClick={() => setPicked(picked.map((p, k) => (k === i ? (on ? p.filter((x) => !sameSerial(x, sn)) : [...p, sn]) : p)))}
+                          className={cx('rounded-full border px-2.5 py-1 font-mono text-xs', on ? 'border-primary bg-primary-soft font-bold' : 'border-line')}>{sn}</button>;
+                      })}
+                    </span>
+                  </li>
+                );
                 return (
                   <li key={i} className={cx('flex items-center gap-2 text-sm', max <= 0 && 'opacity-50')}>
                     <span className="min-w-0 flex-1 truncate">{l.name} <span className="text-xs text-muted">· {ils(l.price)}{done[i] ? ` · הוחזרו ${done[i]}` : ''}</span></span>

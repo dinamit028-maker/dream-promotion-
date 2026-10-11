@@ -32,6 +32,8 @@ import { locationName, multiLocation, pickRegister, registerLabel, registersHere
 import { QUICK_COUNT_OWNER, atLocationStock, moveRows, registerAtLocation, type StockRow } from '@/features/stock/stock-locations';
 import { useQuickCount } from '@/features/stock/useQuickCount';
 import { adjustAt, loadStockRows } from '@/features/stock/stock-data';
+import { loadPriceBook, loadSerialsInStock, type PriceBook } from '@/features/catalog/items-data';
+import { serialError, withSerials, type Serial } from '@/features/catalog/serials';
 
 /** Toolbox stage 3: sell, record payments, refunds, reports, close of day, commissions, documents, price list & stock. */
 type Item = PosItem & { sort: number };
@@ -52,13 +54,15 @@ const toItem = (r: any): Item => ({ id: r.id, name: r.name, price: Number(r.pric
   favorite: Boolean(r.favorite), favOrder: r.fav_order ?? 0, imageUrl: r.image_url ?? '',
   trackStock: Boolean(r.track_stock), stockQty: Number(r.stock_qty ?? 0), lowStock: Number(r.low_stock ?? 2),
   // the one catalog (2.54): sizes / colours and the codes a scanner types (none before migration 3300)
-  hasVariants: Boolean(r.has_variants), sku: r.sku ?? '', barcode: r.barcode ?? '' });
+  hasVariants: Boolean(r.has_variants), sku: r.sku ?? '', barcode: r.barcode ?? '',
+  // serial numbers (2.93, migration 4800): sold by number
+  trackSerials: Boolean(r.track_serials) });
 const MIGRATION_250 = 'צריך להריץ את מיגרציה 20261004003000 (קופה 2.50) ב-Supabase.';
 const errText = (e: any) => /relation .* does not exist|schema cache/i.test(String(e?.message)) ? (/billing_|customer_dealer|refund|stock|access/.test(String(e?.message)) ? MIGRATION_250 : 'צריך להריץ את מיגרציית הקופה ב-Supabase (20261003001200).')
   : /pay_link_check/.test(String(e?.message)) ? 'קישור התשלום חייב להתחיל ב-https://'
   : /row-level security|permission denied|42501/.test(String(e?.message) + String(e?.code)) ? 'אין הרשאה לפעולה הזו.' : 'משהו השתבש. נסו שוב.';
-const refundErrText = (e: any) => { const m = String(e?.message ?? ''); return /refund_exceeds_paid/.test(m) ? 'הסכום גדול ממה שנשאר להחזיר על העסקה (אולי נרשם החזר ממכשיר אחר).'
-  : /only a paid sale/.test(m) ? 'אפשר להחזיר רק על עסקה ששולמה.' : /sale_refunds|schema cache/.test(m) ? MIGRATION_250 : errText(e); };
+const refundErrText = (e: any) => { const m = String(e?.message ?? ''); return serialError(e) ?? (/refund_exceeds_paid/.test(m) ? 'הסכום גדול ממה שנשאר להחזיר על העסקה (אולי נרשם החזר ממכשיר אחר).'
+  : /only a paid sale/.test(m) ? 'אפשר להחזיר רק על עסקה ששולמה.' : /sale_refunds|schema cache/.test(m) ? MIGRATION_250 : errText(e)); };
 const printHtml = (html: string) => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } };
 
 export function RegisterScreen() {
@@ -109,6 +113,15 @@ export function RegisterScreen() {
   const held = useMemo(() => heldHere(heldRows), [heldHere, heldRows]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
+  // price lists (2.93, migration 4800): a line's price by the customer's group, else this location's list — none: the catalog's prices
+  const [book, setBook] = useState<PriceBook | null>(null);
+  // the numbers in stock here of the products sold by number (2.93): the register's picker and a scanned number
+  const [serialStock, setSerialStock] = useState<Serial[]>([]);
+  const serialKey = items.filter((i) => i.trackSerials).map((i) => i.id).join(',');
+  const serialLoc = regLocation ?? loc.businessId;
+  const loadSerialStock = useCallback(async () => {
+    setSerialStock(serialKey && serialLoc ? await loadSerialsInStock(serialKey.split(','), serialLoc) : []);
+  }, [serialKey, serialLoc]);
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [employees, setEmployees] = useState<{ id: string; name: string }[]>([]);
   const [todayAppts, setTodayAppts] = useState<TodayAppt[]>([]);
@@ -146,6 +159,7 @@ export function RegisterScreen() {
         street: st.data.street ?? '', houseNo: st.data.house_no ?? '', city: st.data.city ?? '', zip: st.data.zip ?? '' });
       setItems((it.data ?? []).map(toItem));
       setCatalog((it.data ?? []).map(toCatalogItem));
+      setBook(await loadPriceBook());
       // the variants — before migration 3300 there are none, and the register works exactly as before
       const va = await sb.from('catalog_variants').select('*').order('position').order('created_at');
       if (va.error && catalogError(va.error) !== MIGRATION_3300) throw va.error;
@@ -179,6 +193,8 @@ export function RegisterScreen() {
     finally { setLoading(false); }
   }, [userId, cashier]);
   useEffect(() => { void load(); }, [load]);
+  // the numbers in stock here: after every sale, refund or cancel the items change — and the numbers are read again
+  useEffect(() => { void loadSerialStock(); }, [loadSerialStock, items]);
   /** the price list and its variants only (an edit in the editor, "באתר") — the screen stays as it is */
   const reloadCatalog = useCallback(async () => {
     const sb = supabase();
@@ -272,7 +288,7 @@ export function RegisterScreen() {
     } else if (ins.error) {
       const m = /שמור להזמנה באתר: (.+)/.exec(String(ins.error.message ?? ''));
       if (m) { void loadHeld(); return { ok: false, error: `${m[1]}: היחידות שמורות להזמנה באתר שממתינה לתשלום. אפשר למכור אותן כשההזמנה תשולם או תבוטל (עד רבע שעה).` }; }
-      return { ok: false, error: errText(ins.error) };
+      return { ok: false, error: serialError(ins.error) ?? errText(ins.error) };
     }
     const sale = toSale(data);
     setSales((all) => [sale, ...all.filter((x) => x.id !== sale.id)]);
@@ -444,7 +460,8 @@ export function RegisterScreen() {
           )}
           <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={here.items} variants={here.variants} siteHeld={held} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
             vat={vat} payLinkReady={Boolean(settings.payLink)} onCheckout={checkout} onShowDoc={cashier ? undefined : () => setTab('docs')} prefill={prefill}
-            onGoCatalog={cashier ? undefined : () => setTab('catalog')} wide={kiosk} />
+            onGoCatalog={cashier ? undefined : () => setTab('catalog')} wide={kiosk}
+            pricing={book ? { lists: book.lists, prices: book.prices, locationId: regLocation ?? loc.businessId } : null} serials={serialStock} />
         </>
       )}
 
@@ -461,7 +478,7 @@ export function RegisterScreen() {
       {!loading && tab === 'docs' && <DocumentsTab userId={userId} business={business} licensed={licensed} onError={setError} />}
 
       {!loading && tab === 'catalog' && <CatalogTab userId={userId} items={here.items} catalog={catalog} variants={here.variants} ready={catalogReady} reload={() => void reloadCatalog()}
-        onError={(e) => setError(typeof e === 'string' ? e : errText(e))} at={stockHere} multi={multiLocation(loc)}
+        onError={(e) => setError(typeof e === 'string' ? e : errText(e))} at={stockHere} multi={multiLocation(loc)} lists={book !== null}
         onStock={(id, qty) => setItems((all) => all.map((i) => (i.id === id ? { ...i, stockQty: qty, trackStock: true } : i)))} />}
 
       {!loading && tab === 'settings' && (
@@ -590,12 +607,14 @@ function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpe
   );
 }
 
-function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, onStock, at, multi }: {
+function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, onStock, at, multi, lists }: {
   userId: string; items: Item[]; catalog: CatalogItem[]; variants: CatalogVariant[]; ready: boolean;
   reload: () => void; onError: (e: unknown) => void; onStock: (id: string, qty: number) => void;
   /** the register's location, when it counts its own stock (T12ב) — the quantities here are of that location */
   at: { locationId: string; name: string; nameOf: (id: string | null) => string } | null;
   multi: boolean;
+  /** 2.93: price lists and serial numbers are in the database (migration 4800) */
+  lists: boolean;
 }) {
   // the one product editor (2.54): a new item and every change of an existing one open it; "באתר" next to every item
   const [edit, setEdit] = useState<{ id: string | null; focus?: EditorFocus } | null>(null);
@@ -656,6 +675,8 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
         {at ? ` הכמויות כאן הן של ${at.name} (הסניף של הקופה).` : ''}</p>
       <Link href={multi ? '/stock' : '/stock?tab=counts'} className="text-sm font-semibold text-primary">
         {multi ? '📦 מלאי בכל הסניפים, העברות וספירות ←' : '📋 ספירת מלאי מסודרת (הבעלים מאשרים את הפערים) ←'}</Link>
+      {lists && items.some((i) => i.trackSerials) && <Link href="/stock?tab=serials" className="text-sm font-semibold text-primary">🔢 מספרים סידוריים — חיפוש לפי מספר וההיסטוריה של כל יחידה ←</Link>}
+      {lists && <Link href="/prices" className="text-sm font-semibold text-primary">🏷️ מחירונים — מחיר לסניף או לקבוצת לקוחות (סיטונאי, מועדון) ←</Link>}
       {[...favs, ...items.filter((i) => !i.favorite)].map((i) => {
         const level = stockLevel(i);
         return (
@@ -689,8 +710,10 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
                 {i.trackStock ? <>
                   <span className={cx('rounded-full px-2.5 py-1 text-xs font-bold tabular-nums', level === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : level === 'low' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
                     📦 {stockText(i)}</span>
-                  <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'add')}>+ קבלת סחורה</Button>
-                  {quick && <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>ספירה</Button>}
+                  {i.trackSerials ? <Button size="sm" variant="ghost" onClick={() => setEdit({ id: i.id, focus: 'serials' })}>קליטה לפי מספרים</Button> : <>
+                    <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'add')}>+ קבלת סחורה</Button>
+                    {quick && <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>ספירה</Button>}
+                  </>}
                   <label className="flex items-center gap-1 text-xs text-muted">התראה מתחת ל-
                     <Input type="number" min={0} defaultValue={i.lowStock} className="h-8 w-16 py-0 text-center" aria-label={`רמת התראה: ${i.name}`}
                       onBlur={(e) => { const v = Math.max(0, Math.floor(Number(e.target.value) || 0)); if (v !== i.lowStock) void run(supabase().from('catalog_items').update({ low_stock: v }).eq('id', i.id)); }} />
@@ -814,7 +837,7 @@ function SaleDetail({ sale, onClose, business, refunds, employees, licensed, onR
       <h3 className="font-display text-xl font-extrabold">{sale.customerName || 'לקוח מזדמן'} · {ils(sale.total)}</h3>
       <p className="mb-3 text-xs text-muted">{formatIL(sale.paidAt ?? sale.createdAt)} · {sale.status === 'paid' ? 'שולם' : sale.status === 'pending' ? 'ממתין לתשלום' : 'בוטל'}{sale.employeeName ? ` · מוכר/ת: ${sale.employeeName}` : ''}</p>
       <ul className="mb-3 grid gap-1 text-sm">
-        {sale.items.map((l, i) => <li key={i} className="flex justify-between"><span>{l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</span><span className="tabular-nums">{ils(l.price * l.qty)}</span></li>)}
+        {sale.items.map((l, i) => <li key={i} className="flex justify-between gap-2"><span className="min-w-0">{withSerials(l.name, l.serials)}{l.qty > 1 ? ` ×${l.qty}` : ''}</span><span className="tabular-nums">{ils(l.price * l.qty)}</span></li>)}
         {sale.discount > 0 && <li className="flex justify-between text-muted"><span>הנחה</span><span>−{ils(sale.discount)}</span></li>}
         <li className="flex justify-between border-t border-line pt-1 font-bold"><span>סה״כ</span><span>{ils(sale.total)}</span></li>
       </ul>

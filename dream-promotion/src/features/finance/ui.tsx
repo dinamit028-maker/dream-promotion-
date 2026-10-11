@@ -118,9 +118,13 @@ export interface CatalogPick { id: string; name: string; price: number; kind: st
  * With `products` (2.54): next to a line of the price list, "באתר" and its editor; a line typed by hand can be saved as a
  * product of the price list (the one editor of the register and the store).
  */
-export function LinesEditor({ lines, onChange, catalog, products, productsReady = true, onCatalogChanged }: {
+export function LinesEditor({ lines, onChange, catalog, products, productsReady = true, onCatalogChanged, priceOf, listOf }: {
   lines: ComposeLine[]; onChange: (l: ComposeLine[]) => void; catalog: CatalogPick[];
   products?: CatalogItem[]; productsReady?: boolean; onCatalogChanged?: () => void | Promise<void>;
+  /** 2.93: a product's price by the price lists (the customer's, the location's) — else the catalog's */
+  priceOf?: (c: CatalogPick) => number;
+  /** 2.93: the price list that priced a line (its name next to it), when one did */
+  listOf?: (l: ComposeLine) => string | null;
 }) {
   const set = (i: number, patch: Partial<ComposeLine>) => onChange(lines.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const [edit, setEdit] = useState<{ id: string | null; line: number; focus?: EditorFocus } | null>(null);
@@ -130,10 +134,11 @@ export function LinesEditor({ lines, onChange, catalog, products, productsReady 
       {lines.map((l, i) => (
         <div key={i} className="grid grid-cols-[minmax(0,1fr)_4.5rem_6.5rem_2rem] items-center gap-1.5">
           <Input value={l.name} onChange={(e) => set(i, { name: e.target.value, itemId: undefined, variantId: undefined })} placeholder="תיאור" aria-label={`תיאור שורה ${i + 1}`} list="dp-catalog" className="py-2"
-            onBlur={(e) => { const c = catalog.find((x) => x.name === e.target.value.trim()); if (c && !l.itemId) set(i, { name: c.name, itemId: c.id, variantId: c.variantId, unitPrice: l.unitPrice || c.price }); }} />
+            onBlur={(e) => { const c = catalog.find((x) => x.name === e.target.value.trim()); if (c && !l.itemId) set(i, { name: c.name, itemId: c.id, variantId: c.variantId, unitPrice: l.unitPrice || (priceOf ? priceOf(c) : c.price) }); }} />
           <Input type="number" inputMode="decimal" min={0} step="any" value={l.qty || ''} onChange={(e) => set(i, { qty: Number(e.target.value) })} aria-label={`כמות שורה ${i + 1}`} className="px-2 py-2 text-center" />
           <Input type="number" inputMode="decimal" min={0} step="0.01" value={l.unitPrice || ''} onChange={(e) => set(i, { unitPrice: Number(e.target.value) })} placeholder="מחיר" aria-label={`מחיר שורה ${i + 1}`} className="px-2 py-2 text-center" />
           <button type="button" aria-label={`הסרת שורה ${i + 1}`} onClick={() => onChange(lines.length > 1 ? lines.filter((_, k) => k !== i) : [{ name: '', qty: 1, unitPrice: 0 }])} className="h-10 rounded-full text-muted hover:text-(--danger)">✕</button>
+          {listOf?.(l) && <p className="col-span-4 -mt-1 ps-1 text-xs font-semibold text-primary">לפי מחירון {listOf(l)} · אפשר לשנות את המחיר</p>}
           {products && (() => {
             const p = l.itemId ? products.find((x) => x.id === l.itemId) : null;
             if (p) return (
