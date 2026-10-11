@@ -1247,8 +1247,15 @@ export class FakeSupabase {
         total = r2(total + amt);
         const own = Array.isArray(d.lines) && d.lines.length > 0;
         const paid = !own && d.paid_document_id ? all.find((x) => x.id === d.paid_document_id) : null;
-        const lines: Row[] = own ? d.lines : Array.isArray(paid?.lines) ? paid!.lines : [];
-        const frac = own ? 1 : paid && Number(paid.total) ? Math.abs(amt) / Number(paid.total) : 0;
+        // the register's and the site's documents: the lines of the refund (what came back), else of the sale — they carry the item
+        const asLines = (items: any): Row[] => (Array.isArray(items) ? items : []).filter((e: Row) => Number(e.qty) > 0)
+          .map((e: Row) => ({ name: e.name ?? '', qty: Number(e.qty), itemId: e.itemId, variantId: e.variantId, totalExVat: Number(e.qty) * (Number(e.price) || 0) }));
+        const refund = d.refund_id ? this.t('sale_refunds').find((r) => r.id === d.refund_id) : null;
+        const sale = this.t('sales').find((x) => x.id === (d.sale_id ?? refund?.sale_id));
+        const rl = asLines(refund?.items), sl = asLines(sale?.items);
+        const lines: Row[] = rl.length ? rl : sl.length ? sl : own ? d.lines : Array.isArray(paid?.lines) ? paid!.lines : [];
+        const frac = rl.length ? 1 : sl.length ? (d.refund_id ? Math.abs(Number(d.total)) / (Number(sale!.total) || Infinity) : 1)
+          : own ? 1 : paid && Number(paid.total) ? Math.abs(amt) / Number(paid.total) : 0;
         const base = lines.map((l) => Number(l.totalExVat) || 0), tot = base.reduce((a, b) => a + b, 0);
         if (!lines.length || !tot) { unNet = r2(unNet + amt); unN++; continue; }
         const share = base.map((b) => r2((amt * b) / tot));

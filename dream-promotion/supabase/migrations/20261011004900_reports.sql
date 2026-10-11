@@ -290,10 +290,23 @@ begin
   return res;
 end $$;
 
+-- a sale's (or a refund's) items as a document's lines for the reports: the item, the variant, the quantity, and price × quantity as
+-- the weight (the register's prices include VAT — every line alike, so the shares are the same)
+create or replace function public.report_item_lines(p_items jsonb) returns jsonb
+language sql immutable set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object('name', coalesce(e->>'name', ''), 'qty', (e->>'qty')::numeric, 'itemId', e->>'itemId', 'variantId', e->>'variantId',
+                  'totalExVat', (e->>'qty')::numeric * case when coalesce(e->>'price', '') ~ '^-?[0-9]+(\.[0-9]+)?$' then (e->>'price')::numeric else 0 end)
+                  order by n), '[]'::jsonb)
+    from jsonb_array_elements(case when jsonb_typeof(p_items) = 'array' then p_items else '[]'::jsonb end) with ordinality x(e, n)
+   where coalesce(e->>'qty', '') ~ '^[0-9]+(\.[0-9]+)?$' and (e->>'qty')::numeric > 0
+$$;
+
 -- sales by item, service and treatment type: each revenue document's amount (as above) spread over its lines by their totals before
--- VAT — rounded to the agora, what rounding leaves on the biggest line — so the items add up to the revenue exactly. A receipt
--- with no lines of its own (an exempt dealer's receipt paying a transaction invoice) takes the lines of the document it pays, and
--- its share of their quantities (a receipt for half of it: half the units); a document with no lines at all is "not by item".
+-- VAT — rounded to the agora, what rounding leaves on the biggest line — so the items add up to the revenue exactly. A document of
+-- the register or of the site (its sale's, or its refund's) is spread over the lines of the sale — they carry the item, the
+-- document's lines only name it — a refund over the lines that came back, or (a sum) over the sale's by its share. A receipt with
+-- no lines of its own (an exempt dealer's receipt paying a transaction invoice) takes the lines of the document it pays, and its
+-- share of their quantities (a receipt for half of it: half the units); a document with no lines at all is "not by item".
 create or replace function public.report_sales_by_item(p_from date, p_to date) returns jsonb
 language plpgsql stable set search_path = public as $$
 declare b uuid := public.report_business(p_from, p_to); ent text; vat_on boolean; res jsonb;
@@ -302,17 +315,30 @@ begin
   ent := coalesce(ent, 'licensed_dealer');
   vat_on := public.entity_charges_vat(ent);
   with d as (
-    select doc.id, doc.doc_type, doc.lines, doc.paid_document_id,
+    select doc.id, doc.doc_type, doc.lines, doc.paid_document_id, doc.sale_id, doc.refund_id, doc.total,
            public.doc_revenue(doc.doc_type, public.entity_charges_vat(coalesce(doc.issuer->>'entityType', ent)), doc.after_discount, doc.total,
              exists (select 1 from public.document_cancellations c where c.document_id = doc.id)) as amt
       from public.documents doc where doc.business_id = b and doc.doc_date between p_from and p_to
   ), own as (
     select d.*, jsonb_typeof(d.lines) = 'array' and jsonb_array_length(d.lines) > 0 as has_lines from d where d.amt <> 0
+  ), via as (
+    -- the register's and the site's documents: the lines of the refund (what came back), else of the sale
+    select o.*, rf.lines as refund_lines, sl.lines as sale_lines, sl.total as sale_total, p.lines as paid_lines, p.total as paid_total
+      from own o
+      left join public.sale_refunds rr on rr.id = o.refund_id
+      left join lateral (select public.report_item_lines(rr.items) as lines) rf on rr.id is not null
+      left join lateral (select s.total, public.report_item_lines(s.items) as lines from public.sales s where s.id = coalesce(o.sale_id, rr.sale_id)) sl on true
+      left join public.documents p on not o.has_lines and p.id = o.paid_document_id and jsonb_typeof(p.lines) = 'array'
   ), src as (
-    select o.id, o.amt, o.doc_type,
-           case when o.has_lines then o.lines else coalesce(p.lines, '[]'::jsonb) end as lines,
-           case when o.has_lines then 1 else coalesce(abs(o.amt) / nullif(p.total, 0), 0) end as frac
-      from own o left join public.documents p on not o.has_lines and p.id = o.paid_document_id and jsonb_typeof(p.lines) = 'array'
+    select v.id, v.amt, v.doc_type,
+           case when jsonb_array_length(coalesce(v.refund_lines, '[]'::jsonb)) > 0 then v.refund_lines
+                when jsonb_array_length(coalesce(v.sale_lines, '[]'::jsonb)) > 0 then v.sale_lines
+                when v.has_lines then v.lines else coalesce(v.paid_lines, '[]'::jsonb) end as lines,
+           case when jsonb_array_length(coalesce(v.refund_lines, '[]'::jsonb)) > 0 then 1
+                when jsonb_array_length(coalesce(v.sale_lines, '[]'::jsonb)) > 0 then
+                  case when v.refund_id is null then 1 else coalesce(abs(v.total) / nullif(v.sale_total, 0), 0) end
+                when v.has_lines then 1 else coalesce(abs(v.amt) / nullif(v.paid_total, 0), 0) end as frac
+      from via v
   ), l as (
     select s.id, s.amt, s.frac, e.ord, e.value as line,
            case when coalesce(e.value->>'totalExVat', '') ~ '^-?[0-9]+(\.[0-9]+)?$' then (e.value->>'totalExVat')::numeric else 0 end as base
@@ -521,7 +547,7 @@ end $$;
 
 -- =====================================================================================================================
 -- Rollback (by hand, if ever needed — only while no receipt names tax withheld at source): drop the functions report_*, party_key,
---   doc_revenue, documents_withholding (and the trigger d_documents_withholding), withholding_pct; put back finance_summary of
+--   doc_revenue, report_item_lines, documents_withholding (and the trigger d_documents_withholding), withholding_pct; put back finance_summary of
 --   20261010004400 and documents_after_insert of 20261011004700; the method check of payments without 'withholding' and
 --   drop payments_withholding_source; alter table catalog_items drop column treatment_type_id; alter table
 --   business_finance_profile drop column advance_pct.

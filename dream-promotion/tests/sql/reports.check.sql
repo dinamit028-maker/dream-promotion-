@@ -169,6 +169,20 @@ select pg_temp.issue('00000000-0000-0000-0000-000000e4a001', 320, 'rp-d8', '2026
   '[{"item": "00000000-0000-0000-0000-000000e4af02", "name": "קרם", "qty": 2, "price": 100}]', p_extra => '{"location_id": "00000000-0000-0000-0000-000000e4ac02"}');
 insert into public.document_cancellations (document_id, user_id, reason) values (pg_temp.d('rp-d7'), '00000000-0000-0000-0000-000000e4a001', 'הופקה בטעות');
 insert into public.document_cancellations (document_id, user_id, reason) values (pg_temp.d('rp-r5'), '00000000-0000-0000-0000-000000e4a001', 'ההעברה חזרה');
+-- (December 2025) a sale at the register: a laser treatment and two creams; its document names them only (as the register writes
+-- its lines) — and a cream comes back (a refund and its credit invoice)
+insert into public.sales (id, user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at) values
+  ('00000000-0000-0000-0000-000000e4a501', '00000000-0000-0000-0000-000000e4a001',
+   '[{"name": "טיפול לייזר", "price": 590, "qty": 1, "itemId": "00000000-0000-0000-0000-000000e4af01", "kind": "service"},
+     {"name": "קרם", "price": 118, "qty": 2, "itemId": "00000000-0000-0000-0000-000000e4af02", "kind": "product"}]', 826, 826, 18, 126, 'cash', 'paid', '2025-12-20 10:00+02');
+select pg_temp.issue('00000000-0000-0000-0000-000000e4a001', 320, 'rp-s1', '2025-12-20', '{"customer_name": ""}',
+  '[{"name": "טיפול לייזר", "qty": 1, "price": 500}, {"name": "קרם", "qty": 2, "price": 100}]', p_extra => '{"sale_id": "00000000-0000-0000-0000-000000e4a501"}');
+insert into public.sale_refunds (id, user_id, sale_id, amount, vat_amount, method, items, restock, reason) values
+  ('00000000-0000-0000-0000-000000e4a502', '00000000-0000-0000-0000-000000e4a001', '00000000-0000-0000-0000-000000e4a501', 118, 18, 'cash',
+   '[{"name": "קרם", "price": 118, "qty": 1, "itemId": "00000000-0000-0000-0000-000000e4af02", "kind": "product"}]', false, 'החזרה');
+select pg_temp.issue('00000000-0000-0000-0000-000000e4a001', 330, 'rp-s2', '2025-12-21', '{"customer_name": ""}', '[{"name": "קרם", "qty": 1, "price": 100}]',
+  p_extra => jsonb_build_object('refund_id', '00000000-0000-0000-0000-000000e4a502', 'base_doc_type', 320,
+    'base_doc_number', (select doc_number from public.documents where idempotency_key = 'rp-s1')));
 
 select pg_temp.check((select string_agg(method || ':' || amount || ':' || coalesce(reference->>'pct', '-'), ',' order by amount) from public.payments
                        where document_id = pg_temp.d('rp-r0')) = 'withholding:25.00:5,transfer:565.00:-',
@@ -232,6 +246,7 @@ insert into rep_out select 'sled:power', public.report_supplier_ledger(public.pa
 insert into rep_out select 'wh', public.report_withholding('2026-01-01', public.il_today());
 insert into rep_out select 'fs:2025', public.finance_summary('2025-01-01', '2025-12-31');
 insert into rep_out select 'inc:2025', public.report_income_by_customer('2025-01-01', '2025-12-31');
+insert into rep_out select 'items:2025', public.report_sales_by_item('2025-12-01', '2025-12-31');
 select pg_temp.refused_with($$select public.report_income_by_customer('2026-02-01', '2026-01-01')$$, 'bad range', 'a period from after to before');
 select pg_temp.refused_with($$select public.report_withholding('2010-01-01', '2026-01-01')$$, 'bad range', 'more than ten years at once');
 select pg_temp.refused_with($$select public.report_customer_ledger('x:1', '2026-01-01', '2026-02-01')$$, 'customer: a key', 'a ledger of a customer key');
@@ -302,8 +317,8 @@ select pg_temp.check((select c->>'name' = 'דנה' and c->>'leadId' = '00000000-
                         from jsonb_array_elements(pg_temp.r('inc')->'customers') c where c->>'key' like 'l:%')
   and (select c->>'name' = 'חברה בע"מ' and c->>'dealer' = '514000012' from jsonb_array_elements(pg_temp.r('inc')->'customers') c where c->>'key' like 'd:%'),
   'her name from the card; the company''s name and number');
-select pg_temp.check(pg_temp.n(pg_temp.r('inc:2025'), 'total', 'net') = 500 and pg_temp.n(pg_temp.r('fs:2025'), 'revenue', 'net') = 500
-  and jsonb_array_length(pg_temp.r('inc:2025')->'customers') = 1, 'last year: the December invoice');
+select pg_temp.check(pg_temp.n(pg_temp.r('inc:2025'), 'total', 'net') = 1100 and pg_temp.n(pg_temp.r('fs:2025'), 'revenue', 'net') = 1100
+  and jsonb_array_length(pg_temp.r('inc:2025')->'customers') = 2, 'last year: the December invoice, and the register''s sale less its refund (700 − 100)');
 
 -- ---- sales by item, service and treatment type: every agora of the revenue on an item ------------------------------------------
 select pg_temp.check(pg_temp.n(pg_temp.r('items'), 'total') = 4770 and pg_temp.n(pg_temp.r('items'), 'unattributed', 'net') = 0
@@ -319,6 +334,15 @@ select pg_temp.check((select i->>'kind' = 'service' and i->>'typeId' = '00000000
   'a service by its type, a package by its own, a product without');
 select pg_temp.check((select string_agg(coalesce(t->>'name', '?') || '=' || (t->>'net'), ',' order by o) from jsonb_array_elements(pg_temp.r('items')->'types') with ordinality x(t, o))
   = '=2503.33,לייזר=1366.67,פנים=900.00', 'by treatment type (and what has none)');
+
+-- the register's sale: its document names the items only — the report reads the sale's lines (and the refund's), so the laser of
+-- the register is the same item as the invoice's, with its treatment type
+select pg_temp.check(pg_temp.n(pg_temp.r('items:2025'), 'total') = 1100
+  and (select string_agg(i->>'name' || '=' || (i->>'net') || 'x' || (i->>'qty'), ',' order by o) from jsonb_array_elements(pg_temp.r('items:2025')->'items') with ordinality x(i, o))
+      = 'טיפול לייזר=1000.00x2.00,קרם=100.00x1.00'
+  and (select string_agg(coalesce(t->>'name', '?') || '=' || (t->>'net'), ',' order by o) from jsonb_array_elements(pg_temp.r('items:2025')->'types') with ordinality x(t, o))
+      = 'לייזר=1000.00,=100.00',
+  'December: the invoice''s laser 500 and the register''s 500 — one item; two creams sold, one back');
 
 -- ---- a customer's card: the opening balance, every charge and payment, the balance as it runs = what the invoices still owe --------
 select pg_temp.check(pg_temp.n(pg_temp.r('led:dana'), 'opening') = 590 and pg_temp.n(pg_temp.r('led:dana'), 'closing') = 204.10
