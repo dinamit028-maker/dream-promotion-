@@ -30,6 +30,8 @@ export interface CatalogItem {
   packageSessions: number | null; packageTypeId: string | null; packageValidMonths: number | null;
   /** 2.93 (migration 20261011004800): every unit has its own serial number (features/catalog/serials.ts) */
   trackSerials: boolean;
+  /** 2.94 (migration 20261011004900): a service's treatment type — sales by treatment type (a package keeps packageTypeId) */
+  treatmentTypeId: string | null;
 }
 export interface CatalogOption { id: string; itemId: string; position: number; name: string; choices: string[] }
 export interface CatalogVariant {
@@ -74,6 +76,7 @@ export function toCatalogItem(r: any): CatalogItem {
     manufacturer: str(r.manufacturer), countryOfOrigin: str(r.country_of_origin), publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? null,
     packageSessions: numOrNull(r.package_sessions), packageTypeId: r.package_type_id ? str(r.package_type_id) : null, packageValidMonths: numOrNull(r.package_valid_months),
     trackSerials: Boolean(r.track_serials),
+    treatmentTypeId: r.treatment_type_id ? str(r.treatment_type_id) : null,
   };
 }
 export const toOption = (r: any): CatalogOption => ({ id: str(r.id), itemId: str(r.item_id), position: num(r.position, 1), name: str(r.name), choices: Array.isArray(r.choices) ? r.choices.map(str) : [] });
@@ -245,11 +248,13 @@ export interface ItemDraft {
   customFields: Record<string, string>; manufacturer: string; countryOfOrigin: string;
   /** a package's terms ('' = not set; the type '' = any treatment) */
   packageSessions: string; packageTypeId: string; packageValidMonths: string;
+  /** a service's treatment type ('' = none) — written only for a service, and only when the database has it (4900) */
+  treatmentTypeId: string;
 }
 export const emptyDraft = (p: Partial<ItemDraft> = {}): ItemDraft => ({
   name: '', kind: 'product', price: '', active: true, description: '', seoTitle: '', seoDescription: '', slug: '', publishOnline: false,
   onlinePrice: '', compareAtPrice: '', sku: '', barcode: '', tags: '', customFields: {}, manufacturer: '', countryOfOrigin: '',
-  packageSessions: '', packageTypeId: '', packageValidMonths: '', ...p,
+  packageSessions: '', packageTypeId: '', packageValidMonths: '', treatmentTypeId: '', ...p,
 });
 export const draftOf = (i: CatalogItem): ItemDraft => ({
   name: i.name, kind: i.kind, price: String(i.price), active: i.active, description: i.description, seoTitle: i.seoTitle, seoDescription: i.seoDescription,
@@ -258,6 +263,7 @@ export const draftOf = (i: CatalogItem): ItemDraft => ({
   customFields: { ...i.customFields }, manufacturer: i.manufacturer, countryOfOrigin: i.countryOfOrigin,
   packageSessions: i.packageSessions == null ? '' : String(i.packageSessions), packageTypeId: i.packageTypeId ?? '',
   packageValidMonths: i.packageValidMonths == null ? '' : String(i.packageValidMonths),
+  treatmentTypeId: i.treatmentTypeId ?? '',
 });
 
 const money = (s: string) => { const t = s.replace(/[₪,\s]/g, ''); return t === '' ? null : Number(t); };
@@ -299,10 +305,14 @@ const packageColumns = (d: ItemDraft) => ({
   package_type_id: d.packageTypeId || null,
   package_valid_months: d.packageValidMonths.trim() ? Number(d.packageValidMonths) : null,
 });
-/** the columns of catalog_items a draft writes (only after draftError(d) === null); opts.packages: the database has 4200 */
-export function itemColumns(d: ItemDraft, defs: Pick<FieldDef, 'key'>[], opts: { packages?: boolean } = {}) {
+/**
+ * the columns of catalog_items a draft writes (only after draftError(d) === null); opts.packages: the database has 4200;
+ * opts.types: it has 4900 — a service's treatment type (any other kind has none: the database refuses it)
+ */
+export function itemColumns(d: ItemDraft, defs: Pick<FieldDef, 'key'>[], opts: { packages?: boolean; types?: boolean } = {}) {
   return {
     ...(opts.packages && d.kind === 'package' ? packageColumns(d) : {}),
+    ...(opts.types ? { treatment_type_id: d.kind === 'service' ? d.treatmentTypeId || null : null } : {}),
     name: d.name.trim(), kind: d.kind, price: money(d.price) ?? 0, active: d.active,
     description: d.description.trim(), seo_title: d.seoTitle.trim(), seo_description: d.seoDescription.trim(),
     slug: d.slug.trim() || null, publish_online: d.publishOnline, online_price: money(d.onlinePrice), compare_at_price: money(d.compareAtPrice),
@@ -320,9 +330,10 @@ export function changedColumns<T extends Record<string, unknown>>(next: T, befor
 const stable = (v: unknown): string => JSON.stringify(v ?? null, (_k, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x);
 /** the columns of an item as they are in the database, in the shape itemColumns() returns — to compare */
-export function itemColumnsOf(i: CatalogItem, opts: { packages?: boolean } = {}) {
+export function itemColumnsOf(i: CatalogItem, opts: { packages?: boolean; types?: boolean } = {}) {
   return {
     ...(opts.packages ? { package_sessions: i.packageSessions, package_type_id: i.packageTypeId, package_valid_months: i.packageValidMonths } : {}),
+    ...(opts.types ? { treatment_type_id: i.treatmentTypeId } : {}),
     name: i.name, kind: i.kind, price: i.price, active: i.active, description: i.description, seo_title: i.seoTitle, seo_description: i.seoDescription,
     slug: i.slug, publish_online: i.publishOnline, online_price: i.onlinePrice, compare_at_price: i.compareAtPrice, sku: i.sku, barcode: i.barcode,
     tags: i.tags, custom_fields: i.customFields, manufacturer: i.manufacturer, country_of_origin: i.countryOfOrigin,

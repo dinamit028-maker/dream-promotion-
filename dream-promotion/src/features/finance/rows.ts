@@ -32,6 +32,13 @@ export function financeError(e: unknown): string {
   if (/refund_exceeds_paid/.test(m)) return 'הסכום גדול ממה שנשאר להחזיר על העסקה (חלק כבר הוחזר בקופה).';
   // 2.87 (migration 20261010004200): a package's document is linked to its package — the same customer and price
   if (/package_document/.test(m)) return 'המסמך לא תואם לחבילה (לקוח/ה או מחיר). סגרו ופתחו את המכירה מחדש.';
+  // 2.94 (migration 20261011004900): tax withheld at source on a receipt; the reports' period and card
+  if (/withholding_pct/.test(m)) return 'אחוז הניכוי במקור: מספר בין 0 ל-100 (עד 2 ספרות אחרי הנקודה).';
+  if (/withholding_customer/.test(m)) return 'ניכוי במקור צריך את שם הלקוח שניכה אותו.';
+  if (/withholding_all/.test(m)) return 'ניכוי במקור הוא חלק מהתשלום — לא כולו.';
+  if (/withholding: only a receipt|payments_withholding_source/.test(m)) return 'ניכוי במקור נרשם רק בקבלה.';
+  if (/bad range/.test(m)) return 'טווח התאריכים לא תקין (מתאריך עד תאריך, עד עשר שנים).';
+  if (/customer: a key|supplier: a key/.test(m)) return 'לא נבחר לקוח או ספק לכרטסת.';
   if (/method and amount are numbers|cheque's details/.test(m)) return 'פרטי התשלום לא תקינים (סכום, תאריך או פרטי הצ׳ק).';
   if (/names are text/.test(m)) return 'שורות המסמך לא תקינות (כמות, מחיר או שיעור מע״מ). רעננו ונסו שוב.';
   if (/payments:/.test(m)) return 'סכום התשלומים לא שווה לסכום המסמך.';

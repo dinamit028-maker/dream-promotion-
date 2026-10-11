@@ -25,6 +25,8 @@ export interface Summary {
   receivables: { open: number; count: number; overdue: number; overdueCount: number };
   pending: { count: number; total: number }; posWithoutDocument: { count: number; total: number }; allocationMissing: number;
   months: { month: string; revenue: number; expenses: number }[]; lockedUntil: string | null;
+  /** 2.94: tax withheld at source in the period — it paid invoices, but it is not money (out of cash.in; 0 before migration 4900) */
+  withheld: number;
 }
 const num = (v: unknown) => Number(v ?? 0);
 export const toSummary = (j: any): Summary => ({
@@ -36,6 +38,7 @@ export const toSummary = (j: any): Summary => ({
   receivables: { open: num(j.receivables?.open), count: num(j.receivables?.count), overdue: num(j.receivables?.overdue), overdueCount: num(j.receivables?.overdueCount) },
   pending: { count: num(j.pending?.count), total: num(j.pending?.total) }, posWithoutDocument: { count: num(j.posWithoutDocument?.count), total: num(j.posWithoutDocument?.total) },
   allocationMissing: num(j.allocationMissing), months: (j.months ?? []).map((m: any) => ({ month: m.month, revenue: num(m.revenue), expenses: num(m.expenses) })),
+  withheld: num(j.withheld),
 });
 export async function loadSummary(p: { from: string; to: string }): Promise<{ ok: true; s: Summary } | { ok: false; error: string }> {
   const { data, error } = await supabase().rpc('finance_summary', { p_from: p.from, p_to: p.to });
@@ -77,7 +80,7 @@ export function Overview() {
           <Stat label="רווח משוער" value={ils(s.profit)} tone={s.profit >= 0 ? 'ok' : 'bad'} hint="הכנסות פחות הוצאות (לפני מס הכנסה)" />
           {vat ? <Stat label="מע״מ לתשלום (משוער)" value={ils(s.vatPayable)} hint={`תשומות לקיזוז ${ils(s.expenses.vatDeductible)}`} onClick={() => go('reports')} />
             : <Stat label="מע״מ" value="—" hint="עוסק פטור לא גובה מע״מ" />}
-          <Stat label="נכנס לקופה ולבנק" value={ils(s.cash.in)} hint={`יצא ${ils(s.cash.out)} · נטו ${ils(s.cash.net)}`} onClick={() => go('income')} />
+          <Stat label="נכנס לקופה ולבנק" value={ils(s.cash.in)} hint={`יצא ${ils(s.cash.out)} · נטו ${ils(s.cash.net)}${s.withheld ? ` · ניכוי במקור ${ils(s.withheld)}` : ''}`} onClick={() => go('income')} />
           <Stat label="חייבים פתוחים" value={ils(s.receivables.open)} hint={`${s.receivables.count} מסמכים`} onClick={() => go('receivables')} />
           <Stat label="באיחור" value={ils(s.receivables.overdue)} tone={s.receivables.overdueCount ? 'bad' : undefined} hint={`${s.receivables.overdueCount} מסמכים`} onClick={() => go('receivables')} />
           <Stat label="בקשות תשלום מהקופה" value={ils(s.pending.total)} hint={`${s.pending.count} ממתינות`} />

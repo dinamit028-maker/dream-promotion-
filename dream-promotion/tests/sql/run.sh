@@ -27,4 +27,6 @@ bash tests/sql/locations-compare.sh "$DB" || failed=1
 bash tests/sql/stock-compare.sh "$DB" 4700 || failed=1
 # … and without and with migration 4800 (serial numbers, price lists, SKU series — every stock mover again)
 bash tests/sql/stock-compare.sh "$DB" 4800 || failed=1
+# … and without and with migration 4900 (the reports, tax withheld at source — the receipts' ledger rows and the money summary)
+bash tests/sql/stock-compare.sh "$DB" 4900 || failed=1
 exit $failed

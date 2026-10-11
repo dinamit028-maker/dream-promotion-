@@ -16,6 +16,8 @@ import type { AllocationRule } from './allocation';
 import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
 import { PaylinkSettings } from './Paylinks';
 import { ReminderSettingsCard } from './Reminders';
+import { useReportsReady } from './reports-data';
+import { ADVANCE_NOTE, advancePctError } from './statements';
 
 /**
  * Money settings: the business's legal identity (what every document prints — and keeps, as it was, from 2.51), VAT,
@@ -42,6 +44,9 @@ export function FinanceSettings() {
   const [taxBack, setTaxBack] = useState<string | null>(null);
   const [rules, setRules] = useState<AllocationRule[] | null>(null);
   const [grants, setGrants] = useState<{ reason: string; grantedAt: string; expiresAt: string; revokedAt: string | null }[]>([]);
+  // 2.94: the income tax advances' percent (the reports show an estimate by it) — once migration 20261011004900 is in the database
+  const reportsOk = useReportsReady();
+  const [advance, setAdvance] = useState(profile.advancePct == null ? '' : String(profile.advancePct));
   useEffect(() => {
     try { setTaxBack(new URLSearchParams(window.location.search).get('tax')); } catch { /* no address to read */ }
   }, []);
@@ -59,13 +64,16 @@ export function FinanceSettings() {
   const warn = rateWarning(s.vatRate, todayIL(), chargesVat(s.entity));
   async function save() {
     if (s.dealerNumber && !/^\d{9}$/.test(s.dealerNumber)) { fail('מספר עוסק / ח.פ — 9 ספרות'); return; }
+    const advanceBad = reportsOk ? advancePctError(advance) : null;
+    if (advanceBad) { fail(advanceBad); return; }
     setBusy(true);
     const sb = supabase();
     const a = await sb.from('register_settings').upsert({ user_id: userId, entity_type: s.entity, business_type: businessTypeOf(s.entity), vat_rate: chargesVat(s.entity) ? s.vatRate : 0,
       dealer_number: s.dealerNumber, company_number: s.companyNumber, legal_name: s.legalName.trim(), street: s.street.trim(), house_no: s.houseNo.trim(), city: s.city.trim(), zip: s.zip.trim() }, { onConflict: 'business_id' });
     const b = a.error ? a : await sb.from('business_finance_profile').upsert({ user_id: userId, trading_name: p.tradingName.trim(), phone: p.phone.trim(), email: p.email.trim(),
       bank_name: p.bankName.trim(), bank_branch: p.bankBranch.trim(), bank_account: p.bankAccount.trim(), payment_terms: p.paymentTerms, quote_valid_days: p.quoteValidDays,
-      doc_note: p.docNote.trim(), vat_period: p.vatPeriod, accountant_name: p.accountantName.trim(), accountant_email: p.accountantEmail.trim() }, { onConflict: 'business_id' });
+      doc_note: p.docNote.trim(), vat_period: p.vatPeriod, accountant_name: p.accountantName.trim(), accountant_email: p.accountantEmail.trim(),
+      ...(reportsOk ? { advance_pct: advance.trim() ? Number(advance.trim()) : null } : {}) }, { onConflict: 'business_id' });
     setBusy(false);
     if (b.error) { fail(financeError(b.error)); return; }
     say('ההגדרות נשמרו. מסמכים שכבר הופקו שומרים את הפרטים שהיו בהם.'); await reload();
@@ -123,6 +131,16 @@ export function FinanceSettings() {
           <Field label="מייל"><Input value={p.accountantEmail} onChange={(e) => setPv('accountantEmail', e.target.value)} inputMode="email" dir="ltr" /></Field>
         </div>
       </Card>
+      {reportsOk && (
+        <Card className="p-4">
+          <p className="mb-2 font-bold">מקדמות מס הכנסה</p>
+          <Field label="שיעור המקדמה % (מפנקס המקדמות; ריק = לא מוצג)">
+            <Input value={advance} onChange={(e) => setAdvance(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} inputMode="decimal" dir="ltr" className="w-28" placeholder="למשל 5" />
+          </Field>
+          {advancePctError(advance) && <Note tone="warn">{advancePctError(advance)}</Note>}
+          <p className="text-xs text-muted">בדוחות (&quot;מקדמות&quot;) מוצגת הערכה: הכנסות התקופה × השיעור. {ADVANCE_NOTE}</p>
+        </Card>
+      )}
       <div><Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'שומר…' : 'שמירת ההגדרות'}</Button></div>
 
       <Card className="p-4"><PaylinkSettings userId={userId} /></Card>

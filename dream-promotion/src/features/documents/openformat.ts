@@ -43,7 +43,11 @@ export interface SoftwareInfo { regNumber: string; name: string; version: string
  *  size / colour sold (2.54 — the database moves that variant's stock; not part of the file to the Tax Authority) */
 export interface DocLine { name: string; qty: number; unitPriceExVat: number; discountExVat: number; totalExVat: number; vatRate: number; kind: 1 | 2 | 3; itemId?: string; variantId?: string; restock?: boolean }
 /** method = field 1306; m = the app's own method (Bit is "other" in the file); cheque = fields 1307–1311 (2.51) */
-export interface DocPayment { method: number; amount: number; date: string; m?: string; cheque?: { bank?: string; branch?: string; account?: string; number?: string; dueDate?: string } }
+export interface DocPayment {
+  method: number; amount: number; date: string; m?: string; cheque?: { bank?: string; branch?: string; account?: string; number?: string; dueDate?: string };
+  /** 2.94: tax withheld at source (m 'withholding', method 9) — the percent on the customer's certificate */
+  pct?: number;
+}
 export interface Doc {
   docType: number; docNumber: number; linkNo: number; issuedAt: string /* ISO */; docDate: string /* YYYY-MM-DD */;
   customerName: string; customerPhone?: string; customerDealer?: string; customerStreet?: string; customerCity?: string; customerKey?: string;

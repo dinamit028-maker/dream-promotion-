@@ -1,4 +1,4 @@
-import { DOC_LABEL, PAY_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docPayLabel } from '@/features/documents/documents';
 import type { DocRow } from '@/features/documents/documents';
 import { categoryLabel, SUPPLIER_DOC_TYPES, vatDeductible, type Expense } from './expenses';
 import { LEDGER_SOURCE_HE, payLabel, type LedgerRow } from './payments';
@@ -39,7 +39,7 @@ const day = (d: string | null | undefined) => (d ? d.split('-').reverse().join('
 export function documentsCsv(docs: (DocRow & { cancelled?: boolean; allocation?: string })[]) {
   return csv(['סוג', 'מספר', 'תאריך', 'לקוח', 'ע.מ / ח.פ לקוח', 'לפני הנחה', 'הנחה', 'לפני מע״מ', 'מע״מ', 'סה״כ', 'אמצעי תשלום', 'מסמך בסיס', 'מועד תשלום', 'מספר הקצאה', 'סטטוס'],
     docs.map((d) => [DOC_LABEL[d.docType] ?? d.docType, d.docNumber, day(d.docDate), d.customerName, d.customerDealer ?? '', money(d.beforeDiscount), money(d.discount),
-      money(d.afterDiscount), money(d.vatAmount), money(d.total), d.payments.map((p) => `${PAY_LABEL[p.method] ?? 'אחר'} ${money(p.amount)}`).join(' + '),
+      money(d.afterDiscount), money(d.vatAmount), money(d.total), d.payments.map((p) => `${docPayLabel(p)} ${money(p.amount)}`).join(' + '),
       d.baseDocNumber ? `${DOC_LABEL[d.baseDocType ?? 0] ?? ''} ${d.baseDocNumber}` : '', day(d.dueDate), d.allocation ?? '', d.cancelled ? 'בוטל' : '']));
 }
 export function expensesCsv(list: Expense[], businessChargesVat: boolean) {
@@ -52,7 +52,8 @@ export function expensesCsv(list: Expense[], businessChargesVat: boolean) {
 }
 export function ledgerCsv(rows: LedgerRow[]) {
   return csv(['תאריך', 'כיוון', 'סכום', 'אמצעי', 'מקור', 'הערה'],
-    rows.map((r) => [day(r.paidOn), r.direction === 'in' ? 'נכנס' : 'יצא', money(r.direction === 'in' ? r.amount : -r.amount), payLabel(r.method), LEDGER_SOURCE_HE[r.source], r.note]));
+    rows.map((r) => [day(r.paidOn), r.direction === 'in' ? 'נכנס' : 'יצא', money(r.direction === 'in' ? r.amount : -r.amount),
+      payLabel(r.method) + (r.method === 'withholding' && r.pct != null ? ` ${r.pct}%` : ''), LEDGER_SOURCE_HE[r.source], r.note]));
 }
 /** 2.89: an invoice with a payment plan — its date and status by the plan (the next payment / the late one; `lines` by invoice) */
 export function receivablesCsv(list: Receivable[], today: string, lines?: Map<string, Pick<Line, 'open' | 'dueDate' | 'planId'>[]>) {

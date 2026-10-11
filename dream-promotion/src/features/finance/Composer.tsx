@@ -14,6 +14,7 @@ import { documentRow, financeError, issueDocumentRow, newKey } from './api';
 import { quoteKey } from './keys';
 import type { PaymentEntry } from './payments';
 import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from './ui';
+import { useReportsReady } from './reports-data';
 import { documentDateRateNote } from './vat';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { useLocations } from '@/features/locations/store';
@@ -53,6 +54,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
   const [terms, setTerms] = useState(initial?.terms ?? profile.paymentTerms);
   const [dueDate, setDueDate] = useState<string>(initial?.dueDate ?? dueDateFor(today, initial?.terms ?? profile.paymentTerms));
   const [payments, setPayments] = useState<PaymentEntry[]>((initial?.payments as PaymentEntry[] | undefined) ?? []);
+  // 2.94: tax withheld at source on a receipt — once migration 20261011004900 is in the database
+  const withholdingOk = useReportsReady();
   const [notes, setNotes] = useState(initial?.notes ?? quote?.notes ?? '');
   const [validUntil, setValidUntil] = useState(quote?.validUntil ?? validUntilFor(today, profile.quoteValidDays));
   const [key] = useState(() => newKey('direct'));
@@ -210,7 +213,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
       </div>
 
       {receipt && mode.kind === 'document' && (
-        <div className="mt-2"><p className="mb-1 text-sm font-bold">איך שולם</p><PaymentsEditor payments={payments} onChange={setPayments} total={preview.totals.total} today={today} /></div>
+        <div className="mt-2"><p className="mb-1 text-sm font-bold">איך שולם</p><PaymentsEditor payments={payments} onChange={setPayments} total={preview.totals.total} today={today} withholding={withholdingOk} /></div>
       )}
       <Field label="הערות על המסמך (לא חובה)"><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={mode.kind === 'quote' ? 2000 : 1000} className="min-h-16" /></Field>
 

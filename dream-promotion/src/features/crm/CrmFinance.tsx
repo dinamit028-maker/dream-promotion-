@@ -15,6 +15,7 @@ import { loadLines, plansReady } from '@/features/finance/plans-data';
 import { LeadReminderStop } from '@/features/finance/Reminders';
 import { planLine, scheduleLabel, type RecurringPlan } from '@/features/finance/recurring';
 import { loadRecurringPlans, recurringReady } from '@/features/finance/recurring-data';
+import { useReportsReady } from '@/features/finance/reports-data';
 
 /**
  * The money of one contact, on their card: documents issued to them, what they still owe, open quotes — and
@@ -37,6 +38,8 @@ export function CrmFinance({ leadId }: { leadId: string }) {
   // "חיובים חוזרים" (2.90): only once migration 20261010004500 is in the database
   const [recurring, setRecurring] = useState<RecurringPlan[] | null>(null);
   const [rcReady, setRcReady] = useState(false);
+  // "כרטסת" (2.94): the customer's card in the reports — once migration 20261011004900 is in the database
+  const ledgerOk = useReportsReady();
   useEffect(() => {
     if (!open || recurring) return;
     void recurringReady().then(async (ok) => {
@@ -82,6 +85,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
             <Link href={`/finance/quotes?new=1&lead=${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">הצעת מחיר</Link>
             {pkReady && !error && <button type="button" onClick={() => setSelling(true)} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">📦 מכירת חבילה</button>}
             {rcReady && !error && <Link href={`/finance/recurring?new=1&lead=${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">🔁 חיוב חוזר</Link>}
+            {ledgerOk && !error && <Link href={`/finance/reports?view=cledger&key=l:${leadId}`} className="rounded-full border border-line px-3 py-1.5 font-semibold hover:border-primary">📒 כרטסת</Link>}
           </div>
           {error ? <p className="text-muted">אין גישה לנתונים הכספיים כאן.</p> : !data ? <Spinner /> : <>
             <p>{data.owed > 0 ? <>חייב/ת: <strong>{ils(data.owed)}</strong>{data.overdue > 0 ? <span className="text-red-600"> (באיחור {ils(data.overdue)})</span> : null}</> : 'אין חוב פתוח.'}{data.paid > 0 ? ` · שולם במסמכים: ${ils(data.paid)}` : ''}</p>

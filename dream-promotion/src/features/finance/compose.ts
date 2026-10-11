@@ -4,7 +4,7 @@ import { dealerDigits, validIsraeliId } from '@/features/register/billing';
 import { israelParts } from '@/lib/il-time';
 import { ag, netOfGross, sh, vatOfGross, vatOfNet } from './vat';
 import { canIssue, chargesVat, type EntityType } from './rules';
-import { chequeError, toDocPayment, type PaymentEntry } from './payments';
+import { chequeError, toDocPayment, withholdingErrors, type PaymentEntry } from './payments';
 
 /**
  * The accounting engine's document builder: what the user typed → a legal document, agorot-exact.
@@ -105,7 +105,11 @@ export function composeDocument(input: ComposeInput): ComposeResult {
   if (!lines.length) errors.push('צריך לפחות שורה אחת');
   else if (totals.total <= 0) errors.push('הסכום חייב להיות גדול מאפס');
   const receipt = t === 320 || t === 400;
-  if (receipt && lines.length && totals.total > 0) errors.push(...paymentErrors(input.payments ?? [], ag(totals.total), today));
+  if (receipt && lines.length && totals.total > 0) {
+    errors.push(...paymentErrors(input.payments ?? [], ag(totals.total), today));
+    // 2.94: tax withheld at source — a percent that is one, the customer who withheld it, never all of the payment
+    errors.push(...withholdingErrors(input.payments ?? [], { total: totals.total, customerName: input.customer.name }));
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.docDate) || input.docDate > today) errors.push('תאריך המסמך לא יכול להיות בעתיד');
   if ((t === 305 || t === 300) && input.dueDate && input.dueDate < input.docDate) errors.push('מועד התשלום לפני תאריך המסמך');
   if ((input.notes ?? '').length > 1000) errors.push('ההערות ארוכות מדי (עד 1,000 תווים)');
@@ -137,6 +141,7 @@ export function composeReceipt(inv: OpenInvoice, o: { entity: EntityType; vatRat
   if (paidA > ag(inv.balance)) errors.push(`הסכום גדול מהיתרה לתשלום (${ils(inv.balance)})`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(o.docDate) || o.docDate > today) errors.push('תאריך המסמך לא יכול להיות בעתיד');
   errors.push(...paymentErrors(o.payments, paidA, today));
+  errors.push(...withholdingErrors(o.payments, { total: sh(paidA), customerName: inv.customerName }));
   if (errors.length) return { ok: false, errors: [...new Set(errors)] };
   const cust = { customerName: inv.customerName, customerPhone: inv.customerPhone ?? '', customerDealer: inv.customerDealer ?? '', customerStreet: inv.customerStreet ?? '', customerCity: inv.customerCity ?? '' };
   const payments = o.payments.map(toDocPayment);

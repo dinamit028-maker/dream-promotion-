@@ -32,9 +32,11 @@ export type FinanceTab = FinanceSection;
 export interface Profile {
   tradingName: string; phone: string; email: string; bankName: string; bankBranch: string; bankAccount: string; paymentTerms: string;
   quoteValidDays: number; docNote: string; vatPeriod: 'monthly' | 'bimonthly'; accountantName: string; accountantEmail: string;
+  /** 2.94 (migration 20261011004900): the percent of the income tax advances — the reports show an estimate by it (null = not set) */
+  advancePct: number | null;
 }
 export const EMPTY_PROFILE: Profile = { tradingName: '', phone: '', email: '', bankName: '', bankBranch: '', bankAccount: '', paymentTerms: 'immediate', quoteValidDays: 30,
-  docNote: '', vatPeriod: 'bimonthly', accountantName: '', accountantEmail: '' };
+  docNote: '', vatPeriod: 'bimonthly', accountantName: '', accountantEmail: '', advancePct: null };
 export interface Settings {
   entity: EntityType; vatRate: number; dealerNumber: string; companyNumber: string; legalName: string; street: string; houseNo: string; city: string; zip: string; payLink: string;
 }
@@ -59,6 +61,7 @@ export const toProfile = (r: any): Profile => (!r ? EMPTY_PROFILE : {
   tradingName: r.trading_name ?? '', phone: r.phone ?? '', email: r.email ?? '', bankName: r.bank_name ?? '', bankBranch: r.bank_branch ?? '', bankAccount: r.bank_account ?? '',
   paymentTerms: r.payment_terms ?? 'immediate', quoteValidDays: Number(r.quote_valid_days ?? 30), docNote: r.doc_note ?? '', vatPeriod: r.vat_period === 'monthly' ? 'monthly' : 'bimonthly',
   accountantName: r.accountant_name ?? '', accountantEmail: r.accountant_email ?? '',
+  advancePct: r.advance_pct == null || !Number.isFinite(Number(r.advance_pct)) ? null : Number(r.advance_pct),
 });
 
 export function FinanceLayout({ children }: { children: ReactNode }) {

@@ -24,6 +24,7 @@ import { pickSize } from './images';
 import { Switch, SITE_LIVE, SITE_NOT_LIVE, useSiteLive, type EditorFocus } from './PublishSwitch';
 import { authHeaders } from '@/lib/services/http';
 import { loadTreatmentTypes, packagesReady, type TreatmentType } from '@/features/finance/packages-data';
+import { useReportsReady } from '@/features/finance/reports-data';
 import { useLocations } from '@/features/locations/store';
 import { activeLocations, defaultLocation, locationName, multiLocation } from '@/features/locations/locations';
 import { adjustAt, loadItemStock } from '@/features/stock/stock-data';
@@ -98,6 +99,8 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   // a package's terms (2.87, migration 20261010004200): shown for kind "חבילה", written only when the database has them
   const [pkReady, setPkReady] = useState(false);
   const [types, setTypes] = useState<TreatmentType[]>([]);
+  // 2.94 (migration 20261011004900): a service's treatment type — sales by treatment type in the reports
+  const typesOk = useReportsReady();
   const [newType, setNewType] = useState<{ name: string; busy: boolean; error: string | null } | null>(null);
   const [ai, setAi] = useState<{ busy: boolean; proposal: ProductCopy | null; error: string | null }>({ busy: false, proposal: null, error: null });
   const sections = useRef<Record<string, HTMLElement | null>>({});
@@ -180,6 +183,13 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
     });
     return () => { alive = false; };
   }, [isPackage]);
+  const isService = draft.kind === 'service';
+  useEffect(() => {
+    if (!isService || !typesOk) return;
+    let alive = true;
+    void loadTreatmentTypes().then((t) => { if (alive) setTypes(t); });
+    return () => { alive = false; };
+  }, [isService, typesOk]);
   /** a treatment type of the clinic (the client file's list, docs/CLIENT_FILE_ENGINEERING_HE.md §3) — the owner and marked practitioners add */
   async function addType() {
     const name = newType?.name.trim() ?? '';
@@ -217,7 +227,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
         d = { ...d, slug: uniqueSlug(slugify(d.name), await takenSlugs(item?.id)) };
         setDraft(d);
       }
-      const all = itemColumns(d, fields, { packages: pkReady });
+      const all = itemColumns(d, fields, { packages: pkReady, types: typesOk });
       // before migration 3300 only the register's columns exist
       const cols: Record<string, unknown> = ready ? all : { name: all.name, kind: all.kind, price: all.price, active: all.active };
       let saved: CatalogItem;
@@ -226,7 +236,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
         if (!r.ok) { fail(r.error); return null; }
         saved = r.data;
       } else {
-        const r = await updateItem(item.id, changedColumns(cols, itemColumnsOf(item, { packages: pkReady }) as Record<string, unknown>));
+        const r = await updateItem(item.id, changedColumns(cols, itemColumnsOf(item, { packages: pkReady, types: typesOk }) as Record<string, unknown>));
         if (!r.ok) { fail(r.error); return null; }
         saved = r.data;
         // the variants' own fields
@@ -308,7 +318,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const router = useRouter();
   const [promoting, setPromoting] = useState(false);
   async function promote() {
-    const dirty = Boolean(item) && Object.keys(changedColumns(itemColumns(draft, fields, { packages: pkReady }), itemColumnsOf(item!, { packages: pkReady }) as Record<string, unknown>)).length > 0;
+    const dirty = Boolean(item) && Object.keys(changedColumns(itemColumns(draft, fields, { packages: pkReady, types: typesOk }), itemColumnsOf(item!, { packages: pkReady, types: typesOk }) as Record<string, unknown>)).length > 0;
     if (dirty && !window.confirm('יש שינויים שלא נשמרו. לעבור לאולפן היצירה בלי לשמור?')) return;
     setPromoting(true);
     const main = [...media].sort((a, b) => a.position - b.position)[0];
@@ -431,6 +441,14 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
             <input type="checkbox" checked={draft.active} onChange={(e) => set('active', e.target.checked)} className="h-5 w-5" />מוצג בקופה
           </label>
         </div>
+        {isService && typesOk && (types.length > 0 || Boolean(draft.treatmentTypeId)) && (
+          <Field label="סוג טיפול (לדוח המכירות לפי סוג טיפול)">
+            <Select value={draft.treatmentTypeId} onChange={(e) => set('treatmentTypeId', e.target.value)}>
+              <option value="">בלי סוג טיפול</option>
+              {types.map((t) => <option key={t.id} value={t.id}>{t.name}{t.active ? '' : ' (לא פעיל)'}</option>)}
+            </Select>
+          </Field>
+        )}
         {itemsOk && item && <p className="text-xs text-muted">מחיר אחר לסניף או לקבוצת לקוחות (למשל סיטונאי) — <Link href="/prices" className="font-semibold text-primary">במחירונים</Link>.</p>}
       </Section>
 

@@ -13,6 +13,9 @@ export const DOC_LABEL: Record<number, string> = { 300: 'חשבונית עסקה
 /** register payment method → spec field 1306 (1 cash, 2 cheque, 3 credit card, 4 bank transfer, 9 other) */
 export const PAY_CODE: Record<Method, number> = { cash: 1, card: 3, transfer: 4, bit: 9, link: 9, other: 9, split: 9 };
 export const PAY_LABEL: Record<number, string> = { 1: 'מזומן', 2: 'המחאה', 3: 'כרטיס אשראי', 4: 'העברה בנקאית', 9: 'אחר' };
+/** a payment's line on a printed receipt: its method — tax withheld at source by its name and percent (2.94), not "אחר" */
+export const docPayLabel = (p: { method: number; m?: string; pct?: number | null }) =>
+  p.m === 'withholding' ? `ניכוי במקור${p.pct != null && Number.isFinite(Number(p.pct)) ? ` (${Number(p.pct)}%)` : ''}` : PAY_LABEL[p.method] ?? 'אחר';
 
 const ag = (n: number) => Math.round(n * 100);
 const sh = (a: number) => a / 100;

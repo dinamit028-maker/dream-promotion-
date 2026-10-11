@@ -5,7 +5,7 @@ import { cx } from '@/lib/utils';
 import { israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import type { Lead } from '@/types';
-import { EMPTY_CHEQUE, PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
+import { EMPTY_CHEQUE, PAY_METHODS, WITHHOLDING, type DocPayMethod, type PaymentEntry } from './payments';
 import type { ComposeCustomer, ComposeLine } from './compose';
 import type { CatalogItem } from '@/features/catalog/catalog';
 import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
@@ -172,9 +172,36 @@ export function LinesEditor({ lines, onChange, catalog, products, productsReady 
   );
 }
 
-/** how it was paid: one or more payments (a cheque with its details) */
-export function PaymentsEditor({ payments, onChange, total, today }: { payments: PaymentEntry[]; onChange: (p: PaymentEntry[]) => void; total: number; today: string }) {
-  const set = (i: number, patch: Partial<PaymentEntry>) => onChange(payments.map((p, k) => (k === i ? { ...p, ...patch } : p)));
+/**
+ * how it was paid: one or more payments (a cheque with its details). `withholding` (2.94 — a receipt of the money screens, once
+ * migration 20261011004900 is in the database): tax the customer withheld at source is one more line — its amount comes off the
+ * money line next to it, so the receipt still adds up (565 by transfer + 25 withheld = the invoice's 590).
+ */
+export function PaymentsEditor({ payments, onChange, total, today, withholding = false }: {
+  payments: PaymentEntry[]; onChange: (p: PaymentEntry[]) => void; total: number; today: string; withholding?: boolean;
+}) {
+  const set = (i: number, patch: Partial<PaymentEntry>) => {
+    const cur = payments[i];
+    let next = payments.map((p, k) => (k === i ? { ...p, ...patch } : p));
+    // a withholding's amount changed: the first money line takes the difference (never below zero)
+    if (cur.method === 'withholding' && patch.amount !== undefined) {
+      const other = next.findIndex((p, k) => k !== i && p.method !== 'withholding');
+      const diffA = Math.round((patch.amount || 0) * 100) - Math.round((cur.amount || 0) * 100);
+      if (other >= 0 && diffA) next = next.map((p, k) => (k === other ? { ...p, amount: Math.max(0, Math.round((p.amount || 0) * 100) - diffA) / 100 } : p));
+    }
+    onChange(next);
+  };
+  const hasWithholding = payments.some((p) => p.method === 'withholding');
+  /** a line out — a withholding's amount goes back to the first money line */
+  const remove = (i: number) => {
+    const cur = payments[i];
+    let next = payments.filter((_, k) => k !== i);
+    const other = next.findIndex((p) => p.method !== 'withholding');
+    if (cur.method === 'withholding' && cur.amount && other >= 0) {
+      next = next.map((p, k) => (k === other ? { ...p, amount: (Math.round((p.amount || 0) * 100) + Math.round(cur.amount * 100)) / 100 } : p));
+    }
+    onChange(next);
+  };
   const paidA = payments.reduce((a, p) => a + Math.round((p.amount || 0) * 100), 0);
   const left = (Math.round(total * 100) - paidA) / 100;
   return (
@@ -182,8 +209,9 @@ export function PaymentsEditor({ payments, onChange, total, today }: { payments:
       {payments.map((p, i) => (
         <div key={i} className="grid gap-1.5 rounded-2xl border border-line p-2">
           <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_8.5rem] gap-1.5">
-            <SmallSelect value={p.method} onChange={(e) => set(i, { method: e.target.value as PayMethod, ...(e.target.value === 'cheque' && !p.cheque ? { cheque: { ...EMPTY_CHEQUE } } : {}) })} aria-label={`אמצעי תשלום ${i + 1}`}>
+            <SmallSelect value={p.method} onChange={(e) => set(i, { method: e.target.value as DocPayMethod, ...(e.target.value === 'cheque' && !p.cheque ? { cheque: { ...EMPTY_CHEQUE } } : {}) })} aria-label={`אמצעי תשלום ${i + 1}`}>
               {PAY_METHODS.map((m) => <option key={m.id} value={m.id}>{m.icon} {m.label}</option>)}
+              {(withholding || p.method === 'withholding') && <option value={WITHHOLDING.id}>{WITHHOLDING.icon} {WITHHOLDING.label}</option>}
             </SmallSelect>
             <Input type="number" inputMode="decimal" min={0} step="0.01" value={p.amount || ''} onChange={(e) => set(i, { amount: Number(e.target.value) })} aria-label={`סכום תשלום ${i + 1}`} className="px-2 py-2 text-center" />
             <Input type="date" value={p.date} max={today} onChange={(e) => set(i, { date: e.target.value })} aria-label={`תאריך תשלום ${i + 1}`} className="px-2 py-2" />
@@ -197,11 +225,23 @@ export function PaymentsEditor({ payments, onChange, total, today }: { payments:
               <Input type="date" value={p.cheque?.dueDate ?? ''} onChange={(e) => set(i, { cheque: { ...(p.cheque ?? EMPTY_CHEQUE), dueDate: e.target.value } })} aria-label="תאריך פירעון" className="px-2 py-2" />
             </div>
           )}
-          {payments.length > 1 && <button type="button" className="justify-self-start text-xs text-muted" onClick={() => onChange(payments.filter((_, k) => k !== i))}>הסרה</button>}
+          {p.method === 'withholding' && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="w-28 shrink-0">
+                <Input type="number" inputMode="decimal" min={0} max={100} step="0.01" value={p.pct ?? ''} placeholder="% ניכוי"
+                  onChange={(e) => set(i, { pct: e.target.value === '' ? null : Number(e.target.value) })} aria-label={`אחוז ניכוי במקור ${i + 1}`} className="px-2 py-2 text-center" />
+              </div>
+              <span className="min-w-0 flex-1 text-xs text-muted">האחוז שבאישור הניכוי של הלקוח (לא חובה). לא כסף שנכנס — סוגר את החשבונית ונרשם לדוח הניכויים.</span>
+            </div>
+          )}
+          {payments.length > 1 && <button type="button" className="justify-self-start text-xs text-muted" onClick={() => remove(i)}>הסרה</button>}
         </div>
       ))}
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <button type="button" className="font-semibold text-primary" onClick={() => onChange([...payments, { method: 'cash', amount: Math.max(0, left), date: today }])}>+ אמצעי נוסף</button>
+        {withholding && !hasWithholding && payments.length > 0 && (
+          <button type="button" className="font-semibold text-primary" onClick={() => onChange([...payments, { method: 'withholding', amount: 0, date: today, pct: null }])}>+ ניכוי במקור</button>
+        )}
         {left !== 0 && <span className={left > 0 ? 'text-amber-600' : 'text-red-600'}>{left > 0 ? `חסר ${ils(left)}` : `עודף ${ils(-left)}`}</span>}
         {left > 0 && payments.length > 0 && <button type="button" className="text-xs text-primary" onClick={() => set(payments.length - 1, { amount: Math.round((payments[payments.length - 1].amount + left) * 100) / 100 })}>להשלים את היתרה</button>}
       </div>

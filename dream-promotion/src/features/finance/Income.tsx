@@ -76,7 +76,7 @@ export function Income() {
           <Stat label={vat ? 'הכנסות לפי מסמכים (לפני מע״מ)' : 'הכנסות לפי קבלות'} value={ils(s.revenue.net)} hint={vat ? `כולל מע״מ ${ils(s.revenue.gross)}` : undefined} />
           <Stat label="נכנס בפועל" value={ils(t.in)} hint="קבלות וחשבוניות מס/קבלה" />
           <Stat label="יצא בפועל" value={ils(t.out)} hint="החזרים, זיכויים, הוצאות, ביטולים" />
-          <Stat label="נטו בתקופה" value={ils(t.net)} tone={t.net >= 0 ? 'ok' : 'bad'} />
+          <Stat label="נטו בתקופה" value={ils(t.net)} tone={t.net >= 0 ? 'ok' : 'bad'} hint={t.withheld ? `ניכוי במקור ${ils(t.withheld)} — לא כסף, לא בסכומים` : undefined} />
         </div>
         {missing.length > 0 && (
           <Card className="p-4">
@@ -92,7 +92,7 @@ export function Income() {
           {!ledger?.length ? <p className="text-sm text-muted">אין תנועות בתקופה הזו.</p> : (
             <ul className="grid gap-1 text-sm">{ledger.slice(0, 100).map((r) => (
               <li key={r.id} className="flex min-w-0 items-center justify-between gap-2 border-b border-line py-1.5 last:border-0">
-                <span className="min-w-0 truncate">{ddmmyyyy(r.paidOn)} · {LEDGER_SOURCE_HE[r.source]} · {payLabel(r.method)}{r.note ? ` · ${r.note}` : ''}</span>
+                <span className="min-w-0 truncate">{ddmmyyyy(r.paidOn)} · {LEDGER_SOURCE_HE[r.source]} · {payLabel(r.method)}{r.method === 'withholding' && r.pct != null ? ` ${r.pct}%` : ''}{r.note ? ` · ${r.note}` : ''}</span>
                 <strong className={r.direction === 'in' ? 'tabular-nums text-emerald-600 dark:text-emerald-400' : 'tabular-nums text-red-600 dark:text-red-400'}>{r.direction === 'in' ? '+' : '−'}{ils(r.amount)}</strong>
               </li>
             ))}</ul>

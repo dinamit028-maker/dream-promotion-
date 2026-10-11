@@ -5,7 +5,9 @@
 # functions as they were), sales and a cancel, a refund back to stock, a document and its cancellation, a receipt and its credit
 # invoice, an expense's delivery and its void, variants and "לא משויך", reconciling, an order of the site that holds units. Every
 # count, every move (without the columns 4700 adds), every answer of the functions and what the site says is free — the same on both.
-# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default) or 4800]
+# 20261011004900 (the reports and tax withheld at source, T8) rewrote the receipts' way into the ledger and finance_summary: the
+# same day (a receipt paid by cheque too) gives the same ledger, row by row, and the same summary (4900 only adds "withheld": 0).
+# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default), 4800 or 4900]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BASE=${1:-${DP_TEST_DB:-dp_test}}
@@ -16,7 +18,8 @@ fail() { echo "CHECK FAILED: $1"; exit 1; }
 case "${2:-4700}" in
   4700) STOCK=supabase/migrations/20261011004700_stock_locations.sql ;;
   4800) STOCK=supabase/migrations/20261011004800_items_lists_reports.sql ;;
-  *) fail "the migration to compare: 4700 or 4800" ;;
+  4900) STOCK=supabase/migrations/20261011004900_reports.sql ;;
+  *) fail "the migration to compare: 4700, 4800 or 4900" ;;
 esac
 TAG=${2:-4700}
 TMPF=$(mktemp); trap 'rm -f "$TMPF" "$TMPF.before" "$TMPF.after"' EXIT
@@ -73,7 +76,14 @@ day() { # the same day of the business, on database $1 — prints every answer o
     $(printf "$doc" '' 00000000-0000-0000-0000-000000e48602 320 '' "jsonb_build_array(jsonb_build_object('method', 1, 'amount', 118, 'date', public.il_today()))" cmp-320 '')
     $(printf "$doc" ', base_doc_type, base_doc_number' 00000000-0000-0000-0000-000000e48603 330 ',"restock":true' "'[]'" cmp-330 \
        ", 320, (select doc_number from public.documents where id = '00000000-0000-0000-0000-000000e48602')")
-    update public.expenses set status = 'void', void_reason = 'כפול' where id = '00000000-0000-0000-0000-000000e48701';" >/dev/null || return 1
+    update public.expenses set status = 'void', void_reason = 'כפול' where id = '00000000-0000-0000-0000-000000e48701';
+    insert into public.documents (id, user_id, doc_type, doc_number, doc_date, customer_name, before_discount, discount, after_discount, vat_amount, total, vat_rate,
+                                  lines, payments, idempotency_key)
+    values ('00000000-0000-0000-0000-000000e48604', '$O', 400, 0, public.il_today(), 'לקוחה', 50, 0, 50, 0, 50, 18,
+            '[{\"name\":\"מקדמה\",\"qty\":1,\"unitPriceExVat\":50,\"discountExVat\":0,\"totalExVat\":50,\"vatRate\":18,\"kind\":1}]',
+            jsonb_build_array(jsonb_build_object('method', 2, 'amount', 30, 'date', public.il_today(), 'm', 'cheque',
+                                                 'cheque', jsonb_build_object('number', '1234', 'bank', '12', 'branch', '345', 'account', '678901')),
+                              jsonb_build_object('method', 9, 'amount', 20, 'date', public.il_today(), 'm', 'bit')), 'cmp-400');" >/dev/null || return 1
   "${q[@]}" -c "begin; $AS select 'reconcile ' || public.reconcile_variant_stock('$V'); commit;" || return 1
   # an order of the site holds 3 creams
   "${q[@]}" -c "insert into public.stores (id, user_id, business_id, name, slug, status) values ('00000000-0000-0000-0000-000000e48801', '$O', '$B', 'החנות', 'stock-cmp-store', 'draft');
@@ -94,7 +104,16 @@ day() { # the same day of the business, on database $1 — prints every answer o
                 select 'moves ' || md5(string_agg(concat_ws('/', m.item_id, m.variant_id, m.delta, m.qty_after, m.reason, m.sale_id, m.refund_id, m.document_id,
                                                            m.expense_id, m.note, m.user_id), '|' order by concat_ws('/', m.item_id, m.variant_id, m.delta, m.qty_after,
                                                            m.reason, m.sale_id, m.refund_id, m.document_id, m.expense_id, m.note, m.user_id)))
-                       || ' ' || count(*) from public.stock_movements m where m.business_id = '$B';" || return 1
+                       || ' ' || count(*) from public.stock_movements m where m.business_id = '$B';
+                select 'ledger ' || md5(string_agg(concat_ws('/', p.direction, p.amount, p.method, p.paid_on, p.source, p.document_id, p.applies_to, p.sale_id,
+                                                           p.refund_id, p.expense_id, p.lead_id, p.reference, p.note, p.user_id), '|' order by concat_ws('/', p.direction,
+                                                           p.amount, p.method, p.paid_on, p.source, p.document_id, p.applies_to, p.sale_id, p.refund_id, p.expense_id,
+                                                           p.lead_id, p.reference, p.note, p.user_id)))
+                       || ' ' || count(*) from public.payments p where p.business_id = '$B';" || return 1
+  "${q[@]}" -c "begin; $AS
+    select 'summary ' || (public.finance_summary(public.il_today() - 30, public.il_today()) - 'withheld')::text;
+    select 'withheld ' || coalesce(public.finance_summary(public.il_today() - 30, public.il_today())->>'withheld', '0');
+    commit;" || return 1
 }
 build "${BASE}_stk_before" no
 build "${BASE}_stk_after" yes
@@ -104,9 +123,13 @@ before=$(cat "$TMPF.before"); after=$(cat "$TMPF.after")
 if [ -n "${CMP_SHOW:-}" ]; then cat "$TMPF.after"; fi
 [ -n "$(echo "$before" | grep '^moves ')" ] || fail "the day ran on the database without $TAG"
 [ "$before" = "$after" ] || { diff <(echo "$before") <(echo "$after"); fail "one location: $TAG changed something"; }
+[ -n "$(echo "$before" | grep '^ledger .* [1-9]')" ] || fail "the day wrote no ledger rows"
 if [ "$TAG" = 4700 ]; then
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.stock_levels where business_id = '$B'")
   [ "$r" = "0" ] || fail "one location: nothing kept for other locations (got $r)"
+elif [ "$TAG" = 4900 ]; then
+  r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.payments where method = 'withholding'")
+  [ "$r" = "0" ] || fail "one location: no tax withheld at source appeared (got $r)"
 else
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select (select count(*) from public.catalog_serials) + (select count(*) from public.price_lists)
                                                               + (select count(*) from public.sku_series) + (select count(*) from public.catalog_items where track_serials)")

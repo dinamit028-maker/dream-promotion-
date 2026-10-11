@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Button, Card } from '@/components/ui/primitives';
+import { Button, Card, Chip } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { useFinance } from './FinanceScreen';
 import { loadSummary, type Summary } from './Overview';
@@ -8,14 +8,21 @@ import { logEvent } from './api';
 import { categoryLabel } from './expenses';
 import { payLabel } from './payments';
 import { vatReportRows } from './reports';
-import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, ils, periodNow, type Period } from './ui';
+import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, ddmmyyyy, ils, periodNow, type Period } from './ui';
 import { LocationCompare } from './LocationCompare';
 import { useLocations } from '@/features/locations/store';
-import { multiLocation } from '@/features/locations/locations';
+import { multiLocation, switchLabel } from '@/features/locations/locations';
+import { useReportsReady } from './reports-data';
+import {
+  AdvancesView, CustomerLedgerView, CustomersView, ItemsView, PnlCompare, REPORT_VIEWS, SupplierLedgerView, SuppliersView, WithholdingView, isReportView, type ReportView,
+} from './ReportBook';
 
 /**
  * "דוחות": profit and loss (estimate), the VAT working paper of a period, expenses by category, money by method — all from
  * finance_summary() (the same numbers as the overview and the accountant's package). Printable. A working paper, not a filing.
+ * 2.94 (T8): profit and loss against the same period a year before, and — once migration 20261011004900 is in the database —
+ * the reports of ReportBook.tsx (by customer, by item and treatment type, the cards of a customer and of a supplier, suppliers
+ * paid and not yet, tax withheld at source, the advances' estimate), each with CSV and PDF.
  */
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -33,10 +40,19 @@ ${cats ? `<h3>הוצאות לפי קטגוריה</h3><table>${cats}</table>` : '
 }
 
 export function Reports() {
-  const { profile, business, vat, fail } = useFinance();
+  const { profile, business, vat, params } = useFinance();
   // "השוואת סניפים" (2.93 — T12ד): only with more than one location (a business with one sees the reports as before)
   const multi = useLocations((x) => multiLocation(x.state));
-  const [period, setPeriod] = useState<Period>(() => periodNow(profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'));
+  const where = useLocations((x) => switchLabel(x.state));
+  const ready = useReportsReady();
+  // a customer's card opened from the CRM shows the year; every other report starts on the VAT period
+  const [period, setPeriod] = useState<Period>(() => periodNow(params.get('view') === 'cledger' ? 'year' : profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'));
+  // which report (the address may say: ?view=cledger&key=l:…&name=… opens a customer's card)
+  const [view, setView] = useState<ReportView>(() => { const v = params.get('view'); return isReportView(v) ? v : 'summary'; });
+  const [customer, setCustomer] = useState<{ key: string; name: string } | null>(() =>
+    params.get('view') === 'cledger' && /^(l|d|n):/.test(params.get('key') ?? '') ? { key: params.get('key')!, name: params.get('name') ?? '' } : null);
+  const [supplier, setSupplier] = useState<{ key: string; name: string } | null>(null);
+  const subtitle = `${period.kind === 'custom' ? '' : `${period.label} · `}${ddmmyyyy(period.from)} – ${ddmmyyyy(period.to)}${multi ? ` · ${where}` : ''}`;
   const [s, setS] = useState<Summary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -52,10 +68,23 @@ export function Reports() {
     w.document.write(reportHtml(s, `דוח ${period.label}`, business)); w.document.close();
     void logEvent('report.printed', 'reports', '', { from: period.from, to: period.to });
   }
+  const shown = ready ? view : 'summary';
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
       <PeriodPicker value={period} onChange={setPeriod} vatKind={profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'} />
-      {!s ? (loadError ? <LoadFailed message={loadError} onRetry={() => setAttempt((n) => n + 1)} /> : <div className="py-8 text-center"><Spinner /></div>) : <>
+      {ready && (
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="איזה דוח">
+          {REPORT_VIEWS.map((v) => <Chip key={v.id} on={shown === v.id} onClick={() => setView(v.id)}>{v.label}</Chip>)}
+        </div>
+      )}
+      {shown === 'customers' && <CustomersView period={period} subtitle={subtitle} openLedger={(key, name) => { setCustomer({ key, name }); setView('cledger'); }} />}
+      {shown === 'items' && <ItemsView period={period} subtitle={subtitle} />}
+      {shown === 'cledger' && <CustomerLedgerView period={period} subtitle={subtitle} pick={customer} onPick={setCustomer} />}
+      {shown === 'suppliers' && <SuppliersView period={period} subtitle={subtitle} openLedger={(key, name) => { setSupplier({ key, name }); setView('sledger'); }} />}
+      {shown === 'sledger' && <SupplierLedgerView period={period} subtitle={subtitle} pick={supplier} onPick={setSupplier} />}
+      {shown === 'withholding' && <WithholdingView period={period} subtitle={subtitle} setPeriod={setPeriod} />}
+      {shown === 'advances' && <AdvancesView period={period} subtitle={subtitle} />}
+      {shown === 'summary' && (!s ? (loadError ? <LoadFailed message={loadError} onRetry={() => setAttempt((n) => n + 1)} /> : <div className="py-8 text-center"><Spinner /></div>) : <>
         <Card className="p-4">
           <p className="mb-2 font-bold">רווח והפסד (הערכה)</p>
           <dl className="grid gap-1 text-sm tabular-nums">
@@ -78,12 +107,14 @@ export function Reports() {
           </Card>
           <Card className="p-4"><p className="mb-2 font-bold">כסף לפי אמצעי תשלום</p>
             {!s.cash.byMethod.length ? <p className="text-sm text-muted">אין תשלומים.</p> : <ul className="grid gap-1 text-sm">{s.cash.byMethod.map((m) => <li key={m.method} className="flex justify-between gap-2"><span>{payLabel(m.method)}</span><span className="tabular-nums">נכנס {ils(Number(m.in ?? 0))} · יצא {ils(Number(m.out ?? 0))}</span></li>)}</ul>}
+            {s.withheld !== 0 && <p className="mt-2 flex justify-between gap-2 border-t border-line pt-1 text-sm"><span>ניכוי במקור (לא כסף — שילם חשבוניות)</span><span className="tabular-nums">{ils(s.withheld)}</span></p>}
           </Card>
         </div>
+        <PnlCompare s={s} period={period} subtitle={subtitle} />
         {multi && <LocationCompare period={period} />}
         <div><Button variant="ghost" onClick={print}>הדפסת הדוח</Button></div>
         <p className="text-xs text-muted">דוח עבודה — לא הגשה. Dream Promotion לא מגיש דיווחים לרשות המסים.</p>
-      </>}
+      </>)}
     </div>
   );
 }

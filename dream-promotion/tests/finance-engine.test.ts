@@ -206,5 +206,5 @@ test('payments: the unified-file codes, cheque details, the ledger totals', () =
   assert.equal(chequeError({ bank: '1234', branch: '', account: '', number: '5', dueDate: '' }), 'מספר הבנק — עד 3 ספרות');
   assert.equal(chequeError({ bank: '', branch: '', account: '', number: '5', dueDate: '' }), null);
   assert.deepEqual(toDocPayment({ method: 'bit', amount: 10.005, date: TODAY }), { method: 9, amount: 10.01, date: TODAY, m: 'bit' });
-  assert.deepEqual(ledgerTotals([{ direction: 'in', amount: 0.1 }, { direction: 'in', amount: 0.2 }, { direction: 'out', amount: 0.05 }]), { in: 0.3, out: 0.05, net: 0.25 });
+  assert.deepEqual(ledgerTotals([{ direction: 'in', amount: 0.1 }, { direction: 'in', amount: 0.2 }, { direction: 'out', amount: 0.05 }]), { in: 0.3, out: 0.05, net: 0.25, withheld: 0 });
 });

@@ -7,7 +7,7 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
-import { DOC_LABEL, PAY_LABEL, creditFor, creditedTotals, issuerFor, issuerLocationLine, toDoc, type DocRow } from './documents';
+import { DOC_LABEL, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
 
@@ -183,7 +183,7 @@ export function docBody(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueDate' | 'no
   const i = issuerFor(d, b);
   const rows = d.lines.map((l) => `<tr><td>${esc(l.name)}</td><td>${esc(l.qty)}</td><td>${n2(l.unitPriceExVat)}</td><td>${n2(l.totalExVat)}</td></tr>`).join('');
   const cheque = (p: Doc['payments'][number]) => (p.cheque?.number ? ` · צ׳ק ${esc(p.cheque.number)}${p.cheque.bank ? ` · בנק ${esc(p.cheque.bank)}` : ''}${p.cheque.branch ? ` · סניף ${esc(p.cheque.branch)}` : ''}${p.cheque.dueDate ? ` · פירעון ${esc(ddmmyyyy(p.cheque.dueDate))}` : ''}` : '');
-  const pays = d.payments.map((p) => `<tr><td>${esc(PAY_LABEL[p.method] ?? 'אחר')}${cheque(p)}</td><td>${esc(ddmmyyyy(p.date))}</td><td>${n2(p.amount)}</td></tr>`).join('');
+  const pays = d.payments.map((p) => `<tr><td>${esc(docPayLabel(p))}${cheque(p)}</td><td>${esc(ddmmyyyy(p.date))}</td><td>${n2(p.amount)}</td></tr>`).join('');
   const contact = [i.phone, i.email].filter(Boolean).join(' · ');
   const rate = d.lines[0]?.vatRate ?? 0;
   const vatRow = d.vatAmount || rate ? `<tr><td>מע״מ ${esc(rate)}%</td><td>${n2(d.vatAmount)}</td></tr>` : '';

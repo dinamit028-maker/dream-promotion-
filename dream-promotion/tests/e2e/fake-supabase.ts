@@ -12,12 +12,15 @@
  * rest), every move at its row's location, the view stock_by_location, stock_adjust, transfers and counts.
  * 2.93 (4800): serial numbers (received, sold once at the register, back on a cancel / refund, moved in a transfer, written off by
  * the owner; any other move of such a product refused), price lists and SKU series (their functions), location_compare.
+ * 2.94 (4900): tax withheld at source on a receipt (its checks, its ledger row, out of finance_summary's cash) and the reports
+ * (report_* — the same rules as the database's, on the fake's rows); before the migration: none of it, and its columns are missing.
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { randomUUID, randomBytes } from 'node:crypto';
 import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
+import { partyKey } from '../../src/features/finance/statements';
 
 type Row = Record<string, any>;
 export type Tables = Record<string, Row[]>;
@@ -88,6 +91,8 @@ export class FakeSupabase {
   stockTables = true;
   /** 2.93: migration 4800 is in the database (serial numbers, price lists, SKU series, location_compare) — false: as before it */
   itemsTables = true;
+  /** 2.94: migration 4900 is in the database (tax withheld at source, report_*, a service's treatment type, the advances' percent) — false: as before it */
+  reportsTables = true;
   private serialEventId = 0;
   static ITEMS = ['catalog_serials', 'catalog_serial_events', 'price_lists', 'price_list_items', 'sku_series'];
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string; today?: string }) {}
@@ -154,7 +159,10 @@ export class FakeSupabase {
     const exp = this.t('expenses').filter((e) => e.status === 'confirmed' && e.doc_date >= from && e.doc_date <= to);
     const ded = (e: Row) => (vat ? Math.round(Number(e.vat_amount) * Number(e.vat_deductible_pct ?? 100)) / 100 : 0);
     const eNet = exp.reduce((a, e) => a + Number(e.amount_before_vat), 0), eVat = exp.reduce((a, e) => a + Number(e.vat_amount), 0), eDed = exp.reduce((a, e) => a + ded(e), 0);
-    const pays = this.t('payments').filter((p) => p.paid_on >= from && p.paid_on <= to);
+    const inPeriod = this.t('payments').filter((p) => p.paid_on >= from && p.paid_on <= to);
+    // 2.94: tax withheld at source pays invoices but is not money — out of the cash, on its own
+    const pays = this.reportsTables ? inPeriod.filter((p) => p.method !== 'withholding') : inPeriod;
+    const withheld = inPeriod.filter((p) => p.method === 'withholding').reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * Number(p.amount), 0);
     const cin = pays.filter((p) => p.direction === 'in').reduce((a, p) => a + Number(p.amount), 0), cout = pays.filter((p) => p.direction === 'out').reduce((a, p) => a + Number(p.amount), 0);
     const methods = [...new Set(pays.map((p) => p.method))].map((m) => ({ method: m, in: pays.filter((p) => p.method === m && p.direction === 'in').reduce((a, p) => a + Number(p.amount), 0),
       out: pays.filter((p) => p.method === m && p.direction === 'out').reduce((a, p) => a + Number(p.amount), 0) }));
@@ -175,6 +183,7 @@ export class FakeSupabase {
         overdueCount: new Set(this.receivableLines().filter((l) => l.open_amount > 0 && l.due_date && l.due_date < today).map((l) => l.document_id)).size },
       pending: { count: this.t('sales').filter((x) => x.status === 'pending').length, total: 0 }, posWithoutDocument: { count: 0, total: 0 }, allocationMissing: 0,
       months: [{ month, revenue: r2(rev(docs)), expenses: r2(eNet + eVat - eDed) }], lockedUntil: this.finance.lockedUntil,
+      ...(this.reportsTables ? { withheld: r2(withheld) } : {}),
     };
   }
 
@@ -285,6 +294,14 @@ export class FakeSupabase {
         if (!base) return 'the credited invoice was not found in this business';
         const done = this.t('documents').filter((d) => d.doc_type === 330 && d.base_doc_type === r.base_doc_type && d.base_doc_number === r.base_doc_number).reduce((a, d) => a + Number(d.total), 0);
         if (Math.round((done + Number(r.total)) * 100) > Math.round(Number(base.total) * 100)) return `credit_exceeds_original: ${Number(base.total) - done} left`;
+      }
+      // 2.94: tax withheld at source — a receipt's, with a customer, a percent that is one, never all of it (before 4900: no such method)
+      const held = (r.payments ?? []).filter((p: Row) => p.m === 'withholding');
+      if (held.length) {
+        if (!this.reportsTables) return 'new row for relation "payments" violates check constraint "payments_method_check"';
+        if (held.some((p: Row) => p.pct != null && p.pct !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(p.pct)) && Number(p.pct) <= 100))) return 'withholding_pct: the percent is a number from 0 to 100';
+        if (!r.lead_id && !String(r.customer_name ?? '').trim()) return 'withholding_customer: tax withheld at source needs the customer who withheld it';
+        if (Math.round(held.reduce((a: number, p: Row) => a + Number(p.amount), 0) * 100) >= Math.round(Number(r.total) * 100)) return 'withholding_all: tax withheld at source is part of a payment, not all of it';
       }
       const st = this.t('register_settings')[0] ?? {};
       const n = (this.counters.get(r.doc_type) ?? 0) + 1; this.counters.set(r.doc_type, n);
@@ -413,7 +430,8 @@ export class FakeSupabase {
     if (table === 'documents') {
       if (r.doc_type === 320 || r.doc_type === 400) for (const p of r.payments ?? []) {
         this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'in', amount: Number(p.amount), method: p.m ?? ({ 1: 'cash', 2: 'cheque', 3: 'card', 4: 'transfer' } as Row)[p.method] ?? 'other',
-          paid_on: p.date ?? r.doc_date, source: 'document', document_id: r.id, applies_to: r.paid_document_id ?? null, sale_id: r.sale_id ?? null, lead_id: r.lead_id ?? null, reference: p.cheque ?? {}, note: '', created_at: now(),
+          paid_on: p.date ?? r.doc_date, source: 'document', document_id: r.id, applies_to: r.paid_document_id ?? null, sale_id: r.sale_id ?? null, lead_id: r.lead_id ?? null,
+          reference: p.m === 'withholding' ? (p.pct != null && p.pct !== '' ? { pct: Number(p.pct) } : {}) : p.cheque ?? {}, note: '', created_at: now(),
           ...(this.locationTables ? { location_id: r.location_id ?? null } : {}) });
       }
       if (r.draft_id) { const d = this.t('document_drafts').find((x) => x.id === r.draft_id); if (d) Object.assign(d, { status: 'finalized', document_id: r.id }); }
@@ -424,7 +442,9 @@ export class FakeSupabase {
       this.log('document.issued', r.id, { type: r.doc_type, number: r.doc_number, total: r.total });
     }
     if (table === 'document_cancellations') {
-      for (const p of this.t('payments').filter((x) => x.document_id === r.document_id && x.direction === 'in')) this.t('payments').push({ ...p, id: randomUUID(), direction: 'out', source: 'cancel', paid_on: this.today() });
+      for (const p of this.t('payments').filter((x) => x.document_id === r.document_id && x.direction === 'in' && x.source === 'document')) {
+        this.t('payments').push({ ...p, id: randomUUID(), direction: 'out', source: 'cancel', paid_on: this.today(), reference: {}, created_at: now() });
+      }
       this.log('document.cancelled', r.document_id, { reason: r.reason });
     }
     if (table === 'expenses' && r.status === 'confirmed' && r.paid_on) {
@@ -1175,6 +1195,163 @@ export class FakeSupabase {
     }) });
   }
 
+  /** 2.94 (4900): report_* — the database's rules (tests/sql/reports.check.sql proves those) on the fake's rows */
+  private reportsRpc(fn: string, args: any): { status: number; body: any } | null {
+    if (!/^report_/.test(fn)) return null;
+    if (!this.reportsTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const from = String(args.p_from ?? ''), to = String(args.p_to ?? '');
+    if (!from || !to || from > to) return { status: 400, body: { code: '22023', message: 'bad range' } };
+    const ok = (body: any) => ({ status: 200, body });
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const vat = this.vatBusiness();
+    const all = this.t('documents');
+    const cancelled = (id: string) => this.t('document_cancellations').find((c) => c.document_id === id) ?? null;
+    const rev = (d: Row) => (vat ? (d.doc_type === 305 || d.doc_type === 320 ? Number(d.after_discount) : d.doc_type === 330 ? -Number(d.after_discount) : 0)
+      : d.doc_type === 400 && !cancelled(d.id) ? Number(d.total) : 0);
+    const vatOf = (d: Row) => (vat ? (d.doc_type === 305 || d.doc_type === 320 ? Number(d.vat_amount) : d.doc_type === 330 ? -Number(d.vat_amount) : 0) : 0);
+    const key = (d: Row) => partyKey({ leadId: d.lead_id, dealer: d.customer_dealer, name: d.customer_name });
+    const supplierKey = (e: Row) => partyKey({ dealer: e.supplier_dealer, name: e.supplier_name });
+    const docs = all.filter((d) => d.doc_date >= from && d.doc_date <= to).sort((a, b) => `${a.doc_date}${a.issued_at ?? ''}`.localeCompare(`${b.doc_date}${b.issued_at ?? ''}`));
+    const leadName = (id: string | null) => (id ? this.t('leads').find((l) => l.id === id)?.name ?? null : null);
+    const ilDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date(iso));
+    /** a card: the opening balance (before the period), the rows of the period with the balance as it runs */
+    const card = (mv: Row[], sign: 1 | -1) => {
+      mv.sort((a, b) => `${a.day}|${a.at}|${a.kind}|${a.rid}`.localeCompare(`${b.day}|${b.at}|${b.kind}|${b.rid}`));
+      const opening = r2(mv.filter((m) => m.day < from).reduce((a, m) => a + sign * (m.debit - m.credit), 0));
+      let bal = opening;
+      const rows = mv.filter((m) => m.day >= from && m.day <= to).map((m): Row => { bal = r2(bal + sign * (m.debit - m.credit)); const { at: _a, rid: _r, ...rest } = m; return { ...rest, date: m.day, balance: bal }; });
+      const debit = r2(rows.reduce((a, m) => a + m.debit, 0)), credit = r2(rows.reduce((a, m) => a + m.credit, 0));
+      return { opening, debit, credit, closing: r2(opening + sign * (debit - credit)), rows: rows.map(({ day: _d, ...x }): Row => x) };
+    };
+
+    if (fn === 'report_income_by_customer') {
+      const g = new Map<string, Row>();
+      for (const d of docs.filter((x) => (vat && [305, 320, 330].includes(x.doc_type)) || (!vat && x.doc_type === 400 && !cancelled(x.id)))) {
+        const k = key(d);
+        const x = g.get(k) ?? { key: k, leadId: null, name: '', dealer: '', net: 0, vat: 0, count: 0 };
+        x.net = r2(x.net + rev(d)); x.vat = r2(x.vat + vatOf(d)); x.count++;
+        if (d.lead_id) x.leadId = d.lead_id;
+        if (d.customer_dealer) x.dealer = d.customer_dealer;
+        x.name = d.customer_name ?? '';
+        g.set(k, x);
+      }
+      const customers = [...g.values()].map((x): Row => ({ ...x, name: leadName(x.leadId) ?? x.name, gross: r2(x.net + x.vat) })).sort((a, b) => b.net - a.net || a.name.localeCompare(b.name));
+      return ok({ from, to, vat, total: { net: r2(customers.reduce((a, c) => a + c.net, 0)), vat: r2(customers.reduce((a, c) => a + c.vat, 0)), count: customers.reduce((a, c) => a + c.count, 0) }, customers });
+    }
+    if (fn === 'report_sales_by_item') {
+      const items = new Map<string, Row>();
+      let total = 0, unNet = 0, unN = 0;
+      for (const d of docs) {
+        const amt = rev(d);
+        if (!amt) continue;
+        total = r2(total + amt);
+        const own = Array.isArray(d.lines) && d.lines.length > 0;
+        const paid = !own && d.paid_document_id ? all.find((x) => x.id === d.paid_document_id) : null;
+        const lines: Row[] = own ? d.lines : Array.isArray(paid?.lines) ? paid!.lines : [];
+        const frac = own ? 1 : paid && Number(paid.total) ? Math.abs(amt) / Number(paid.total) : 0;
+        const base = lines.map((l) => Number(l.totalExVat) || 0), tot = base.reduce((a, b) => a + b, 0);
+        if (!lines.length || !tot) { unNet = r2(unNet + amt); unN++; continue; }
+        const share = base.map((b) => r2((amt * b) / tot));
+        let big = 0; base.forEach((b, i) => { if (Math.abs(b) > Math.abs(base[big])) big = i; });
+        share[big] = r2(share[big] + amt - share.reduce((a, b) => a + b, 0));
+        lines.forEach((l, i) => {
+          const k = l.itemId ? `${l.itemId}|${l.variantId ?? ''}` : `name:${l.name ?? ''}`;
+          const x = items.get(k) ?? { key: k, itemId: l.itemId ?? null, variantId: l.variantId ?? null, name: l.name ?? '', qty: 0, net: 0 };
+          x.qty += Math.sign(amt) * frac * (Number(l.qty) || 0); x.net = r2(x.net + share[i]);
+          items.set(k, x);
+        });
+      }
+      const out = [...items.values()].map((x) => {
+        const ci = x.itemId ? this.t('catalog_items').find((c) => c.id === x.itemId) : null;
+        const typeId = ci ? (ci.kind === 'package' ? ci.package_type_id ?? null : ci.treatment_type_id ?? null) : null;
+        return { key: x.key, itemId: x.itemId, variantId: x.variantId, name: x.variantId ? x.name : ci?.name ?? x.name, kind: ci?.kind ?? '', typeId, qty: r2(x.qty), net: x.net };
+      }).sort((a, b) => b.net - a.net || a.name.localeCompare(b.name));
+      const types = new Map<string, Row>();
+      for (const i of out) {
+        const t = types.get(i.typeId ?? '') ?? { typeId: i.typeId, name: i.typeId ? this.t('treatment_types').find((x) => x.id === i.typeId)?.name ?? '' : '', qty: 0, net: 0 };
+        t.qty = r2(t.qty + i.qty); t.net = r2(t.net + i.net); types.set(i.typeId ?? '', t);
+      }
+      return ok({ from, to, vat, total, items: out, types: [...types.values()].sort((a, b) => b.net - a.net || a.name.localeCompare(b.name)), unattributed: { net: unNet, count: unN } });
+    }
+    if (fn === 'report_customer_ledger') {
+      if (!/^(l|d|n):/.test(String(args.p_key ?? ''))) return { status: 400, body: { code: '22023', message: 'customer: a key' } };
+      const mine = all.filter((d) => key(d) === args.p_key), ids = new Set(mine.map((d) => d.id));
+      const mv: Row[] = [];
+      for (const d of mine) {
+        const base = { at: d.issued_at ?? '', docType: d.doc_type, docNumber: d.doc_number, method: '', rid: d.id };
+        if ([300, 305].includes(d.doc_type) || ([320, 400].includes(d.doc_type) && !d.paid_document_id)) mv.push({ ...base, day: d.doc_date, kind: 'charge', debit: Number(d.total), credit: 0 });
+        if (d.doc_type === 330) mv.push({ ...base, day: d.doc_date, kind: 'credit', debit: 0, credit: Number(d.total) });
+        const c = cancelled(d.id);
+        if (c && (d.doc_type === 300 || (d.doc_type === 400 && !d.paid_document_id))) mv.push({ ...base, day: c.created_at ? ilDay(c.created_at) : this.today(), at: c.created_at ?? '', kind: 'cancelled', debit: 0, credit: Number(d.total) });
+      }
+      for (const p of this.t('payments').filter((x) => ['document', 'credit', 'cancel', 'refund'].includes(x.source))) {
+        const docId = p.document_id ?? (p.refund_id ? all.find((r) => r.refund_id === p.refund_id && r.doc_type === 330)?.id : null) ?? p.applies_to;
+        if (!docId || !ids.has(docId)) continue;
+        const x = all.find((d) => d.id === docId)!;
+        mv.push({ day: p.paid_on, at: p.created_at ?? '', kind: `payment_${p.source}`, docType: x.doc_type, docNumber: x.doc_number,
+          debit: p.direction === 'out' ? Number(p.amount) : 0, credit: p.direction === 'in' ? Number(p.amount) : 0, method: p.method, rid: p.id });
+      }
+      const last = [...mine].sort((a, b) => `${b.doc_date}${b.issued_at ?? ''}`.localeCompare(`${a.doc_date}${a.issued_at ?? ''}`))[0];
+      const name = (String(args.p_key).startsWith('l:') ? leadName(String(args.p_key).slice(2)) : null) ?? last?.customer_name ?? '';
+      return ok({ key: args.p_key, from, to, name, ...card(mv, 1) });
+    }
+    const expenses = this.t('expenses');
+    const paidOf = (e: Row) => this.t('payments').filter((p) => p.expense_id === e.id && ['expense', 'reversal'].includes(p.source))
+      .reduce((a, p) => a + (p.direction === 'out' ? 1 : -1) * Number(p.amount), 0);
+    if (fn === 'report_suppliers') {
+      const list = expenses.filter((e) => e.status === 'confirmed' && e.doc_date >= from && e.doc_date <= to)
+        .sort((a, b) => `${a.doc_date}${a.created_at ?? ''}`.localeCompare(`${b.doc_date}${b.created_at ?? ''}`))
+        .map((e) => { const sg = e.supplier_doc_type === 'credit' ? -1 : 1; return { e, k: supplierKey(e), amount: sg * Number(e.total), net: sg * Number(e.amount_before_vat), vat: sg * Number(e.vat_amount), paid: r2(paidOf(e)) }; });
+      const group = (f: (x: Row) => string) => {
+        const m = new Map<string, Row>();
+        for (const x of list) {
+          const g = m.get(f(x)) ?? { count: 0, net: 0, vat: 0, total: 0, paid: 0 };
+          Object.assign(g, { count: g.count + 1, net: r2(g.net + x.net), vat: r2(g.vat + x.vat), total: r2(g.total + x.amount), paid: r2(g.paid + x.paid), name: x.e.supplier_name,
+            dealer: x.e.supplier_dealer || g.dealer || '', category: x.e.category });
+          m.set(f(x), g);
+        }
+        return m;
+      };
+      const suppliers = [...group((x) => x.k).entries()].map(([k, g]) => ({ key: k, name: g.name, dealer: g.dealer, count: g.count, net: g.net, vat: g.vat, total: g.total, paid: g.paid, open: r2(g.total - g.paid) }))
+        .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+      const categories = [...group((x) => x.e.category).entries()].map(([c, g]) => ({ category: c, count: g.count, net: g.net, total: g.total, paid: g.paid, open: r2(g.total - g.paid) }))
+        .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category));
+      const sum = (f: (x: Row) => number) => r2(list.reduce((a, x) => a + f(x), 0));
+      return ok({ from, to, total: { net: sum((x) => x.net), vat: sum((x) => x.vat), total: sum((x) => x.amount), paid: sum((x) => x.paid), open: sum((x) => x.amount - x.paid), count: list.length },
+        suppliers, categories });
+    }
+    if (fn === 'report_supplier_ledger') {
+      if (!/^(d|n):/.test(String(args.p_key ?? ''))) return { status: 400, body: { code: '22023', message: 'supplier: a key' } };
+      const mine = expenses.filter((e) => supplierKey(e) === args.p_key), ids = new Set(mine.map((e) => e.id));
+      const mv: Row[] = mine.filter((e) => e.status === 'confirmed').map((e) => ({ day: e.doc_date, at: e.created_at ?? '', kind: e.supplier_doc_type === 'credit' ? 'supplier_credit' : 'invoice',
+        number: e.expense_number, ref: e.supplier_doc_number ?? '', debit: e.supplier_doc_type === 'credit' ? Number(e.total) : 0, credit: e.supplier_doc_type === 'credit' ? 0 : Number(e.total), method: '', rid: e.id }));
+      for (const p of this.t('payments').filter((x) => x.expense_id && ids.has(x.expense_id) && ['expense', 'reversal'].includes(x.source))) {
+        const e = mine.find((x) => x.id === p.expense_id)!;
+        mv.push({ day: p.paid_on, at: p.created_at ?? '', kind: `payment_${p.source}`, number: e.expense_number, ref: e.supplier_doc_number ?? '',
+          debit: p.direction === 'out' ? Number(p.amount) : 0, credit: p.direction === 'in' ? Number(p.amount) : 0, method: p.method, rid: p.id });
+      }
+      const last = [...mine].sort((a, b) => `${b.doc_date}${b.created_at ?? ''}`.localeCompare(`${a.doc_date}${a.created_at ?? ''}`))[0];
+      return ok({ key: args.p_key, from, to, name: last?.supplier_name ?? '', ...card(mv, -1) });
+    }
+    if (fn === 'report_withholding') {
+      const w = this.t('payments').filter((p) => p.method === 'withholding' && p.paid_on >= from && p.paid_on <= to)
+        .sort((a, b) => `${a.paid_on}${a.created_at ?? ''}`.localeCompare(`${b.paid_on}${b.created_at ?? ''}`))
+        .map((p) => {
+          const r = all.find((d) => d.id === p.document_id)!, inv = p.applies_to ? all.find((d) => d.id === p.applies_to) : null;
+          return { date: p.paid_on, key: key(r), name: r.customer_name ?? '', dealer: r.customer_dealer ?? '', leadId: r.lead_id ?? null, docType: r.doc_type, docNumber: r.doc_number,
+            invoice: inv ? `${inv.doc_type}-${inv.doc_number}` : null, amount: (p.direction === 'in' ? 1 : -1) * Number(p.amount), pct: p.reference?.pct ?? null, dir: p.direction };
+        });
+      const g = new Map<string, Row>();
+      for (const x of w) {
+        const c = g.get(x.key) ?? { key: x.key, leadId: null, name: '', dealer: '', amount: 0, count: 0 };
+        Object.assign(c, { amount: r2(c.amount + x.amount), count: c.count + (x.dir === 'in' ? 1 : -1), leadId: x.leadId ?? c.leadId, dealer: x.dealer || c.dealer, name: x.name });
+        g.set(x.key, c);
+      }
+      const customers = [...g.values()].map((c): Row => ({ ...c, name: leadName(c.leadId) ?? c.name })).sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
+      return ok({ from, to, total: r2(w.reduce((a, x) => a + x.amount, 0)), customers, rows: w.map(({ leadId: _l, dir: _d, ...x }) => x) });
+    }
+    return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+  }
   rpc(fn: string, args: any): { status: number; body: any } {
     const placed = this.locationRpc(fn, args);
     if (placed) return placed;
@@ -1182,6 +1359,8 @@ export class FakeSupabase {
     if (stocked) return stocked;
     const itemed = this.itemsRpc(fn, args);
     if (itemed) return itemed;
+    const reported = this.reportsRpc(fn, args);
+    if (reported) return reported;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
     // 2.88 (migration 4300): what was really paid as a deposit for these appointments — never a test link
@@ -1602,6 +1781,15 @@ export class FakeSupabase {
     if (FakeSupabase.ITEMS.includes(table)) {
       if (!this.itemsTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
+    }
+    // 2.94 (4900): before the migration its columns are missing — asked for, or written
+    if (!this.reportsTables) {
+      const cols4900: Record<string, string> = { catalog_items: 'treatment_type_id', business_finance_profile: 'advance_pct' };
+      const col = cols4900[table];
+      if (col && (url.searchParams.get('select') ?? '').split(',').includes(col)) return json(400, { code: '42703', message: `column ${table}.${col} does not exist` });
+      if (col && body && (Array.isArray(body) ? body : [body]).some((b: Row) => b && col in b)) {
+        return json(400, { code: 'PGRST204', message: `Could not find the '${col}' column of '${table}' in the schema cache` });
+      }
     }
     // 2.91: the *_location_gate policies — a signed-in user reads and changes only the rows of the locations they see now
     const seen = FakeSupabase.LOCATED.includes(table) ? this.locationFilter() : null;

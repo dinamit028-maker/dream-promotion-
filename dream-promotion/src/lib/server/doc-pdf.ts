@@ -3,7 +3,7 @@ import path from 'node:path';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import bidiFactory from 'bidi-js';
-import { DOC_LABEL, PAY_LABEL, issuerFor, issuerLocationLine, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, docPayLabel, issuerFor, issuerLocationLine, type DocRow } from '@/features/documents/documents';
 import type { Business, Doc } from '@/features/documents/openformat';
 import { issuerIdLine } from '@/features/finance/rules';
 
@@ -160,7 +160,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
     for (const p of d.payments) {
       newPageIfNeeded(16);
       const cheque = p.cheque?.number ? ` · צ׳ק ${p.cheque.number}${p.cheque.bank ? ` · בנק ${p.cheque.bank}` : ''}${p.cheque.branch ? ` · סניף ${p.cheque.branch}` : ''}${p.cheque.dueDate ? ` · פירעון ${ddmmyyyy(p.cheque.dueDate)}` : ''}` : '';
-      text(fit(`${PAY_LABEL[p.method] ?? 'אחר'} · ${ddmmyyyy(p.date)}${cheque}`, 10, font, W - 2 * M - 110), { right: W - M - 5 });
+      text(fit(`${docPayLabel(p)} · ${ddmmyyyy(p.date)}${cheque}`, 10, font, W - 2 * M - 110), { right: W - M - 5 });
       text(money(p.amount), { left: M + 5 });
       y -= 16;
     }

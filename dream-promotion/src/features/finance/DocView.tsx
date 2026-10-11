@@ -16,6 +16,7 @@ import { followKey } from './keys';
 import { PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
 import { toReceivable, type Receivable } from './receivables';
 import { Note, PaymentsEditor, Pill, ils, todayIL } from './ui';
+import { useReportsReady } from './reports-data';
 import { PaylinkButton, PaylinkList, heldBy, usePaylinks } from './Paylinks';
 import { PlanSection } from './Plans';
 import { DocReminders } from './Reminders';
@@ -167,6 +168,8 @@ export function ReceiptDialog({ doc, balance, onClose, onIssued }: { doc: DocRow
   const { userId, settings } = useFinance();
   const today = todayIL();
   const [payments, setPayments] = useState<PaymentEntry[]>([{ method: 'transfer', amount: balance, date: today }]);
+  // 2.94: tax withheld at source — once migration 20261011004900 is in the database
+  const withholdingOk = useReportsReady();
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // the key of this payment is the invoice's next receipt: two devices paying it at once share it — one receipt only
@@ -194,7 +197,7 @@ export function ReceiptDialog({ doc, balance, onClose, onIssued }: { doc: DocRow
     <Modal open onClose={onClose}>
       <h3 className="mb-1 font-display text-lg font-extrabold">תשלום על {DOC_LABEL[doc.docType]} {doc.docNumber}</h3>
       <p className="mb-3 text-sm text-muted">יתרה לתשלום: {ils(balance)}. רישום תשלום שהתקבל — לא סליקה; שום כרטיס לא מחויב כאן.</p>
-      <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} />
+      <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} withholding={withholdingOk} />
       {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
       <div className="mt-4 flex gap-2"><Button variant="primary" disabled={busy || !key} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת קבלה'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>
     </Modal>
