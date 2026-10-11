@@ -4,9 +4,10 @@ import { Button, Card, Field, Input, Select, Textarea } from '@/components/ui/pr
 import { Modal, Spinner } from '@/components/ui/feedback';
 import { Note, Pill } from '@/features/finance/ui';
 import { formatIL } from '@/lib/il-time';
+import { useApp } from '@/lib/store';
 import { activeLocations, defaultLocation, locationName, type LocationState } from '@/features/locations/locations';
 import {
-  TRANSFER_STATUS_HE, lineName, qtyAt, receiptError, receiptPayload, stockKey, transferError, transferSummary,
+  TRANSFER_STATUS_HE, lineName, qtyAt, receiptError, receiptPayload, stockKey, transferError, transferNoteHtml, transferSummary,
   type DraftLine, type Received, type StockRow, type Transfer,
 } from './stock-locations';
 import { cancelTransfer, loadTransfers, receiveTransfer, sendTransfer, type StockCatalog } from './stock-data';
@@ -23,6 +24,7 @@ export function Transfers({ rows, catalog, loc, draft, onDraftUsed, onMoved }: {
   const [say, setSay] = useState<string | null>(null);
   const [form, setForm] = useState<TransferDraft | null>(null);
   const [receiving, setReceiving] = useState<Transfer | null>(null);
+  const brandName = useApp((s) => s.brand.name);
   const load = useCallback(async () => {
     const r = await loadTransfers();
     if (r.ok) { setList(r.data); setError(null); } else { setList([]); setError(r.error); }
@@ -38,6 +40,15 @@ export function Transfers({ rows, catalog, loc, draft, onDraftUsed, onMoved }: {
     return { from, to: places.find((p) => p.id !== from)?.id ?? '', lines: [] };
   };
 
+  /** the note that goes with the goods — opened in the tap itself (phones block a window opened later) */
+  function print(t: Transfer) {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const when = (iso: string) => formatIL(iso, { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    w.document.write(transferNoteHtml(t, { business: brandName || 'העסק', from: locationName(loc, t.from) || 'סניף אחר', to: locationName(loc, t.to) || 'סניף אחר',
+      sentAt: when(t.sentAt), receivedAt: t.receivedAt ? when(t.receivedAt) : null }));
+    w.document.close();
+  }
   async function cancel(t: Transfer) {
     const reason = window.prompt(`לבטל את העברה ${t.number}? היחידות חוזרות ל${locationName(loc, t.from)}.\n\nלמה מבטלים?`, '');
     if (reason === null) return;
@@ -76,12 +87,11 @@ export function Transfers({ rows, catalog, loc, draft, onDraftUsed, onMoved }: {
                 ))}
               </ul>
               {t.status === 'cancelled' && t.cancelReason && <p className="mt-2 text-xs text-muted">בוטלה: {t.cancelReason}</p>}
-              {t.status === 'sent' && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {mine(t.to) && <Button size="sm" variant="primary" onClick={() => setReceiving(t)}>קבלה ב{locationName(loc, t.to)}</Button>}
-                  {(mine(t.from) || loc.owner) && <Button size="sm" variant="ghost" onClick={() => void cancel(t)}>ביטול העברה</Button>}
-                </div>
-              )}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {t.status === 'sent' && mine(t.to) && <Button size="sm" variant="primary" onClick={() => setReceiving(t)}>קבלה ב{locationName(loc, t.to)}</Button>}
+                {t.status === 'sent' && (mine(t.from) || loc.owner) && <Button size="sm" variant="ghost" onClick={() => void cancel(t)}>ביטול העברה</Button>}
+                <Button size="sm" variant="ghost" onClick={() => print(t)}>🖨️ תעודת העברה</Button>
+              </div>
             </Card>
           ))}
         </div>
@@ -145,7 +155,7 @@ function TransferForm({ initial, rows, catalog, loc, onClose, onSent }: {
             <li key={stockKey(l.itemId, l.variantId)} className="flex flex-wrap items-center gap-2 rounded-2xl bg-surface-2 px-3 py-2 text-sm">
               <span className="min-w-0 flex-1"><strong>{nameOf(l)}</strong><span className={have < l.qty ? 'block text-xs text-warn' : 'block text-xs text-muted'}>
                 יש ב{locationName(loc, from)}: {have}</span></span>
-              <Input type="number" inputMode="numeric" min={1} value={String(l.qty)} aria-label={`כמה: ${nameOf(l)}`} className="h-9 w-20 py-0 text-center"
+              <Input type="number" inputMode="numeric" min={1} value={String(l.qty)} aria-label={`כמה: ${nameOf(l)}`} className="h-9 max-w-20 shrink-0 py-0 text-center"
                 onChange={(e) => setLines(lines.map((x, i) => (i === k ? { ...x, qty: Math.floor(Number(e.target.value) || 0) } : x)))} />
               <button type="button" className="text-xs font-semibold text-muted underline" onClick={() => setLines(lines.filter((_, i) => i !== k))}>הסרה</button>
             </li>
@@ -195,7 +205,7 @@ function ReceiveDialog({ t, loc, onClose, onDone }: { t: Transfer; loc: Location
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span><strong>{lineName(l)}</strong> · נשלחו {l.qty}</span>
                 <label className="flex items-center gap-1.5">הגיעו
-                  <Input type="number" inputMode="numeric" min={0} value={String(rec)} aria-label={`הגיעו: ${lineName(l)}`} className="h-9 w-20 py-0 text-center"
+                  <Input type="number" inputMode="numeric" min={0} value={String(rec)} aria-label={`הגיעו: ${lineName(l)}`} className="h-9 max-w-20 shrink-0 py-0 text-center"
                     onChange={(e) => setGot({ ...got, [k]: { received: Math.floor(Number(e.target.value) || 0), reason: g?.reason ?? '' } })} />
                 </label>
               </div>

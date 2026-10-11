@@ -188,7 +188,7 @@ function CountSheet({ count, catalog, loc, onBack, onClosed }: {
               <li key={r.key} className={cx('flex items-center gap-2 rounded-2xl px-3 py-2 text-sm', done ? 'bg-emerald-500/10' : 'bg-surface-2')}>
                 <span className="min-w-0 flex-1 font-semibold">{done ? '✓ ' : ''}{r.name}</span>
                 <Input data-key={r.key}
-                  type="number" inputMode="numeric" min={0} value={val} aria-label={`נספרו: ${r.name}`} className="h-10 w-24 py-0 text-center" disabled={closed}
+                  type="number" inputMode="numeric" min={0} value={val} aria-label={`נספרו: ${r.name}`} className="h-10 max-w-24 shrink-0 py-0 text-center" disabled={closed}
                   onChange={(e) => setDraft((d) => ({ ...d, [r.key]: e.target.value }))}
                   onBlur={() => void save(r.key, r.itemId, r.variantId)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }} />

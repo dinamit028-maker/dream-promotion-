@@ -134,6 +134,29 @@ export const toTransfer = (r: any): Transfer => ({
   receivedAt: r.received_at ?? null, receivedNote: String(r.received_note ?? ''), cancelledAt: r.cancelled_at ?? null, cancelReason: String(r.cancel_reason ?? ''),
 });
 export const lineName = (l: Pick<TransferLine, 'name' | 'variant'>) => (l.variant ? `${l.name} · ${l.variant}` : l.name);
+const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+/**
+ * The printed transfer note — internal, not a tax document: it goes with the goods, and both sides sign it. Every value is
+ * escaped (names come from the database).
+ */
+export function transferNoteHtml(t: Pick<Transfer, 'number' | 'status' | 'lines' | 'note' | 'receivedNote' | 'cancelReason'>,
+  p: { business: string; from: string; to: string; sentAt: string; receivedAt?: string | null }): string {
+  const got = t.status === 'received';
+  const rows = t.lines.map((l) => `<tr><td>${esc(lineName(l))}</td><td class="n">${esc(l.qty)}</td>${got ? `<td class="n">${esc(l.received ?? l.qty)}</td><td>${esc(l.reason ?? '')}</td>` : '<td class="n"></td><td></td>'}</tr>`).join('');
+  const units = t.lines.reduce((a, l) => a + l.qty, 0);
+  return `<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>תעודת העברה ${esc(t.number)}</title>
+<style>body{font-family:Arial,system-ui,sans-serif;color:#111;margin:24px}h1{font-size:20px;margin:0}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin:12px 0}
+td,th{border:1px solid #bbb;padding:6px;text-align:right;font-size:13px}th{background:#f2f2f2}.n{text-align:center;width:70px}.sign{display:flex;gap:48px;margin-top:40px;font-size:13px}</style></head><body>
+<h1>${esc(p.business)} — תעודת העברה פנימית מס׳ ${esc(t.number)}</h1>
+<p class="muted">לא מסמך מס · ${esc(TRANSFER_STATUS_HE[t.status])}</p>
+<p><strong>מ:</strong> ${esc(p.from)} &nbsp;←&nbsp; <strong>אל:</strong> ${esc(p.to)}</p>
+<p class="muted">נשלחה ${esc(p.sentAt)}${p.receivedAt ? ` · התקבלה ${esc(p.receivedAt)}` : ''}</p>
+<table><tr><th>מוצר</th><th class="n">נשלחו</th><th class="n">הגיעו</th><th>הערה</th></tr>${rows}
+<tr><td><strong>סה״כ</strong></td><td class="n"><strong>${esc(units)}</strong></td><td></td><td></td></tr></table>
+${t.note ? `<p>הערה: ${esc(t.note)}</p>` : ''}${t.receivedNote ? `<p>בקבלה: ${esc(t.receivedNote)}</p>` : ''}${t.status === 'cancelled' && t.cancelReason ? `<p>בוטלה: ${esc(t.cancelReason)}</p>` : ''}
+<div class="sign"><span>שולח/ת: ____________________</span><span>מקבל/ת: ____________________</span></div>
+<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
+}
 /** "3 פריטים · 7 יחידות" */
 export function transferSummary(t: Pick<Transfer, 'lines'>): string {
   const units = t.lines.reduce((a, l) => a + l.qty, 0);

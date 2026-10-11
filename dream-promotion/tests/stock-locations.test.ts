@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   COUNT_STATUS_HE, STOCK_MIGRATION, TRANSFER_STATUS_HE, atLocationStock, countList, countSummary, countsAt, findByCode, levelOf, lowStock,
   moveRows, onTheWay, qtyAt, receiptError, receiptGaps, receiptPayload, registerAtLocation, stockErrorHe, stockKey, toCount, toStockRow,
-  toTransfer, totalOf, transferError, transferSummary, type StockRow,
+  toTransfer, totalOf, transferError, transferNoteHtml, transferSummary, type StockRow,
 } from '../src/features/stock/stock-locations';
 
 // the main location B, a branch L2, a closed warehouse L3; a cream (no variants), a shirt (S, M), a service
@@ -136,4 +136,26 @@ test('the database\'s refusals in Hebrew', () => {
   assert.equal(stockErrorHe({ message: 'count_open: count 3 of this location is open' }), 'יש כבר ספירה פתוחה בסניף הזה — ממשיכים אותה.');
   assert.equal(stockErrorHe({ message: 'not allowed: the owner approves a count', code: '42501' }), 'רק הבעלים מאשרים ספירה.');
   assert.equal(stockErrorHe({ message: 'not allowed: this location is not yours', code: '42501' }), 'אין הרשאה לפעולה הזו.');
+});
+
+test('the printed transfer note: internal, not a tax document, every value escaped', () => {
+  const t = { number: 7, status: 'received' as const, note: 'דחוף <b>', receivedNote: '', cancelReason: '',
+    lines: [{ itemId: CREAM, variantId: null, name: 'קרם "לחות"', variant: '', qty: 3, received: 2, reason: 'נשבר <script>' },
+      { itemId: SHIRT, variantId: S, name: 'חולצה', variant: 'S', qty: 1, received: 1, reason: '' }] };
+  const html = transferNoteHtml(t, { business: 'קליניקה & ספא', from: 'ראשי', to: 'סניף <חיפה>', sentAt: '1.10.2026, 10:00', receivedAt: '1.10.2026, 12:00' });
+  assert.match(html, /תעודת העברה פנימית מס׳ 7/);
+  assert.match(html, /לא מסמך מס · התקבלה/);
+  assert.match(html, /קליניקה &amp; ספא/);
+  assert.match(html, /סניף &lt;חיפה&gt;/);
+  assert.match(html, /קרם &quot;לחות&quot;/);
+  assert.match(html, /נשבר &lt;script&gt;/);
+  assert.match(html, /דחוף &lt;b&gt;/);
+  assert.match(html, /חולצה · S/);
+  assert.match(html, /<strong>4<\/strong>/, 'the units sent');
+  assert.match(html, /שולח\/ת: .*מקבל\/ת: /);
+  assert.equal((html.match(/<script>/g) ?? []).length, 1, 'only the print call');
+  // on the way: nothing received yet
+  const sent = transferNoteHtml({ ...t, status: 'sent' }, { business: 'א', from: 'ב', to: 'ג', sentAt: 'ד' });
+  assert.match(sent, /לא מסמך מס · בדרך/);
+  assert.ok(!sent.includes('התקבלה '), 'no received time');
 });

@@ -8,6 +8,8 @@
  * duplicate expense (duplicateReasons — expense_duplicates' rule).
  * 2.91 (4600): locations and registers — location_state and the owner's functions, where a new row goes (location_fill), what a
  * signed-in user sees (the *_location_gate policies: the location picked, or the member's own), one open day per register.
+ * 2.92 (4700): stock by location — the counts of the locations other than the main one (stock_levels; the main one's is the
+ * rest), every move at its row's location, the view stock_by_location, stock_adjust, transfers and counts.
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { randomUUID, randomBytes } from 'node:crypto';
@@ -80,6 +82,8 @@ export class FakeSupabase {
   currentLocation: string | null = null;
   /** 2.91: the signed-in member's locations (business_members.locations, set by the super admin) — null: every one */
   memberLocations: string[] | null = null;
+  /** 2.92: migration 4700 is in the database (stock_levels, stock_transfers, stock_counts, stock_by_location) — false: as before it */
+  stockTables = true;
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string; today?: string }) {}
   /** today in Israel — or a fixed day (opts.today), for screens compared picture by picture */
   private today() { return this.opts.today ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
@@ -208,16 +212,38 @@ export class FakeSupabase {
   }
   /** files uploaded with a signed link (store-media), by path */
   files = new Map<string, { size: number; type: string }>();
-  /** as stock_move_v (3300): the item's sum moves, and the variant named by the line when it is one of this item's */
-  private stock(itemId: string, delta: number, reason: string, ref: { sale?: string; refund?: string; note?: string; variant?: string | null } = {}) {
+  /** as stock_move_v (3300): the item's sum moves, and the variant named by the line when it is one of this item's;
+   *  2.92 (stock_move_at, 4700): at a location — one that is not the main one keeps its own count (stock_levels) */
+  private stock(itemId: string, delta: number, reason: string,
+    ref: { sale?: string; refund?: string; note?: string; variant?: string | null; location?: string | null; transfer?: string; count?: string } = {}) {
     const it = this.t('catalog_items').find((i) => i.id === itemId && i.track_stock);
     if (!it || !delta) return;
     it.stock_qty = Number(it.stock_qty ?? 0) + delta;
     const v = ref.variant ? this.t('catalog_variants').find((x) => x.id === ref.variant && x.item_id === itemId) : null;
     if (v) v.stock_qty = Number(v.stock_qty ?? 0) + delta;
     const note = !v && it.has_variants ? ['לא משויך לווריאנט', ref.note].filter(Boolean).join(' · ') : ref.note ?? '';
-    this.t('stock_movements').push({ id: randomUUID(), business_id: this.opts.businessId, item_id: itemId, variant_id: v?.id ?? null, delta,
-      qty_after: v ? v.stock_qty : it.stock_qty, reason, sale_id: ref.sale ?? null, refund_id: ref.refund ?? null, note, created_at: now() });
+    const b = this.opts.businessId, loc = this.stockTables ? ref.location ?? b : null;
+    let after: number | null = null;
+    if (loc && loc !== b) { after = this.levelAdd(loc, itemId, null, delta); if (v) after = this.levelAdd(loc, itemId, v.id, delta); }
+    else if (loc) after = this.stockAt(loc, itemId, v?.id ?? null);
+    this.t('stock_movements').push({ id: randomUUID(), business_id: b, item_id: itemId, variant_id: v?.id ?? null, delta,
+      qty_after: v ? v.stock_qty : it.stock_qty, reason, sale_id: ref.sale ?? null, refund_id: ref.refund ?? null, note, created_at: now(),
+      ...(loc ? { location_id: loc, location_after: after, transfer_id: ref.transfer ?? null, count_id: ref.count ?? null } : {}) });
+  }
+  private levelAdd(loc: string, item: string, variant: string | null, d: number): number {
+    let r = this.t('stock_levels').find((x) => x.location_id === loc && x.item_id === item && (x.variant_id ?? null) === variant);
+    if (!r) { r = { business_id: this.opts.businessId, location_id: loc, item_id: item, variant_id: variant, qty: 0, updated_at: now() }; this.t('stock_levels').push(r); }
+    r.qty += d;
+    return r.qty;
+  }
+  /** stock_at(): a location's count — the main one's is the total less the others' */
+  stockAt(loc: string, item: string, variant: string | null): number {
+    const it = this.t('catalog_items').find((i) => i.id === item);
+    if (!it) return 0;
+    const lv = this.t('stock_levels').filter((x) => x.item_id === item && (x.variant_id ?? null) === variant);
+    if (loc !== this.opts.businessId) return lv.find((x) => x.location_id === loc)?.qty ?? 0;
+    const base = variant ? Number(this.t('catalog_variants').find((x) => x.id === variant && x.item_id === item)?.stock_qty ?? 0) : Number(it.stock_qty ?? 0);
+    return base - lv.reduce((a, x) => a + x.qty, 0);
   }
   /** units per (item, variant) in a list of lines — as stock_lines_v */
   private lines(items: any): { id: string; variant: string | null; qty: number }[] {
@@ -283,14 +309,16 @@ export class FakeSupabase {
     if (table === 'document_cancellations' && this.t('document_cancellations').some((c) => c.document_id === r.document_id)) return 'duplicate key value violates unique constraint "document_cancellations_pkey"';
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
     if (table === 'store_coupons') { r.code = String(r.code ?? '').toUpperCase(); r.active ??= true; r.used_count = 0; r.min_subtotal ??= 0; }
-    // 3500: a sale of the register does not take units held for an order on the site (c_sales_reserved)
-    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) {
+    // 3500: a sale of the register does not take units held for an order on the site (c_sales_reserved); 4700: the held units are
+    // at the store's shipping location — a sale at another location takes none of them
+    if (table === 'sales' && ['paid', 'pending'].includes(r.status) && !(this.stockTables && this.rowLocation(r) !== this.shipLocation())) {
       for (const l of this.lines(r.items)) {
         const it = this.t('catalog_items').find((i) => i.id === l.id);
         if (!it?.track_stock) continue;
         const v = l.variant ? this.t('catalog_variants').find((x) => x.id === l.variant && x.item_id === it.id) : null;
         const held = this.heldQty(it.id, v?.id ?? null);
-        if (held && l.qty > Number(v ? v.stock_qty : it.stock_qty) - held) return `שמור להזמנה באתר: ${it.name}`;
+        const have = this.stockTables ? this.stockAt(this.rowLocation(r), it.id, v?.id ?? null) : Number(v ? v.stock_qty : it.stock_qty);
+        if (held && l.qty > have - held) return `שמור להזמנה באתר: ${it.name}`;
       }
     }
     // the one catalog (3300): the database's defaults and checks the screens rely on
@@ -393,8 +421,8 @@ export class FakeSupabase {
     }
     if (table === 'expenses') this.log('expense.created', r.id, { number: r.expense_number, total: r.total });
     if (table === 'quotes') this.log('quote.created', r.id, { number: r.quote_number, total: r.total });
-    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) for (const l of this.lines(r.items)) this.stock(l.id, -l.qty, 'sale', { sale: r.id, variant: l.variant });
-    if (table === 'sale_refunds' && r.restock) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'refund', { sale: r.sale_id, refund: r.id, variant: l.variant });
+    if (table === 'sales' && ['paid', 'pending'].includes(r.status)) for (const l of this.lines(r.items)) this.stock(l.id, -l.qty, 'sale', { sale: r.id, variant: l.variant, location: this.rowLocation(r) });
+    if (table === 'sale_refunds' && r.restock) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'refund', { sale: r.sale_id, refund: r.id, variant: l.variant, location: this.rowLocation(r) });
     if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
@@ -467,7 +495,7 @@ export class FakeSupabase {
         Object.assign(u, { returned_at: now(), returned_by: this.opts.userId, return_reason: `הטיפול בוטל${r.cancel_reason ? `: ${r.cancel_reason}` : ''}` });
       }
     }
-    if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant });
+    if (table === 'sales' && r.status === 'cancelled' && ['paid', 'pending'].includes(old.status)) for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant, location: this.rowLocation(r) });
   }
 
   // ---- 2.91: locations (migration 4600) ---------------------------------------------------------------------------------------
@@ -618,9 +646,196 @@ export class FakeSupabase {
     return { status: 200, body: { id: cur.id, created: false } };
   }
 
+  // ---- 2.92: stock by location (migration 4700) -------------------------------------------------------------------------------
+  /** stock_ship_location(): the store's location for its orders, else the main one */
+  shipLocation(): string { return this.t('stores')[0]?.location_id ?? this.opts.businessId; }
+  /** location_owner(): the business's owner, with every location */
+  private locationOwner() { return this.owner && !this.memberLocations; }
+  /** the view stock_by_location: every tracked item (and variant) at the locations the member may use (not the switch) */
+  stockByLocation(): Row[] {
+    const b = this.opts.businessId, out: Row[] = [];
+    const tracked = this.t('catalog_items').filter((i) => i.track_stock);
+    const ids = new Set(tracked.map((i) => i.id));
+    for (const r of this.t('stock_levels')) if (ids.has(r.item_id) && this.mayUse(r.location_id)) out.push({ location_id: r.location_id, item_id: r.item_id, variant_id: r.variant_id ?? null, qty: r.qty });
+    if (this.mayUse(b)) {
+      for (const i of tracked) out.push({ location_id: b, item_id: i.id, variant_id: null, qty: this.stockAt(b, i.id, null) });
+      for (const v of this.t('catalog_variants').filter((x) => ids.has(x.item_id))) out.push({ location_id: b, item_id: v.item_id, variant_id: v.id, qty: this.stockAt(b, v.item_id, v.id) });
+    }
+    return out;
+  }
+  /** the read side of 4700's policies: the member's locations (levels), the locations seen now (transfers, counts, movements) */
+  private stockGate(table: string): ((r: Row) => boolean) | null {
+    if (!this.stockTables) return null;
+    const seen = this.locationFilter();
+    if (table === 'stock_levels') return this.memberLocations ? (r) => this.mayUse(r.location_id) : null;
+    if (!seen) return null;
+    if (table === 'stock_transfers') return (r) => seen.includes(r.from_location) || seen.includes(r.to_location);
+    if (table === 'stock_counts') return (r) => seen.includes(r.location_id);
+    if (table === 'stock_movements') return (r) => seen.includes(r.location_id ?? r.business_id ?? this.opts.businessId);
+    return null;
+  }
+  private stockRpc(fn: string, args: any): { status: number; body: any } | null {
+    if (!/^stock_(adjust|transfer_|count_)/.test(fn)) return null;
+    if (!this.stockTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const b = this.opts.businessId;
+    const refuse = (message: string, code = '22023') => ({ status: 400, body: { code, message, details: null, hint: null } });
+    const ok = (body: any) => ({ status: 200, body });
+    const place = (id: string) => this.places().locations.find((l) => l.id === id);
+    const item = (id: string) => this.t('catalog_items').find((i) => i.id === id);
+    const variantOf = (it: Row, id: string | null) => (id ? this.t('catalog_variants').find((v) => v.id === id && v.item_id === it.id) : undefined);
+    const label = (v?: Row) => (v ? [v.option1, v.option2, v.option3].filter(Boolean).join(' / ') : '');
+    if (fn === 'stock_adjust') {
+      const it = item(args.p_item);
+      if (!it) return refuse('not allowed', '42501');
+      const loc = args.p_location ?? b;
+      if (!place(loc)) return refuse('stock_location: a location of the business');
+      if (!this.mayUse(loc)) return refuse('not allowed: this location is not yours', '42501');
+      if (!args.p_variant && it.has_variants) return refuse('variant_required: an item with variants is counted per variant');
+      const v = variantOf(it, args.p_variant ?? null);
+      if (args.p_variant && !v) return refuse('variant_not_found: a variant of this item');
+      const qty = Number(args.p_qty);
+      if (args.p_mode === 'add' ? !(qty > 0) : !(qty >= 0)) return refuse(args.p_mode === 'add' ? 'a delivery adds at least one unit' : 'a count is zero or more');
+      if (!it.track_stock) it.track_stock = true;
+      const d = args.p_mode === 'add' ? qty : qty - this.stockAt(loc, it.id, v?.id ?? null);
+      this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { variant: v?.id ?? null, note: args.p_note ?? '', location: loc });
+      return ok(this.stockAt(loc, it.id, v?.id ?? null));
+    }
+    if (fn === 'stock_transfer_send') {
+      const same = this.t('stock_transfers').find((x) => x.id === args.p_id);
+      if (same) return ok({ id: same.id, number: same.number, created: false });
+      if (args.p_from === args.p_to) return refuse('transfer_same: from one location to another');
+      const from = place(args.p_from), to = place(args.p_to);
+      if (!from?.active || !to?.active) return refuse('transfer_location: two open locations of the business');
+      if (!this.mayUse(from.id)) return refuse('not allowed: this location is not yours', '42501');
+      const lines = this.lines(args.p_lines);
+      if (!Array.isArray(args.p_lines) || !args.p_lines.length || (args.p_lines as Row[]).some((l) => !l?.itemId || !/^[1-9][0-9]{0,5}$/.test(String(l.qty)))) {
+        return refuse('transfer_lines: a product and a whole number of units on every line');
+      }
+      const out: Row[] = [];
+      for (const l of lines) {
+        const it = item(l.id);
+        if (!it) return refuse('transfer_item: a product of the business');
+        if (!it.track_stock) return refuse(`transfer_untracked: ${it.name}`);
+        const v = variantOf(it, l.variant);
+        if (l.variant && !v) return refuse(`transfer_variant: ${it.name}`);
+        if (!l.variant && it.has_variants) return refuse(`transfer_variant_required: ${it.name}`);
+        if (from.id === this.shipLocation()) {
+          const held = this.heldQty(it.id, v?.id ?? null);
+          if (held > 0 && l.qty > this.stockAt(from.id, it.id, v?.id ?? null) - held) return refuse(`reserved_for_online: ${it.name}${v ? ` — ${label(v)}` : ''}`, 'P0001');
+        }
+        out.push({ itemId: it.id, variantId: v?.id ?? null, name: it.name, variant: label(v), qty: l.qty });
+      }
+      const number = Math.max(0, ...this.t('stock_transfers').map((x) => x.number)) + 1;
+      this.t('stock_transfers').push({ id: args.p_id, business_id: b, number, from_location: from.id, to_location: to.id, status: 'sent', lines: out,
+        note: String(args.p_note ?? '').trim().slice(0, 300), sent_by: this.opts.userId, sent_at: now(), received_at: null, received_note: '', cancelled_at: null, cancel_reason: '' });
+      for (const l of out) this.stock(l.itemId, -l.qty, 'transfer', { variant: l.variantId, location: from.id, transfer: args.p_id, note: `העברה ${number} אל ${to.name}` });
+      return ok({ id: args.p_id, number, created: true });
+    }
+    if (fn === 'stock_transfer_receive') {
+      const t = this.t('stock_transfers').find((x) => x.id === args.p_id);
+      if (!t) return refuse('not allowed', '42501');
+      if (t.status === 'received') return ok({ result: 'already', number: t.number });
+      if (t.status !== 'sent') return refuse('transfer_cancelled: this transfer was cancelled', '23514');
+      if (!this.mayUse(t.to_location)) return refuse('not allowed: this location is not yours', '42501');
+      const got: Row[] = Array.isArray(args.p_lines) ? args.p_lines : [];
+      const from = place(t.from_location)?.name ?? '';
+      let gaps = 0;
+      const outl: Row[] = [];
+      for (const e of t.lines) {
+        const g = got.find((x) => x.itemId === e.itemId && (x.variantId ?? null) === (e.variantId ?? null));
+        let rec = e.qty, why = '';
+        if (g && g.received != null) {
+          if (!/^[0-9]{1,6}$/.test(String(g.received))) return refuse('transfer_received: a whole number of units, zero or more');
+          rec = Number(g.received); why = String(g.reason ?? '').trim().slice(0, 200);
+        }
+        if (rec !== e.qty && !why) return refuse(`transfer_gap_reason: ${e.name}`);
+        outl.push({ ...e, received: rec, reason: why });
+      }
+      for (const e of outl) {
+        this.stock(e.itemId, e.qty, 'transfer', { variant: e.variantId, location: t.to_location, transfer: t.id, note: `קבלת העברה ${t.number} מ${from}` });
+        if (e.received !== e.qty) { this.stock(e.itemId, e.received - e.qty, 'adjust', { variant: e.variantId, location: t.to_location, transfer: t.id, note: `פער בהעברה ${t.number}: ${e.reason}` }); gaps++; }
+      }
+      Object.assign(t, { status: 'received', lines: outl, received_by: this.opts.userId, received_at: now(), received_note: String(args.p_note ?? '').trim().slice(0, 300) });
+      return ok({ result: 'ok', number: t.number, gaps });
+    }
+    if (fn === 'stock_transfer_cancel') {
+      const t = this.t('stock_transfers').find((x) => x.id === args.p_id);
+      if (!t) return refuse('not allowed', '42501');
+      if (t.status === 'cancelled') return ok({ result: 'already', number: t.number });
+      if (t.status !== 'sent') return refuse('transfer_received: a received transfer is not cancelled', '23514');
+      if (!(this.mayUse(t.from_location) || this.locationOwner())) return refuse('not allowed: this location is not yours', '42501');
+      if (!String(args.p_reason ?? '').trim()) return refuse('transfer_cancel_reason: why it is cancelled');
+      for (const e of t.lines) this.stock(e.itemId, e.qty, 'transfer', { variant: e.variantId, location: t.from_location, transfer: t.id, note: `ביטול העברה ${t.number}` });
+      Object.assign(t, { status: 'cancelled', cancelled_by: this.opts.userId, cancelled_at: now(), cancel_reason: String(args.p_reason).trim().slice(0, 300) });
+      return ok({ result: 'ok', number: t.number });
+    }
+    if (fn === 'stock_count_start') {
+      const same = this.t('stock_counts').find((x) => x.id === args.p_id);
+      if (same) return ok({ id: same.id, number: same.number, created: false });
+      const loc = args.p_location ?? b;
+      if (!place(loc)) return refuse('stock_location: a location of the business');
+      if (!this.mayUse(loc)) return refuse('not allowed: this location is not yours', '42501');
+      const open = this.t('stock_counts').find((x) => x.location_id === loc && x.status === 'open');
+      if (open) return refuse(`count_open: count ${open.number} of this location is open`, '23505');
+      const number = Math.max(0, ...this.t('stock_counts').map((x) => x.number)) + 1;
+      this.t('stock_counts').push({ id: args.p_id, business_id: b, number, location_id: loc, status: 'open', lines: {}, note: String(args.p_note ?? '').trim().slice(0, 300),
+        result: null, created_by: this.opts.userId, created_at: now(), approved_at: null, cancelled_at: null });
+      return ok({ id: args.p_id, number, created: true });
+    }
+    const count = this.t('stock_counts').find((x) => x.id === args.p_count);
+    if (!count) return refuse('not allowed', '42501');
+    /** as stock_count_lines: the location's count now, less what moved there since the line was counted (not by this count) */
+    const results = () => Object.values(count.lines as Record<string, Row>).map((l) => {
+      const since = this.t('stock_movements').filter((m) => m.item_id === l.itemId && (m.location_id ?? m.business_id) === count.location_id
+        && (!l.variantId || m.variant_id === l.variantId) && m.created_at > l.at && m.count_id !== count.id).reduce((a, m) => a + Number(m.delta), 0);
+      const expected = this.stockAt(count.location_id, l.itemId, l.variantId ?? null) - since;
+      return { item_id: l.itemId, variant_id: l.variantId ?? null, counted: l.counted, expected, gap: l.counted - expected, counted_at: l.at };
+    });
+    if (fn === 'stock_count_lines') return ok(this.mayUse(count.location_id) ? results() : []);
+    if (count.status === 'approved' && fn === 'stock_count_approve') return ok({ result: 'already', number: count.number });
+    if (count.status === 'cancelled' && fn === 'stock_count_cancel') return ok({ result: 'already', number: count.number });
+    if (count.status !== 'open') return refuse(`count_closed: this count is ${count.status}`, '23514');
+    if (fn === 'stock_count_set') {
+      if (!this.mayUse(count.location_id)) return refuse('not allowed: this location is not yours', '42501');
+      const it = item(args.p_item);
+      if (!it) return refuse('count_item: a product of the business');
+      if (!args.p_variant && it.has_variants) return refuse('variant_required: an item with variants is counted per variant');
+      if (args.p_variant && !variantOf(it, args.p_variant)) return refuse('variant_not_found: a variant of this item');
+      const k = `${it.id}:${args.p_variant ?? ''}`;
+      if (args.p_counted == null) { const { [k]: _gone, ...rest } = count.lines; count.lines = rest; }
+      else {
+        if (!(Number(args.p_counted) >= 0)) return refuse('a count is zero or more');
+        count.lines = { ...count.lines, [k]: { itemId: it.id, variantId: args.p_variant ?? null, counted: Number(args.p_counted), at: now(), by: this.opts.userId } };
+      }
+      return ok({ key: k, counted: args.p_counted ?? null });
+    }
+    if (fn === 'stock_count_approve') {
+      if (!this.locationOwner()) return refuse('not allowed: the owner approves a count', '42501');
+      if (!Object.keys(count.lines).length) return refuse('count_empty: nothing was counted', '23514');
+      const res = results();
+      let moved = 0;
+      for (const r of res) {
+        const it = item(r.item_id);
+        if (it && !it.track_stock) it.track_stock = true;
+        if (r.gap !== 0) { this.stock(r.item_id, r.gap, 'count', { variant: r.variant_id, location: count.location_id, count: count.id, note: `ספירה ${count.number}` }); moved++; }
+      }
+      Object.assign(count, { status: 'approved', approved_by: this.opts.userId, approved_at: now(),
+        result: res.map((r) => ({ itemId: r.item_id, variantId: r.variant_id, counted: r.counted, expected: r.expected, gap: r.gap })) });
+      return ok({ result: 'ok', number: count.number, moved });
+    }
+    if (fn === 'stock_count_cancel') {
+      if (!(count.created_by === this.opts.userId || this.locationOwner())) return refuse('not allowed', '42501');
+      Object.assign(count, { status: 'cancelled', cancelled_by: this.opts.userId, cancelled_at: now() });
+      return ok({ result: 'ok', number: count.number });
+    }
+    return refuse(`unknown stock function ${fn}`, '42883');
+  }
+
   rpc(fn: string, args: any): { status: number; body: any } {
     const placed = this.locationRpc(fn, args);
     if (placed) return placed;
+    const stocked = this.stockRpc(fn, args);
+    if (stocked) return stocked;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
     // 2.88 (migration 4300): what was really paid as a deposit for these appointments — never a test link
@@ -642,7 +857,7 @@ export class FakeSupabase {
         const e = m.get(k) ?? { item_id: r.item_id, variant_id: r.variant_id ?? null, qty: 0 };
         e.qty += Number(r.qty); m.set(k, e);
       }
-      return { status: 200, body: [...m.values()] };
+      return { status: 200, body: [...m.values()].map((x) => (this.stockTables ? { ...x, location: this.shipLocation() } : x)) };
     }
     // the store (3400): the checklist, and "פרסום" of a theme version (the published one is archived)
     if (fn === 'store_checklist') {
@@ -716,9 +931,11 @@ export class FakeSupabase {
       if (!it) return { status: 400, body: { code: '42501', message: 'not allowed' } };
       if (it.has_variants) return { status: 400, body: { code: '22023', message: 'variant_required: an item with variants is counted per variant' } };
       if (!it.track_stock) { it.track_stock = true; it.stock_qty = 0; }
-      const d = args.p_mode === 'add' ? Number(args.p_qty) : Number(args.p_qty) - Number(it.stock_qty);
-      this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { note: args.p_note ?? '' });
-      return { status: 200, body: it.stock_qty };
+      // 4700: where the user works (the location picked, their only one, else the main one) — with one location, the total
+      const at = this.stockTables ? this.locationPick() ?? this.opts.businessId : null;
+      const d = args.p_mode === 'add' ? Number(args.p_qty) : Number(args.p_qty) - (at ? this.stockAt(at, it.id, null) : Number(it.stock_qty));
+      this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { note: args.p_note ?? '', location: at });
+      return { status: 200, body: at ? this.stockAt(at, it.id, null) : it.stock_qty };
     }
     // the one catalog (3300): a variant's delivery / count moves the variant and the item's sum; the reconcile drops what no variant holds
     if (fn === 'adjust_variant_stock') {
@@ -728,9 +945,10 @@ export class FakeSupabase {
       const qty = Number(args.p_qty);
       if (args.p_mode === 'add' ? !(qty > 0) : !(qty >= 0)) return { status: 400, body: { code: '22023', message: 'a count is zero or more' } };
       it.track_stock = true;
-      const d = args.p_mode === 'add' ? qty : qty - Number(v.stock_qty ?? 0);
-      this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { variant: v.id, note: args.p_note ?? '' });
-      return { status: 200, body: v.stock_qty };
+      const at = this.stockTables ? this.locationPick() ?? this.opts.businessId : null;
+      const d = args.p_mode === 'add' ? qty : qty - (at ? this.stockAt(at, it.id, v.id) : Number(v.stock_qty ?? 0));
+      this.stock(it.id, d, args.p_mode === 'add' ? 'receive' : 'count', { variant: v.id, note: args.p_note ?? '', location: at });
+      return { status: 200, body: at ? this.stockAt(at, it.id, v.id) : v.stock_qty };
     }
     if (fn === 'reconcile_variant_stock') {
       const it = this.t('catalog_items').find((i) => i.id === args.p_item);
@@ -1025,10 +1243,16 @@ export class FakeSupabase {
     if (table === 'receivables') this.tables.receivables = this.receivables();
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();
+    // 2.92 (4700): before the migration there are no such tables; the view is computed now
+    if (['stock_levels', 'stock_transfers', 'stock_counts', 'stock_by_location'].includes(table) && !this.stockTables) {
+      return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+    }
+    if (table === 'stock_by_location') this.tables.stock_by_location = this.stockByLocation();
     // 2.91: the *_location_gate policies — a signed-in user reads and changes only the rows of the locations they see now
     const seen = FakeSupabase.LOCATED.includes(table) ? this.locationFilter() : null;
     const all = this.t(table);
-    const rows = seen ? all.filter((r) => seen.includes(this.rowLocation(r))) : all;
+    const gate = this.stockGate(table);
+    const rows = seen ? all.filter((r) => seen.includes(this.rowLocation(r))) : gate ? all.filter(gate) : all;
     const wantsObject = (headers.accept ?? '').includes('vnd.pgrst.object');
     const prefer = headers.prefer ?? '';
     const ret = (list: Row[], status = 200, extra: Record<string, string> = {}) => {

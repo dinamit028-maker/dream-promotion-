@@ -22,6 +22,14 @@
   - סניפים וקופות משנים רק הבעלים (`location_save` / `register_save`). מי עובד איפה (`business_members.locations`) — רק מנהל-העל. לא מוחקים — סוגרים.
   - יום קופה — אחד לכל קופה. תורים לא חופפים בתוך סניף. מספור מסמכים — סדרה אחת לעסק; המסמך מציין סניף רק כשיש יותר מסניף פעיל אחד (`e_documents_location`, `issuerLocationLine`).
   - בשרת (service role, בלי משתמש) שורה הולכת לפי מה שהיא שייכת אליו, אחרת לראשי (`location_pick`). דף ההזמנות — `bookingLocation`.
+- מלאי לפי מיקום (מ-2.92.0, מיגרציה 4700 — T12ב של `docs/FINANCE_ADDITIONS_HE.md`; רצה רק אחרי 4600):
+  - הסה״כ נשאר ב-`catalog_items.stock_qty` / `catalog_variants.stock_qty`. הכמות בכל סניף שאינו הראשי — ב-`stock_levels`. הראשי = הסה״כ פחות האחרים (`stock_at`). לא ממלאים שורות ישנות.
+  - מלאי זז רק דרך `stock_move_at` (המזיז היחיד — כל השאר קוראים לו): מכירה, החזר, מסמך והוצאה — בסניף של השורה; ביטול — בחזרה באותו סניף. קבלה וספירה — `stock_adjust(סניף, …)`; `adjust_stock` / `adjust_variant_stock` הישנות — בסניף שהמשתמש עובד בו. אף פעם לא כותבים ל-`stock_levels` או ל-`stock_qty` ישירות.
+  - כל תנועה (`stock_movements`) נושאת `location_id` ו-`location_after`, והעברה / ספירה — גם `transfer_id` / `count_id`.
+  - העברה בין סניפים = תעודה פנימית (לא מסמך מס): `stock_transfer_send` (היחידות יוצאות מיד) → `stock_transfer_receive` (נכנסות; פער = תנועת `adjust` עם סיבה, חובה) או `stock_transfer_cancel` (חוזרות, עם סיבה). מזהה שנקבע במכשיר — ניסיון חוזר לא יוצר כפילות.
+  - ספירה: אחת פתוחה לכל סניף. כל שורה נשמרת עם הרגע שבו נספרה, וה"צפוי" = הכמות עכשיו פחות מה שזז מאז (`stock_count_lines`) — מכירה אחרי הספירה היא לא פער. רק הבעלים (`location_owner`) מאשרים, ורק אז הפערים נרשמים כתנועות `count`.
+  - הקופה מציגה, מוכרת, מקבלת וסופרת את המלאי של הסניף שלה (`registerAtLocation` / `atLocationStock`). עסק עם סניף אחד — בדיוק כמו קודם. האתר מוכר את המלאי של הסניף שנקבע לחנות (`stock_ship_location` = `stores.location_id`, אחרת הראשי); יחידות שמורות להזמנה באתר שמורות רק שם (`reserved_stock().location`, `stock_reserved_conflict_at`).
+  - חישובים במסכים (מלאי נמוך והצעת העברה, פערים, קבלה) — רק ב-`features/stock/stock-locations.ts`. "מלאי" בתפריט רק כשיש יותר מסניף פעיל אחד; עם סניף אחד — "ספירת מלאי" נפתחת מהמחירון בקופה.
 - Supabase דרך ה-MCP: פקודה שמכילה drop נתקעת (ממתינה לאישור). להשתמש ב-create or replace, ולוודא אחרי כל כתיבה שהיא באמת רצה.
   - גם `delete` נתקע, אפילו כשהוא רק כתוב בגוף של פונקציה (נמצא ב-3400). פונקציה כזו בעל המערכת מריץ ב-SQL Editor, ואחר כך בודקים דרך ה-MCP בקריאה בלבד. לא עוקפים את העצירה.
   - פקודה שנתקעה נכשלת אחרי 60 שניות. לבדוק מה נשמר לפני כל ניסיון נוסף.
@@ -92,7 +100,7 @@
   - "שולם" רק אחרי בדיקה ישירה מול ספק הסליקה. הזמנת טסט לא יוצרת מכירה, לא מורידה מלאי ולא מפיקה מסמך.
   - שינוי בחתימה של פונקציה במסד = פונקציה חדשה בשם חדש, כי דרך ה-MCP אין `drop`.
   - קטלוג (מ-2.54.0): מוצר נוצר ונערך רק ב-`ProductEditor` (src/features/catalog), שנפתח מהקופה, מהכספים ומהחנות. כללי מחיר, וריאנט, slug וקודים — רק ב-`catalog.ts`.
-  - מלאי של וריאנט זז רק דרך פונקציות המלאי (`stock_move_v`, `adjust_variant_stock`, `reconcile_variant_stock`). שורה שמקושרת למוצר נושאת `itemId`, וכשיש — גם `variantId`, בכל מקום: קופה, עסקה מושהית, החזר, מסמך, הוצאה. שורה בלי וריאנט של מוצר עם וריאנטים = "לא משויך", אף פעם לא וריאנט באקראי.
+  - מלאי של וריאנט זז רק דרך פונקציות המלאי (`stock_move_v`, `adjust_variant_stock`, `reconcile_variant_stock`; מ-2.92 כולן עוברות דרך `stock_move_at` — ראו "מלאי לפי מיקום"). שורה שמקושרת למוצר נושאת `itemId`, וכשיש — גם `variantId`, בכל מקום: קופה, עסקה מושהית, החזר, מסמך, הוצאה. שורה בלי וריאנט של מוצר עם וריאנטים = "לא משויך", אף פעם לא וריאנט באקראי.
   - תמונות מוצר: רק דרך `/api/store/media` (אין מדיניות דפדפן על `store-media`). הגדלים נעשים בדפדפן.
   - הדשבורד (מ-2.77.0, Next 16 כמו החזית, React 19): `src/proxy.ts` במקום middleware (מפנה קישורי `/finance?tab=` ישנים). build ו-dev ב-Turbopack; `next dev` כותב ל-`.next/dev`, ושני `next dev` על אותו פרויקט לא רצים יחד (ולכן בדיקות הקצה לקצה — אחת אחרי השנייה). לא לשנות `package.json` / `next.config.mjs` בזמן שבדיקת קצה לקצה רצה: `next dev` מופעל מחדש באמצע והבדיקות נופלות. אין `next lint` ב-16. params של נתיב ושל דף הם Promise — בנתיב API `await ctx.params`, בדף לקוח `use(props.params)`, בדף שרת `await`. בבדיקה שקוראת לנתיב: `{ params: Promise.resolve({...}) }`. `next dev` / `next build` מוסיפים ל-`next-env.d.ts` הפניה ל-`.next/types/routes.d.ts` (או `.next/dev/types`) — לא לעשות לזה commit (בלי `.next` ה-typecheck נכשל).
   - החזית (מ-2.55.0, Next 16): `src/proxy.ts` במקום middleware, ו-params / headers אסינכרוניים (התיעוד ב-`storefront/node_modules/next/dist/docs`). בלי `style=` (ה-CSP חוסם); צבעי התבנית ב-`<style nonce>`. המילה Dream לא מופיעה ללקוח. `storefront/tests/unit/no-tables.test.ts` בודק את שני הכללים.
