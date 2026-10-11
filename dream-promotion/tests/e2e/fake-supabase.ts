@@ -693,6 +693,7 @@ export class FakeSupabase {
       if (!args.p_variant && it.has_variants) return refuse('variant_required: an item with variants is counted per variant');
       const v = variantOf(it, args.p_variant ?? null);
       if (args.p_variant && !v) return refuse('variant_not_found: a variant of this item');
+      if (args.p_mode === 'set' && !this.locationOwner()) return refuse('not allowed: the owner counts on the spot (others count in a stock count the owner approves)', '42501');
       const qty = Number(args.p_qty);
       if (args.p_mode === 'add' ? !(qty > 0) : !(qty >= 0)) return refuse(args.p_mode === 'add' ? 'a delivery adds at least one unit' : 'a count is zero or more');
       if (!it.track_stock) it.track_stock = true;
@@ -930,6 +931,8 @@ export class FakeSupabase {
       const it = this.t('catalog_items').find((i) => i.id === args.p_item);
       if (!it) return { status: 400, body: { code: '42501', message: 'not allowed' } };
       if (it.has_variants) return { status: 400, body: { code: '22023', message: 'variant_required: an item with variants is counted per variant' } };
+      // 4700: a count on the spot is the owner's
+      if (this.stockTables && args.p_mode === 'set' && !this.locationOwner()) return { status: 400, body: { code: '42501', message: 'not allowed: the owner counts on the spot (others count in a stock count the owner approves)' } };
       if (!it.track_stock) { it.track_stock = true; it.stock_qty = 0; }
       // 4700: where the user works (the location picked, their only one, else the main one) — with one location, the total
       const at = this.stockTables ? this.locationPick() ?? this.opts.businessId : null;
@@ -944,6 +947,7 @@ export class FakeSupabase {
       if (!v || !it) return { status: 400, body: { code: '42501', message: 'not allowed' } };
       const qty = Number(args.p_qty);
       if (args.p_mode === 'add' ? !(qty > 0) : !(qty >= 0)) return { status: 400, body: { code: '22023', message: 'a count is zero or more' } };
+      if (this.stockTables && args.p_mode === 'set' && !this.locationOwner()) return { status: 400, body: { code: '42501', message: 'not allowed: the owner counts on the spot (others count in a stock count the owner approves)' } };
       it.track_stock = true;
       const at = this.stockTables ? this.locationPick() ?? this.opts.businessId : null;
       const d = args.p_mode === 'add' ? qty : qty - (at ? this.stockAt(at, it.id, v.id) : Number(v.stock_qty ?? 0));
@@ -953,6 +957,7 @@ export class FakeSupabase {
     if (fn === 'reconcile_variant_stock') {
       const it = this.t('catalog_items').find((i) => i.id === args.p_item);
       if (!it || !it.has_variants) return { status: 400, body: { code: '22023', message: 'the item has no variants' } };
+      if (this.stockTables && !this.locationOwner()) return { status: 400, body: { code: '42501', message: 'not allowed: the owner counts on the spot (others count in a stock count the owner approves)' } };
       const total = this.t('catalog_variants').filter((v) => v.item_id === it.id).reduce((a, v) => a + Number(v.stock_qty ?? 0), 0);
       this.stock(it.id, total - Number(it.stock_qty ?? 0), 'count', { note: 'התאמה לסכום הווריאנטים' });
       return { status: 200, body: it.stock_qty };

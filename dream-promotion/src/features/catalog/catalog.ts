@@ -1,3 +1,4 @@
+import { QUICK_COUNT_OWNER } from '@/features/stock/stock-locations';
 /**
  * Dream Commerce stage 1 (2.54): ONE catalog for the register, finance and the online store — the same rows of
  * catalog_items, catalog_variants, catalog_options, catalog_media and catalog_field_defs (migration 20261005003300).
@@ -352,6 +353,7 @@ export function catalogError(e: { message?: string; code?: string } | null | und
   if (/does not exist|schema cache|PGRST20[2-5]|42703/i.test(m) && /package_(sessions|type_id|valid_months)/.test(m)) return MIGRATION_4200;
   if (/catalog_items_package_check/.test(m)) return `מספר טיפולים 1–${PACKAGE_LIMITS.sessions}, תוקף 1–${PACKAGE_LIMITS.months} חודשים.`;
   if (/catalog_items_package_type_fk/.test(m)) return 'סוג הטיפול לא נמצא בעסק.';
+  if (/the owner counts/.test(m)) return QUICK_COUNT_OWNER;
   if (/variant_required/.test(m)) return 'למוצר עם וריאנטים סופרים מלאי לכל וריאנט בנפרד.';
   if (/not of this item/.test(m)) return 'התמונה והווריאנט חייבים להיות של אותו מוצר.';
   if (/stock changes only/.test(m)) return 'מלאי משתנה רק דרך קבלת סחורה או ספירה.';

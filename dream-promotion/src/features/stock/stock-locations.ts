@@ -291,11 +291,25 @@ export function findByCode(code: string, items: CodeItem[], variants: CodeVarian
   return it ? { itemId: it.id, variantId: null } : null;
 }
 
+// ---- a count on the spot -------------------------------------------------------------------------------------------------------------
+/** "ספירה" next to a product (and "סיום ספירה") moves stock with no approval: the owner's only (the owner's decision, 11.10.2026) */
+export const QUICK_COUNT_OWNER = 'ספירה במקום — רק הבעלים. אפשר לפתוח ספירה מסודרת ("ספירת מלאי"), והבעלים מאשרים אותה.';
+/**
+ * May this user count on the spot? After migration 4600 — the database's own answer (location_state().owner = location_owner(), which
+ * stock_adjust and reconcile_variant_stock check from 4700); before it — whether the member is the business's owner with full access.
+ * null: not known yet (nothing is offered until it is).
+ */
+export function quickCountAllowed(loc: { ready: boolean; owner: boolean } | null, memberOwner: boolean | null): boolean | null {
+  if (!loc) return null;
+  return loc.ready ? loc.owner : memberOwner;
+}
+
 // ---- the database's refusals in Hebrew ---------------------------------------------------------------------------------------------
 export const STOCK_MIGRATION = 'מלאי לפי סניף עוד לא הופעל במסד הנתונים (מיגרציה 20261011004700).';
 export function stockErrorHe(e: unknown): string {
   const m = `${(e as any)?.message ?? e ?? ''}\n${(e as any)?.code ?? ''}\n${(e as any)?.details ?? ''}`;
   const named = (k: string) => new RegExp(`${k}: ?([^\\n]*)`).exec(m)?.[1]?.trim() ?? '';
+  if (/the owner counts/.test(m)) return QUICK_COUNT_OWNER;
   if (/stock_by_location|stock_adjust|stock_transfer_|stock_count_|stock_transfers|stock_counts|PGRST202|PGRST205|42883|42P01|schema cache/i.test(m)) return STOCK_MIGRATION;
   if (/transfer_same/.test(m)) return 'מעבירים מסניף אחד לסניף אחר.';
   if (/transfer_location/.test(m)) return 'מעבירים בין שני סניפים פתוחים של העסק.';

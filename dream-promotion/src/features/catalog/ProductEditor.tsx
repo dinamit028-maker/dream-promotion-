@@ -28,6 +28,7 @@ import { useLocations } from '@/features/locations/store';
 import { activeLocations, defaultLocation, locationName, multiLocation } from '@/features/locations/locations';
 import { adjustAt, loadItemStock } from '@/features/stock/stock-data';
 import { qtyAt, type StockRow } from '@/features/stock/stock-locations';
+import { useQuickCount } from '@/features/stock/useQuickCount';
 
 /**
  * THE product editor (Dream Commerce 2.54) — the only place a product is created and edited, opened from the register's
@@ -121,6 +122,8 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   // stock by location (T12ב, migration 4700): with more than one location — or for a member limited to some — "קבלה" and
   // "ספירה" are of one location, picked here; one location (or before the migration): the totals, as before
   const loc = useLocations((s) => s.state);
+  // "ספירה" and "סיום ספירה" on the spot — the owner only (the database refuses anyone else from 4700); "+ קבלה" — whoever may write
+  const quick = useQuickCount();
   const perLoc = loc.ready && (multiLocation(loc) || loc.limited);
   const [stockLoc, setStockLoc] = useState<string | null>(null);
   const [levels, setLevels] = useState<StockRow[] | null>(null);
@@ -586,8 +589,8 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
           {item && unassigned !== 0 && (
             <div role="status" className="mt-4 rounded-xl bg-amber-500/15 p-3 text-sm">
               <p><strong>{unassigned > 0 ? `${unassigned} יחידות` : `${-unassigned} יחידות נמכרו`} לא משויכות לאף וריאנט</strong> — {unassigned > 0 ? 'מלאי מלפני הווריאנטים, או החזרה בלי בחירת וריאנט' : 'מכירה בלי בחירת וריאנט (למשל עסקה שהושהתה לפני שנוספו הווריאנטים)'}.
-                סופרים כל וריאנט (&quot;ספירה&quot;), ואז &quot;סיום ספירה&quot; משווה את המלאי של המוצר לסכום הווריאנטים.</p>
-              <Button size="sm" variant="ghost" className="mt-2" disabled={Boolean(busy)} onClick={() => void reconcile()}>סיום ספירה</Button>
+                סופרים כל וריאנט (&quot;ספירה&quot;), ואז &quot;סיום ספירה&quot; משווה את המלאי של המוצר לסכום הווריאנטים.{quick === false ? ' את זה עושים הבעלים.' : ''}</p>
+              {quick && <Button size="sm" variant="ghost" className="mt-2" disabled={Boolean(busy)} onClick={() => void reconcile()}>סיום ספירה</Button>}
             </div>
           )}
 
@@ -619,7 +622,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
                         <span className={cx('rounded-full px-2.5 py-1 text-xs font-bold tabular-nums', lvl === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : lvl === 'low' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
                           📦 {stockAt(v.id, v.stockQty) ?? (v.stockQty <= 0 ? (v.stockQty < 0 ? `חסר (${v.stockQty})` : 'אזל') : `במלאי ${v.stockQty}`)}</span>
                       ) : <span className="text-xs text-muted">המלאי לא נספר עדיין</span>}
-                      <StockButtons label={variantLabel(v)} disabled={Boolean(busy)} onMove={(mode, raw) => void moveStock({ kind: 'variant', id: v.id, label: variantLabel(v) }, mode, raw)} />
+                      <StockButtons label={variantLabel(v)} disabled={Boolean(busy)} count={quick === true} onMove={(mode, raw) => void moveStock({ kind: 'variant', id: v.id, label: variantLabel(v) }, mode, raw)} />
                       <label className="flex items-center gap-1 text-xs text-muted">התראה מתחת ל-
                         <Input inputMode="numeric" value={x.lowStock} onChange={(e) => setX({ lowStock: e.target.value })} placeholder={String(item.lowStock)} className="h-8 w-14 px-2 py-0 text-center" aria-label={`רמת התראה: ${variantLabel(v)}`} />
                       </label>
@@ -639,11 +642,13 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
       )}
 
       {item && !item.hasVariants && isProductKind && (
-        <Section id="stock" title="מלאי" sectionRef={ref('stock')} hint="כל מכירה מורידה מהמלאי לבד. קבלה מוסיפה יחידות; ספירה קובעת את מה שיש בפועל.">
+        <Section id="stock" title="מלאי" sectionRef={ref('stock')} hint={quick === false
+          ? 'כל מכירה מורידה מהמלאי לבד. קבלה מוסיפה יחידות. ספירה — רק לבעלים; כל אחד אחר סופר בספירה מסודרת, והבעלים מאשרים.'
+          : 'כל מכירה מורידה מהמלאי לבד. קבלה מוסיפה יחידות; ספירה קובעת את מה שיש בפועל.'}>
           {item.trackStock && locPick}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-full bg-surface-2 px-3 py-1 font-bold tabular-nums">📦 {item.trackStock ? (stockAt(null, item.stockQty) ?? (item.stockQty <= 0 ? 'אזל' : `במלאי ${item.stockQty}`)) : 'עוד לא נספר'}</span>
-            <StockButtons label={item.name} disabled={Boolean(busy)} onMove={(mode, raw) => void moveStock({ kind: 'item', id: item.id }, mode, raw)} />
+            <StockButtons label={item.name} disabled={Boolean(busy)} count={quick === true} onMove={(mode, raw) => void moveStock({ kind: 'item', id: item.id }, mode, raw)} />
             <label className="flex items-center gap-1 text-xs text-muted">התראה מתחת ל-
               <Input type="number" min={0} defaultValue={item.lowStock} className="h-8 w-16 px-2 py-0 text-center" aria-label="רמת התראה"
                 onBlur={async (e) => { const v = Math.max(0, Math.floor(Number(e.target.value) || 0)); if (v !== item.lowStock) { const r = await setLowStock(item.id, v); if (!r.ok) fail(r.error); else await reload(item.id); } }} />
@@ -711,13 +716,14 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
 }
 
 /** "קבלה" (add) / "ספירה" (set) with a number — no window.prompt (phones show it badly) */
-function StockButtons({ label, disabled, onMove }: { label: string; disabled?: boolean; onMove: (mode: 'add' | 'set', raw: string) => void }) {
+/** "+ קבלה" for whoever may write; "ספירה" (on the spot) only when count — the owner */
+function StockButtons({ label, disabled, count, onMove }: { label: string; disabled?: boolean; count: boolean; onMove: (mode: 'add' | 'set', raw: string) => void }) {
   const [qty, setQty] = useState('');
   return (
     <span className="inline-flex items-center gap-1">
       <Input inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value.replace(/[^\d]/g, ''))} placeholder="כמות" aria-label={`כמות: ${label}`} className="h-9 w-16 px-2 py-0 text-center" />
       <Button size="sm" variant="ghost" disabled={disabled || !qty} onClick={() => { onMove('add', qty); setQty(''); }}>+ קבלה</Button>
-      <Button size="sm" variant="ghost" disabled={disabled || qty === ''} onClick={() => { onMove('set', qty); setQty(''); }}>ספירה</Button>
+      {count && <Button size="sm" variant="ghost" disabled={disabled || qty === ''} onClick={() => { onMove('set', qty); setQty(''); }}>ספירה</Button>}
     </span>
   );
 }

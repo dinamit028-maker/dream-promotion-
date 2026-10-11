@@ -12,7 +12,8 @@
 --                  refund, a document and an expense move at their own location (4600: a sale's is its register's); cancelling
 --                  a document and voiding an expense move back where it moved.
 --   4. counting    stock_adjust (a delivery or a count at a location); adjust_stock / adjust_variant_stock count where the user
---                  works (with one location: as before); reconcile_variant_stock reconciles every location.
+--                  works (with one location: as before); reconcile_variant_stock reconciles every location. A count on the spot
+--                  ("ספירה" next to a product, "סיום ספירה") is the owner's only — anyone else counts in a count the owner approves.
 --   5. reading     the view stock_by_location — every location's count of every tracked item and variant, for the locations the
 --                  user may use (a cashier: their own — the register shows it).
 --   6. transfers   sent (out of the source at once; the units are on the way) → received (into the destination; a difference
@@ -366,6 +367,8 @@ end $$;
 -- ---- 4. counting ---------------------------------------------------------------------------------------------------------------------
 -- "+ קבלת סחורה" (add) or "ספירה" (set the counted number) of an item — or of one of its variants — at a location; returns the
 -- location's count after. Counting = tracking (as adjust_stock). Members with full access who may write, at a location they may use.
+-- A count on the spot ("set") is the owner's (location_owner — the owner's decision, 11.10.2026): it moves stock with no approval,
+-- so anyone else counts in a stock count (section 7), which the owner approves. A delivery ("add") — as before.
 create or replace function public.stock_adjust(p_location uuid, p_item uuid, p_variant uuid, p_mode text, p_qty int, p_note text default '')
 returns int language plpgsql security definer set search_path = public as $$
 declare b uuid; hv boolean; cur int; d int; loc uuid;
@@ -380,6 +383,9 @@ begin
     raise exception 'stock_location: a location of the business' using errcode = '22023';
   end if;
   if not public.location_allowed(b, loc) then raise exception 'not allowed: this location is not yours' using errcode = '42501'; end if;
+  if p_mode = 'set' and not public.location_owner() then
+    raise exception 'not allowed: the owner counts on the spot (others count in a stock count the owner approves)' using errcode = '42501';
+  end if;
   if p_variant is null and hv then raise exception 'variant_required: an item with variants is counted per variant' using errcode = '22023'; end if;
   if p_variant is not null and not exists (select 1 from public.catalog_variants v where v.id = p_variant and v.item_id = p_item) then
     raise exception 'variant_not_found: a variant of this item' using errcode = '22023';
@@ -429,7 +435,8 @@ begin
 end $$;
 
 -- after counting every variant: the units still on the item alone ("לא משויך") are taken off — at every location, the item's
--- count becomes the sum of its variants' counts there (as 3300, which did it for the total), logged as a count
+-- count becomes the sum of its variants' counts there (as 3300, which did it for the total), logged as a count. A count with no
+-- approval: the owner's only (as a count on the spot in stock_adjust) — and the owner may use every location
 create or replace function public.reconcile_variant_stock(p_item uuid, p_note text default '')
 returns int language plpgsql security definer set search_path = public as $$
 declare b uuid; cur int; hv boolean; tracked boolean; l record; d int; n text := coalesce(nullif(p_note, ''), 'התאמה לסכום הווריאנטים');
@@ -440,11 +447,10 @@ begin
     raise exception 'not allowed' using errcode = '42501';
   end if;
   if not hv then raise exception 'the item has no variants' using errcode = '22023'; end if;
-  if not tracked then return cur; end if;
-  -- every location (one that is not the user's too): only a member who may use them all
-  if public.my_locations() is not null and exists (select 1 from public.stock_levels s where s.item_id = p_item) then
-    raise exception 'not allowed: the item has stock in locations that are not yours' using errcode = '42501';
+  if not public.location_owner() then
+    raise exception 'not allowed: the owner counts on the spot (others count in a stock count the owner approves)' using errcode = '42501';
   end if;
+  if not tracked then return cur; end if;
   for l in select s.location_id, s.qty,
                   coalesce((select sum(x.qty) from public.stock_levels x where x.location_id = s.location_id and x.item_id = p_item and x.variant_id is not null), 0)::int as vsum
              from public.stock_levels s where s.item_id = p_item and s.variant_id is null order by s.location_id loop

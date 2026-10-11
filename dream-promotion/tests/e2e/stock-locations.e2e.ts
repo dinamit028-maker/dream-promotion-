@@ -332,6 +332,7 @@ async function main() {
       await page.getByText('הכמויות כאן הן של סניף חיפה (הסניף של הקופה).').waitFor();
       const card = page.locator('div.p-3', { hasText: 'קרם לחות' }).first();
       await card.getByText('📦 במלאי 4').waitFor();
+      await card.getByRole('button', { name: 'ספירה', exact: true }).waitFor();      // the owner counts on the spot
       answers.push('3', 'ספק א');
       await card.getByRole('button', { name: '+ קבלת סחורה' }).click();
       await card.getByText('📦 במלאי 7').waitFor();
@@ -445,12 +446,31 @@ async function main() {
       await page.getByRole('button', { name: 'סיכום פערים' }).click();
       await page.getByText('רק הבעלים מאשרים ספירה. הספירה שמורה ומחכה לאישור.').waitFor();
       assert.equal(await page.getByRole('button', { name: 'אישור ורישום הפערים' }).count(), 0);
-      // its register shows the branch's units
+      // its register shows the branch's units; a delivery — yes, a count on the spot — the owner only
       await goto('/register');
       await registerReady();
       await regTab('מחירון ומלאי');
-      await page.locator('div.p-3', { hasText: 'קרם לחות' }).first().getByText('📦 במלאי 6').waitFor();
+      const cream = page.locator('div.p-3', { hasText: 'קרם לחות' }).first();
+      await cream.getByText('📦 במלאי 6').waitFor();
+      await cream.getByRole('button', { name: '+ קבלת סחורה' }).waitFor();
+      assert.equal(await cream.getByRole('button', { name: 'ספירה', exact: true }).count(), 0, 'no count on the spot');
+      await page.getByText(/"ספירה" — רק לבעלים; כל אחד אחר סופר בספירה מסודרת/).waitFor();
+      await cream.getByRole('button', { name: 'עריכה: קרם לחות' }).click();
+      const ed = dialog();
+      await ed.getByRole('button', { name: '+ קבלה' }).first().waitFor({ timeout: 60_000 });
+      assert.equal(await ed.getByRole('button', { name: 'ספירה', exact: true }).count(), 0, 'not in the editor either');
+      await ed.getByText(/ספירה — רק לבעלים/).waitFor();
+      await page.keyboard.press('Escape');
+      // the database refuses it too (a request made around the screen)
+      const r = fake.rpc('stock_adjust', { p_location: L2, p_item: CREAM, p_variant: null, p_mode: 'set', p_qty: 3, p_note: '' });
+      assert.deepEqual([r.status, /the owner counts/.test(r.body.message), at(L2, CREAM)], [400, true, 6]);
+      // a manager of every location is not the owner either
       fake.memberLocations = null;
+      await goto('/register');
+      await registerReady();
+      await regTab('מחירון ומלאי');
+      await page.locator('div.p-3', { hasText: 'קרם לחות' }).first().getByRole('button', { name: '+ קבלת סחורה' }).waitFor();
+      assert.equal(await page.getByRole('button', { name: 'ספירה', exact: true }).count(), 0, 'a manager of every location: no count on the spot');
       fake.owner = true;
     });
 

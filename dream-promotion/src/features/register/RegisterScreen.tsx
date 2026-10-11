@@ -29,7 +29,8 @@ import { PublishSwitch, type EditorFocus } from '@/features/catalog/PublishSwitc
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
 import { useLocations } from '@/features/locations/store';
 import { locationName, multiLocation, pickRegister, registerLabel, registersHere, saleTag, showRegisterPicker } from '@/features/locations/locations';
-import { atLocationStock, moveRows, registerAtLocation, type StockRow } from '@/features/stock/stock-locations';
+import { QUICK_COUNT_OWNER, atLocationStock, moveRows, registerAtLocation, type StockRow } from '@/features/stock/stock-locations';
+import { useQuickCount } from '@/features/stock/useQuickCount';
 import { adjustAt, loadStockRows } from '@/features/stock/stock-data';
 
 /** Toolbox stage 3: sell, record payments, refunds, reports, close of day, commissions, documents, price list & stock. */
@@ -601,6 +602,8 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
   const [history, setHistory] = useState<{ item: Item; rows: { at: string; delta: number; after: number; reason: string; note: string }[] | null } | null>(null);
   const favs = items.filter((i) => i.favorite).sort((a, b) => a.favOrder - b.favOrder);
   const low = lowStockList(items.filter((i) => i.active));
+  // "ספירה" on the spot — the owner only (the database refuses anyone else from 4700); a delivery — whoever may write
+  const quick = useQuickCount();
   /** move a favorite up/down — rewrites the order of all favorites (8–16 items, cheap) */
   async function moveFav(id: string, dir: -1 | 1) {
     const list = [...favs]; const i = list.findIndex((x) => x.id === id); const j = i + dir;
@@ -631,6 +634,7 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
       return reload();   // the total and every location's count, as the database has them now
     }
     const { data, error } = await supabase().rpc('adjust_stock', { p_item: i.id, p_mode: mode, p_qty: Number(raw), p_note: note });
+    if (error && /the owner counts/.test(error.message)) return onError(QUICK_COUNT_OWNER);
     if (error) return onError(/adjust_stock|schema cache/.test(error.message) ? { message: 'relation stock does not exist' } : error);
     onStock(i.id, Number(data));
   }
@@ -646,7 +650,9 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
   return (
     <div className="grid gap-3">
       {low.length > 0 && <p className="rounded-2xl bg-amber-500/15 p-3 text-sm font-semibold text-amber-800 dark:text-amber-200">⚠️ מלאי נמוך: {low.map((i) => `${i.name} (${stockText(i)})`).join(' · ')}</p>}
-      <p className="text-xs text-muted">⭐ = מועדף בקופה (מומלץ 8–16 פריטים). החצים קובעים את הסדר. מלאי: &quot;קבלה&quot; מוסיפה יחידות, &quot;ספירה&quot; קובעת את מה שיש בפועל — כל מכירה מורידה מהמלאי לבד.
+      <p className="text-xs text-muted">⭐ = מועדף בקופה (מומלץ 8–16 פריטים). החצים קובעים את הסדר. {quick === false
+        ? <>מלאי: &quot;קבלה&quot; מוסיפה יחידות — כל מכירה מורידה מהמלאי לבד. &quot;ספירה&quot; — רק לבעלים; כל אחד אחר סופר בספירה מסודרת, והבעלים מאשרים.</>
+        : <>מלאי: &quot;קבלה&quot; מוסיפה יחידות, &quot;ספירה&quot; קובעת את מה שיש בפועל — כל מכירה מורידה מהמלאי לבד.</>}
         {at ? ` הכמויות כאן הן של ${at.name} (הסניף של הקופה).` : ''}</p>
       <Link href={multi ? '/stock' : '/stock?tab=counts'} className="text-sm font-semibold text-primary">
         {multi ? '📦 מלאי בכל הסניפים, העברות וספירות ←' : '📋 ספירת מלאי מסודרת (הבעלים מאשרים את הפערים) ←'}</Link>
@@ -684,13 +690,14 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
                   <span className={cx('rounded-full px-2.5 py-1 text-xs font-bold tabular-nums', level === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : level === 'low' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
                     📦 {stockText(i)}</span>
                   <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'add')}>+ קבלת סחורה</Button>
-                  <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>ספירה</Button>
+                  {quick && <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>ספירה</Button>}
                   <label className="flex items-center gap-1 text-xs text-muted">התראה מתחת ל-
                     <Input type="number" min={0} defaultValue={i.lowStock} className="h-8 w-16 py-0 text-center" aria-label={`רמת התראה: ${i.name}`}
                       onBlur={(e) => { const v = Math.max(0, Math.floor(Number(e.target.value) || 0)); if (v !== i.lowStock) void run(supabase().from('catalog_items').update({ low_stock: v }).eq('id', i.id)); }} />
                   </label>
                   <button type="button" className="text-xs font-semibold text-primary" onClick={() => void openHistory(i)}>היסטוריה</button>
-                </> : <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>📦 ניהול מלאי (ספירה ראשונה)</Button>}
+                </> : quick ? <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>📦 ניהול מלאי (ספירה ראשונה)</Button>
+                  : quick === false ? <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'add')}>📦 ניהול מלאי (קבלת סחורה)</Button> : null}
               </div>
             )}
           </Card>

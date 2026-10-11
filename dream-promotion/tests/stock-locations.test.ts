@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COUNT_STATUS_HE, STOCK_MIGRATION, TRANSFER_STATUS_HE, atLocationStock, countList, countSummary, countsAt, findByCode, levelOf, lowStock,
+  COUNT_STATUS_HE, QUICK_COUNT_OWNER, STOCK_MIGRATION, TRANSFER_STATUS_HE, quickCountAllowed, atLocationStock, countList, countSummary, countsAt, findByCode, levelOf, lowStock,
   moveRows, onTheWay, qtyAt, receiptError, receiptGaps, receiptPayload, registerAtLocation, stockErrorHe, stockKey, stockPlaces, toCount, toStockRow,
   unitsAt,
   toTransfer, totalOf, transferError, transferNoteHtml, transferSummary, type StockRow,
 } from '../src/features/stock/stock-locations';
+import { catalogError } from '../src/features/catalog/catalog';
 
 // the main location B, a branch L2, a closed warehouse L3; a cream (no variants), a shirt (S, M), a service
 const B = 'b1', L2 = 'l2', L3 = 'l3', CREAM = 'i1', SHIRT = 'i2', SVC = 'i3', S = 'v1', M = 'v2';
@@ -170,4 +171,20 @@ test('the locations shown: the open ones, and a closed one only while it holds u
   assert.deepEqual(unitsAt(rows, L2), { units: 4, products: 2 });
   assert.deepEqual(unitsAt(rows, L3), { units: 30, products: 1 });
   assert.deepEqual(unitsAt(empty, L3), { units: 0, products: 0 });
+});
+
+test('a count on the spot ("ספירה" next to a product): the owner only', () => {
+  // after 4600: the database's answer (location_state().owner) — whatever the member's row says
+  assert.equal(quickCountAllowed({ ready: true, owner: true }, false), true);
+  assert.equal(quickCountAllowed({ ready: true, owner: false }, true), false, 'an owner limited to some locations: no');
+  // before 4600: the member's role (the owner, with full access)
+  assert.equal(quickCountAllowed({ ready: false, owner: false }, true), true);
+  assert.equal(quickCountAllowed({ ready: false, owner: false }, false), false);
+  assert.equal(quickCountAllowed({ ready: false, owner: false }, null), null, 'not known yet: nothing offered');
+  assert.equal(quickCountAllowed(null, true), null, 'the locations not loaded yet');
+  // the database's refusal, in Hebrew — from the stock screens and from the catalog's editor alike
+  const refusal = { message: 'not allowed: the owner counts on the spot (others count in a stock count the owner approves)', code: '42501' };
+  assert.equal(stockErrorHe(refusal), QUICK_COUNT_OWNER);
+  assert.equal(catalogError(refusal), QUICK_COUNT_OWNER);
+  assert.match(QUICK_COUNT_OWNER, /רק הבעלים/);
 });

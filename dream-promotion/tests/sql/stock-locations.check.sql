@@ -121,11 +121,24 @@ select pg_temp.as_user('00000000-0000-0000-0000-000000e47a02');
 select pg_temp.refused_with($$select public.stock_adjust('00000000-0000-0000-0000-000000e47b01', '00000000-0000-0000-0000-000000e47f01', null, 'add', 1)$$, 'not allowed', 'a manager of the branch at the main location');
 select pg_temp.check(public.stock_adjust('00000000-0000-0000-0000-000000e47c02', '00000000-0000-0000-0000-000000e47f01', null, 'add', 1) = 5, 'a manager of the branch at the branch');
 select pg_temp.check(public.adjust_stock('00000000-0000-0000-0000-000000e47f01', 'add', 1) = 6, 'adjust_stock of a member limited to the branch: at the branch');
+-- a count on the spot ("ספירה" next to a product) is the owner's: a manager counts in a stock count, which the owner approves
+select pg_temp.refused_with($$select public.stock_adjust('00000000-0000-0000-0000-000000e47c02', '00000000-0000-0000-0000-000000e47f01', null, 'set', 3)$$, 'the owner counts', 'a manager''s count on the spot, at the branch');
+select pg_temp.refused_with($$select public.adjust_stock('00000000-0000-0000-0000-000000e47f01', 'set', 3)$$, 'the owner counts', 'the same through the screens of before 2.92');
+select pg_temp.refused_with($$select public.adjust_variant_stock('00000000-0000-0000-0000-000000e47f21', 'set', 3)$$, 'the owner counts', 'a variant''s too');
 select pg_temp.as_user('00000000-0000-0000-0000-000000e47a03');
 select pg_temp.refused_with($$select public.stock_adjust('00000000-0000-0000-0000-000000e47b01', '00000000-0000-0000-0000-000000e47f01', null, 'add', 1)$$, 'not allowed', 'a cashier counts nothing');
 select pg_temp.as_user('00000000-0000-0000-0000-000000e47a05');
 select pg_temp.refused_with($$select public.stock_adjust('00000000-0000-0000-0000-000000e47b01', '00000000-0000-0000-0000-000000e47f01', null, 'add', 1)$$, 'not allowed', 'a viewer counts nothing');
 commit;
+-- a manager of every location (no limit) is still not the owner: no count on the spot; a delivery — yes (nothing kept: rolled back)
+update public.business_members set locations = null where business_id = '00000000-0000-0000-0000-000000e47b01' and user_id = '00000000-0000-0000-0000-000000e47a02';
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-000000e47a02');
+select pg_temp.refused_with($$select public.stock_adjust('00000000-0000-0000-0000-000000e47b01', '00000000-0000-0000-0000-000000e47f01', null, 'set', 3)$$, 'the owner counts', 'a manager of every location counts on the spot');
+select pg_temp.check(public.stock_adjust('00000000-0000-0000-0000-000000e47b01', '00000000-0000-0000-0000-000000e47f01', null, 'add', 1) = 10, 'a manager of every location receives at the main location');
+rollback;
+update public.business_members set locations = array['00000000-0000-0000-0000-000000e47c02'::uuid] where business_id = '00000000-0000-0000-0000-000000e47b01' and user_id = '00000000-0000-0000-0000-000000e47a02';
 select pg_temp.check(pg_temp.total('00000000-0000-0000-0000-000000e47f01') = 21 and pg_temp.at('00000000-0000-0000-0000-000000e47b01', '00000000-0000-0000-0000-000000e47f01') = 9 and pg_temp.at('00000000-0000-0000-0000-000000e47c02', '00000000-0000-0000-0000-000000e47f01') = 6
   and pg_temp.at('00000000-0000-0000-0000-000000e47c03', '00000000-0000-0000-0000-000000e47f01') = 6, 'the total is the sum of the locations (9 + 6 + 6)');
 select pg_temp.check(pg_temp.vtotal('00000000-0000-0000-0000-000000e47f21') = 7 and pg_temp.at('00000000-0000-0000-0000-000000e47b01', '00000000-0000-0000-0000-000000e47f02', '00000000-0000-0000-0000-000000e47f21') = 5 and pg_temp.at('00000000-0000-0000-0000-000000e47c02', '00000000-0000-0000-0000-000000e47f02', '00000000-0000-0000-0000-000000e47f21') = 2
