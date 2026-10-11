@@ -15,6 +15,9 @@ import { BookingAPI, DEFAULT_SETTINGS, bookingError, type Appointment, type Appt
 import { PaylinkList, SendPaylinkDialog, usePaylinks } from '@/features/finance/Paylinks';
 import { afterDeposit, depositDays, paylinkOpen, paylinkPill } from '@/features/finance/paylinks';
 import { ils } from '@/features/register/money';
+import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
+import { atLocation, locationTag } from '@/features/locations/locations';
+import { useLocations } from '@/features/locations/store';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
@@ -33,6 +36,9 @@ const hm = (iso: string) => israelParts(new Date(iso)).time;
  */
 export function AppointmentsScreen() {
   const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
+  // T12א: with several locations and "כל הסניפים" picked, every appointment says where it is
+  const locState = useLocations((x) => x.state);
+  const where = (a: Appointment) => (locState.businessId ? locationTag(locState, a, locState.businessId) : '');
   const [tab, setTab] = useState<'agenda' | 'services' | 'hours' | 'page'>('agenda');
   const [settings, setSettings] = useState<BookingSettings>(DEFAULT_SETTINGS);
   const [services, setServices] = useState<BookingServiceRow[]>([]);
@@ -166,7 +172,7 @@ export function AppointmentsScreen() {
                         <div className="flex items-start justify-between gap-2">
                           <button type="button" className="min-w-0 text-start" onClick={() => a.leadId && setContactId(a.leadId)}>
                             <span className="block font-bold tabular-nums">{hm(a.start)}–{hm(a.end)} · <span className="font-semibold">{a.name}</span></span>
-                            <span className="block truncate text-xs text-muted">{a.serviceName}{a.source === 'public' ? ' · הוזמן אונליין' : ''}{a.note ? ` · "${a.note}"` : ''}</span>
+                            <span className="block truncate text-xs text-muted">{a.serviceName}{where(a) ? ` · ${where(a)}` : ''}{a.source === 'public' ? ' · הוזמן אונליין' : ''}{a.note ? ` · "${a.note}"` : ''}</span>
                           </button>
                           <span className={cx('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', STATUS[a.status].tone)}>{STATUS[a.status].label}</span>
                         </div>
@@ -413,9 +419,14 @@ function HoursTab({ settings, onChange, onSave }: { settings: BookingSettings; o
 
 function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
   open: boolean; onClose: () => void; services: BookingServiceRow[]; settings: BookingSettings; busy: Appointment[];
-  onCreate: (a: { serviceId: string; serviceName: string; start: string; end: string }, customer: { name: string; phone: string; note: string }) => Promise<string | null>;
+  onCreate: (a: { serviceId: string; serviceName: string; start: string; end: string; locationId?: string }, customer: { name: string; phone: string; note: string }) => Promise<string | null>;
 }) {
   const { leads } = useApp();
+  // T12א: appointments overlap only within a location — the free hours are the chosen location's (one location: as before)
+  const locState = useLocations((x) => x.state);
+  const [locationId, setLocationId] = useState<string | null>(null);
+  const at = locationColumn(locState, locationId).location_id;
+  const here = useMemo(() => (locState.businessId ? atLocation(busy, at, locState.businessId) : busy), [busy, at, locState.businessId]);
   const [serviceId, setServiceId] = useState('');
   const [date, setDate] = useState(israelParts(Date.now()).date);
   const [time, setTime] = useState('');
@@ -424,7 +435,7 @@ function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
   const [saving, setSaving] = useState(false);
   const service = services.find((s) => s.id === serviceId) ?? services[0];
   // the owner may book outside the public rules (no notice, any open day); overlaps are still blocked
-  const slots = useMemo(() => service ? freeSlots(date, service.minutes, { ...settings, minNoticeMinutes: 0, maxDaysAhead: 365, closedDates: [] }, busy.map((b) => ({ start: b.start, end: b.end }))) : [], [service, date, settings, busy]);
+  const slots = useMemo(() => service ? freeSlots(date, service.minutes, { ...settings, minNoticeMinutes: 0, maxDaysAhead: 365, closedDates: [] }, here.map((b) => ({ start: b.start, end: b.end }))) : [], [service, date, settings, here]);
   useEffect(() => { if (open) { setErr(null); setTime(''); } }, [open]);
 
   async function create() {
@@ -432,7 +443,7 @@ function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
     setSaving(true);
     const start = israelToIso(date, time);
     const end = new Date(new Date(start).getTime() + service.minutes * 60_000).toISOString();
-    const e = await onCreate({ serviceId: service.id, serviceName: service.name, start, end }, { ...customer, name: customer.name.trim() });
+    const e = await onCreate({ serviceId: service.id, serviceName: service.name, start, end, ...(at ? { locationId: at } : {}) }, { ...customer, name: customer.name.trim() });
     setSaving(false);
     if (e) setErr(e); else { setCustomer({ name: '', phone: '', note: '' }); onClose(); }
   }
@@ -444,6 +455,7 @@ function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
           {services.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.minutes} דק׳</option>)}
         </Select>
       </Field>
+      <LocationField value={locationId} onChange={(id) => { setLocationId(id); setTime(''); }} />
       <Field label="תאריך"><Input type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(''); }} /></Field>
       <p className="mb-1.5 text-sm font-semibold">שעה</p>
       <div className="mb-2 flex flex-wrap gap-1.5">

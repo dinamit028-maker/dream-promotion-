@@ -85,7 +85,7 @@ export async function openStore(name: string): Promise<Result<StoreRow>> {
 
 export type StorePatch = Partial<{ name: string; description: string; logo_url: string; phone: string; whatsapp: string; email: string; address: string;
   ga4_id: string; gsc_code: string; show_stock_count: boolean; status: 'draft' | 'published' | 'paused' } & CheckoutPatch & { checkout_enabled: boolean }
-  & { slug: string; storefront_password: string; password_lock: boolean }>;
+  & { slug: string; storefront_password: string; password_lock: boolean } & { location_id: string }>;
 /**
  * 2.74: after a change the shoppers see, the storefront drops what it keeps of this store (its shared cache, at most five
  * minutes) — one request, shortly after the last of several writes (/api/store/revalidate signs it on the server). A request

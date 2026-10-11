@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { supabase, isCloudConfigured } from '@/lib/supabase/client';
 import { authHeaders } from '@/lib/services/http';
@@ -20,12 +21,19 @@ import { israelToIso } from '@/lib/il-time';
 import { isDuplicateId } from '@/lib/db-errors';
 import { METHODS, computeSale, ils, isPosSale, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Refund, type Sale } from './money';
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
-import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type HeldMap } from './stock';
+import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type Held } from './stock';
 import { billingColumns } from './billing';
 import { issueDocumentRow } from '@/features/finance/api';
 import { MIGRATION_3300, applyVariantStock, catalogError, lineName, toCatalogItem, toVariant, variantLevel, variantStockText, variantsOf, type CatalogItem, type CatalogVariant } from '@/features/catalog/catalog';
 import { PublishSwitch, type EditorFocus } from '@/features/catalog/PublishSwitch';
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
+import { useLocations } from '@/features/locations/store';
+import { locationName, multiLocation, pickRegister, registerLabel, registersHere, saleTag, showRegisterPicker } from '@/features/locations/locations';
+import { QUICK_COUNT_OWNER, atLocationStock, moveRows, registerAtLocation, type StockRow } from '@/features/stock/stock-locations';
+import { useQuickCount } from '@/features/stock/useQuickCount';
+import { adjustAt, loadStockRows } from '@/features/stock/stock-data';
+import { loadPriceBook, loadSerialsInStock, type PriceBook } from '@/features/catalog/items-data';
+import { serialError, withSerials, type Serial } from '@/features/catalog/serials';
 
 /** Toolbox stage 3: sell, record payments, refunds, reports, close of day, commissions, documents, price list & stock. */
 type Item = PosItem & { sort: number };
@@ -40,18 +48,21 @@ const toSale = (r: any): Sale => ({
   payments: r.payments ?? [], employeeId: r.employee_id ?? null, employeeName: r.employee_name ?? '',
   billingName: r.billing_name ?? '', customerDealer: r.customer_dealer ?? '', customerStreet: r.customer_street ?? '', customerCity: r.customer_city ?? '',
   cashReceived: r.cash_received == null ? null : Number(r.cash_received), changeGiven: r.change_given == null ? null : Number(r.change_given),
+  registerId: r.register_id ?? null, locationId: r.location_id ?? null,
 } as Sale & { cashReceived: number | null; changeGiven: number | null });
 const toItem = (r: any): Item => ({ id: r.id, name: r.name, price: Number(r.price), kind: r.kind, active: r.active, sort: r.sort ?? 0,
   favorite: Boolean(r.favorite), favOrder: r.fav_order ?? 0, imageUrl: r.image_url ?? '',
   trackStock: Boolean(r.track_stock), stockQty: Number(r.stock_qty ?? 0), lowStock: Number(r.low_stock ?? 2),
   // the one catalog (2.54): sizes / colours and the codes a scanner types (none before migration 3300)
-  hasVariants: Boolean(r.has_variants), sku: r.sku ?? '', barcode: r.barcode ?? '' });
+  hasVariants: Boolean(r.has_variants), sku: r.sku ?? '', barcode: r.barcode ?? '',
+  // serial numbers (2.93, migration 4800): sold by number
+  trackSerials: Boolean(r.track_serials) });
 const MIGRATION_250 = 'צריך להריץ את מיגרציה 20261004003000 (קופה 2.50) ב-Supabase.';
 const errText = (e: any) => /relation .* does not exist|schema cache/i.test(String(e?.message)) ? (/billing_|customer_dealer|refund|stock|access/.test(String(e?.message)) ? MIGRATION_250 : 'צריך להריץ את מיגרציית הקופה ב-Supabase (20261003001200).')
   : /pay_link_check/.test(String(e?.message)) ? 'קישור התשלום חייב להתחיל ב-https://'
   : /row-level security|permission denied|42501/.test(String(e?.message) + String(e?.code)) ? 'אין הרשאה לפעולה הזו.' : 'משהו השתבש. נסו שוב.';
-const refundErrText = (e: any) => { const m = String(e?.message ?? ''); return /refund_exceeds_paid/.test(m) ? 'הסכום גדול ממה שנשאר להחזיר על העסקה (אולי נרשם החזר ממכשיר אחר).'
-  : /only a paid sale/.test(m) ? 'אפשר להחזיר רק על עסקה ששולמה.' : /sale_refunds|schema cache/.test(m) ? MIGRATION_250 : errText(e); };
+const refundErrText = (e: any) => { const m = String(e?.message ?? ''); return serialError(e) ?? (/refund_exceeds_paid/.test(m) ? 'הסכום גדול ממה שנשאר להחזיר על העסקה (אולי נרשם החזר ממכשיר אחר).'
+  : /only a paid sale/.test(m) ? 'אפשר להחזיר רק על עסקה ששולמה.' : /sale_refunds|schema cache/.test(m) ? MIGRATION_250 : errText(e)); };
 const printHtml = (html: string) => { const w = window.open('', '_blank'); if (w) { w.document.write(html); w.document.close(); } };
 
 export function RegisterScreen() {
@@ -59,6 +70,19 @@ export function RegisterScreen() {
   const cashier = useApp((s) => s.access === 'register');
   const kiosk = useApp((s) => s.kiosk);
   const setKiosk = useApp((s) => s.setKiosk);
+  // the register this device stands at (T12א): remembered on the device, one of the registers here — the main one with only one
+  const loc = useLocations((x) => x.state);
+  const regKey = loc.businessId ? `dp-register:${loc.businessId}` : null;
+  const [registerId, setRegisterId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!loc.ready) { setRegisterId(null); return; }
+    let remembered: string | null = null;
+    try { remembered = regKey ? localStorage.getItem(regKey) : null; } catch { /* private mode */ }
+    setRegisterId(pickRegister(loc, remembered));
+  }, [loc, regKey]);
+  const chooseRegister = (id: string) => { setRegisterId(id); try { if (regKey) localStorage.setItem(regKey, id); } catch { /* private mode */ } };
+  // a sale, a refund and a day of the register name it (before migration 4600 there is no such column — nothing is sent)
+  const onThisRegister = loc.ready && registerId ? { register_id: registerId } : {};
   type Tab = 'sell' | 'sales' | 'shift' | 'commissions' | 'catalog' | 'docs' | 'settings';
   const [tab, setTab] = useState<Tab>('sell');
   const [items, setItems] = useState<Item[]>([]);
@@ -66,17 +90,38 @@ export function RegisterScreen() {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [variants, setVariants] = useState<CatalogVariant[]>([]);
   const [catalogReady, setCatalogReady] = useState(true);
-  // units held for orders on the site (2.56): not sold here; before migration 3500 there are none
-  const [held, setHeld] = useState<HeldMap>(() => heldMap([]));
-  const loadHeld = useCallback(async (): Promise<HeldMap | null> => {
+  // the stock of this register's location (T12ב, migration 4700): with more than one location, the register shows, sells, receives
+  // and counts the units of its own location; with one location — or before the migration — the totals, exactly as before
+  const regLocation = loc.ready && registerId ? loc.registers.find((r) => r.id === registerId)?.locationId ?? null : null;
+  const wantLevels = registerAtLocation({ multi: multiLocation(loc), limited: loc.limited, businessId: loc.businessId }, regLocation);
+  const [levels, setLevels] = useState<StockRow[] | null>(null);
+  const loadLevels = useCallback(async () => { setLevels(wantLevels ? await loadStockRows() : null); }, [wantLevels]);
+  useEffect(() => { void loadLevels(); }, [loadLevels]);
+  const here = useMemo(() => (levels && regLocation ? atLocationStock(items, variants, levels, regLocation) : { items, variants }), [items, variants, levels, regLocation]);
+  const stockHere = levels && regLocation ? { locationId: regLocation, name: locationName(loc, regLocation), nameOf: (id: string | null) => locationName(loc, id ?? loc.businessId) } : null;
+  // units held for orders on the site (2.56): not sold here; before migration 3500 there are none. They are held at the store's
+  // shipping location (4700) — a register at another location sells its own units
+  const [heldRows, setHeldRows] = useState<Held[]>([]);
+  const loadHeld = useCallback(async (): Promise<Held[] | null> => {
     const r = await supabase().rpc('reserved_stock');
     if (r.error) return null;
-    const m = heldMap(r.data as any);
-    setHeld(m);
-    return m;
+    const rows = (r.data ?? []) as Held[];
+    setHeldRows(rows);
+    return rows;
   }, []);
+  const heldHere = useCallback((rows: Held[]) => heldMap(rows.filter((x) => !x.location || !regLocation || x.location === regLocation)), [regLocation]);
+  const held = useMemo(() => heldHere(heldRows), [heldHere, heldRows]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
+  // price lists (2.93, migration 4800): a line's price by the customer's group, else this location's list — none: the catalog's prices
+  const [book, setBook] = useState<PriceBook | null>(null);
+  // the numbers in stock here of the products sold by number (2.93): the register's picker and a scanned number
+  const [serialStock, setSerialStock] = useState<Serial[]>([]);
+  const serialKey = items.filter((i) => i.trackSerials).map((i) => i.id).join(',');
+  const serialLoc = regLocation ?? loc.businessId;
+  const loadSerialStock = useCallback(async () => {
+    setSerialStock(serialKey && serialLoc ? await loadSerialsInStock(serialKey.split(','), serialLoc) : []);
+  }, [serialKey, serialLoc]);
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [employees, setEmployees] = useState<{ id: string; name: string }[]>([]);
   const [todayAppts, setTodayAppts] = useState<TodayAppt[]>([]);
@@ -114,6 +159,7 @@ export function RegisterScreen() {
         street: st.data.street ?? '', houseNo: st.data.house_no ?? '', city: st.data.city ?? '', zip: st.data.zip ?? '' });
       setItems((it.data ?? []).map(toItem));
       setCatalog((it.data ?? []).map(toCatalogItem));
+      setBook(await loadPriceBook());
       // the variants — before migration 3300 there are none, and the register works exactly as before
       const va = await sb.from('catalog_variants').select('*').order('position').order('created_at');
       if (va.error && catalogError(va.error) !== MIGRATION_3300) throw va.error;
@@ -147,6 +193,8 @@ export function RegisterScreen() {
     finally { setLoading(false); }
   }, [userId, cashier]);
   useEffect(() => { void load(); }, [load]);
+  // the numbers in stock here: after every sale, refund or cancel the items change — and the numbers are read again
+  useEffect(() => { void loadSerialStock(); }, [loadSerialStock, items]);
   /** the price list and its variants only (an edit in the editor, "באתר") — the screen stays as it is */
   const reloadCatalog = useCallback(async () => {
     const sb = supabase();
@@ -158,7 +206,8 @@ export function RegisterScreen() {
     setItems((it.data ?? []).map(toItem));
     setCatalog((it.data ?? []).map(toCatalogItem));
     if (!va.error) setVariants(((va.data ?? []) as any[]).map(toVariant));
-  }, []);
+    void loadLevels();
+  }, [loadLevels]);
 
   // arriving from an appointment ("💳 חיוב"): customer + service prefilled
   useEffect(() => {
@@ -214,7 +263,7 @@ export function RegisterScreen() {
     let leadId = c.customer.leadId || leads.find((l) => c.customer.phone && phoneDigits(l.phone) === phoneDigits(c.customer.phone))?.id || null;
     // a new customer is saved first — the sale points to it
     if (!leadId && c.customer.name.trim()) leadId = await addLeadNow({ name: c.customer.name.trim(), phone: c.customer.phone.trim(), source: 'קופה', date: israelParts(Date.now()).date, status: c.paidNow ? 'נסגר' : 'מעוניין', value: 0 });
-    const heldName = heldConflict(c.lines, items, variants, (await loadHeld()) ?? held);
+    const heldName = heldConflict(c.lines, here.items, here.variants, heldHere((await loadHeld()) ?? heldRows));
     if (heldName) return { ok: false, error: `${heldName}: היחידות שמורות להזמנה באתר שממתינה לתשלום. אפשר למכור אותן כשההזמנה תשולם או תבוטל (עד רבע שעה).` };
     const now = new Date().toISOString();
     const id = c.saleId ?? crypto.randomUUID();
@@ -222,7 +271,7 @@ export function RegisterScreen() {
       id, user_id: userId, lead_id: leadId, appointment_id: c.customer.appointmentId, customer_name: c.customer.name.trim(), customer_phone: c.customer.phone.trim(),
       items: c.lines.filter((l) => l.qty > 0), subtotal: tt.subtotal, discount: tt.discount, total: tt.total, vat_rate: tt.vatRate, vat_amount: tt.vatAmount,
       method: c.paidNow ? c.method : 'link', payments: c.method === 'split' ? c.payments : [], status: c.paidNow ? 'paid' : 'pending', note: c.note, paid_at: c.paidNow ? now : null,
-      employee_id: c.employee?.id ?? null, employee_name: c.employee?.name ?? '',
+      employee_id: c.employee?.id ?? null, employee_name: c.employee?.name ?? '', ...onThisRegister,
       ...(c.cashReceived != null ? { cash_received: c.cashReceived, change_given: Math.round((c.cashReceived - tt.total) * 100) / 100 } : {}),
       ...(c.billing ? billingColumns(c.billing) : {}),
     }).select('*').single();
@@ -239,15 +288,16 @@ export function RegisterScreen() {
     } else if (ins.error) {
       const m = /שמור להזמנה באתר: (.+)/.exec(String(ins.error.message ?? ''));
       if (m) { void loadHeld(); return { ok: false, error: `${m[1]}: היחידות שמורות להזמנה באתר שממתינה לתשלום. אפשר למכור אותן כשההזמנה תשולם או תבוטל (עד רבע שעה).` }; }
-      return { ok: false, error: errText(ins.error) };
+      return { ok: false, error: serialError(ins.error) ?? errText(ins.error) };
     }
     const sale = toSale(data);
     setSales((all) => [sale, ...all.filter((x) => x.id !== sale.id)]);
-    // the database moved the stock (trigger); the screen follows at once
-    const after = applyStock(items, sale.items);
-    setItems(after);
-    const vAfter = applyVariantStock(variants, sale.items);
-    setVariants(vAfter);
+    // the database moved the stock (trigger) — at this register's location; the screen follows at once
+    setItems(applyStock(items, sale.items));
+    setVariants(applyVariantStock(variants, sale.items));
+    if (levels && regLocation) setLevels(moveRows(levels, regLocation, sale.items));
+    const after = applyStock(here.items, sale.items);
+    const vAfter = applyVariantStock(here.variants, sale.items);
     const touched = new Set(sale.items.map((l) => l.itemId).filter(Boolean));
     // an item with variants: the size / colour that is running out (the item's sum says little)
     const sold = new Set(sale.items.map((l) => l.variantId).filter(Boolean));
@@ -297,8 +347,9 @@ export function RegisterScreen() {
     const { error: e } = await supabase().from('sales').update({ status: 'cancelled' }).eq('id', s.id);
     if (e) { setError(errText(e)); return; }
     setSales((all) => all.map((x) => (x.id === s.id ? { ...x, status: 'cancelled' } : x)));
-    setItems((all) => applyStock(all, s.items, -1)); // the database put the units back
+    setItems((all) => applyStock(all, s.items, -1)); // the database put the units back (at the sale's location)
     setVariants((all) => applyVariantStock(all, s.items, -1));
+    void loadLevels();
     if (s.leadId) addActivity(s.leadId, 'note', `בוטלה ${paid ? 'מכירה' : 'בקשת תשלום'}: ${ils(s.total)}`);
     let note = '';
     if (paid && userId) {
@@ -326,7 +377,7 @@ export function RegisterScreen() {
     const id = plan.id ?? crypto.randomUUID();
     const ins = await supabase().from('sale_refunds').insert({
       id, user_id: userId, sale_id: sale.id, amount: plan.amount, vat_amount: plan.vatAmount, method: plan.method,
-      items: plan.items, restock: plan.restock, reason: plan.reason, employee_name: plan.employeeName,
+      items: plan.items, restock: plan.restock, reason: plan.reason, employee_name: plan.employeeName, ...onThisRegister,
     }).select('*').single();
     let data = ins.data;
     let replay = false;
@@ -338,7 +389,7 @@ export function RegisterScreen() {
     } else if (ins.error) return { ok: false, error: refundErrText(ins.error) };
     const r = toRefund(data);
     setRefunds((all) => [r, ...all.filter((x) => x.id !== r.id)]);
-    if (r.restock && !replay) { setItems((all) => applyStock(all, r.items, -1)); setVariants((all) => applyVariantStock(all, r.items, -1)); }
+    if (r.restock && !replay) { setItems((all) => applyStock(all, r.items, -1)); setVariants((all) => applyVariantStock(all, r.items, -1)); void loadLevels(); }
     let message = `ההחזר נרשם: ${ils(r.amount)} ב${methodLabel(r.method)}`;
     if (business.ready && licensed) {
       const { data } = await supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at');
@@ -367,7 +418,7 @@ export function RegisterScreen() {
 
   const pending = sales.filter((s) => s.status === 'pending');
   const today = israelParts(Date.now()).date;
-  const low = lowStockList(items.filter((i) => i.active));
+  const low = lowStockList(here.items.filter((i) => i.active));
   const tabs: [Tab, string][] = cashier ? [['sell', 'מכירה']]
     : [['sell', 'מכירה'], ['sales', 'מכירות ודוחות'], ['shift', 'סגירת יום'], ['commissions', 'עמלות'], ['docs', 'מסמכים'], ['catalog', 'מחירון ומלאי'], ['settings', 'הגדרות']];
   const fullBtn = (
@@ -375,14 +426,21 @@ export function RegisterScreen() {
       {kiosk ? <><CornersIn size={18} aria-hidden />יציאה ממסך מלא</> : <><CornersOut size={18} aria-hidden />מסך מלא</>}
     </Button>
   );
+  // which register this device is — only when there is more than one here
+  const registerPicker = showRegisterPicker(loc) ? (
+    <SmallSelect aria-label="הקופה של המכשיר הזה" value={registerId ?? ''} onChange={(e) => chooseRegister(e.target.value)} className="w-auto max-w-[60vw]">
+      {registersHere(loc).map((r) => <option key={r.id} value={r.id}>{registerLabel(loc, r.id)}</option>)}
+    </SmallSelect>
+  ) : null;
+  const headActions = registerPicker ? <div className="flex flex-wrap items-center gap-2">{registerPicker}{fullBtn}</div> : fullBtn;
   return (
     <>
       {kiosk ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <strong className="font-display text-xl font-extrabold">{brand.name || 'קופה'}</strong>{fullBtn}
+          <strong className="font-display text-xl font-extrabold">{brand.name || 'קופה'}</strong>{headActions}
         </div>
       ) : (
-        <PageHead title="קופה" sub={cashier ? 'מכירה' : `היום: ${ils(summarize(sales, today, today, refunds).net)}${pending.length ? ` · ${pending.length} ממתינים לתשלום` : ''}`} action={fullBtn} />
+        <PageHead title="קופה" sub={cashier ? 'מכירה' : `היום: ${ils(summarize(sales, today, today, refunds).net)}${pending.length ? ` · ${pending.length} ממתינים לתשלום` : ''}`} action={headActions} />
       )}
       {tabs.length > 1 && (
         <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
@@ -400,15 +458,18 @@ export function RegisterScreen() {
               <span className="min-w-0 truncate">⚠️ מלאי נמוך: {low.slice(0, 4).map((i) => `${i.name} (${stockText(i)})`).join(' · ')}{low.length > 4 ? ` ועוד ${low.length - 4}` : ''}</span><span className="shrink-0">למלאי ←</span>
             </button>
           )}
-          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={items} variants={variants} siteHeld={held} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
+          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={here.items} variants={here.variants} siteHeld={held} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
             vat={vat} payLinkReady={Boolean(settings.payLink)} onCheckout={checkout} onShowDoc={cashier ? undefined : () => setTab('docs')} prefill={prefill}
-            onGoCatalog={cashier ? undefined : () => setTab('catalog')} wide={kiosk} />
+            onGoCatalog={cashier ? undefined : () => setTab('catalog')} wide={kiosk}
+            pricing={book ? { lists: book.lists, prices: book.prices, locationId: regLocation ?? loc.businessId } : null} serials={serialStock} />
         </>
       )}
 
       {!loading && tab === 'sales' && <SalesTab sales={sales} refunds={refunds} onPaid={markPaid} onCancel={cancelSale} onRemind={requestPayment} canRemind={Boolean(settings.payLink)}
-        onOpen={setOpenSale} onLoadOlder={olderDone ? undefined : loadOlder} />}
-      {!loading && tab === 'shift' && <ShiftTab userId={userId} sales={sales} refunds={refunds} employees={employees} businessName={business.name} />}
+        onOpen={setOpenSale} onLoadOlder={olderDone ? undefined : loadOlder} whereOf={loc.businessId ? (s) => saleTag(loc, s, loc.businessId!) : undefined} />}
+      {!loading && tab === 'shift' && <ShiftTab userId={userId} sales={sales} refunds={refunds} employees={employees} businessName={business.name}
+        register={loc.ready && registerId ? { id: registerId, label: showRegisterPicker(loc) ? registerLabel(loc, registerId) : '', businessId: loc.businessId ?? '',
+          locationId: loc.registers.find((r) => r.id === registerId)?.locationId ?? null, several: loc.registers.length > 1 } : null} />}
       {!loading && tab === 'commissions' && <CommissionsTab sales={sales} refunds={refunds} catalog={items} onLoadOlder={olderDone ? undefined : loadOlder} />}
 
       <SaleDetail sale={openSale} onClose={() => setOpenSale(null)} business={business} refunds={refunds} employees={employees} licensed={licensed}
@@ -416,8 +477,8 @@ export function RegisterScreen() {
 
       {!loading && tab === 'docs' && <DocumentsTab userId={userId} business={business} licensed={licensed} onError={setError} />}
 
-      {!loading && tab === 'catalog' && <CatalogTab userId={userId} items={items} catalog={catalog} variants={variants} ready={catalogReady} reload={() => void reloadCatalog()}
-        onError={(e) => setError(typeof e === 'string' ? e : errText(e))}
+      {!loading && tab === 'catalog' && <CatalogTab userId={userId} items={here.items} catalog={catalog} variants={here.variants} ready={catalogReady} reload={() => void reloadCatalog()}
+        onError={(e) => setError(typeof e === 'string' ? e : errText(e))} at={stockHere} multi={multiLocation(loc)} lists={book !== null}
         onStock={(id, qty) => setItems((all) => all.map((i) => (i.id === id ? { ...i, stockQty: qty, trackStock: true } : i)))} />}
 
       {!loading && tab === 'settings' && (
@@ -458,14 +519,18 @@ export function RegisterScreen() {
             <strong>עובד/ת בקופה בלבד:</strong> מנהל המערכת מוסיף עובד/ת עם הרשאת &quot;קופה בלבד&quot; (ניהול ← עסקים). מי שנכנס/ת כך רואה רק את מסך המכירה —
             בלי דוחות, הכנסות, החזרים, מחירון, הגדרות או מחיקות, ורק את העסקאות שלו/ה מהיום.
           </p>
+          <p className="mt-2 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">
+            <strong>עוד קופה או עוד סניף:</strong> קופה לכל עמדה, וסניף לכל חנות או קליניקה — כל אחד עם סגירת יום משלו, והמספור של המסמכים נשאר אחד.
+            {' '}<a href="/settings/locations" className="font-semibold text-primary">סניפים וקופות ←</a>
+          </p>
         </Card>
       )}
     </>
   );
 }
 
-function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpen, onLoadOlder }: { sales: Sale[]; refunds: Refund[]; onPaid: (s: Sale, m: Method) => void; onCancel: (s: Sale) => void; onRemind: (s: Sale) => void; canRemind: boolean;
-  onOpen: (s: Sale) => void; onLoadOlder?: () => Promise<void> }) {
+function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpen, onLoadOlder, whereOf }: { sales: Sale[]; refunds: Refund[]; onPaid: (s: Sale, m: Method) => void; onCancel: (s: Sale) => void; onRemind: (s: Sale) => void; canRemind: boolean;
+  onOpen: (s: Sale) => void; onLoadOlder?: () => Promise<void>; whereOf?: (s: Sale) => string }) {
   const [q, setQ] = useState('');
   const today = israelParts(Date.now()).date;
   const thisMonth = today.slice(0, 7);
@@ -528,7 +593,7 @@ function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpe
               className={cx('flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary', s.status === 'cancelled' && 'opacity-50')}>
               <span className="min-w-0 flex-1">
                 <strong className="block truncate">{s.customerName || 'ללא שם'} · {s.items.map((l) => l.name).join(' + ')}</strong>
-                <span className="text-xs text-muted">{formatIL(s.paidAt ?? s.createdAt, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })} · {methodLabel(s.method)} · {s.status === 'paid' ? 'שולם' : s.status === 'pending' ? 'ממתין' : 'בוטל'}</span>
+                <span className="text-xs text-muted">{formatIL(s.paidAt ?? s.createdAt, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })} · {methodLabel(s.method)} · {s.status === 'paid' ? 'שולם' : s.status === 'pending' ? 'ממתין' : 'בוטל'}{whereOf?.(s) ? ` · ${whereOf(s)}` : ''}</span>
                 {back > 0 && <span className="ms-1 rounded-full bg-zinc-500/15 px-2 py-0.5 text-[11px] font-bold">{back >= s.total ? 'הוחזר במלואו' : `הוחזרו ${ils(back)}`}</span>}
               </span>
               <strong className="tabular-nums">{ils(s.total)}</strong>
@@ -542,15 +607,22 @@ function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpe
   );
 }
 
-function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, onStock }: {
+function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, onStock, at, multi, lists }: {
   userId: string; items: Item[]; catalog: CatalogItem[]; variants: CatalogVariant[]; ready: boolean;
   reload: () => void; onError: (e: unknown) => void; onStock: (id: string, qty: number) => void;
+  /** the register's location, when it counts its own stock (T12ב) — the quantities here are of that location */
+  at: { locationId: string; name: string; nameOf: (id: string | null) => string } | null;
+  multi: boolean;
+  /** 2.93: price lists and serial numbers are in the database (migration 4800) */
+  lists: boolean;
 }) {
   // the one product editor (2.54): a new item and every change of an existing one open it; "באתר" next to every item
   const [edit, setEdit] = useState<{ id: string | null; focus?: EditorFocus } | null>(null);
   const [history, setHistory] = useState<{ item: Item; rows: { at: string; delta: number; after: number; reason: string; note: string }[] | null } | null>(null);
   const favs = items.filter((i) => i.favorite).sort((a, b) => a.favOrder - b.favOrder);
   const low = lowStockList(items.filter((i) => i.active));
+  // "ספירה" on the spot — the owner only (the database refuses anyone else from 4700); a delivery — whoever may write
+  const quick = useQuickCount();
   /** move a favorite up/down — rewrites the order of all favorites (8–16 items, cheap) */
   async function moveFav(id: string, dir: -1 | 1) {
     const list = [...favs]; const i = list.findIndex((x) => x.id === id); const j = i + dir;
@@ -567,14 +639,21 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
     if (!fresh.length) return;
     await run(supabase().from('catalog_items').insert(fresh.map((s: any, k: number) => ({ user_id: userId, name: s.name, price: Number(s.price), kind: 'service', sort: items.length + k }))));
   }
-  /** "+ קבלת סחורה" / "ספירת מלאי" — through adjust_stock(), so every unit is logged */
+  /** "+ קבלת סחורה" / "ספירת מלאי" — through adjust_stock(), so every unit is logged; with locations, at the register's (stock_adjust) */
   async function adjust(i: Item, mode: 'add' | 'set') {
-    const raw = window.prompt(mode === 'add' ? `כמה יחידות של "${i.name}" התקבלו?` : `כמה יחידות של "${i.name}" יש בפועל? (ספירה)`, mode === 'set' ? String(Math.max(0, i.stockQty)) : '');
+    const where = at ? ` ב${at.name}` : '';
+    const raw = window.prompt(mode === 'add' ? `כמה יחידות של "${i.name}" התקבלו${where}?` : `כמה יחידות של "${i.name}" יש בפועל${where}? (ספירה)`, mode === 'set' ? String(Math.max(0, i.stockQty)) : '');
     if (raw === null) return;
     const p = planAdjust(i.trackStock ? i.stockQty : 0, mode, Number(raw));
     if (!p.ok) return onError({ message: p.error });
     const note = mode === 'add' ? (window.prompt('הערה (לא חובה) — למשל: ספק, חשבונית', '') ?? '') : '';
+    if (at) {
+      const r = await adjustAt(at.locationId, i.id, null, mode, Number(raw), note);
+      if (!r.ok) return onError(r.error);
+      return reload();   // the total and every location's count, as the database has them now
+    }
     const { data, error } = await supabase().rpc('adjust_stock', { p_item: i.id, p_mode: mode, p_qty: Number(raw), p_note: note });
+    if (error && /the owner counts/.test(error.message)) return onError(QUICK_COUNT_OWNER);
     if (error) return onError(/adjust_stock|schema cache/.test(error.message) ? { message: 'relation stock does not exist' } : error);
     onStock(i.id, Number(data));
   }
@@ -583,12 +662,21 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
     const { data } = await supabase().from('stock_movements').select('*').eq('item_id', i.id).order('created_at', { ascending: false }).limit(40);
     // a move of a variant names it ("מכירה · M / שחור")
     const label = (r: any) => { const v = r.variant_id ? variants.find((x) => x.id === r.variant_id) : null; return v ? lineName('', v).replace(/^ · /, '') : ''; };
-    setHistory({ item: i, rows: ((data ?? []) as any[]).map((r) => ({ at: r.created_at, delta: r.delta, after: r.qty_after, reason: r.reason, note: [label(r), r.note ?? ''].filter(Boolean).join(' · ') })) });
+    // with locations: where each move was, and what was left there
+    setHistory({ item: i, rows: ((data ?? []) as any[]).map((r) => ({ at: r.created_at, delta: r.delta, after: at && r.location_after != null ? r.location_after : r.qty_after, reason: r.reason,
+      note: [at ? at.nameOf(r.location_id ?? null) : '', label(r), r.note ?? ''].filter(Boolean).join(' · ') })) });
   }
   return (
     <div className="grid gap-3">
       {low.length > 0 && <p className="rounded-2xl bg-amber-500/15 p-3 text-sm font-semibold text-amber-800 dark:text-amber-200">⚠️ מלאי נמוך: {low.map((i) => `${i.name} (${stockText(i)})`).join(' · ')}</p>}
-      <p className="text-xs text-muted">⭐ = מועדף בקופה (מומלץ 8–16 פריטים). החצים קובעים את הסדר. מלאי: &quot;קבלה&quot; מוסיפה יחידות, &quot;ספירה&quot; קובעת את מה שיש בפועל — כל מכירה מורידה מהמלאי לבד.</p>
+      <p className="text-xs text-muted">⭐ = מועדף בקופה (מומלץ 8–16 פריטים). החצים קובעים את הסדר. {quick === false
+        ? <>מלאי: &quot;קבלה&quot; מוסיפה יחידות — כל מכירה מורידה מהמלאי לבד. &quot;ספירה&quot; — רק לבעלים; כל אחד אחר סופר בספירה מסודרת, והבעלים מאשרים.</>
+        : <>מלאי: &quot;קבלה&quot; מוסיפה יחידות, &quot;ספירה&quot; קובעת את מה שיש בפועל — כל מכירה מורידה מהמלאי לבד.</>}
+        {at ? ` הכמויות כאן הן של ${at.name} (הסניף של הקופה).` : ''}</p>
+      <Link href={multi ? '/stock' : '/stock?tab=counts'} className="text-sm font-semibold text-primary">
+        {multi ? '📦 מלאי בכל הסניפים, העברות וספירות ←' : '📋 ספירת מלאי מסודרת (הבעלים מאשרים את הפערים) ←'}</Link>
+      {lists && items.some((i) => i.trackSerials) && <Link href="/stock?tab=serials" className="text-sm font-semibold text-primary">🔢 מספרים סידוריים — חיפוש לפי מספר וההיסטוריה של כל יחידה ←</Link>}
+      {lists && <Link href="/prices" className="text-sm font-semibold text-primary">🏷️ מחירונים — מחיר לסניף או לקבוצת לקוחות (סיטונאי, מועדון) ←</Link>}
       {[...favs, ...items.filter((i) => !i.favorite)].map((i) => {
         const level = stockLevel(i);
         return (
@@ -622,14 +710,17 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
                 {i.trackStock ? <>
                   <span className={cx('rounded-full px-2.5 py-1 text-xs font-bold tabular-nums', level === 'out' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : level === 'low' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300')}>
                     📦 {stockText(i)}</span>
-                  <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'add')}>+ קבלת סחורה</Button>
-                  <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>ספירה</Button>
+                  {i.trackSerials ? <Button size="sm" variant="ghost" onClick={() => setEdit({ id: i.id, focus: 'serials' })}>קליטה לפי מספרים</Button> : <>
+                    <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'add')}>+ קבלת סחורה</Button>
+                    {quick && <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>ספירה</Button>}
+                  </>}
                   <label className="flex items-center gap-1 text-xs text-muted">התראה מתחת ל-
                     <Input type="number" min={0} defaultValue={i.lowStock} className="h-8 w-16 py-0 text-center" aria-label={`רמת התראה: ${i.name}`}
                       onBlur={(e) => { const v = Math.max(0, Math.floor(Number(e.target.value) || 0)); if (v !== i.lowStock) void run(supabase().from('catalog_items').update({ low_stock: v }).eq('id', i.id)); }} />
                   </label>
                   <button type="button" className="text-xs font-semibold text-primary" onClick={() => void openHistory(i)}>היסטוריה</button>
-                </> : <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>📦 ניהול מלאי (ספירה ראשונה)</Button>}
+                </> : quick ? <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'set')}>📦 ניהול מלאי (ספירה ראשונה)</Button>
+                  : quick === false ? <Button size="sm" variant="ghost" onClick={() => void adjust(i, 'add')}>📦 ניהול מלאי (קבלת סחורה)</Button> : null}
               </div>
             )}
           </Card>
@@ -746,7 +837,7 @@ function SaleDetail({ sale, onClose, business, refunds, employees, licensed, onR
       <h3 className="font-display text-xl font-extrabold">{sale.customerName || 'לקוח מזדמן'} · {ils(sale.total)}</h3>
       <p className="mb-3 text-xs text-muted">{formatIL(sale.paidAt ?? sale.createdAt)} · {sale.status === 'paid' ? 'שולם' : sale.status === 'pending' ? 'ממתין לתשלום' : 'בוטל'}{sale.employeeName ? ` · מוכר/ת: ${sale.employeeName}` : ''}</p>
       <ul className="mb-3 grid gap-1 text-sm">
-        {sale.items.map((l, i) => <li key={i} className="flex justify-between"><span>{l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}</span><span className="tabular-nums">{ils(l.price * l.qty)}</span></li>)}
+        {sale.items.map((l, i) => <li key={i} className="flex justify-between gap-2"><span className="min-w-0">{withSerials(l.name, l.serials)}{l.qty > 1 ? ` ×${l.qty}` : ''}</span><span className="tabular-nums">{ils(l.price * l.qty)}</span></li>)}
         {sale.discount > 0 && <li className="flex justify-between text-muted"><span>הנחה</span><span>−{ils(sale.discount)}</span></li>}
         <li className="flex justify-between border-t border-line pt-1 font-bold"><span>סה״כ</span><span>{ils(sale.total)}</span></li>
       </ul>

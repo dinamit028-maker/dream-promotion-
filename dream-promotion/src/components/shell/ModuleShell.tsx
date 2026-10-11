@@ -45,11 +45,13 @@ interface Props {
   onSwitchBusiness?: (id: string) => void;
   /** above the page (for example: the business is locked) */
   notice?: ReactNode;
+  /** the location switch (T12א) — renders nothing for a business with one location */
+  locationSwitch?: ReactNode;
 }
 
 const stateLabel = (b: ModuleBusiness) => (b.state === 'active' ? '' : b.state === 'locked' ? ' (נעול)' : ' (פג תוקף)');
 
-export function ModuleShell({ config, path, children, exitHref, businessName, userName, businesses = [], currentBusinessId, canSwitch, switching, onSwitchBusiness, notice }: Props) {
+export function ModuleShell({ config, path, children, exitHref, businessName, userName, businesses = [], currentBusinessId, canSwitch, switching, onSwitchBusiness, notice, locationSwitch }: Props) {
   const [override, setOverride] = useState<ModuleAction[] | null>(null);
   const actions = override ?? config.actions;
   const [menu, setMenu] = useState(false);
@@ -134,12 +136,15 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
               </div>
               <ThemeToggle className="h-11! w-11!" />
             </div>
+            {/* the location switch, under the title (nothing at all for a business with one location) */}
+            <div className="flex justify-center px-2 pb-2 empty:hidden">{locationSwitch}</div>
           </header>
 
           {/* ---- computer: header ---------------------------------------------------------------------------- */}
           <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-(--glass-bg) px-6 py-2.5 backdrop-blur-xl md:flex">
             <h1 className="truncate font-display text-[17px] font-bold">{title}</h1>
             <div className="flex items-center gap-2">
+              {locationSwitch}
               {canSwitch && (
                 <select aria-label="העסק שעובדים בו" value={currentBusinessId ?? ''} disabled={switching}
                   onChange={(e) => onSwitchBusiness?.(e.target.value)}

@@ -21,4 +21,10 @@ for f in tests/sql/*.check.sql; do
 done
 # numbering, idempotency and credit limits with several connections at once
 bash tests/sql/concurrency.sh "$DB" || failed=1
+# a business with one location: the same rows and the same view before and after migration 4600 (locations)
+bash tests/sql/locations-compare.sh "$DB" || failed=1
+# a business with one location: the same day of the business without and with migration 4700 (stock by location)
+bash tests/sql/stock-compare.sh "$DB" 4700 || failed=1
+# … and without and with migration 4800 (serial numbers, price lists, SKU series — every stock mover again)
+bash tests/sql/stock-compare.sh "$DB" 4800 || failed=1
 exit $failed

@@ -16,6 +16,9 @@ import { PAY_METHODS } from './payments';
 import { Note, PeriodPicker, Pill, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
 import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
+import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
+import { locationTag } from '@/features/locations/locations';
+import { useLocations } from '@/features/locations/store';
 
 /**
  * "הוצאות": supplier documents with their file (PDF / photo / the phone's camera) in a private bucket, by period.
@@ -48,6 +51,8 @@ export function Expenses() {
   const [list, setList] = useState<Expense[] | null>(null);
   const [status, setStatus] = useState<'all' | 'draft' | 'void'>('all');
   const [edit, setEdit] = useState<Expense | 'new' | null>(null);
+  const locState = useLocations((x) => x.state);
+  const where = (e: Expense) => (locState.businessId ? locationTag(locState, e, locState.businessId) : '');
   const load = useCallback(async () => {
     let q = supabase().from('expenses').select('*').gte('doc_date', period.from).lte('doc_date', period.to).order('doc_date', { ascending: false }).limit(500);
     if (status !== 'all') q = q.eq('status', status);
@@ -79,7 +84,7 @@ export function Expenses() {
           {list.map((e) => (
             <button key={e.id} type="button" onClick={() => setEdit(e)} className="flex min-w-0 items-center gap-2 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
               <span className="min-w-0 flex-1"><strong className="block truncate">{e.supplierName} · {categoryLabel(e.category)}</strong>
-                <span className="text-xs text-muted">#{e.number} · {ddmmyyyy(e.docDate)}{e.supplierDocNumber ? ` · מסמך ${e.supplierDocNumber}` : ''}{e.paidOn ? ' · שולם' : ' · לא שולם'}{e.filePath ? ' · 📎' : ''}</span></span>
+                <span className="text-xs text-muted">#{e.number} · {ddmmyyyy(e.docDate)}{e.supplierDocNumber ? ` · מסמך ${e.supplierDocNumber}` : ''}{e.paidOn ? ' · שולם' : ' · לא שולם'}{where(e) ? ` · ${where(e)}` : ''}{e.filePath ? ' · 📎' : ''}</span></span>
               {e.status === 'draft' && <Pill tone="warn">ממתינה לאישור</Pill>}
               {e.status === 'void' && <Pill tone="bad">מבוטלת</Pill>}
               <strong className="tabular-nums">{e.supplierDocType === 'credit' ? '-' : ''}{ils(e.total)}</strong>
@@ -99,6 +104,9 @@ function ExpenseEditor({ expense, onClose, onSaved, onOpen }: { expense: Expense
   const [editProduct, setEditProduct] = useState<{ id: string | null; line: number | null; focus?: EditorFocus } | null>(null);
   const today = todayIL();
   const [f, setF] = useState<ExpenseForm>(() => (expense ? { ...expense, paymentMethod: expense.paymentMethod } as ExpenseForm : EMPTY(today)));
+  // a new expense's location (T12א): a field only with several locations and "כל הסניפים" picked; it never moves afterwards
+  const locState = useLocations((x) => x.state);
+  const [locationId, setLocationId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [scan, setScan] = useState<{ busy: boolean; warnings: string[]; model: string; raw: unknown | null; error: string | null }>({ busy: false, warnings: [], model: '', raw: null, error: null });
   const [stock, setStock] = useState<{ itemId: string; qty: number; variantId?: string }[]>(expense?.stockLines ?? []);
@@ -169,7 +177,7 @@ function ExpenseEditor({ expense, onClose, onSaved, onOpen }: { expense: Expense
       ...(hash ? { file_sha256: hash } : {}), ...(ready && found.length ? { duplicate_ack: duplicateAck(found) } : {}) };
     const r = expense
       ? await supabase().from('expenses').update({ ...cols, ...(expense.status === 'draft' && !asDraft ? { status: 'confirmed' } : {}) }).eq('id', expense.id).select('*').single()
-      : await supabase().from('expenses').insert({ ...cols, user_id: userId, status: asDraft ? 'draft' : 'confirmed', ...(scan.raw ? { ai_extracted: scan.raw, ai_model: scan.model.slice(0, 80) } : {}) }).select('*').single();
+      : await supabase().from('expenses').insert({ ...cols, ...locationColumn(locState, locationId), user_id: userId, status: asDraft ? 'draft' : 'confirmed', ...(scan.raw ? { ai_extracted: scan.raw, ai_model: scan.model.slice(0, 80) } : {}) }).select('*').single();
     if (r.error || !r.data) { setBusy(false); setError(financeError(r.error)); return; }
     const saved = toExpense(r.data);
     if (saved.status === 'confirmed' && saved.stockLines.length) {
@@ -244,6 +252,7 @@ function ExpenseEditor({ expense, onClose, onSaved, onOpen }: { expense: Expense
           {SUPPLIER_DOC_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}</Select></Field>
         <Field label="מספר המסמך"><Input value={f.supplierDocNumber} onChange={(e) => set('supplierDocNumber', e.target.value)} disabled={expense?.status === 'void'} /></Field>
         <Field label="תאריך"><Input type="date" value={f.docDate} max={today} onChange={(e) => set('docDate', e.target.value)} disabled={locked} /></Field>
+        {!expense && <LocationField value={locationId} onChange={setLocationId} />}
         <Field label="קטגוריה"><Select value={f.category} disabled={expense?.status === 'void'} onChange={(e) => { const c = EXPENSE_CATEGORIES.find((x) => x.id === e.target.value); setF((x) => ({ ...x, category: e.target.value, ...(locked ? {} : { vatDeductiblePct: c?.vatPct ?? 100 }) })); }}>
           {EXPENSE_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</Select></Field>
         <Field label="סה״כ (כולל מע״מ)"><Input type="number" inputMode="decimal" min={0} step="0.01" value={f.total || ''} disabled={locked} onChange={(e) => fromTotal(Number(e.target.value))} /></Field>

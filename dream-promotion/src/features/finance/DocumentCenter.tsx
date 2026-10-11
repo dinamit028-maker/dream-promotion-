@@ -13,6 +13,8 @@ import { allowedDocTypes } from './rules';
 import type { ComposerBody } from './quotes';
 import { Note, Pill, ddmmyyyy, ils } from './ui';
 import { softwareRegistered } from '@/features/documents/DocumentsTab';
+import { locationTag } from '@/features/locations/locations';
+import { useLocations } from '@/features/locations/store';
 
 /**
  * "מסמכים" — the document center: every legal document of the business (from the register too), drafts, and a new
@@ -24,6 +26,8 @@ interface Draft { id: string; docType: number; customerName: string; total: numb
 export function DocumentCenter() {
   const { settings, params, clearParams, fail, say } = useFinance();
   const leads = useApp((s) => s.leads);
+  const locState = useLocations((x) => x.state);
+  const where = (d: DocRow) => (locState.businessId ? locationTag(locState, d, locState.businessId) : '');
   const [type, setType] = useState<number | null>(null);
   const [q, setQ] = useState('');
   const [docs, setDocs] = useState<DocRow[] | null>(null);
@@ -120,7 +124,7 @@ export function DocumentCenter() {
             <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
               <span className="min-w-0 flex-1">
                 <strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber} · {d.customerName || 'לקוח מזדמן'}</strong>
-                <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">{ddmmyyyy(d.docDate)}{d.dueDate ? ` · לתשלום עד ${ddmmyyyy(d.dueDate)}` : ''}{d.source === 'pos' ? ' · קופה' : ''}{status(d)}</span>
+                <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">{ddmmyyyy(d.docDate)}{d.dueDate ? ` · לתשלום עד ${ddmmyyyy(d.dueDate)}` : ''}{d.source === 'pos' ? ' · קופה' : ''}{where(d) ? ` · ${where(d)}` : ''}{status(d)}</span>
               </span>
               <strong className="tabular-nums">{ils(d.total)}</strong>
             </button>

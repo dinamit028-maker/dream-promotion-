@@ -37,6 +37,8 @@ export function financeError(e: unknown): string {
   if (/payments:/.test(m)) return 'סכום התשלומים לא שווה לסכום המסמך.';
   if (/totals:|lines:/.test(m)) return 'הסכומים במסמך לא מסתדרים. רעננו ונסו שוב.';
   if (/the draft was|draft was not found/.test(m)) return 'הטיוטה כבר הופקה כמסמך.';
+  // 2.93 (migration 20261011004800): a product with serial numbers moves only with its numbers — not on a document or an expense
+  if (/serial_item/.test(m)) return 'מוצר עם מספרים סידוריים לא יוצא ולא נכנס במסמך או בהוצאה — מוכרים אותו בקופה (לפי המספר), וקולטים אותו בעורך המוצר ("מספרים סידוריים").';
   if (/a reason is required/.test(m)) return 'צריך לכתוב סיבה (5 תווים לפחות).';
   if (/42501|row-level security|permission denied|not allowed/i.test(m)) return 'אין הרשאה לפעולה הזו.';
   return 'משהו השתבש. נסו שוב.';
@@ -45,6 +47,8 @@ export function financeError(e: unknown): string {
 export interface IssueExtra {
   userId: string; idempotencyKey: string; vatRate: number; saleId?: string | null; leadId?: string | null; refundId?: string | null;
   paidDocumentId?: string | null; quoteId?: string | null; draftId?: string | null; source?: string;
+  /** 2.91 (T12א): the location chosen for a document of its own (else the database decides: its sale, the invoice it pays, …) */
+  locationId?: string | null;
 }
 /** the documents row of a new document (the number, issue time and issuer are set by the database) */
 export function documentRow(d: NewDoc, x: IssueExtra) {
@@ -56,5 +60,6 @@ export function documentRow(d: NewDoc, x: IssueExtra) {
     sale_id: x.saleId ?? null, lead_id: x.leadId ?? null, refund_id: x.refundId ?? null, due_date: d.dueDate ?? null, notes: d.notes ?? '',
     paid_document_id: x.paidDocumentId ?? null, quote_id: x.quoteId ?? null, draft_id: x.draftId ?? null, idempotency_key: x.idempotencyKey,
     ...(x.source ? { source: x.source } : {}),
+    ...(x.locationId ? { location_id: x.locationId } : {}),
   };
 }

@@ -17,6 +17,8 @@ export interface StoreRow {
   checkout: CheckoutSettings;                 // selling on the site (2.56)
   /** 2.57.1 (migration 3700): the store's own address <slug>.<STORE_ROOT_DOMAIN>, and its password */
   slug: string; storefrontPassword: string; passwordLock: boolean; subdomainSeenAt: string | null;
+  /** T12ב: the location the site's orders ship from — and whose stock the site sells (null: the main one; before 4600: none) */
+  locationId: string | null;
 }
 export interface DomainRow {
   id: string; storeId: string; domain: string; isPrimary: boolean; status: DomainStatus; lastSeenAt: string | null;
@@ -37,6 +39,7 @@ export const toStore = (r: any): StoreRow => ({
   address: r.address ?? '', ga4Id: r.ga4_id ?? '', gscCode: r.gsc_code ?? '', showStockCount: Boolean(r.show_stock_count),
   publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? '', checkout: toCheckout(r),
   slug: r.slug ?? '', storefrontPassword: r.storefront_password ?? '', passwordLock: Boolean(r.password_lock), subdomainSeenAt: r.subdomain_seen_at ?? null,
+  locationId: r.location_id ?? null,
 });
 export const toDomain = (r: any): DomainRow => ({
   id: r.id, storeId: r.store_id, domain: r.domain, isPrimary: Boolean(r.is_primary), status: r.status ?? 'pending',

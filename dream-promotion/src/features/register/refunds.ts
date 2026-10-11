@@ -1,5 +1,6 @@
 import type { Line, Refund, RefundMethod, Sale } from './money';
 import { vatOfGross } from '@/features/finance/vat';
+import { refundSerials, sameSerial } from '@/features/catalog/serials';
 
 /**
  * Refunds ("החזר כספי") from the register. Whole agorot throughout.
@@ -14,6 +15,7 @@ const sh = (a: number) => a / 100;
 export const toRefund = (r: any): Refund => ({
   id: r.id, saleId: r.sale_id, createdAt: r.created_at, amount: Number(r.amount), vatAmount: Number(r.vat_amount ?? 0),
   method: r.method, items: Array.isArray(r.items) ? r.items : [], restock: Boolean(r.restock), reason: r.reason ?? '', employeeName: r.employee_name ?? '',
+  registerId: r.register_id ?? null,
 });
 
 /** how much was already given back on this sale (₪) */
@@ -33,6 +35,17 @@ export function returnedQty(sale: Pick<Sale, 'id' | 'items'>, refunds: Refund[])
   });
 }
 
+/** per line of the sale: the serial numbers that already came back (a line sold by number, 2.93) */
+export function returnedSerials(sale: Pick<Sale, 'id' | 'items'>, refunds: Refund[]): string[][] {
+  const back = refunds.filter((r) => r.saleId === sale.id).flatMap((r) => r.items).flatMap((l) => l.serials ?? []);
+  return sale.items.map((l) => (l.serials ?? []).filter((x) => back.some((b) => sameSerial(b, x))));
+}
+/** per line: the numbers that may still come back */
+export function serialsLeft(sale: Pick<Sale, 'id' | 'items'>, refunds: Refund[]): string[][] {
+  const done = returnedSerials(sale, refunds);
+  return sale.items.map((l, i) => (l.serials ?? []).filter((x) => !done[i].some((d) => sameSerial(d, x))));
+}
+
 /** the method money normally goes back by: the sale's own, or the biggest part of a split payment */
 export function defaultRefundMethod(sale: Pick<Sale, 'method' | 'payments'>): RefundMethod {
   if (sale.method !== 'split') return sale.method === 'link' ? 'other' : sale.method;
@@ -40,7 +53,8 @@ export function defaultRefundMethod(sale: Pick<Sale, 'method' | 'payments'>): Re
   return biggest && biggest !== 'link' ? biggest : 'cash';
 }
 
-export type RefundRequest = { mode: 'full' } | { mode: 'items'; qty: number[] } | { mode: 'amount'; amount: number };
+/** items: how many of each line — and for a line sold by number, which numbers (its quantity is theirs) */
+export type RefundRequest = { mode: 'full' } | { mode: 'items'; qty: number[]; serials?: string[][] } | { mode: 'amount'; amount: number };
 export type RefundPlan = Omit<Refund, 'id' | 'createdAt'>;
 export type RefundError = 'not_paid' | 'nothing_left' | 'too_much' | 'empty';
 export const REFUND_ERROR_HE: Record<RefundError, string> = {
@@ -58,14 +72,18 @@ export function planRefund(sale: Sale, prior: Refund[], req: RefundRequest,
   if (leftA <= 0) return { ok: false, error: 'nothing_left' };
   const done = returnedQty(sale, prior);
   const remainingQty = sale.items.map((l, i) => Math.max(0, l.qty - done[i]));
+  const numbers = serialsLeft(sale, prior);
+  const sold = (l: Line) => Array.isArray(l.serials) && l.serials.length > 0;
 
   let amountA: number; let items: Line[];
   if (req.mode === 'full') {
     amountA = leftA;
-    items = sale.items.map((l, i) => ({ ...l, qty: remainingQty[i] })).filter((l) => l.qty > 0);
+    items = sale.items.map((l, i) => (sold(l) ? { ...l, qty: numbers[i].length, serials: numbers[i] } : { ...l, qty: remainingQty[i] })).filter((l) => l.qty > 0);
   } else if (req.mode === 'items') {
-    const want = sale.items.map((_, i) => Math.max(0, Math.min(remainingQty[i], Math.floor(req.qty[i] ?? 0))));
-    items = sale.items.map((l, i) => ({ ...l, qty: want[i] })).filter((l) => l.qty > 0);
+    // a line sold by number: the numbers ticked (of those not back yet) — its quantity is theirs
+    const picked = sale.items.map((l, i) => (sold(l) ? refundSerials(numbers[i], req.serials?.[i] ?? []) : null));
+    const want = sale.items.map((l, i) => (picked[i] ? picked[i]!.length : Math.max(0, Math.min(remainingQty[i], Math.floor(req.qty[i] ?? 0)))));
+    items = sale.items.map((l, i) => (picked[i] ? { ...l, qty: want[i], serials: picked[i]! } : { ...l, qty: want[i] })).filter((l) => l.qty > 0);
     if (!items.length) return { ok: false, error: 'empty' };
     const allBack = want.every((q, i) => q === remainingQty[i]);
     // the sale's discount applies to what comes back: gross × (paid / before discount)

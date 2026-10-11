@@ -20,6 +20,14 @@
 #      the timer runs 8 times at once → every late line gets its reminder once, one email each
 #  16. recurring charges (4500): the same new plan saved from 8 connections at once → one plan, once on the card and in the log;
 #      the timer 8 times at once, on two dates → one charge per plan and period, each handed to the server once; a paused plan none
+#  17. locations and registers (4600): 8 connections open a day on one register at once → one; on two registers → one each (the same
+#      person); 80 documents from 8 connections in two locations → one series, no gap; 16 new locations at once → never more than 10
+#  18. stock by location (4700): 80 sales from 8 connections at two locations, crossing → each location's count and the total right;
+#      the same transfer sent and received from 8 connections at once → once each; one count approved 8 times at once → its
+#      differences once; 8 new counts of one location at once → one open
+#  19. serial numbers and SKU series (4800): one number sold from 8 registers at once → sold once (the DoD); sales and transfers of
+#      two numbered products from 8 connections, crossing → every number once, no deadlock; 8 connections × 10 new products with the
+#      next SKU of one series → 80 codes, none twice, no gap
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -372,3 +380,131 @@ run_parallel rdue2
 r=$(q "$RC")
 [ "$r" = "10 10 15 0" ] || fail "the timer 8 times at once on the next date: one more each, all 10 handed out once (expected 10 10 15 0, got: $r)"
 echo "ok: the recurring timer from 8 connections at once, on two dates → one charge per plan and period, each handed out once, none for a paused plan"
+
+# ---- 17. locations and registers: one open day per register, one series of numbers, at most 10 locations (4600) -----------------
+LL=00000000-0000-0000-0000-0000000cc1a1; LR=00000000-0000-0000-0000-0000000cc1a2
+q "begin; $AS select public.location_save('$LL', 'סניף עומס', 'store', '', '', '', true, 1);
+   select public.register_save('$LR', '$LL', 'קופה 2', '', true, 1); commit;" >/dev/null
+q "update public.register_shifts set closed_at = now(), counted_cash = 0, expected_cash = 0, difference = 0 where business_id = '$B' and closed_at is null;" >/dev/null
+shift() { echo "insert into public.register_shifts (user_id, opening_cash, register_id) values ('$U', 0, '$1');"; }
+for w in $(seq 8); do worker_script "$TMP/shift-$w.sql" 1 "$(shift "$B")"; done
+run_parallel shift
+r=$(q "select count(*) from public.register_shifts where business_id = '$B' and closed_at is null")
+[ "$r" = "1" ] || fail "8 connections open a day on one register at once: one open day (got: $r)"
+q "update public.register_shifts set closed_at = now(), counted_cash = 0, expected_cash = 0, difference = 0 where business_id = '$B' and closed_at is null;" >/dev/null
+rm -f "$TMP"/shift-*.sql
+for w in $(seq 8); do worker_script "$TMP/shift-$w.sql" 1 "$(shift "$([ $((w % 2)) = 0 ] && echo "$B" || echo "$LR")")"; done
+run_parallel shift
+r=$(q "select count(*) || ' ' || count(distinct register_id) from public.register_shifts where business_id = '$B' and closed_at is null")
+[ "$r" = "2 2" ] || fail "8 connections (one person) open days on two registers at once: one each (expected 2 2, got: $r)"
+echo "ok: 8 connections open a day on one register at once → one; on two registers (the same person) → one each"
+before=$(q "select coalesce(max(doc_number), 0) from public.documents where business_id = '$B' and doc_type = 320")
+for w in $(seq 8); do
+  loc=$([ $((w % 2)) = 0 ] && echo "$B" || echo "$LL")
+  worker_script "$TMP/locdocs-$w.sql" 10 "$(printf "$DOC" ', location_id' 320 100 100 18 118 100 "$(pay 118)" ", '$loc'")"
+done
+run_parallel locdocs
+r=$(q "select count(*) || ' ' || count(distinct doc_number) || ' ' || (max(doc_number) - $before) || ' ' ||
+              count(*) filter (where location_id = '$LL') || ' ' || count(*) filter (where location_id = '$B')
+         from public.documents where business_id = '$B' and doc_type = 320 and doc_number > $before")
+[ "$r" = "80 80 80 40 40" ] || fail "80 documents from 8 connections in two locations: one series, no gap (expected 80 80 80 40 40, got: $r)"
+echo "ok: 80 documents from 8 connections in two locations → one series of numbers for the business, no gap, no double"
+for w in $(seq 8); do worker_script "$TMP/newloc-$w.sql" 2 "select public.location_save(null, 'סניף ' || gen_random_uuid(), 'warehouse', '', '', '', true, 0);"; done
+run_parallel newloc
+r=$(q "select count(*) from public.business_locations where business_id = '$B'")
+[ "$r" = "10" ] || fail "16 new locations at once: never more than 10 (got: $r)"
+echo "ok: 16 new locations from 8 connections at once → 10, never more"
+
+# ---- 18. stock by location: crossing sales at two locations, a transfer and a count approved from 8 connections (4700) ----------
+SI=00000000-0000-0000-0000-0000000cc1b1; ST1=00000000-0000-0000-0000-0000000cc1b2; SC1=00000000-0000-0000-0000-0000000cc1b3
+q "insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock) values ('$SI', '$U', '$B', 'מוצר עומס', 10, 'product', true);" >/dev/null
+q "begin; $AS select public.stock_adjust('$B', '$SI', null, 'set', 100); select public.stock_adjust('$LL', '$SI', null, 'add', 40); commit;" >/dev/null
+q "update public.register_shifts set closed_at = now(), counted_cash = 0, expected_cash = 0, difference = 0 where business_id = '$B' and closed_at is null;" >/dev/null
+ssale() { echo "insert into public.sales (user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at, register_id)
+  values ('$U', '[{\"name\":\"x\",\"price\":10,\"qty\":1,\"itemId\":\"$SI\"}]', 10, 10, 18, 1.53, 'cash', 'paid', now(), '$1');"; }
+for w in $(seq 8); do
+  : > "$TMP/ssale-$w.sql"
+  for k in $(seq 5); do
+    printf 'begin;\n%s\n%s\ncommit;\nbegin;\n%s\n%s\ncommit;\n' "$AS" "$(ssale "$([ $((w % 2)) = 0 ] && echo "$B" || echo "$LR")")" \
+      "$AS" "$(ssale "$([ $((w % 2)) = 0 ] && echo "$LR" || echo "$B")")" >> "$TMP/ssale-$w.sql"
+  done
+  chmod 644 "$TMP/ssale-$w.sql"
+done
+run_parallel ssale
+r=$(q "select public.stock_at('$B', '$SI', null) || ' ' || public.stock_at('$LL', '$SI', null) || ' ' || (select stock_qty from public.catalog_items where id = '$SI')
+        || ' ' || (select coalesce(sum(delta), 0) from public.stock_movements where item_id = '$SI' and location_id = '$LL')")
+[ "$r" = "60 0 60 0" ] || fail "80 crossing sales at two locations: 60 left at the main one, none at the branch (expected 60 0 60 0, got: $r)"
+echo "ok: 80 sales from 8 connections at two locations, crossing → each location's count and the total right, no deadlock"
+q "begin; $AS select public.stock_adjust('$LL', '$SI', null, 'add', 10); commit;" >/dev/null
+for w in $(seq 8); do worker_script "$TMP/tsend-$w.sql" 1 "select public.stock_transfer_send('$ST1', '$B', '$LL', '[{\"itemId\":\"$SI\",\"qty\":5}]');"; done
+run_parallel tsend
+for w in $(seq 8); do worker_script "$TMP/trecv-$w.sql" 1 "select public.stock_transfer_receive('$ST1', '[]');"; done
+run_parallel trecv
+r=$(q "select (select count(*) from public.stock_transfers where id = '$ST1' and status = 'received') || ' ' ||
+              (select count(*) || '/' || sum(delta) from public.stock_movements where transfer_id = '$ST1') || ' ' ||
+              public.stock_at('$B', '$SI', null) || ' ' || public.stock_at('$LL', '$SI', null)")
+[ "$r" = "1 2/0 55 15" ] || fail "one transfer sent and received from 8 connections: once each (expected 1 2/0 55 15, got: $r)"
+echo "ok: the same transfer sent and received from 8 connections at once → one transfer, out once and in once"
+for w in $(seq 8); do worker_script "$TMP/cstart-$w.sql" 1 "select public.stock_count_start(gen_random_uuid(), '$LL');"; done
+run_parallel cstart
+r=$(q "select count(*) from public.stock_counts where location_id = '$LL' and status = 'open'")
+[ "$r" = "1" ] || fail "8 new counts of one location at once: one open (got: $r)"
+q "begin; $AS select public.stock_count_cancel(id) from public.stock_counts where location_id = '$LL' and status = 'open'; commit;" >/dev/null
+q "begin; $AS select public.stock_count_start('$SC1', '$B'); select public.stock_count_set('$SC1', '$SI', null, 50); commit;" >/dev/null
+for w in $(seq 8); do worker_script "$TMP/capprove-$w.sql" 1 "select public.stock_count_approve('$SC1');"; done
+run_parallel capprove
+r=$(q "select (select status from public.stock_counts where id = '$SC1') || ' ' ||
+              (select count(*) || '/' || sum(delta) from public.stock_movements where count_id = '$SC1') || ' ' || public.stock_at('$B', '$SI', null)")
+[ "$r" = "approved 1/-5 50" ] || fail "one count approved from 8 connections: its difference once (expected approved 1/-5 50, got: $r)"
+echo "ok: 8 new counts of one location at once → one open; one count approved 8 times at once → its difference once"
+
+# ---- 19. serial numbers and SKU series: one number from 8 registers, crossing sales and transfers, 80 SKUs at once (4800) --------
+NP=00000000-0000-0000-0000-0000000cc1c1; NQ=00000000-0000-0000-0000-0000000cc1c2; NS=00000000-0000-0000-0000-0000000cc1c3
+q "insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock) values
+     ('$NP', '$U', '$B', 'טלפון עומס', 10, 'product', true), ('$NQ', '$U', '$B', 'שעון עומס', 10, 'product', true);" >/dev/null
+q "begin; $AS select public.serial_tracking('$NP', true); select public.serial_tracking('$NQ', true);
+   select public.serial_receive('$NP', null, '$B', array(select 'A-' || g from generate_series(1, 20) g));
+   select public.serial_receive('$NQ', null, '$B', array(select 'B-' || g from generate_series(1, 20) g)); commit;" >/dev/null
+nline() { echo "{\"name\":\"x\",\"price\":10,\"qty\":1,\"itemId\":\"$1\",\"serials\":[\"$2\"]}"; }
+nsale() { echo "insert into public.sales (user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at, register_id)
+  values ('$U', '[$1]', 10, 10, 18, 1.53, 'cash', 'paid', now(), '$B');"; }
+for w in $(seq 8); do worker_script "$TMP/nsame-$w.sql" 1 "$(nsale "$(nline "$NP" A-1)")"; done
+run_parallel nsame
+r=$(q "select (select count(*) from public.catalog_serials where item_id = '$NP' and serial = 'A-1' and status = 'sold') || ' ' ||
+              (select count(*) from public.catalog_serial_events e join public.catalog_serials s on s.id = e.serial_id
+                where s.item_id = '$NP' and s.serial = 'A-1' and e.kind = 'sold') || ' ' ||
+              (select count(*) from public.sales where business_id = '$B' and items @> '[{\"serials\":[\"A-1\"]}]') || ' ' ||
+              (select stock_qty from public.catalog_items where id = '$NP')")
+[ "$r" = "1 1 1 19" ] || fail "one number from 8 registers at once: sold once (expected 1 1 1 19, got: $r)"
+echo "ok: one serial number sold from 8 registers at once → one sale holds it, 7 refused (the DoD)"
+for w in $(seq 8); do
+  : > "$TMP/ncross-$w.sql"
+  for j in 1 2; do
+    n=$((1 + (w - 1) * 2 + j))
+    if [ $((w % 2)) = 0 ]; then
+      if [ $((w % 4)) = 0 ]; then st=$(nsale "$(nline "$NP" "A-$n"),$(nline "$NQ" "B-$n")"); else st=$(nsale "$(nline "$NQ" "B-$n"),$(nline "$NP" "A-$n")"); fi
+    else
+      st="select public.stock_transfer_send(gen_random_uuid(), '$B', '$LL', '[$(nline "$NQ" "B-$n"),$(nline "$NP" "A-$n")]');"
+    fi
+    printf 'begin;\n%s\n%s\ncommit;\n' "$AS" "$st" >> "$TMP/ncross-$w.sql"
+  done
+  chmod 644 "$TMP/ncross-$w.sql"
+done
+run_parallel ncross
+r=$(q "select string_agg(x, ' ' order by x) from (select right(item_id::text, 1) || ':' || status || ':' || count(*) as x from public.catalog_serials
+         where item_id in ('$NP', '$NQ') group by item_id, status) z")
+[ "$r" = "1:in_stock:3 1:in_transit:8 1:sold:9 2:in_stock:4 2:in_transit:8 2:sold:8" ] \
+  || fail "sales and transfers of numbered products, crossing: every number once (got: $r)"
+r=$(q "select (select stock_qty from public.catalog_items where id = '$NP') || ' ' || (select stock_qty from public.catalog_items where id = '$NQ') || ' ' ||
+              (select count(*) from public.stock_transfers where business_id = '$B' and status = 'sent' and lines::text like '%\"serials\"%')")
+[ "$r" = "3 4 8" ] || fail "crossing: the stock follows the numbers (expected 3 4 8, got: $r)"
+echo "ok: 16 sales and 16 transfers of two numbered products from 8 connections, crossing → every number once, the stock with them, no deadlock"
+q "begin; $AS select public.sku_series_save('$NS', 'עומס', 'LD', 4, 1, true); commit;" >/dev/null
+for w in $(seq 8); do
+  worker_script "$TMP/nsku-$w.sql" 10 "insert into public.catalog_items (user_id, business_id, name, price, kind, sku) values ('$U', '$B', 'פריט ' || gen_random_uuid(), 1, 'product', public.sku_next('$NS'));"
+done
+run_parallel nsku
+r=$(q "select count(*) || ' ' || count(distinct sku) || ' ' || min(sku) || ' ' || max(sku) || ' ' || (select next_no from public.sku_series where id = '$NS')
+         from public.catalog_items where business_id = '$B' and sku like 'LD-%'")
+[ "$r" = "80 80 LD-0001 LD-0080 81" ] || fail "80 new products with the next SKU from 8 connections: none twice, no gap (expected 80 80 LD-0001 LD-0080 81, got: $r)"
+echo "ok: 80 new products from 8 connections, each with the next SKU of one series → LD-0001..LD-0080, none twice, no gap"

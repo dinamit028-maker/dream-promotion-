@@ -34,7 +34,9 @@ before(() => {
   (globalThis as any).__DP_TEST_ADMIN_DB__ = {
     ...fakeDb(tables),
     auth: { getUser: async (t: string) => ({ data: { user: ['owner', 'cashier'].includes(t) ? { id: t } : null } }) },
-    rpc: async (fn: string, a: { uid: string }) => ({ data: fn === 'business_for_user' ? (tables.business_members.find((m) => m.user_id === a.uid)?.business_id ?? null) : null }),
+    rpc: async (fn: string, a: any) => (fn === 'business_for_user' ? { data: tables.business_members.find((m) => m.user_id === a.uid)?.business_id ?? null, error: null }
+      // stock by location (4700): the count at a location — here only the branch's
+      : fn === 'stock_at' ? { data: a.p_location === 'L2' && a.p_item === 'cream' ? 0 : 5, error: null } : { data: null, error: null }),
   };
 });
 
@@ -52,6 +54,23 @@ test('a cashier\'s sale reaches the managers\' phones (not the cashier\'s), with
   const stock = sent.filter((s) => s.title === '⚠️ מלאי נמוך');
   assert.deepEqual(stock.map((s) => s.endpoint).sort(), ['https://push.test/manager', 'https://push.test/owner']);
   assert.ok(!sent.some((s) => s.endpoint.endsWith('/cashier') || s.endpoint.endsWith('/stranger')), 'nobody else is notified');
+});
+
+test('with more than one location: what is left at the sale\'s location', async () => {
+  sent.length = 0;
+  tables.business_locations = [
+    { id: BIZ, business_id: BIZ, name: 'ראשי', active: true }, { id: 'L2', business_id: BIZ, name: 'סניף חיפה', active: true },
+  ];
+  tables.sales.push({ id: 'S3', business_id: BIZ, location_id: 'L2', total: 120, method: 'card', status: 'paid', customer_name: '', employee_name: '',
+    items: [{ name: 'קרם לחות', price: 120, qty: 1, itemId: 'cream', kind: 'product' }] });
+  const route = await import('../src/app/api/notify/sale/route');
+  const j = await (await route.POST(new Request('http://x', { method: 'POST', headers: { authorization: 'Bearer owner' }, body: JSON.stringify({ saleId: 'S3' }) }))).json();
+  assert.deepEqual(j.lowStock, ['קרם לחות בסניף חיפה: אזל מהמלאי'], 'the branch has none left (the total has 1)');
+  // a sale with no location (before locations), or a business with one active location: the totals, as before
+  tables.business_locations[1].active = false;
+  const k = await (await route.POST(new Request('http://x', { method: 'POST', headers: { authorization: 'Bearer owner' }, body: JSON.stringify({ saleId: 'S3' }) }))).json();
+  assert.deepEqual(k.lowStock, ['קרם לחות: נשארה יחידה אחת']);
+  delete tables.business_locations;
 });
 
 test('a sale of another business is not found (no notification leaks across businesses)', async () => {

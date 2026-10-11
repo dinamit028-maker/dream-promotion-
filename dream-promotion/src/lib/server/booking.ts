@@ -37,10 +37,23 @@ export const rulesOf = (s: any): SlotRules => ({
   maxDaysAhead: s.max_days_ahead ?? 30, closedDates: (s.closed_dates ?? []).map(String),
 });
 
-/** active appointments of a business between two moments (a day, with margin) */
-export async function busyBetween(businessId: string, fromIso: string, toIso: string): Promise<Busy[]> {
-  const { data } = await adminDb().from('appointments').select('start_at, end_at')
+/**
+ * Where a booking from the public page goes (locations, 2.91 — migration 4600): the main location while it is active, else the
+ * first active one — the database's own choice (location_pick), the one its trigger makes for a row with no location.
+ * null before the migration: the business is one place, as before.
+ */
+export async function bookingLocation(businessId: string): Promise<string | null> {
+  const { data, error } = await adminDb().rpc('location_pick', { p_business: businessId }).then((r) => r, () => ({ data: null, error: true }));
+  return error || !data ? null : String(data);
+}
+
+/** active appointments of a business between two moments (a day, with margin) — of one location when given: appointments
+ *  overlap only within a location (a row with no location is the main one's, whose id is the business's) */
+export async function busyBetween(businessId: string, fromIso: string, toIso: string, locationId?: string | null): Promise<Busy[]> {
+  let q = adminDb().from('appointments').select('start_at, end_at')
     .eq('business_id', businessId).in('status', ['booked', 'confirmed']).lt('start_at', toIso).gt('end_at', fromIso);
+  if (locationId) q = locationId === businessId ? q.or(`location_id.is.null,location_id.eq.${locationId}`) : q.eq('location_id', locationId);
+  const { data } = await q;
   return (data ?? []).map((r: any) => ({ start: r.start_at, end: r.end_at }));
 }
 

@@ -1,6 +1,7 @@
 import { paymentsOf, type Line, type Method, type Sale } from '@/features/register/money';
 import type { Doc, DocLine } from './openformat';
 import { netOfGross } from '@/features/finance/vat';
+import { withSerials } from '@/features/catalog/serials';
 
 /**
  * From a paid sale to a legal document. Prices in the register are VAT-inclusive; documents show the
@@ -23,13 +24,20 @@ const sh = (a: number) => a / 100;
 export interface Issuer {
   name: string; tradingName?: string; entityType?: string; dealerNumber: string; companyNumber?: string; street?: string; houseNo?: string; city?: string; zip?: string;
   phone?: string; email?: string; bankName?: string; bankBranch?: string; bankAccount?: string; note?: string; vatRate?: number;
+  /** 2.91 (T12א): the location it was issued in — taken only when the business had more than one active location */
+  location?: { name: string; address?: string; phone?: string } | null;
 }
+/** the issuer's location line on a document ("סניף: …"), or nothing (one location) */
+export const issuerLocationLine = (i: Pick<Issuer, 'location'>) =>
+  i.location?.name ? `סניף: ${[i.location.name, i.location.address, i.location.phone].filter(Boolean).join(' · ')}` : '';
 /** a document row of the database → the document (server and screen alike) */
 export interface DocRow extends Doc {
   id: string; printCount: number; saleId: string | null; shareToken?: string;
   /** 2.51 */
   leadId?: string | null; dueDate?: string | null; notes?: string; customerEmail?: string; issuer?: Issuer | null; source?: string | null;
   paidDocumentId?: string | null; quoteId?: string | null; refundId?: string | null;
+  /** 2.91 (T12א): the location it was issued in (none = the main one, or before locations) */
+  locationId?: string | null;
 }
 /** the issuer to print: the document's own snapshot, else (before 2.51) the business as it is today */
 export function issuerFor(d: { issuer?: Issuer | null }, fallback: { name: string; dealerNumber: string; companyNumber?: string; street?: string; houseNo?: string; city?: string; zip?: string; entityType?: string }): Issuer {
@@ -44,7 +52,7 @@ export const toDoc = (r: any): DocRow => ({
   baseDocType: r.base_doc_type, baseDocNumber: r.base_doc_number == null ? null : Number(r.base_doc_number), issuedBy: r.issued_by,
   lines: r.lines ?? [], payments: r.payments ?? [], printCount: r.print_count ?? 0, saleId: r.sale_id, shareToken: r.share_token,
   leadId: r.lead_id ?? null, dueDate: r.due_date ?? null, notes: r.notes ?? '', customerEmail: r.customer_email ?? '', issuer: r.issuer ?? null, source: r.source ?? null,
-  paidDocumentId: r.paid_document_id ?? null, quoteId: r.quote_id ?? null, refundId: r.refund_id ?? null,
+  paidDocumentId: r.paid_document_id ?? null, quoteId: r.quote_id ?? null, refundId: r.refund_id ?? null, locationId: r.location_id ?? null,
 });
 
 export function docFromSale(sale: Pick<Sale, 'items' | 'discount' | 'total' | 'vatAmount' | 'vatRate' | 'method' | 'customerName' | 'customerPhone' | 'payments'>
@@ -55,7 +63,8 @@ export function docFromSale(sale: Pick<Sale, 'items' | 'discount' | 'total' | 'v
   const lines: DocLine[] = sale.items.filter((l: Line) => l.qty > 0).map((l) => {
     const unitA = exVat(ag(l.price));
     const totA = exVat(ag(l.price) * l.qty);
-    return { name: l.name, qty: l.qty, unitPriceExVat: sh(unitA), discountExVat: 0, totalExVat: sh(totA), vatRate: rate, kind: 1 };
+    // a unit sold by number names it on the document (2.93)
+    return { name: withSerials(l.name, l.serials), qty: l.qty, unitPriceExVat: sh(unitA), discountExVat: 0, totalExVat: sh(totA), vatRate: rate, kind: 1 };
   });
   const totalA = ag(sale.total), vatA = rate ? ag(sale.vatAmount) : 0;
   const afterA = totalA - vatA;
@@ -96,7 +105,7 @@ export function creditForRefund(orig: Doc, refund: { amount: number; vatAmount: 
   const lines: DocLine[] = refund.items.length
     ? refund.items.map((l) => {
       const totA = exVat(Math.round(ag(l.price) * l.qty * factor));
-      return { name: l.name, qty: l.qty, unitPriceExVat: sh(Math.round(totA / l.qty)), discountExVat: 0, totalExVat: sh(totA), vatRate: rate, kind: 1 as const };
+      return { name: withSerials(l.name, l.serials), qty: l.qty, unitPriceExVat: sh(Math.round(totA / l.qty)), discountExVat: 0, totalExVat: sh(totA), vatRate: rate, kind: 1 as const };
     })
     : [{ name: `החזר חלקי — ${DOC_LABEL[orig.docType]} מס׳ ${orig.docNumber}`, qty: 1, unitPriceExVat: sh(afterA), discountExVat: 0, totalExVat: sh(afterA), vatRate: rate, kind: 1 as const }];
   const sumA = lines.reduce((a, l) => a + ag(l.totalExVat), 0);

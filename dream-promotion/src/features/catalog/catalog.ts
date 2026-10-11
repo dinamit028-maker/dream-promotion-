@@ -1,3 +1,5 @@
+import { QUICK_COUNT_OWNER } from '@/features/stock/stock-locations';
+import { serialError } from './serials';
 /**
  * Dream Commerce stage 1 (2.54): ONE catalog for the register, finance and the online store — the same rows of
  * catalog_items, catalog_variants, catalog_options, catalog_media and catalog_field_defs (migration 20261005003300).
@@ -26,6 +28,8 @@ export interface CatalogItem {
   manufacturer: string; countryOfOrigin: string; publishedAt: string | null; updatedAt: string | null;
   /** a package's terms (kind 'package', migration 20261010004200): treatments, a treatment type (null = any), months valid */
   packageSessions: number | null; packageTypeId: string | null; packageValidMonths: number | null;
+  /** 2.93 (migration 20261011004800): every unit has its own serial number (features/catalog/serials.ts) */
+  trackSerials: boolean;
 }
 export interface CatalogOption { id: string; itemId: string; position: number; name: string; choices: string[] }
 export interface CatalogVariant {
@@ -69,6 +73,7 @@ export function toCatalogItem(r: any): CatalogItem {
     customFields: Object.fromEntries(Object.entries(cf).filter(([, v]) => typeof v === 'string')) as Record<string, string>,
     manufacturer: str(r.manufacturer), countryOfOrigin: str(r.country_of_origin), publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? null,
     packageSessions: numOrNull(r.package_sessions), packageTypeId: r.package_type_id ? str(r.package_type_id) : null, packageValidMonths: numOrNull(r.package_valid_months),
+    trackSerials: Boolean(r.track_serials),
   };
 }
 export const toOption = (r: any): CatalogOption => ({ id: str(r.id), itemId: str(r.item_id), position: num(r.position, 1), name: str(r.name), choices: Array.isArray(r.choices) ? r.choices.map(str) : [] });
@@ -96,7 +101,7 @@ export function lineName(itemName: string, v?: Pick<CatalogVariant, 'option1' | 
 export const variantsOf = <V extends Pick<CatalogVariant, 'itemId' | 'position'>>(variants: V[], itemId: string) =>
   variants.filter((v) => v.itemId === itemId).sort((a, b) => a.position - b.position);
 
-/** the register's price: the variant's own, else the item's */
+/** the register's price: the variant's own, else the item's — the base price list ("מחירון בסיס"); see priceFor for the others */
 export const posPrice = (item: Pick<CatalogItem, 'price'>, v?: Pick<CatalogVariant, 'price'> | null) => v?.price ?? item.price;
 /** the store's price: the variant's online price → the item's online price → the register's price */
 export const onlinePriceOf = (item: Pick<CatalogItem, 'price' | 'onlinePrice'>, v?: Pick<CatalogVariant, 'price' | 'onlinePrice'> | null) =>
@@ -352,10 +357,117 @@ export function catalogError(e: { message?: string; code?: string } | null | und
   if (/does not exist|schema cache|PGRST20[2-5]|42703/i.test(m) && /package_(sessions|type_id|valid_months)/.test(m)) return MIGRATION_4200;
   if (/catalog_items_package_check/.test(m)) return `מספר טיפולים 1–${PACKAGE_LIMITS.sessions}, תוקף 1–${PACKAGE_LIMITS.months} חודשים.`;
   if (/catalog_items_package_type_fk/.test(m)) return 'סוג הטיפול לא נמצא בעסק.';
+  const serial = serialError(e);
+  if (serial) return serial;
+  const list = priceListError(e);
+  if (list) return list;
+  if (/the owner counts/.test(m)) return QUICK_COUNT_OWNER;
   if (/variant_required/.test(m)) return 'למוצר עם וריאנטים סופרים מלאי לכל וריאנט בנפרד.';
   if (/not of this item/.test(m)) return 'התמונה והווריאנט חייבים להיות של אותו מוצר.';
   if (/stock changes only/.test(m)) return 'מלאי משתנה רק דרך קבלת סחורה או ספירה.';
   if (/row-level security|permission denied|42501|not allowed/i.test(m)) return 'אין הרשאה לפעולה הזו.';
+  return null;
+}
+
+// ---- price lists (2.93, migration 20261011004800 — T12ג) ----------------------------------------------------------------------
+/**
+ * The base price list is the catalog's own price (posPrice). A business may add lists: a location's (its sales and documents)
+ * and a customer group's — the customers with a tag of the CRM ("סיטונאי", "חברי מועדון"). A list prices the products it names
+ * (a product, or one of its variants; a product's price is its variants' too, unless a variant has its own in that list).
+ * THE rule, everywhere a price is picked (the register, a document, a quote): the customer's group, else the location's, else
+ * the base. Changing the price on a line stays with whoever may write it, as before.
+ */
+export interface PriceList { id: string; name: string; kind: 'location' | 'group'; locationId: string | null; tag: string | null; active: boolean; sort: number }
+export interface ListPrice { listId: string; itemId: string; variantId: string | null; price: number }
+export const toPriceList = (r: any): PriceList => ({
+  id: str(r.id), name: str(r.name), kind: r.kind === 'location' ? 'location' : 'group', locationId: r.location_id ? str(r.location_id) : null,
+  tag: r.tag ? str(r.tag) : null, active: r.active !== false, sort: num(r.sort),
+});
+export const toListPrice = (r: any): ListPrice => ({ listId: str(r.list_id), itemId: str(r.item_id), variantId: r.variant_id ? str(r.variant_id) : null, price: num(r.price) });
+export const PRICE_LIST_LIMITS = { name: 40, tag: 40, lines: 500 } as const;
+const sameTag = (a: string, b: string) => a.trim().toLocaleLowerCase('he') === b.trim().toLocaleLowerCase('he');
+
+/** the lists that price a sale or a document, in the order they are asked: the customer's group(s), then the location's */
+export function listsFor(lists: PriceList[], ctx: { locationId?: string | null; tags?: readonly string[] | null }): PriceList[] {
+  const tags = (ctx.tags ?? []).filter((t) => t.trim());
+  const group = lists.filter((l) => l.active && l.kind === 'group' && l.tag && tags.some((t) => sameTag(t, l.tag!)))
+    .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name, 'he'));
+  const here = ctx.locationId ? lists.filter((l) => l.active && l.kind === 'location' && l.locationId === ctx.locationId) : [];
+  return [...group, ...here];
+}
+/** a product's (or a variant's) price by those lists: the first that names it — else the base; and which list it was */
+export function priceFor(item: Pick<CatalogItem, 'id' | 'price'>, v: Pick<CatalogVariant, 'id' | 'price'> | null | undefined,
+  lists: PriceList[], prices: ListPrice[]): { price: number; list: PriceList | null } {
+  for (const l of lists) {
+    const own = v ? prices.find((p) => p.listId === l.id && p.itemId === item.id && p.variantId === v.id) : undefined;
+    const whole = own ?? prices.find((p) => p.listId === l.id && p.itemId === item.id && p.variantId === null);
+    if (whole) return { price: whole.price, list: l };
+  }
+  return { price: posPrice(item, v), list: null };
+}
+/** a list's price as typed: '' takes it off (the base again); else shekels and agorot, 0 or more (as the database: price_list_set) */
+export function listPriceInput(raw: string): { ok: true; price: number | null } | { ok: false; error: string } {
+  const t = raw.replace(/[₪,\s]/g, '');
+  if (t === '') return { ok: true, price: null };
+  if (!/^[0-9]{1,7}(\.[0-9]{1,2})?$/.test(t)) return { ok: false, error: 'מחיר: מספר, 0 או יותר (עד 2 ספרות אחרי הנקודה) — או ריק (אז המחיר הרגיל).' };
+  return { ok: true, price: Number(t) };
+}
+/** a list's name and kind, the first problem in Hebrew */
+export function priceListDraftError(d: { name: string; kind: 'location' | 'group'; locationId: string | null; tag: string }): string | null {
+  if (!d.name.trim()) return 'שם למחירון — למשל "סיטונאי".';
+  if (d.name.trim().length > PRICE_LIST_LIMITS.name) return `שם המחירון — עד ${PRICE_LIST_LIMITS.name} תווים.`;
+  if (d.kind === 'location' && !d.locationId) return 'לאיזה סניף המחירון?';
+  if (d.kind === 'group' && !d.tag.trim()) return 'לאיזו קבוצת לקוחות? (תגית בכרטיס הלקוח, למשל "סיטונאי")';
+  if (d.kind === 'group' && d.tag.trim().length > PRICE_LIST_LIMITS.tag) return `תגית — עד ${PRICE_LIST_LIMITS.tag} תווים.`;
+  return null;
+}
+/** a refusal of the database about price lists and SKU series, in Hebrew (null: not one of these) */
+export function priceListError(e: { message?: string; code?: string } | null | undefined): string | null {
+  const m = `${e?.message ?? ''} ${e?.code ?? ''}`;
+  if (/price_lists_tag_uq/.test(m)) return 'כבר יש מחירון פעיל לקבוצה הזו.';
+  if (/price_lists_location_uq/.test(m)) return 'כבר יש מחירון פעיל לסניף הזה.';
+  if (/price_lists_name_uq/.test(m)) return 'כבר יש מחירון בשם הזה.';
+  if (/price_list_name/.test(m)) return `שם המחירון: 1–${PRICE_LIST_LIMITS.name} תווים.`;
+  if (/price_list_tag/.test(m)) return 'מחירון של קבוצה צריך תגית של לקוחות.';
+  if (/price_list_kind/.test(m)) return 'מחירון של סניף או של קבוצת לקוחות.';
+  if (/price_list_price/.test(m)) return 'מחיר: מספר, 0 או יותר (עד 2 ספרות אחרי הנקודה).';
+  if (/price_list_lines/.test(m)) return `עד ${PRICE_LIST_LIMITS.lines} מחירים בשמירה אחת.`;
+  if (/price_list_item/.test(m)) return 'המוצר לא נמצא בעסק.';
+  if (/sku_series_prefix_uq/.test(m)) return 'כבר יש סדרה עם הקידומת הזו.';
+  if (/sku_series_name_uq/.test(m)) return 'כבר יש סדרה בשם הזה.';
+  if (/sku_series_prefix/.test(m)) return 'קידומת: 1–6 אותיות באנגלית או ספרות (למשל JW).';
+  if (/sku_series_digits/.test(m)) return 'מספר הספרות: 3 עד 6.';
+  if (/sku_series_next/.test(m)) return 'המספר הבא: מ-1 עד 999999.';
+  if (/sku_series_name/.test(m)) return 'שם לסדרה — למשל "תכשיטים".';
+  if (/sku_series_full/.test(m)) return 'נגמרו המספרים בסדרה — מגדילים את מספר הספרות.';
+  if (/sku_series_closed/.test(m)) return 'הסדרה סגורה — פותחים אותה בעריכת הסדרה.';
+  return null;
+}
+
+// ---- SKU series ("מק״ט מונה", 2.93 — T12ג) ---------------------------------------------------------------------------------
+/**
+ * A series is a category of SKUs with its own prefix and counter: "תכשיטים" → JW-0001, JW-0002… The database hands out the next
+ * free code (sku_next — under the catalog's code lock, never one a product or a variant has); the editor puts it in the SKU field.
+ */
+export interface SkuSeries { id: string; name: string; prefix: string; digits: number; nextNo: number; active: boolean }
+export const toSkuSeries = (r: any): SkuSeries => ({
+  id: str(r.id), name: str(r.name), prefix: str(r.prefix), digits: num(r.digits, 4), nextNo: num(r.next_no, 1), active: r.active !== false,
+});
+export const SKU_LIMITS = { name: 40, prefix: 6, digitsMin: 3, digitsMax: 6, next: 999999 } as const;
+/** "JW-0001" — the shape of a code of a series (the database's: prefix || '-' || lpad(n, digits)) */
+export const skuCode = (prefix: string, n: number, digits: number) => `${prefix}-${String(n).padStart(digits, '0')}`;
+/** a prefix as typed: capitals, no spaces */
+export const skuPrefix = (raw: string) => raw.replace(/\s+/g, '').toUpperCase();
+/** what the next code of a series looks like (the database may skip one a product already has) */
+export const nextSkuPreview = (s: Pick<SkuSeries, 'prefix' | 'nextNo' | 'digits'>) => skuCode(s.prefix, s.nextNo, s.digits);
+/** a series' fields, the first problem in Hebrew (the same rules as sku_series_save) */
+export function skuSeriesError(d: { name: string; prefix: string; digits: number; next: number }): string | null {
+  if (!d.name.trim()) return 'שם לסדרה — למשל "תכשיטים".';
+  if (d.name.trim().length > SKU_LIMITS.name) return `שם הסדרה — עד ${SKU_LIMITS.name} תווים.`;
+  if (!/^[A-Z0-9]{1,6}$/.test(skuPrefix(d.prefix))) return 'קידומת: 1–6 אותיות באנגלית או ספרות (למשל JW).';
+  if (!(Number.isInteger(d.digits) && d.digits >= SKU_LIMITS.digitsMin && d.digits <= SKU_LIMITS.digitsMax)) return 'מספר הספרות: 3 עד 6.';
+  if (!(Number.isInteger(d.next) && d.next >= 1 && d.next <= SKU_LIMITS.next)) return 'המספר הבא: מ-1 עד 999999.';
+  if (d.next > 10 ** d.digits - 1) return `עם ${d.digits} ספרות המספר הגבוה הוא ${10 ** d.digits - 1}.`;
   return null;
 }
 

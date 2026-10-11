@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { busyBetween, loadBusiness, rulesOf } from '@/lib/server/booking';
+import { bookingLocation, busyBetween, loadBusiness, rulesOf } from '@/lib/server/booking';
 import { freeSlots } from '@/features/booking/slots';
 import { israelToIso } from '@/lib/il-time';
 import { UNAVAILABLE } from '@/lib/server/business';
@@ -20,7 +20,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ slug: string }>
   const date = String(url.searchParams.get('date') ?? '');
   if (!service || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ code: 'bad_input' }, { status: 400 });
   const from = israelToIso(date, '00:00'), to = new Date(new Date(from).getTime() + 864e5).toISOString();
-  const busy = await busyBetween(b.settings.business_id, from, to);
+  // a business with several locations: the page books at its main one (the free hours are that location's)
+  const busy = await busyBetween(b.settings.business_id, from, to, await bookingLocation(b.settings.business_id));
   const slots = freeSlots(date, service.minutes, rulesOf(b.settings), busy).map((s) => ({ time: s.time, start: s.start }));
   return NextResponse.json({ slots }, { headers: { 'Cache-Control': 'no-store' } });
 }

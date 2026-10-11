@@ -11,12 +11,15 @@ import { MILESTONES, milestoneCount, type Milestones } from './milestones';
  * Admin → "עסקים": the super admin's dashboard — one card per business with its state, payment date
  * (warning a week before it ends), assets (warning when one was disconnected) and this month's
  * activity; actions: extend a month, set a date, lock / unlock, add a business, assign assets, enter,
- * add a person (full access, or the register only — "קופאי/ת") and remove one.
+ * add a person (full access, or the register only — "קופאי/ת") and remove one. 2.91 (T12א): a business with several locations
+ * — which locations each person works in (all, or some: a cashier of one branch sees nothing of another).
  */
 type Biz = {
   id: string; name: string; slug: string; status: string; paidUntil: string | null; graceDays: number; lockReason: string;
   state: BizState; lastDay: string | null; daysLeft: number | null; endingSoon: boolean;
-  members: { role: string; access?: 'full' | 'register'; email: string; name: string }[];
+  members: { role: string; access?: 'full' | 'register'; email: string; name: string; locations?: string[] | null }[];
+  /** migration 4600: the business's locations, the main one first (one or none: nothing to choose) */
+  locations?: { id: string; name: string; active: boolean }[];
   assets: number; missing: string[];
   month: { posts: number; leads: number; costUsd: number };
   milestones?: Milestones;
@@ -150,6 +153,11 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
               </details>
             )}
 
+            {(b.locations?.length ?? 0) > 1 && (
+              <MemberLocations b={b} busy={!!busy} onSave={(email, locations) => act(b, 'member_locations', { email, locations },
+                locations ? `${email} עובד/ת עכשיו רק ב: ${locations.map((id) => b.locations?.find((l) => l.id === id)?.name ?? '').join(', ')}.` : `${email} עובד/ת עכשיו בכל הסניפים.`)} />
+            )}
+
             <div className="mt-3 flex flex-wrap gap-2">
               {b.paidUntil && <Button size="sm" variant="primary" disabled={!!busy} onClick={() => act(b, 'extend', {}, `"${b.name}" הוארך בחודש.`)}>
                 {busy === `${b.id}:extend` ? <Spinner /> : null}הארך חודש</Button>}
@@ -181,6 +189,45 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
         )}
       </Card>
     </div>
+  );
+}
+
+/** which locations each person of the business works in: all of them, or some — the database shows them only those */
+function MemberLocations({ b, busy, onSave }: { b: Biz; busy: boolean; onSave: (email: string, locations: string[] | null) => Promise<boolean> }) {
+  const [edit, setEdit] = useState<{ email: string; picked: string[] | null } | null>(null);
+  const places = b.locations ?? [];
+  const nameOf = (id: string) => places.find((l) => l.id === id)?.name ?? '?';
+  const toggle = (id: string) => setEdit((e) => {
+    if (!e) return e;
+    const now = e.picked ?? [];
+    return { ...e, picked: now.includes(id) ? now.filter((x) => x !== id) : [...now, id] };
+  });
+  return (
+    <details className="mt-2 rounded-xl bg-surface-2 p-2 text-sm">
+      <summary className="cursor-pointer font-semibold">סניפים: {places.filter((l) => l.active).length} · מי עובד/ת איפה</summary>
+      <ul className="mt-1 grid gap-1">
+        {b.members.map((m) => (
+          <li key={m.email || m.name} className="flex flex-wrap items-center justify-between gap-2">
+            <span className="min-w-0 break-words">{m.email || m.name}{m.access === 'register' ? ' (קופה)' : ''}: <strong>{m.locations?.length ? m.locations.map(nameOf).join(', ') : 'כל הסניפים'}</strong></span>
+            {m.email && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEdit({ email: m.email, picked: m.locations?.length ? [...m.locations] : null })}>שינוי</Button>}
+          </li>
+        ))}
+      </ul>
+      {edit && (
+        <div className="mt-2 grid gap-1.5 rounded-xl border border-line p-2" role="group" aria-label={`הסניפים של ${edit.email}`}>
+          <p className="font-semibold">הסניפים של {edit.email}</p>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={edit.picked === null} onChange={(e) => setEdit({ ...edit, picked: e.target.checked ? null : [] })} /> כל הסניפים</label>
+          {edit.picked !== null && places.map((l) => (
+            <label key={l.id} className="flex items-center gap-2"><input type="checkbox" checked={edit.picked!.includes(l.id)} onChange={() => toggle(l.id)} /> {l.name}{l.active ? '' : ' (סגור)'}</label>
+          ))}
+          <div className="mt-1 flex gap-2">
+            <Button size="sm" variant="primary" disabled={busy || (edit.picked !== null && !edit.picked.length)}
+              onClick={async () => { if (await onSave(edit.email, edit.picked)) setEdit(null); }}>שמירה</Button>
+            <Button size="sm" variant="ghost" onClick={() => setEdit(null)}>ביטול</Button>
+          </div>
+        </div>
+      )}
+    </details>
   );
 }
 

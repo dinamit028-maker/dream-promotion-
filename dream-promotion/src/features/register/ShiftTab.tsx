@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Card, Field, Input, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
@@ -8,21 +8,35 @@ import { formatIL, israelParts, israelToIso } from '@/lib/il-time';
 import { DOC_LABEL } from '@/features/documents/documents';
 import { ils, methodLabel, type Refund, type Sale } from './money';
 import { cashDifference, daySummary, shiftDay, toShift, type DocLite, type Shift } from './shift';
+import { locationOf, registerOf } from '@/features/locations/locations';
 
-/** "סגירת יום": open the drawer in the morning, count it in the evening, see the day — and keep every closing */
+/**
+ * "סגירת יום": open the drawer in the morning, count it in the evening, see the day — and keep every closing.
+ * 2.91 (T12א): per register — the day of the register this device stands at (a day with no register is the main one's), its
+ * own sales and refunds when the business has more than one register, and the documents of its location.
+ */
+export interface ShiftRegister { id: string; label: string; businessId: string; locationId: string | null; several: boolean }
 const nextDay = (day: string) => new Date(Date.parse(`${day}T12:00:00Z`) + 864e5).toISOString().slice(0, 10);
 const ddmmyyyy = (day: string) => day.split('-').reverse().join('/');
 const amount = (v: string) => (v.trim() === '' || !(Number(v) >= 0) ? null : Math.round(Number(v) * 100) / 100);
 const errText = (e: any) => /relation .* does not exist|schema cache/i.test(String(e?.message)) ? 'צריך להריץ את מיגרציית סגירת היום ב-Supabase (20261003001800).'
   : /register_shifts_one_open/.test(String(e?.message)) ? 'כבר יש יום פתוח. סוגרים אותו לפני שפותחים חדש.' : 'משהו השתבש. נסו שוב.';
 
-async function loadDocs(userId: string, day: string): Promise<DocLite[]> {
-  const { data } = await supabase().from('documents').select('doc_type, doc_number, issued_at')
+async function loadDocs(userId: string, day: string, register: ShiftRegister | null = null): Promise<DocLite[]> {
+  const { data } = await supabase().from('documents').select(register ? 'doc_type, doc_number, issued_at, location_id' : 'doc_type, doc_number, issued_at')
     .gte('issued_at', israelToIso(day, '00:00')).lt('issued_at', israelToIso(nextDay(day), '00:00'));
-  return ((data ?? []) as any[]).map((d) => ({ docType: d.doc_type, docNumber: Number(d.doc_number), issuedAt: d.issued_at }));
+  // several registers: the documents of this register's location (the numbers are the business's one series)
+  const rows = ((data ?? []) as any[]).filter((d) => !register?.several || !register.locationId || locationOf(d, register.businessId) === register.locationId);
+  return rows.map((d) => ({ docType: d.doc_type, docNumber: Number(d.doc_number), issuedAt: d.issued_at }));
 }
 
-export function ShiftTab({ userId, sales, refunds = [], employees, businessName }: { userId: string; sales: Sale[]; refunds?: Refund[]; employees: { id: string; name: string }[]; businessName: string }) {
+export function ShiftTab({ userId, sales: allSales, refunds: allRefunds = [], employees, businessName: bizName, register = null }: { userId: string; sales: Sale[]; refunds?: Refund[];
+  employees: { id: string; name: string }[]; businessName: string; register?: ShiftRegister | null }) {
+  // several registers: this register's own sales and refunds (none named = the main register's); one register: all of them, as before
+  const mine = <T extends { registerId?: string | null }>(rows: T[]) => (register?.several ? rows.filter((r) => registerOf(r, register.businessId) === register.id) : rows);
+  const sales = useMemo(() => mine(allSales), [allSales, register]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refunds = useMemo(() => mine(allRefunds), [allRefunds, register]); // eslint-disable-line react-hooks/exhaustive-deps
+  const businessName = register?.label ? `${bizName} · ${register.label}` : bizName;
   const [shifts, setShifts] = useState<Shift[] | null>(null);
   const [docs, setDocs] = useState<DocLite[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -35,13 +49,15 @@ export function ShiftTab({ userId, sales, refunds = [], employees, businessName 
   const load = useCallback(async () => {
     const { data, error: e } = await supabase().from('register_shifts').select('*').order('opened_at', { ascending: false }).limit(60);
     if (e) { setError(errText(e)); setShifts([]); return; }
-    setShifts((data ?? []).map(toShift)); setError(null);
-  }, [userId]);
+    // this register's days (a day from before registers is the main register's)
+    const rows = ((data ?? []) as any[]).filter((r) => !register || registerOf(r, register.businessId) === register.id);
+    setShifts(rows.map(toShift)); setError(null);
+  }, [userId, register?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [load]);
 
   const open = shifts?.find((s) => !s.closedAt) ?? null;
   const day = open ? shiftDay(open) : israelParts(Date.now()).date;
-  useEffect(() => { void loadDocs(userId, day).then(setDocs); }, [userId, day, sales.length]);
+  useEffect(() => { void loadDocs(userId, day, register).then(setDocs); }, [userId, day, sales.length, register?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (shifts === null) return <div className="py-8 text-center"><Spinner /></div>;
   const sum = daySummary({ sales, docs, day, openingCash: open?.openingCash ?? 0, refunds });
@@ -51,7 +67,7 @@ export function ShiftTab({ userId, sales, refunds = [], employees, businessName 
   async function openDay() {
     const cash = amount(opening); if (cash == null) return;
     setBusy(true);
-    const { error: e } = await supabase().from('register_shifts').insert({ user_id: userId, opening_cash: cash, employee_name: employee });
+    const { error: e } = await supabase().from('register_shifts').insert({ user_id: userId, opening_cash: cash, employee_name: employee, ...(register ? { register_id: register.id } : {}) });
     setBusy(false);
     if (e) return setError(errText(e));
     setOpening(''); void load();
@@ -77,7 +93,7 @@ export function ShiftTab({ userId, sales, refunds = [], employees, businessName 
 
       {!open ? (
         <Card className="p-4">
-          <p className="mb-1 font-display text-lg font-extrabold">☀️ פתיחת יום</p>
+          <p className="mb-1 font-display text-lg font-extrabold">☀️ פתיחת יום{register?.label ? ` · ${register.label}` : ''}</p>
           <p className="mb-3 text-sm text-ink-2">כמה מזומן יש במגירה עכשיו, לפני המכירה הראשונה?</p>
           <div className="grid gap-2 sm:grid-cols-[160px_1fr_auto] sm:items-end">
             <Field label="מזומן בפתיחה ₪"><Input type="number" inputMode="decimal" min={0} value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0" className="h-12 text-lg" /></Field>
@@ -89,7 +105,7 @@ export function ShiftTab({ userId, sales, refunds = [], employees, businessName 
         </Card>
       ) : (
         <Card className="p-4">
-          <p className="mb-1 font-display text-lg font-extrabold">🌙 סגירת יום · {ddmmyyyy(day)}</p>
+          <p className="mb-1 font-display text-lg font-extrabold">🌙 סגירת יום · {ddmmyyyy(day)}{register?.label ? ` · ${register.label}` : ''}</p>
           <p className="mb-3 text-xs text-muted">נפתח ב-{formatIL(open.openedAt, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'numeric' })}{open.employeeName ? ` · ${open.employeeName}` : ''}
             {day !== israelParts(Date.now()).date && ' · היום הזה עדיין פתוח מתאריך קודם'}</p>
           <ul className="mb-3 grid gap-1 rounded-2xl bg-surface-2 p-3 text-sm tabular-nums">
@@ -129,7 +145,7 @@ export function ShiftTab({ userId, sales, refunds = [], employees, businessName 
                 <DiffBadge difference={s.difference ?? 0} />
                 <Button size="sm" variant="ghost" onClick={async () => {
                   const w = window.open('', '_blank'); const d = shiftDay(s);
-                  printReport(w, s, daySummary({ sales, docs: await loadDocs(userId, d), day: d, openingCash: s.openingCash, refunds }), businessName);
+                  printReport(w, s, daySummary({ sales, docs: await loadDocs(userId, d, register), day: d, openingCash: s.openingCash, refunds }), businessName);
                 }}>הדפסה</Button>
               </li>
             ))}

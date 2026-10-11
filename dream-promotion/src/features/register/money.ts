@@ -19,7 +19,11 @@ export const methodLabel = (m: Method) => (m === 'split' ? 'פיצול תשלו�
 export type ItemKind = 'service' | 'product' | 'package' | 'other';
 /** a cart / sale line; itemId + kind (from 2.50) tie it to the price list — stock and commissions use them */
 /** a line of a sale; itemId / variantId link it to the catalog (stock, commissions — and the size / colour sold, 2.54) */
-export interface Line { name: string; price: number; qty: number; itemId?: string; kind?: ItemKind; variantId?: string }
+export interface Line {
+  name: string; price: number; qty: number; itemId?: string; kind?: ItemKind; variantId?: string;
+  /** 2.93: a product with serial numbers — the numbers of the units sold (one a unit: qty = their count); the database checks them */
+  serials?: string[];
+}
 export interface Sale {
   id: string; leadId: string | null; appointmentId: string | null; customerName: string; customerPhone: string;
   items: Line[]; subtotal: number; discount: number; total: number; vatRate: number; vatAmount: number;
@@ -28,6 +32,8 @@ export interface Sale {
   payments?: Pay[]; employeeId?: string | null; employeeName?: string;
   /** an invoice to a business: the name on the document, its dealer / company number and address */
   billingName?: string; customerDealer?: string; customerStreet?: string; customerCity?: string;
+  /** 2.91 (T12א): the register and location it was sold at — none (before registers) is the main one */
+  registerId?: string | null; locationId?: string | null;
 }
 
 /** money paid back on a sale ("החזר"). Recorded once, never edited; reports count it on the day it was made. */
@@ -36,6 +42,8 @@ export interface Refund {
   id: string; saleId: string; createdAt: string; amount: number; vatAmount: number; method: RefundMethod;
   /** what came back (empty = an amount only) */
   items: Line[]; restock: boolean; reason: string; employeeName: string;
+  /** 2.91 (T12א): the register that paid it out — none (before registers) is the main one */
+  registerId?: string | null;
 }
 export const refundDay = (r: Pick<Refund, 'createdAt'>) => israelParts(new Date(r.createdAt)).date;
 /** the payments of a sale — a split sale lists them, a single-method sale is one payment of the total */

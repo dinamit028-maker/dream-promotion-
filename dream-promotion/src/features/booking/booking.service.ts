@@ -14,6 +14,8 @@ export type ApptStatus = 'booked' | 'confirmed' | 'done' | 'no_show' | 'cancelle
 export interface Appointment {
   id: string; serviceId: string | null; serviceName: string; leadId: string | null; name: string; phone: string; email: string;
   note: string; start: string; end: string; status: ApptStatus; source: 'public' | 'manual';
+  /** 2.91 (locations, migration 4600): where it is; none = the main location (a row from before it, or a business with one) */
+  locationId?: string | null;
 }
 
 export const DEFAULT_SETTINGS: BookingSettings = {
@@ -24,7 +26,7 @@ export const DEFAULT_SETTINGS: BookingSettings = {
 
 const fromRow = (r: any): Appointment => ({
   id: r.id, serviceId: r.service_id, serviceName: r.service_name ?? '', leadId: r.lead_id, name: r.name, phone: r.phone ?? '', email: r.email ?? '',
-  note: r.note ?? '', start: r.start_at, end: r.end_at, status: r.status, source: r.source,
+  note: r.note ?? '', start: r.start_at, end: r.end_at, status: r.status, source: r.source, locationId: r.location_id ?? null,
 });
 
 /** clear message for the errors a user can act on */
@@ -33,6 +35,7 @@ export const bookingError = (e: any): string => {
   if (e?.code === '23P01' || /no_overlap|exclusion/i.test(m)) return 'כבר יש תור בשעה הזו. בחרו שעה אחרת.';
   if (e?.code === '23505' || /duplicate key.*slug/i.test(m)) return 'הכתובת הזו כבר תפוסה. בחרו כתובת אחרת.';
   if (/slug_check|check constraint.*slug/i.test(m)) return 'כתובת הדף: אותיות באנגלית קטנות, ספרות ומקף, 3–40 תווים.';
+  if (e?.code === '42501' || /not allowed/i.test(m)) return 'אין הרשאה לקבוע תור בסניף הזה.';
   if (/booking_services_deposit_check/.test(m)) return 'המקדמה: סכום גדול מאפס, ולא יותר ממחיר השירות.';
   if (/deposit/.test(m) && /column|schema cache/i.test(m)) return 'צריך להריץ את מיגרציה 20261010004300 (לינק לתשלום ומקדמה) ב-Supabase לפני שמגדירים מקדמה.';
   if (/relation .* does not exist|schema cache/i.test(m)) return 'צריך להריץ את מיגרציית זימון התורים ב-Supabase (20261003001000).';
@@ -85,6 +88,8 @@ export const BookingAPI = {
     const { data, error } = await supabase().from('appointments').insert({
       user_id: userId, service_id: a.serviceId, service_name: a.serviceName, lead_id: a.leadId, name: a.name, phone: a.phone, email: a.email,
       note: a.note, start_at: a.start, end_at: a.end, status: a.status, source: 'manual',
+      // a location chosen in the form (several locations, "כל הסניפים" picked); else the database puts it where the user works
+      ...(a.locationId ? { location_id: a.locationId } : {}),
     }).select('*').single();
     if (error) throw error;
     return fromRow(data);
