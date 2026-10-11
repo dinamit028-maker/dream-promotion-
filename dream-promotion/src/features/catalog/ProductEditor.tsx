@@ -132,7 +132,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const stockAt = (variantId: string | null, total: number) => {
     if (!atLoc || !item) return null;
     const n = qtyAt(levels!, atLoc, item.id, variantId);
-    return `${n <= 0 ? (n < 0 ? `חסר (${n})` : 'אזל') : `במלאי ${n}`} ב${locationName(loc, atLoc)} · סה״כ ${total}`;
+    return `${n <= 0 ? (n < 0 ? `חסר (${n})` : 'אזל') : `במלאי ${n}`} ב${locationName(loc, atLoc)} · בכל הסניפים ${total}`;
   };
   const locPick = atLoc && activeLocations(loc).length > 1 ? (
     <label className="mb-3 flex flex-wrap items-center gap-2 text-sm font-semibold">קבלה וספירה ב-

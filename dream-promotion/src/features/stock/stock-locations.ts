@@ -27,6 +27,19 @@ export const qtyAt = (rows: StockRow[], locationId: string, itemId: string, vari
 export const totalOf = (rows: StockRow[], itemId: string, variantId: string | null = null) =>
   rows.filter((r) => r.itemId === itemId && r.variantId === (variantId ?? null)).reduce((a, r) => a + r.qty, 0);
 
+/**
+ * The locations "לפי סניף" shows: the open ones, and a closed one that still holds units (so its units — part of the total — are
+ * not lost from sight; a transfer out of it needs it opened again).
+ */
+export function stockPlaces<L extends { id: string; active: boolean }>(locations: L[], rows: StockRow[]): L[] {
+  return locations.filter((l) => l.active || rows.some((r) => r.locationId === l.id && r.variantId === null && r.qty !== 0));
+}
+/** what is left at a location: units (an item's own count — its variants are in it) and how many products */
+export function unitsAt(rows: StockRow[], locationId: string): { units: number; products: number } {
+  const here = rows.filter((r) => r.locationId === locationId && r.variantId === null && r.qty !== 0);
+  return { units: here.reduce((a, r) => a + r.qty, 0), products: here.length };
+}
+
 export type Level = 'ok' | 'low' | 'out';
 /** at or under the alert level: low; nothing (or less): out */
 export const levelOf = (qty: number, low: number): Level => (qty <= 0 ? 'out' : qty <= low ? 'low' : 'ok');

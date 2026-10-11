@@ -10,6 +10,8 @@ import {
 } from './locations';
 import { saveLocation, saveRegister } from './locations-data';
 import { useLocations } from './store';
+import { loadStockAt } from '@/features/stock/stock-data';
+import { unitsAt } from '@/features/stock/stock-locations';
 
 /**
  * "סניפים וקופות" (T12א): the business's locations — a store, a branch, a warehouse, a clinic — and the registers of each.
@@ -34,6 +36,10 @@ export function LocationsScreen() {
 
   async function toggleLocation(l: Location) {
     if (l.active && !window.confirm(`לסגור את "${l.name}"? הנתונים שלו נשמרים, והוא לא יוצע יותר לעבודה.`)) return;
+    // stock by location (4700): units left there stay there — they are moved out first (a closed location sends no transfer)
+    const left = l.active ? await loadStockAt(l.id) : null;
+    const u = left ? unitsAt(left, l.id) : { units: 0, products: 0 };
+    if (u.units > 0 && !window.confirm(`ב"${l.name}" יש עוד ${u.units} יחידות במלאי (${u.products === 1 ? 'מוצר אחד' : `${u.products} מוצרים`}). כדאי להעביר אותן קודם לסניף אחר ("מלאי ← העברות") — מסניף סגור לא מעבירים, רק אחרי פתיחה מחדש. לסגור בכל זאת?`)) return;
     const r = await saveLocation({ ...l, active: !l.active });
     if (!r.ok) return window.alert(r.error);
     await load(); say(l.active ? `"${l.name}" נסגר.` : `"${l.name}" נפתח שוב.`);

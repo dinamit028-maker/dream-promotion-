@@ -232,6 +232,11 @@ async function main() {
       const t = fake.tables.stock_transfers[0];
       assert.deepEqual([t.number, t.status, t.from_location, t.to_location, t.lines.map((l: any) => [l.name, l.qty])], [1, 'sent', BIZ, L2, [['קרם לחות', 2]]]);
       assert.deepEqual([at(BIZ, CREAM), at(L2, CREAM)], [7, 1], 'the units left the main location; the branch does not have them yet');
+      // on the way: in no location, and still in the total (DoD — a transfer keeps the total)
+      await tabIn('לפי סניף');
+      await page.locator('thead th', { hasText: 'בדרך' }).waitFor();
+      assert.deepEqual(await rowOf('קרם לחות'), ['7', '1', '0', '2', '10']);
+      await tabIn('העברות');
       const card = page.locator('div.p-3', { hasText: 'העברה 1 · מראשי אל סניף חיפה' }).first();
       await card.getByText('בדרך').waitFor();
       await card.getByRole('button', { name: 'קבלה בסניף חיפה' }).click();
@@ -366,11 +371,11 @@ async function main() {
       const d = dialog();
       await d.getByLabel('הסניף של קבלה וספירה').waitFor({ timeout: 60_000 });
       await d.getByLabel('הסניף של קבלה וספירה').selectOption({ label: 'מחסן' });
-      await d.getByText('📦 אזל במחסן · סה״כ 13').waitFor();
+      await d.getByText('📦 אזל במחסן · בכל הסניפים 13').waitFor();
       await d.getByLabel('כמות: קרם לחות').fill('4');
       await d.getByRole('button', { name: '+ קבלה' }).first().click();
       await d.getByText('נוספו 4 יחידות במחסן ✓').waitFor();
-      await d.getByText('📦 במלאי 4 במחסן · סה״כ 17').waitFor();
+      await d.getByText('📦 במלאי 4 במחסן · בכל הסניפים 17').waitFor();
       assert.deepEqual([at(L3, CREAM), at(BIZ, CREAM), at(L2, CREAM)], [4, 7, 6]);
       await shot('stk5-editor.png');
       await page.keyboard.press('Escape');
@@ -386,6 +391,26 @@ async function main() {
       await page.getByText('נשמר.').waitFor();
       assert.equal(fake.tables.stores[0].location_id, L2);
       assert.equal(fake.shipLocation(), L2);
+    });
+
+    await step('closing a location that still holds units: a warning first, and its units stay in sight', async () => {
+      said.length = 0;
+      await goto('/settings/locations');
+      const card = page.locator('div.p-4', { has: page.locator('p', { hasText: /^מחסן ·/ }) }).first();      // "מחסן · מחסן" — its name and kind
+      await card.getByRole('button', { name: 'סגירת הסניף' }).waitFor({ timeout: 120_000 });
+      await card.getByRole('button', { name: 'סגירת הסניף' }).click();
+      await page.getByText('"מחסן" נסגר.').waitFor();
+      assert.ok(said.some((m) => m.startsWith('ב"מחסן" יש עוד 4 יחידות במלאי (מוצר אחד).')), `warned: ${said.join(' | ')}`);
+      assert.equal(fake.tables.business_locations.find((l) => l.id === L3)!.active, false);
+      await goto('/stock');
+      await stockReady();
+      await page.locator('thead th', { hasText: 'מחסן (סגור)' }).waitFor();
+      assert.deepEqual(await rowOf('קרם לחות'), ['7', '6', '4', '17'], 'its units are part of the total');
+      assert.equal(await page.locator('li', { hasText: '· מחסן:' }).count(), 0, 'a closed location is not alerted');
+      // open again (the rest of the run counts on it)
+      await goto('/settings/locations');
+      await card.getByRole('button', { name: 'פתיחה מחדש' }).click();
+      await page.getByText('"מחסן" נפתח שוב.').waitFor();
     });
 
     await step('a phone: the stock screen fits', async () => {

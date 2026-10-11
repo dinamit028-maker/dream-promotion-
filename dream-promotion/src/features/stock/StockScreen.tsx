@@ -5,8 +5,8 @@ import { Spinner } from '@/components/ui/feedback';
 import { Note } from '@/features/finance/ui';
 import { useLocations } from '@/features/locations/store';
 import { activeLocations, multiLocation } from '@/features/locations/locations';
-import { STOCK_MIGRATION, type DraftLine, type StockRow } from './stock-locations';
-import { loadStockCatalog, loadStockRows, type StockCatalog } from './stock-data';
+import { STOCK_MIGRATION, onTheWay, type DraftLine, type StockRow } from './stock-locations';
+import { loadStockCatalog, loadStockRows, loadTransfers, type StockCatalog } from './stock-data';
 import { ByLocation } from './ByLocation';
 import { Transfers } from './Transfers';
 import { Counts } from './Counts';
@@ -29,6 +29,8 @@ export function StockScreen() {
   const [catalog, setCatalog] = useState<StockCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<TransferDraft | null>(null);
+  // units sent and not yet received: in no location's count until then — "לפי סניף" shows them, and counts them in the total
+  const [way, setWay] = useState<Map<string, number>>(() => new Map());
   useEffect(() => { if (!loaded) void load(); }, [loaded, load]);
   // the tab of the link (?tab=transfers), once the locations are known
   useEffect(() => {
@@ -38,8 +40,9 @@ export function StockScreen() {
   }, [loaded, multi]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reload = useCallback(async () => {
-    const [r, c] = await Promise.all([loadStockRows(), loadStockCatalog()]);
+    const [r, c, t] = await Promise.all([loadStockRows(), loadStockCatalog(), loadTransfers()]);
     setRows(r);
+    setWay(t.ok ? onTheWay(t.data) : new Map());
     if (c.ok) { setCatalog(c.data); setError(null); } else setError(c.error);
   }, []);
   useEffect(() => { void reload(); }, [reload]);
@@ -58,7 +61,7 @@ export function StockScreen() {
         </div>
       )}
       {!catalog ? <div className="py-8 text-center"><Spinner /></div> : <>
-        {tab === 'by' && <ByLocation rows={rows} catalog={catalog} loc={loc} onTransfer={(d) => { setDraft(d); setTab('transfers'); }} />}
+        {tab === 'by' && <ByLocation rows={rows} way={way} catalog={catalog} loc={loc} onTransfer={(d) => { setDraft(d); setTab('transfers'); }} />}
         {tab === 'transfers' && <Transfers rows={rows} catalog={catalog} loc={loc} draft={draft} onDraftUsed={() => setDraft(null)} onMoved={reload} />}
         {tab === 'counts' && <Counts catalog={catalog} loc={loc} onMoved={reload} />}
       </>}

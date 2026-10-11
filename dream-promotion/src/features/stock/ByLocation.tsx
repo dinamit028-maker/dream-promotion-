@@ -2,17 +2,23 @@
 import { useMemo, useState } from 'react';
 import { Button, Card, Input } from '@/components/ui/primitives';
 import { cx } from '@/lib/utils';
-import { activeLocations, locationName, type LocationState } from '@/features/locations/locations';
-import { levelOf, lowStock, qtyAt, type StockRow } from './stock-locations';
+import { locationName, type LocationState } from '@/features/locations/locations';
+import { levelOf, lowStock, qtyAt, stockKey, stockPlaces, type StockRow } from './stock-locations';
 import type { StockCatalog } from './stock-data';
 import type { TransferDraft } from './StockScreen';
 
 const tone = (lvl: 'ok' | 'low' | 'out') => (lvl === 'out' ? 'text-red-600 dark:text-red-300' : lvl === 'low' ? 'text-amber-700 dark:text-amber-300' : '');
 
-/** "לפי סניף": every product's count at every location, what is running low where — and where to bring it from */
-export function ByLocation({ rows, catalog, loc, onTransfer }: { rows: StockRow[]; catalog: StockCatalog; loc: LocationState; onTransfer: (d: TransferDraft) => void }) {
+/**
+ * "לפי סניף": every product's count at every location, what is running low where — and where to bring it from. Units sent and not
+ * yet received ("בדרך") are in no location's count until they arrive: a column of their own, and in the total — a transfer keeps it.
+ */
+export function ByLocation({ rows, way, catalog, loc, onTransfer }: {
+  rows: StockRow[]; way: Map<string, number>; catalog: StockCatalog; loc: LocationState; onTransfer: (d: TransferDraft) => void;
+}) {
   const [q, setQ] = useState('');
-  const places = activeLocations(loc);
+  // the open locations, and a closed one that still holds units (its units are part of the total)
+  const places = useMemo(() => stockPlaces(loc.locations, rows), [loc.locations, rows]);
   const low = useMemo(() => lowStock(rows, catalog.items, catalog.variants, places), [rows, catalog, places]);
   const tracked = catalog.items.filter((i) => i.trackStock && i.active);
   const shown = tracked.filter((i) => !q.trim() || i.name.toLowerCase().includes(q.trim().toLowerCase()));
@@ -27,7 +33,11 @@ export function ByLocation({ rows, catalog, loc, onTransfer }: { rows: StockRow[
       return <td key={p.id} className={cx('px-2 py-1.5 text-center tabular-nums', tone(levelOf(n, lvl)))}>{n}</td>;
     });
   };
-  const total = (itemId: string, variantId: string | null) => places.reduce((a, p) => a + qtyAt(rows, p.id, itemId, variantId), 0);
+  const moving = way.size > 0;
+  const onWay = (itemId: string, variantId: string | null) => way.get(stockKey(itemId, variantId)) ?? 0;
+  const total = (itemId: string, variantId: string | null) => places.reduce((a, p) => a + qtyAt(rows, p.id, itemId, variantId), 0) + onWay(itemId, variantId);
+  const wayCell = (itemId: string, variantId: string | null, cls: string) =>
+    moving ? <td className={cx(cls, 'text-center tabular-nums text-muted')}>{onWay(itemId, variantId) || ''}</td> : null;
 
   return (
     <div className="grid gap-4">
@@ -56,7 +66,8 @@ export function ByLocation({ rows, catalog, loc, onTransfer }: { rows: StockRow[
             <thead>
               <tr className="border-b border-line text-xs text-muted">
                 <th className="px-3 py-2 text-start font-semibold">מוצר</th>
-                {places.map((p) => <th key={p.id} className="px-2 py-2 text-center font-semibold">{p.name}</th>)}
+                {places.map((p) => <th key={p.id} className="px-2 py-2 text-center font-semibold">{p.name}{p.active ? '' : ' (סגור)'}</th>)}
+                {moving && <th className="px-2 py-2 text-center font-semibold">בדרך</th>}
                 <th className="px-2 py-2 text-center font-semibold">סה״כ</th>
               </tr>
             </thead>
@@ -65,12 +76,12 @@ export function ByLocation({ rows, catalog, loc, onTransfer }: { rows: StockRow[
                 const vs = it.hasVariants ? catalog.variants.filter((v) => v.itemId === it.id && v.active) : [];
                 return [
                   <tr key={it.id} className="border-b border-line/60">
-                    <td className="px-3 py-1.5 font-semibold">{it.name}</td>{cells(it.id, null)}
+                    <td className="px-3 py-1.5 font-semibold">{it.name}</td>{cells(it.id, null)}{wayCell(it.id, null, 'px-2 py-1.5')}
                     <td className="px-2 py-1.5 text-center font-bold tabular-nums">{total(it.id, null)}</td>
                   </tr>,
                   ...vs.map((v) => (
                     <tr key={v.id} className="border-b border-line/40 text-ink-2">
-                      <td className="px-3 py-1 ps-6 text-xs">{v.label}</td>{cells(it.id, v.id)}
+                      <td className="px-3 py-1 ps-6 text-xs">{v.label}</td>{cells(it.id, v.id)}{wayCell(it.id, v.id, 'px-2 py-1')}
                       <td className="px-2 py-1 text-center tabular-nums">{total(it.id, v.id)}</td>
                     </tr>
                   )),
@@ -78,6 +89,7 @@ export function ByLocation({ rows, catalog, loc, onTransfer }: { rows: StockRow[
               })}
             </tbody>
           </table>
+          {moving && <p className="px-3 pb-3 pt-2 text-xs text-muted">בדרך = נשלח ועוד לא התקבל. נכנס לסניף שמקבל כשהקבלה מאושרת, ובינתיים נספר בסה״כ.</p>}
         </Card>
       )}
     </div>

@@ -24,6 +24,12 @@ export async function loadStockRows(): Promise<StockRow[] | null> {
   return out;
 }
 
+/** what is left at one location (null: the migration is not in the database) */
+export async function loadStockAt(locationId: string): Promise<StockRow[] | null> {
+  const { data, error } = await supabase().from('stock_by_location').select('location_id, item_id, variant_id, qty').eq('location_id', locationId).is('variant_id', null);
+  return error ? null : ((data ?? []) as any[]).map(toStockRow);
+}
+
 /** one product's count at every location (null: the migration is not in the database) */
 export async function loadItemStock(itemId: string): Promise<StockRow[] | null> {
   const { data, error } = await supabase().from('stock_by_location').select('location_id, item_id, variant_id, qty').eq('item_id', itemId);

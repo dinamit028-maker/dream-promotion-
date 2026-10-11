@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   COUNT_STATUS_HE, STOCK_MIGRATION, TRANSFER_STATUS_HE, atLocationStock, countList, countSummary, countsAt, findByCode, levelOf, lowStock,
-  moveRows, onTheWay, qtyAt, receiptError, receiptGaps, receiptPayload, registerAtLocation, stockErrorHe, stockKey, toCount, toStockRow,
+  moveRows, onTheWay, qtyAt, receiptError, receiptGaps, receiptPayload, registerAtLocation, stockErrorHe, stockKey, stockPlaces, toCount, toStockRow,
+  unitsAt,
   toTransfer, totalOf, transferError, transferNoteHtml, transferSummary, type StockRow,
 } from '../src/features/stock/stock-locations';
 
@@ -158,4 +159,15 @@ test('the printed transfer note: internal, not a tax document, every value escap
   const sent = transferNoteHtml({ ...t, status: 'sent' }, { business: 'א', from: 'ב', to: 'ג', sentAt: 'ד' });
   assert.match(sent, /לא מסמך מס · בדרך/);
   assert.ok(!sent.includes('התקבלה '), 'no received time');
+});
+
+test('the locations shown: the open ones, and a closed one only while it holds units', () => {
+  // the warehouse L3 is closed and holds 30 creams: shown, so its units — part of the total — stay in sight
+  assert.deepEqual(stockPlaces(places, rows).map((p) => p.id), [B, L2, L3]);
+  const empty = rows.filter((r) => r.locationId !== L3);
+  assert.deepEqual(stockPlaces(places, empty).map((p) => p.id), [B, L2], 'closed and empty: not shown');
+  // what is left at a location (before closing it): an item's own count holds its variants' units
+  assert.deepEqual(unitsAt(rows, L2), { units: 4, products: 2 });
+  assert.deepEqual(unitsAt(rows, L3), { units: 30, products: 1 });
+  assert.deepEqual(unitsAt(empty, L3), { units: 0, products: 0 });
 });
