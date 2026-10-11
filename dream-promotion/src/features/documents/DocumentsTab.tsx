@@ -7,7 +7,7 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
-import { DOC_LABEL, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, type DocRow } from './documents';
+import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
 
@@ -192,13 +192,13 @@ export function docBody(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueDate' | 'no
   return `<div class="h"><div><strong style="font-size:18px">${esc(i.name)}</strong>${i.tradingName ? `<br>${esc(i.tradingName)}` : ''}<br>${esc(issuerIdLine(i))}<br>${esc([i.street, i.houseNo, i.city].filter(Boolean).join(' '))}${contact ? `<br>${esc(contact)}` : ''}${where ? `<br>${esc(where)}` : ''}</div>
 <div style="text-align:left"><span class="mark">${esc(mark)}</span>${d.cancelled ? ' <span class="mark" style="color:#b00;border-color:#b00">בוטל</span>' : ''}<br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${esc(d.docNumber)}</strong><br>תאריך: ${esc(ddmmyyyy(d.docDate))}${d.dueDate ? `<br>לתשלום עד: ${esc(ddmmyyyy(d.dueDate))}` : ''}${extra.allocation ? `<br>${esc(extra.allocation)}` : ''}</div></div>
 <p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ / ח.פ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}${d.customerStreet || d.customerCity ? `<br>${esc([d.customerStreet, d.customerCity].filter(Boolean).join(', '))}` : ''}</p>
-${d.baseDocNumber ? `<p>זיכוי עבור ${esc(DOC_LABEL[d.baseDocType ?? 0] ?? '')} מס׳ ${esc(d.baseDocNumber)}</p>` : ''}
+${baseDocLine(d) ? `<p>${esc(baseDocLine(d))}</p>` : ''}
 <table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>
 <table><tr><td>סה״כ לפני הנחה</td><td>${n2(d.beforeDiscount)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${n2(d.discount)}</td></tr>` : ''}
 <tr><td>${vatRow ? 'סה״כ לפני מע״מ' : 'סה״כ'}</td><td>${n2(d.afterDiscount)}</td></tr>${vatRow}
-<tr class="tot"><td>${d.docType === 330 ? 'סה״כ זיכוי' : d.docType === 400 || d.docType === 320 ? 'סה״כ שולם' : 'סה״כ לתשלום'}</td><td>${n2(d.total)} ₪</td></tr></table>
+<tr class="tot"><td>${esc(totalLabel(d.docType))}</td><td>${n2(d.total)} ₪</td></tr></table>
 ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכום</th></tr>${pays}</table>` : ''}
-${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
+${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${d.docType === 200 ? `<p style="margin-top:28px">${esc(RECEIVED_LINE)}</p>` : ''}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
 <p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${softwareRegistered(SOFTWARE.regNumber) ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;
 }
 const docHtml = (d: Doc, b: Business, mark: string) => page(`${DOC_LABEL[d.docType]} ${d.docNumber}`, docBody(d, b, mark));

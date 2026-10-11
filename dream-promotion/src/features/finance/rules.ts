@@ -4,6 +4,8 @@
  * tests/finance-engine.test.ts keeps the two in line.
  *   עוסק פטור (exempt dealer) and מלכ"ר / עמותה (non-profit): no VAT, never a tax invoice — 300 / 400 only
  *   עוסק מורשה, חברה בע"מ, שותפות: VAT, every type — 305 / 320 / 330 / 300 / 400
+ * 2.95 (migration 20261011005000): both kinds may also issue an order (100), a delivery note (200) and a return note (210) — once
+ * the business turned on "selling products" (the database checks the switch: d_documents_goods); goodsDocTypes below.
  */
 export type EntityType = 'exempt_dealer' | 'licensed_dealer' | 'company' | 'partnership' | 'nonprofit';
 
@@ -39,7 +41,13 @@ export const DOC_INFO: Record<number, { label: string; what: string; receivable:
   330: { label: 'חשבונית מס זיכוי', what: 'ביטול מלא או חלקי של חשבונית מס', receivable: false, receipt: false, tax: true },
   300: { label: 'חשבונית עסקה', what: 'דרישת תשלום (לא חשבונית מס) — נכנסת לחייבים', receivable: true, receipt: false, tax: false },
   400: { label: 'קבלה', what: 'אישור על תשלום שהתקבל', receivable: false, receipt: true, tax: false },
+  // 2.95 (T10): a business that sells products — not tax documents; in the unified file with their own codes
+  100: { label: 'הזמנה', what: 'הזמנה של לקוח — לא מסמך מס, לא יורדת מהמלאי. ממנה מפיקים תעודת משלוח או חשבונית', receivable: false, receipt: false, tax: false },
+  200: { label: 'תעודת משלוח', what: 'הסחורה יצאה ללקוח (יורדת מהמלאי). ממנה מפיקים חשבונית בלחיצה', receivable: false, receipt: false, tax: false },
+  210: { label: 'תעודת החזרה', what: 'סחורה שחזרה מתעודת משלוח (חוזרת למלאי)', receivable: false, receipt: false, tax: false },
 };
+/** the goods documents the composer offers once "selling products" is on (a return note is made from its delivery note) */
+export const goodsDocTypes = (sellsProducts: boolean): number[] => (sellsProducts ? [100, 200] : []);
 
 /** how the issuer is named on its documents: "עוסק פטור 123456789", "ח.פ 514…", never "עוסק מורשה" for an exempt dealer */
 export function issuerIdLine(i: { entityType?: string | null; dealerNumber?: string; companyNumber?: string | null }, businessType?: string | null): string {

@@ -7,7 +7,9 @@
 # count, every move (without the columns 4700 adds), every answer of the functions and what the site says is free — the same on both.
 # 20261011004900 (the reports and tax withheld at source, T8) rewrote the receipts' way into the ledger and finance_summary: the
 # same day (a receipt paid by cheque too) gives the same ledger, row by row, and the same summary (4900 only adds "withheld": 0).
-# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default), 4800 or 4900]
+# 20261011005000 (the desks, deposits and the bank, T9; order / delivery note / return note, T10) rewrote the documents' checks, their
+# way into the stock and the cancellations: the same day — a business that turns nothing on — gives the same everything.
+# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default), 4800, 4900 or 5000]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BASE=${1:-${DP_TEST_DB:-dp_test}}
@@ -19,7 +21,8 @@ case "${2:-4700}" in
   4700) STOCK=supabase/migrations/20261011004700_stock_locations.sql ;;
   4800) STOCK=supabase/migrations/20261011004800_items_lists_reports.sql ;;
   4900) STOCK=supabase/migrations/20261011004900_reports.sql ;;
-  *) fail "the migration to compare: 4700, 4800 or 4900" ;;
+  5000) STOCK=supabase/migrations/20261011005000_cash_bank_goods.sql ;;
+  *) fail "the migration to compare: 4700, 4800, 4900 or 5000" ;;
 esac
 TAG=${2:-4700}
 TMPF=$(mktemp); trap 'rm -f "$TMPF" "$TMPF.before" "$TMPF.after"' EXIT
@@ -130,6 +133,11 @@ if [ "$TAG" = 4700 ]; then
 elif [ "$TAG" = 4900 ]; then
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.payments where method = 'withholding'")
   [ "$r" = "0" ] || fail "one location: no tax withheld at source appeared (got $r)"
+elif [ "$TAG" = 5000 ]; then
+  r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select (select count(*) from public.bank_deposits) + (select count(*) from public.bank_lines)
+                                                              + (select count(*) from public.cheque_reminders) + (select count(*) from public.documents where doc_type in (100, 200, 210))
+                                                              + (select count(*) from public.business_finance_profile where cash_drawers or sells_products)")
+  [ "$r" = "0" ] || fail "one location: no deposit, bank line, reminder, goods document or switch appeared (got $r)"
 else
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select (select count(*) from public.catalog_serials) + (select count(*) from public.price_lists)
                                                               + (select count(*) from public.sku_series) + (select count(*) from public.catalog_items where track_serials)")

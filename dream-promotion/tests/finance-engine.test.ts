@@ -42,7 +42,8 @@ test('VAT: whole agorot, and the same answer as the register gave before 2.51', 
 
 test('business-type rules: who issues what, and the database\'s matrix', () => {
   const all: EntityType[] = ['exempt_dealer', 'licensed_dealer', 'company', 'partnership', 'nonprofit'];
-  // the same matrix as entity_doc_types() in the migration
+  // the same matrix as entity_doc_types() in the migration (since 20261011005000 it adds 100 / 200 / 210 for both — issued only once
+  // "selling products" is on: goodsDocTypes, tests/goods.test.ts)
   const sql: Record<EntityType, number[]> = { exempt_dealer: [300, 400], nonprofit: [300, 400], licensed_dealer: [300, 305, 320, 330, 400], company: [300, 305, 320, 330, 400], partnership: [300, 305, 320, 330, 400] };
   for (const e of all) {
     assert.deepEqual([...allowedDocTypes(e)].sort(), sql[e], e);

@@ -19,6 +19,20 @@ export type { ModuleAction, ModuleConfig, ModuleGroup, ModuleLink } from './modu
 export interface ModuleBusiness { id: string; name: string; state: 'active' | 'locked' | 'expired' }
 
 const ActionsCtx = createContext<((a: ModuleAction[] | null) => void) | null>(null);
+const GroupsCtx = createContext<((g: ModuleGroup[] | null) => void) | null>(null);
+/**
+ * a screen inside the module replaces the menu's groups (finance 2.95: "קופות ובנק" only once the business turned the desks on) —
+ * null keeps the module's own; the same groups again (by their links) change nothing
+ */
+export function useModuleGroups(groups: ModuleGroup[] | null) {
+  const set = useContext(GroupsCtx);
+  const key = groups ? groups.map((g) => `${g.id}:${g.links.map((l) => l.href).join(',')}`).join('|') : '';
+  useEffect(() => {
+    if (!set) return;
+    set(groups);
+    return () => set(null);
+  }, [set, key]); // eslint-disable-line react-hooks/exhaustive-deps
+}
 /** a screen inside the module replaces the "+" actions (finance: only the documents this business may issue) */
 export function useModuleActions(actions: ModuleAction[] | null) {
   const set = useContext(ActionsCtx);
@@ -54,17 +68,19 @@ const stateLabel = (b: ModuleBusiness) => (b.state === 'active' ? '' : b.state =
 export function ModuleShell({ config, path, children, exitHref, businessName, userName, businesses = [], currentBusinessId, canSwitch, switching, onSwitchBusiness, notice, locationSwitch }: Props) {
   const [override, setOverride] = useState<ModuleAction[] | null>(null);
   const actions = override ?? config.actions;
+  const [groupsOverride, setGroupsOverride] = useState<ModuleGroup[] | null>(null);
+  const groups = groupsOverride ?? config.groups;
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState<'new' | 'business' | null>(null);
   const [newMenu, setNewMenu] = useState(false);
-  const [open, setOpen] = useState<string | null>(() => groupOfPath(config.groups, path));
+  const [open, setOpen] = useState<string | null>(() => groupOfPath(groups, path));
   const menuButton = useRef<HTMLButtonElement>(null);
   const plusButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const newBox = useRef<HTMLDivElement>(null);
 
   // a new page: every panel closes, and the menu will open on the page's group
-  useEffect(() => { setMenu(false); setSheet(null); setNewMenu(false); setOpen(groupOfPath(config.groups, path)); }, [path, config.groups]);
+  useEffect(() => { setMenu(false); setSheet(null); setNewMenu(false); setOpen(groupOfPath(groups, path)); }, [path, groups]);
 
   // closing by hand returns the focus to the button that opened the panel
   const closeMenu = useCallback(() => { setMenu(false); menuButton.current?.focus(); }, []);
@@ -98,7 +114,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
   );
 
   return (
-    <ActionsCtx.Provider value={setOverride}>
+    <ActionsCtx.Provider value={setOverride}><GroupsCtx.Provider value={setGroupsOverride}>
       <div className={cx(config.theme, 'flex min-h-screen')} data-module={config.id}>
         {/* ---- computer: the module's sidebar ---------------------------------------------------------------- */}
         <aside aria-label={`ניווט ${config.name}`}
@@ -110,7 +126,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
             <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-module text-module-ink"><config.Icon size={20} weight="fill" /></span>
             <strong className="font-display text-[17px] font-bold">{config.name}</strong>
           </div>
-          <ModuleNav groups={config.groups} path={path} />
+          <ModuleNav groups={groups} path={path} />
           <div className="mt-auto border-t border-line pt-3">
             <Person userName={userName} businessName={businessName} />
             <VersionTag className="px-3 pt-1 text-[11px] text-muted" />
@@ -213,7 +229,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                <ModuleNav groups={config.groups} path={path} accordion open={open} onToggle={(id) => setOpen((o) => toggleGroup(o, id))} onNavigate={() => setMenu(false)} />
+                <ModuleNav groups={groups} path={path} accordion open={open} onToggle={(id) => setOpen((o) => toggleGroup(o, id))} onNavigate={() => setMenu(false)} />
               </div>
               <div className="shrink-0 border-t border-line p-3">
                 <Person userName={userName} businessName={businessName} />
@@ -269,7 +285,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
           </Sheet>
         )}
       </div>
-    </ActionsCtx.Provider>
+    </GroupsCtx.Provider></ActionsCtx.Provider>
   );
 }
 

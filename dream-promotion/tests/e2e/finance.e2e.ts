@@ -40,6 +40,8 @@ const GROUP_OF: Record<string, string> = {
   'מסמכים': 'הכנסות', 'הכנסות': 'הכנסות', 'חייבים': 'הכנסות', 'הצעות מחיר': 'הכנסות', 'חבילות': 'הכנסות', 'דוחות': 'דוחות ורואה חשבון', 'רואה חשבון': 'דוחות ורואה חשבון',
 };
 const PATH_OF: Record<string, string> = Object.fromEntries(FINANCE_SECTIONS.map((s) => [s.label, s.path]));
+// the menu of a business that did not turn the desks on: "קופות ובנק" is in it only once they are (2.95, cash-bank.e2e.ts)
+const MENU = FINANCE_SECTIONS.filter((s) => s.id !== 'cash' && s.id !== 'bank');
 const BAR: Record<string, string> = { 'לובי': '/finance', 'הכנסות': '/finance/income', 'הוצאות': '/finance/expenses', 'חייבים': '/finance/receivables' };
 type Biz = { id: string; name: string; state: 'active' | 'locked' | 'expired' };
 
@@ -446,7 +448,7 @@ async function main() {
     });
 
     await step('every one of the 10 screens from the menu, at its own address; the phone\'s back button; a direct link; nothing sideways at 375', async () => {
-      for (const s of FINANCE_SECTIONS) {
+      for (const s of MENU) {
         await menuTo(page, s.label);
         await noSideScroll(page, s.label);
       }
@@ -462,7 +464,7 @@ async function main() {
       // 375 wide (a small phone): every screen again, nothing sideways — the menu and the "+" too
       await page.setViewportSize({ width: 375, height: 812 });
       try {
-        for (const s of FINANCE_SECTIONS) { await menuTo(page, s.label); await noSideScroll(page, `${s.label} at 375`); }
+        for (const s of MENU) { await menuTo(page, s.label); await noSideScroll(page, `${s.label} at 375`); }
         await page.getByRole('button', { name: 'תפריט', exact: true }).click();
         await noSideScroll(page, 'the menu at 375');
         await page.keyboard.press('Escape');
@@ -644,7 +646,7 @@ async function main() {
       await at(p, '/finance/expenses');
       await dialog(p).getByRole('heading', { name: 'הוצאה חדשה' }).waitFor();
       await p.keyboard.press('Escape');
-      for (const s of FINANCE_SECTIONS) {
+      for (const s of MENU) {
         const link = side.getByRole('link', { name: s.label, exact: true });
         await link.click();
         await at(p, s.path);

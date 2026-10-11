@@ -22,6 +22,8 @@ export interface ComposeInput {
   docType: number; entity: EntityType; vatRate: number; pricesIncludeVat: boolean;
   lines: ComposeLine[]; discount?: Discount; customer: ComposeCustomer; payments?: PaymentEntry[];
   docDate: string; dueDate?: string | null; notes?: string; today?: string;
+  /** 2.95: the business sells products — an order (100) and a delivery note (200) are issued here too */
+  goods?: boolean;
 }
 export interface Totals { subtotal: number; discount: number; beforeDiscount: number; discountExVat: number; afterDiscount: number; vatRate: number; vatAmount: number; total: number }
 export type ComposeResult = { ok: true; doc: NewDoc; totals: Totals } | { ok: false; errors: string[] };
@@ -74,7 +76,7 @@ function customerErrors(c: ComposeCustomer, needName: boolean): string[] {
   if (c.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email.trim())) e.push('כתובת המייל של הלקוח לא תקינה');
   return e;
 }
-function paymentErrors(payments: PaymentEntry[], totalA: number, today: string): string[] {
+export function paymentErrors(payments: PaymentEntry[], totalA: number, today: string): string[] {
   const e: string[] = [];
   if (!payments.length) return ['איך שולם? צריך לפחות תשלום אחד'];
   for (const p of payments) {
@@ -86,19 +88,23 @@ function paymentErrors(payments: PaymentEntry[], totalA: number, today: string):
   if (!e.length && paidA !== totalA) e.push(`סכום התשלומים (${ils(sh(paidA))}) שונה מסכום המסמך (${ils(sh(totalA))})`);
   return e;
 }
-const customerOf = (c: ComposeCustomer) => ({
+export const customerOf = (c: ComposeCustomer) => ({
   customerName: c.name.trim().slice(0, 120), customerPhone: (c.phone ?? '').trim().slice(0, 30), customerDealer: dealerDigits(c.dealer ?? ''),
   customerStreet: (c.street ?? '').trim().slice(0, 120), customerCity: (c.city ?? '').trim().slice(0, 60), customerEmail: (c.email ?? '').trim().slice(0, 120),
 });
 
-/** a new 305 / 320 / 300 / 400 from the document center */
+/** a new 305 / 320 / 300 / 400 from the document center — and (2.95) an order or a delivery note, for a business that sells products */
 export function composeDocument(input: ComposeInput): ComposeResult {
   const t = input.docType;
   const today = input.today ?? todayIL();
   const errors: string[] = [];
-  if (t === 330 || !canIssue(input.entity, t)) errors.push(t === 330 ? 'חשבונית זיכוי מופקת מתוך החשבונית המקורית' : 'סוג המסמך הזה לא מתאים לסוג העסק');
+  const goods = Boolean(input.goods) && (t === 100 || t === 200);
+  if (t === 330 || (!goods && !canIssue(input.entity, t))) {
+    errors.push(t === 330 ? 'חשבונית זיכוי מופקת מתוך החשבונית המקורית' : t === 100 || t === 200 || t === 210
+      ? 'הזמנה ותעודת משלוח — לעסק שהפעיל "מכירת מוצרים" בהגדרות הכספים (תעודת החזרה מופקת מתוך תעודת המשלוח)' : 'סוג המסמך הזה לא מתאים לסוג העסק');
+  }
   const rate = chargesVat(input.entity) && t !== 400 ? input.vatRate : 0;
-  errors.push(...customerErrors(input.customer, t === 305 || t === 300));
+  errors.push(...customerErrors(input.customer, t === 305 || t === 300 || goods));
   const bad = input.lines.filter(started).find((l) => !l.name.trim() || !(l.qty > 0) || !(l.unitPrice >= 0));
   if (bad) errors.push('בכל שורה: תיאור, כמות גדולה מאפס ומחיר');
   const { lines, totals } = computeLines(input.lines, { pricesIncludeVat: input.pricesIncludeVat, discount: input.discount, rate });

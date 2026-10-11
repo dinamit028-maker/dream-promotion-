@@ -16,7 +16,7 @@
  * (report_* — the same rules as the database's, on the fake's rows); before the migration: none of it, and its columns are missing.
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
-import { randomUUID, randomBytes } from 'node:crypto';
+import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
@@ -93,6 +93,9 @@ export class FakeSupabase {
   itemsTables = true;
   /** 2.94: migration 4900 is in the database (tax withheld at source, report_*, a service's treatment type, the advances' percent) — false: as before it */
   reportsTables = true;
+  /** 2.95: migration 5000 is in the database (the desks, deposits, cheques and the bank; an order, a delivery note, a return note) — false: as before it */
+  cashTables = true;
+  static CASH = ['bank_deposits', 'bank_deposit_cheques', 'bank_statements', 'bank_lines', 'bank_matches', 'cheque_reminders'];
   private serialEventId = 0;
   static ITEMS = ['catalog_serials', 'catalog_serial_events', 'price_lists', 'price_list_items', 'sku_series'];
   constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string; today?: string }) {}
@@ -303,6 +306,8 @@ export class FakeSupabase {
         if (!r.lead_id && !String(r.customer_name ?? '').trim()) return 'withholding_customer: tax withheld at source needs the customer who withheld it';
         if (Math.round(held.reduce((a: number, p: Row) => a + Number(p.amount), 0) * 100) >= Math.round(Number(r.total) * 100)) return 'withholding_all: tax withheld at source is part of a payment, not all of it';
       }
+      const goods = this.goodsCheck(r);
+      if (goods) return goods;
       const st = this.t('register_settings')[0] ?? {};
       const n = (this.counters.get(r.doc_type) ?? 0) + 1; this.counters.set(r.doc_type, n);
       Object.assign(r, { doc_number: n, issued_at: now(), print_count: 0, link_no: ++this.linkNo, share_token: randomBytes(32).toString('hex'),
@@ -332,6 +337,7 @@ export class FakeSupabase {
     if (table === 'client_package_uses') { const e = this.useCheck(r); if (e) return e; }
     if (table === 'client_sessions') Object.assign(r, { at: r.at ?? now(), notes: r.notes ?? '', params: r.params ?? {}, by_user: r.by_user ?? this.opts.userId, cancelled_at: null, cancelled_by: null, cancel_reason: '' });
     if (table === 'document_cancellations' && this.t('document_cancellations').some((c) => c.document_id === r.document_id)) return 'duplicate key value violates unique constraint "document_cancellations_pkey"';
+    if (table === 'document_cancellations') { const e = this.goodsCancelCheck(r.document_id); if (e) return e; }
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
     if (table === 'store_coupons') { r.code = String(r.code ?? '').toUpperCase(); r.active ??= true; r.used_count = 0; r.min_subtotal ??= 0; }
     // 3500: a sale of the register does not take units held for an order on the site (c_sales_reserved); 4700: the held units are
@@ -439,9 +445,17 @@ export class FakeSupabase {
       // 2.87: a package's document is linked to it (z_documents_package_link)
       const pk = /^package:([0-9a-f-]{36})$/.exec(r.idempotency_key ?? '');
       if (pk) { const p = this.t('client_packages').find((x) => x.id === pk[1] && !x.document_id); if (p) p.document_id = r.id; }
+      // 2.95 (5000): a delivery note takes the goods out, a return note brings them back (where the note is)
+      if (this.cashTables && (r.doc_type === 200 || r.doc_type === 210)) {
+        for (const l of this.lines(r.lines)) this.stock(l.id, r.doc_type === 200 ? -l.qty : l.qty, r.doc_type === 200 ? 'sale' : 'refund', { variant: l.variant, location: this.rowLocation(r), note: `${r.doc_type}-${r.doc_number}` });
+      }
       this.log('document.issued', r.id, { type: r.doc_type, number: r.doc_number, total: r.total });
     }
     if (table === 'document_cancellations') {
+      const d = this.t('documents').find((x) => x.id === r.document_id);
+      if (this.cashTables && d && (d.doc_type === 200 || d.doc_type === 210)) {
+        for (const l of this.lines(d.lines)) this.stock(l.id, d.doc_type === 200 ? l.qty : -l.qty, 'cancel', { variant: l.variant, location: this.rowLocation(d), note: `ביטול ${d.doc_type}-${d.doc_number}` });
+      }
       for (const p of this.t('payments').filter((x) => x.document_id === r.document_id && x.direction === 'in' && x.source === 'document')) {
         this.t('payments').push({ ...p, id: randomUUID(), direction: 'out', source: 'cancel', paid_on: this.today(), reference: {}, created_at: now() });
       }
@@ -1359,6 +1373,272 @@ export class FakeSupabase {
     }
     return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
   }
+  // ---- 2.95 (migration 5000): an order, a delivery note and a return note ------------------------------------------------------
+  private docCancelled(id: string) { return this.t('document_cancellations').some((c) => c.document_id === id); }
+  /** d_documents_goods (and the base rule of documents_validate): an error string refuses the document */
+  private goodsCheck(r: Row): string | null {
+    const goodsType = [100, 200, 210].includes(r.doc_type);
+    if ((goodsType || [100, 200].includes(r.base_doc_type)) && !this.cashTables) return 'new row for relation "documents" violates check constraint "documents_doc_type_check"';
+    if (r.base_doc_type != null && r.doc_type !== 330) {
+      const ok = (r.doc_type === 200 && r.base_doc_type === 100) || (r.doc_type === 210 && r.base_doc_type === 200) || ([300, 305, 320].includes(r.doc_type) && [100, 200].includes(r.base_doc_type));
+      if (!ok || r.base_doc_number == null) return 'only a credit invoice points to a base document (or a document made from an order or a delivery note)';
+    }
+    if (goodsType) {
+      if (!this.t('business_finance_profile')[0]?.sells_products) return 'goods_off: orders, delivery notes and return notes are for a business that sells products (turned on in the settings)';
+      if (r.doc_type === 210 && r.base_doc_type !== 200) return 'goods_return_base: a return note is made from a delivery note';
+    }
+    if ([100, 200].includes(r.base_doc_type)) {
+      if (r.paid_document_id) return 'goods_base_receipt: a receipt for an invoice is not made from an order or a delivery note';
+      const base = this.t('documents').find((d) => d.doc_type === r.base_doc_type && d.doc_number === r.base_doc_number);
+      if (!base) return 'goods_base_missing: the order / delivery note was not found in this business';
+      if (this.docCancelled(base.id)) return 'goods_base_cancelled: the order / delivery note was cancelled';
+      r.location_id ??= base.location_id ?? null;
+      if (r.base_doc_type === 200) {
+        const made = this.t('documents').filter((x) => x.base_doc_type === 200 && x.base_doc_number === base.doc_number && !this.docCancelled(x.id));
+        if (made.some((x) => [300, 305, 320].includes(x.doc_type))) return 'goods_invoiced: the delivery note was already invoiced';
+        const products = new Set(this.t('catalog_items').filter((i) => i.kind === 'product').map((i) => i.id));
+        const sum = (ls: { id: string; variant: string | null; qty: number }[], l: { id: string; variant: string | null }) =>
+          ls.filter((x) => x.id === l.id && x.variant === l.variant).reduce((a, x) => a + x.qty, 0);
+        const out = this.lines(base.lines), back = made.filter((x) => x.doc_type === 210).flatMap((x) => this.lines(x.lines));
+        const over = this.lines(r.lines).filter((l) => products.has(l.id) && l.qty > sum(out, l) - sum(back, l));
+        if (over.length) return `goods_over_delivery: more than the delivery note left (${over.map((l) => this.t('catalog_items').find((i) => i.id === l.id)?.name ?? l.id).join(', ')})`;
+      }
+    }
+    return null;
+  }
+  /** document_cancellations_check: an order / a delivery note a document was made from stays; a return note whose note was invoiced too */
+  private goodsCancelCheck(id: string): string | null {
+    const d = this.t('documents').find((x) => x.id === id);
+    if (!d) return null;
+    const live = (type: number, n: number) => this.t('documents').filter((x) => x.base_doc_type === type && x.base_doc_number === n && !this.docCancelled(x.id));
+    if ((d.doc_type === 100 || d.doc_type === 200) && live(d.doc_type, d.doc_number).length) return 'cancel_has_followers: a document was made from it — cancel that one first';
+    if (d.doc_type === 210 && live(200, d.base_doc_number).some((x) => [300, 305, 320].includes(x.doc_type))) return 'cancel_has_followers: its delivery note was invoiced';
+    return null;
+  }
+
+  // ---- 2.95 (migration 5000): the desks, deposits, cheques and the bank ----------------------------------------------------------
+  private chequeInDrawer(p: Row): boolean {
+    return p.direction === 'in' && p.method === 'cheque' && p.source === 'document' && !this.docCancelled(p.document_id)
+      && !this.t('bank_deposit_cheques').some((x) => x.payment_id === p.id && x.active) && !this.t('bank_matches').some((m) => m.payment_id === p.id && m.active);
+  }
+  private seenPayments(): Row[] {
+    const f = this.locationFilter();
+    return this.t('payments').filter((p) => !f || f.includes(this.rowLocation(p)));
+  }
+  private seenDeposits(): Row[] {
+    const f = this.locationFilter();
+    return this.t('bank_deposits').filter((d) => !f || f.includes(d.location_id));
+  }
+  private cashOf(loc: string | null): number {
+    const cents = (n: unknown) => Math.round(Number(n) * 100);
+    const pays = this.t('payments').filter((p) => p.method === 'cash' && (!loc || this.rowLocation(p) === loc));
+    const deps = this.t('bank_deposits').filter((d) => d.status === 'active' && (!loc || d.location_id === loc));
+    return (pays.reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * cents(p.amount), 0) - deps.reduce((a, d) => a + cents(d.cash), 0)) / 100;
+  }
+  private payCard(p: Row): Row {
+    const d = this.t('documents').find((x) => x.id === (p.document_id ?? p.applies_to));
+    const e = this.t('expenses').find((x) => x.id === p.expense_id);
+    return { id: p.id, direction: p.direction, amount: Number(p.amount), method: p.method, paidOn: p.paid_on, source: p.source, docType: d?.doc_type ?? null,
+      docNumber: d?.doc_number ?? null, customer: d?.customer_name ?? '', expenseNumber: e?.expense_number ?? null, supplier: e?.supplier_name ?? '', note: p.note ?? '',
+      cheque: p.method === 'cheque' ? String(p.reference?.number ?? '') : null };
+  }
+  private bankPaymentOk(p: Row): boolean {
+    return !['withholding', 'cash'].includes(p.method) && !['cancel', 'reversal'].includes(p.source)
+      && !(p.source === 'document' && this.docCancelled(p.document_id))
+      && !(p.expense_id && this.t('expenses').some((e) => e.id === p.expense_id && e.status === 'void'))
+      && !this.t('bank_deposit_cheques').some((x) => x.payment_id === p.id && x.active);
+  }
+  private cashRpc(fn: string, args: any): { status: number; body: any } | null {
+    const names = ['cash_desks', 'cheque_book', 'deposit_book', 'bank_deposit_create', 'bank_deposit_cancel', 'bank_import', 'bank_book', 'bank_candidates', 'bank_match',
+      'bank_unmatch', 'bank_line_handle', 'bank_line_reopen'];
+    if (!names.includes(fn)) return null;
+    if (!this.cashTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const ok = (body: any) => ({ status: 200, body });
+    const bad = (code: string, message: string) => ({ status: 400, body: { code, message } });
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const today = this.today();
+    const from = String(args.p_from ?? ''), to = String(args.p_to ?? '');
+    if (['cash_desks', 'cheque_book', 'deposit_book', 'bank_book', 'bank_candidates'].includes(fn) && (!from || !to || from > to)) return bad('22023', 'bad range');
+    if (/^bank_(book|candidates|import|match|unmatch|line_)/.test(fn) && this.memberLocations) return bad('42501', "not allowed: the bank is the whole business's");
+    const iso = (s: unknown) => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null);
+    const doc = (id: string) => this.t('documents').find((x) => x.id === id);
+    if (fn === 'cash_desks') {
+      const pays = this.seenPayments(), deps = this.seenDeposits();
+      const days = Number(this.t('business_finance_profile')[0]?.cheque_remind_days ?? 3);
+      const until = new Date(`${today}T12:00:00Z`); until.setUTCDate(until.getUTCDate() + days);
+      const lim = until.toISOString().slice(0, 10);
+      const inP = (p: Row) => p.paid_on >= from && p.paid_on <= to;
+      const chq = pays.filter((p) => this.chequeInDrawer(p));
+      const due = chq.filter((p) => iso(p.reference?.dueDate) && p.reference.dueDate <= lim);
+      const sum = (l: Row[], k = 'amount') => r2(l.reduce((a, x) => a + Number(x[k]), 0));
+      return ok({
+        methods: ['cash', 'cheque', 'card', 'transfer', 'bit', 'other'].map((m) => {
+          const l = pays.filter((p) => p.method === m && inP(p));
+          return { method: m, in: sum(l.filter((p) => p.direction === 'in')), out: sum(l.filter((p) => p.direction === 'out')), count: l.length };
+        }),
+        cash: r2(pays.filter((p) => p.method === 'cash').reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * Number(p.amount), 0) - sum(deps.filter((d) => d.status === 'active'), 'cash')),
+        cheques: { count: chq.length, total: sum(chq), dueCount: due.length, dueTotal: sum(due) },
+        deposits: (() => { const l = deps.filter((d) => d.status === 'active' && d.deposited_on >= from && d.deposited_on <= to); return { count: l.length, total: r2(l.reduce((a, d) => a + Number(d.cash) + Number(d.cheques), 0)) }; })(),
+        remindDays: days, today,
+      });
+    }
+    if (fn === 'cheque_book') {
+      const card = (p: Row) => {
+        const d = doc(p.document_id), dc = this.t('bank_deposit_cheques').find((x) => x.payment_id === p.id && x.active), dep = dc ? this.t('bank_deposits').find((x) => x.id === dc.deposit_id) : null;
+        return { id: p.id, amount: Number(p.amount), paidOn: p.paid_on, number: String(p.reference?.number ?? ''), bank: String(p.reference?.bank ?? ''), branch: String(p.reference?.branch ?? ''),
+          account: String(p.reference?.account ?? ''), dueDate: iso(p.reference?.dueDate), docType: d?.doc_type ?? null, docNumber: d?.doc_number ?? null, customer: d?.customer_name ?? '',
+          location: this.rowLocation(p), matched: this.t('bank_matches').some((m) => m.payment_id === p.id && m.active),
+          deposit: dep ? { id: dep.id, number: dep.number, date: dep.deposited_on } : null };
+      };
+      const all = this.seenPayments().filter((p) => p.direction === 'in' && p.method === 'cheque' && p.source === 'document').map(card);
+      return ok({
+        drawer: all.filter((c) => !this.docCancelled(this.t('payments').find((p) => p.id === c.id)?.document_id) && !c.deposit && !c.matched)
+          .sort((a, b) => (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') || a.paidOn.localeCompare(b.paidOn)),
+        deposited: all.filter((c) => c.deposit && c.deposit.date >= from && c.deposit.date <= to).sort((a, b) => a.deposit!.date.localeCompare(b.deposit!.date) || a.deposit!.number - b.deposit!.number),
+      });
+    }
+    if (fn === 'deposit_book') {
+      return ok(this.seenDeposits().filter((d) => d.deposited_on >= from && d.deposited_on <= to)
+        .sort((a, b) => b.deposited_on.localeCompare(a.deposited_on) || b.number - a.number)
+        .map((d) => ({ id: d.id, number: d.number, date: d.deposited_on, location: d.location_id, cash: Number(d.cash), cheques: Number(d.cheques), total: r2(Number(d.cash) + Number(d.cheques)),
+          note: d.note ?? '', status: d.status, cancelReason: d.cancel_reason ?? '', matched: this.t('bank_matches').some((m) => m.deposit_id === d.id && m.active),
+          items: this.t('bank_deposit_cheques').filter((x) => x.deposit_id === d.id && (x.active || d.status === 'cancelled')).map((x) => {
+            const p = this.t('payments').find((y) => y.id === x.payment_id)!, dd = doc(p.document_id);
+            return { payment: x.payment_id, amount: Number(x.amount), number: String(p.reference?.number ?? ''), bank: String(p.reference?.bank ?? ''), dueDate: iso(p.reference?.dueDate),
+              customer: dd?.customer_name ?? '', docType: dd?.doc_type ?? null, docNumber: dd?.doc_number ?? null };
+          }) })));
+    }
+    if (fn === 'bank_deposit_create') {
+      const id = String(args.p_id ?? '');
+      if (!id) return bad('22023', 'deposit_id: a new deposit has an id');
+      const same = this.t('bank_deposits').find((d) => d.id === id);
+      if (same) return ok({ id, number: same.number, created: false });
+      const date = String(args.p_date ?? '');
+      if (!iso(date) || date > today) return bad('22023', 'deposit_date: a deposit is dated today or before');
+      if (this.finance.lockedUntil && date <= this.finance.lockedUntil) return bad('23514', `period_locked: the books are closed until ${this.finance.lockedUntil}`);
+      const loc = args.p_location ?? this.locationPick() ?? this.opts.businessId;
+      if (!this.mayUse(loc)) return bad('42501', 'not allowed: this location is not yours');
+      const cash = Number(args.p_cash ?? 0);
+      if (!(cash >= 0) || Math.round(cash * 100) !== cash * 100) return bad('22023', 'deposit_cash: an amount of money');
+      const ids: string[] = [...new Set<string>((args.p_cheques ?? []).filter(Boolean))];
+      if (!cash && !ids.length) return bad('22023', 'deposit_empty: cash or cheques to deposit');
+      const chq = ids.map((x) => this.t('payments').find((p) => p.id === x));
+      if (chq.some((p) => !p || p.direction !== 'in' || p.method !== 'cheque' || p.source !== 'document')) return bad('22023', 'deposit_cheque: a cheque received on a receipt of the business');
+      if (chq.some((p) => this.rowLocation(p!) !== loc)) return bad('22023', "deposit_cheque_location: the cheques of the deposit's location");
+      if (chq.some((p) => !this.chequeInDrawer(p!))) return bad('23514', 'deposit_cheque_taken: a cheque is no longer in the drawer (deposited, matched to the bank or its receipt cancelled)');
+      if (cash > 0) { const have = this.cashOf(loc); if (Math.round(cash * 100) > Math.round(have * 100)) return bad('23514', `deposit_cash_over: the cash desk holds ${Math.max(have, 0).toFixed(2)}`); }
+      const number = Math.max(0, ...this.t('bank_deposits').map((d) => d.number)) + 1;
+      const cheques = r2(chq.reduce((a, p) => a + Number(p!.amount), 0));
+      this.t('bank_deposits').push({ id, business_id: this.opts.businessId, location_id: loc, number, deposited_on: date, cash, cheques, note: String(args.p_note ?? '').trim().slice(0, 300),
+        status: 'active', cancel_reason: '', cancelled_at: null, user_id: this.opts.userId, created_at: now() });
+      for (const p of chq) this.t('bank_deposit_cheques').push({ deposit_id: id, business_id: this.opts.businessId, location_id: loc, payment_id: p!.id, amount: Number(p!.amount), active: true });
+      this.log('deposit.created', id, { number, date, cash, cheques: chq.length, total: r2(cash + cheques) });
+      return ok({ id, number, created: true });
+    }
+    if (fn === 'bank_deposit_cancel') {
+      const d = this.t('bank_deposits').find((x) => x.id === args.p_id);
+      if (!d) return bad('42501', 'not allowed');
+      if (!this.mayUse(d.location_id)) return bad('42501', 'not allowed: this location is not yours');
+      if (d.status === 'cancelled') return ok({ id: d.id, result: 'already' });
+      if (String(args.p_reason ?? '').trim().length < 2) return bad('22023', 'reason_required: a reason or a note, two letters at least');
+      if (this.t('bank_matches').some((m) => m.deposit_id === d.id && m.active)) return bad('23514', 'deposit_matched: the bank already matched this deposit — undo that match first');
+      Object.assign(d, { status: 'cancelled', cancel_reason: String(args.p_reason).trim(), cancelled_at: now() });
+      for (const x of this.t('bank_deposit_cheques').filter((y) => y.deposit_id === d.id)) x.active = false;
+      this.log('deposit.cancelled', d.id, { number: d.number, reason: d.cancel_reason });
+      return ok({ id: d.id, result: 'cancelled' });
+    }
+    if (fn === 'bank_import') {
+      const id = String(args.p_id ?? ''), acc = String(args.p_account ?? '').trim().slice(0, 60);
+      const same = this.t('bank_statements').find((s) => s.id === id);
+      if (same) return ok({ id, total: same.lines_total, added: same.lines_new, created: false });
+      const lines: Row[] = Array.isArray(args.p_lines) ? args.p_lines : [];
+      if (!lines.length || lines.length > 5000) return bad('22023', 'bank_lines: 1 to 5,000 lines in a file');
+      if (lines.some((l) => !iso(l.date) || typeof l.amount !== 'number' || !l.amount || Math.round(l.amount * 100) !== l.amount * 100)) return bad('22023', 'bank_lines: each line has a date, an amount (not zero) and its text');
+      this.t('bank_statements').push({ id, business_id: this.opts.businessId, account: acc, file_name: String(args.p_file ?? '').slice(0, 200), lines_total: lines.length, lines_new: 0,
+        date_from: lines.map((l) => l.date).sort()[0], date_to: lines.map((l) => l.date).sort().at(-1), created_at: now() });
+      const seen = new Map<string, number>();
+      let added = 0;
+      for (const l of lines) {
+        const descr = String(l.description ?? '').trim().slice(0, 300), ref = String(l.reference ?? '').trim().slice(0, 60);
+        const key = [acc, l.date, Number(l.amount).toFixed(2), descr.toLowerCase().replace(/\s+/g, ' '), ref, l.balance == null ? '' : Number(l.balance).toFixed(2)].join('|');
+        const k = (seen.get(key) ?? 0) + 1; seen.set(key, k);
+        const fp = createHash('md5').update(`${key}#${k}`).digest('hex');
+        if (this.t('bank_lines').some((x) => x.fingerprint === fp)) continue;
+        this.t('bank_lines').push({ id: randomUUID(), business_id: this.opts.businessId, statement_id: id, account: acc, line_date: l.date, description: descr, reference: ref,
+          amount: Number(l.amount), balance: l.balance ?? null, fingerprint: fp, status: 'open', note: '', created_at: now() });
+        added++;
+      }
+      this.t('bank_statements').find((s) => s.id === id)!.lines_new = added;
+      this.log('bank.imported', id, { lines: lines.length, added });
+      return ok({ id, total: lines.length, added, created: true });
+    }
+    if (fn === 'bank_book') {
+      const lines = this.t('bank_lines').filter((l) => l.line_date >= from && l.line_date <= to).sort((a, b) => a.line_date.localeCompare(b.line_date) || String(a.created_at).localeCompare(String(b.created_at)));
+      return ok({
+        lines: lines.map((l) => ({ id: l.id, date: l.line_date, description: l.description, reference: l.reference, amount: Number(l.amount), balance: l.balance, status: l.status, note: l.note,
+          account: l.account, statement: l.statement_id, matches: this.t('bank_matches').filter((m) => m.bank_line_id === l.id && m.active).map((m) => {
+            const p = m.payment_id ? this.t('payments').find((x) => x.id === m.payment_id) : null, d = m.deposit_id ? this.t('bank_deposits').find((x) => x.id === m.deposit_id) : null;
+            return { id: m.id, amount: Number(m.amount), payment: p ? this.payCard(p) : null, deposit: d ? { id: d.id, number: d.number, date: d.deposited_on, cash: Number(d.cash), cheques: Number(d.cheques) } : null };
+          }) })),
+        statements: [...this.t('bank_statements')].reverse().map((s) => ({ id: s.id, account: s.account, file: s.file_name, total: s.lines_total, added: s.lines_new, from: s.date_from, to: s.date_to, at: s.created_at })),
+      });
+    }
+    if (fn === 'bank_candidates') {
+      return ok({
+        payments: this.t('payments').filter((p) => p.paid_on >= from && p.paid_on <= to && this.bankPaymentOk(p) && !this.t('bank_matches').some((m) => m.payment_id === p.id && m.active))
+          .sort((a, b) => a.paid_on.localeCompare(b.paid_on)).map((p) => this.payCard(p)),
+        deposits: this.t('bank_deposits').filter((d) => d.status === 'active' && d.deposited_on >= from && d.deposited_on <= to && !this.t('bank_matches').some((m) => m.deposit_id === d.id && m.active))
+          .map((d) => ({ id: d.id, number: d.number, date: d.deposited_on, cash: Number(d.cash), cheques: Number(d.cheques), total: r2(Number(d.cash) + Number(d.cheques)),
+            count: this.t('bank_deposit_cheques').filter((x) => x.deposit_id === d.id && x.active).length })),
+      });
+    }
+    const line = this.t('bank_lines').find((l) => l.id === args.p_line);
+    if (!line) return bad('42501', 'not allowed');
+    if (fn === 'bank_match') {
+      if (line.status !== 'open') return bad('23514', 'bank_line_closed: the line is already matched or handled');
+      const pays: string[] = [...new Set<string>(args.p_payments ?? [])], deps: string[] = [...new Set<string>(args.p_deposits ?? [])];
+      if (!pays.length && !deps.length) return bad('22023', 'bank_match_items: one to 50 receipts, payments or deposits');
+      const ps = pays.map((x) => this.t('payments').find((p) => p.id === x)), ds = deps.map((x) => this.t('bank_deposits').find((d) => d.id === x));
+      if (ps.some((p) => !p) || ds.some((d) => !d)) return bad('42501', 'not allowed');
+      if (ps.some((p) => p!.direction !== (line.amount > 0 ? 'in' : 'out')) || (line.amount < 0 && ds.length)) return bad('23514', 'bank_match_sign: money that came in meets a line of money in; money paid, a line of money out');
+      if (ps.some((p) => !this.bankPaymentOk(p!))) return bad('23514', 'bank_match_item: only money that went through the bank (cash and deposited cheques meet it in their deposit)');
+      if (ds.some((d) => d!.status !== 'active')) return bad('23514', 'bank_match_item: a cancelled deposit');
+      const s = r2(ps.reduce((a, p) => a + Number(p!.amount), 0) + ds.reduce((a, d) => a + Number(d!.cash) + Number(d!.cheques), 0));
+      if (Math.round(s * 100) !== Math.round(Math.abs(line.amount) * 100)) return bad('23514', `bank_match_sum: the chosen add up to ${s.toFixed(2)} but the line is ${Math.abs(line.amount).toFixed(2)}`);
+      if (ps.some((p) => this.t('bank_matches').some((m) => m.payment_id === p!.id && m.active)) || ds.some((d) => this.t('bank_matches').some((m) => m.deposit_id === d!.id && m.active))) {
+        return { status: 409, body: { code: '23505', message: 'bank_match_taken: one of them is already matched to another line' } };
+      }
+      for (const p of ps) this.t('bank_matches').push({ id: randomUUID(), business_id: this.opts.businessId, bank_line_id: line.id, payment_id: p!.id, deposit_id: null, amount: Number(p!.amount), active: true, approved_at: now() });
+      for (const d of ds) this.t('bank_matches').push({ id: randomUUID(), business_id: this.opts.businessId, bank_line_id: line.id, payment_id: null, deposit_id: d!.id, amount: r2(Number(d!.cash) + Number(d!.cheques)), active: true, approved_at: now() });
+      line.status = 'matched';
+      this.log('bank.matched', line.id, { amount: line.amount, payments: ps.length, deposits: ds.length });
+      return ok({ line: line.id, items: ps.length + ds.length });
+    }
+    if (fn === 'bank_unmatch') {
+      if (line.status !== 'matched') return bad('23514', 'bank_line_not_matched: the line is not matched');
+      if (String(args.p_reason ?? '').trim().length < 2) return bad('22023', 'reason_required: a reason or a note, two letters at least');
+      const hit = this.t('bank_matches').filter((m) => m.bank_line_id === line.id && m.active);
+      for (const m of hit) Object.assign(m, { active: false, undone_at: now(), undo_reason: String(args.p_reason).trim() });
+      line.status = 'open';
+      this.log('bank.unmatched', line.id, { items: hit.length });
+      return ok({ line: line.id, undone: hit.length });
+    }
+    if (fn === 'bank_line_handle') {
+      if (line.status !== 'open') return bad('23514', 'bank_line_closed: the line is already matched or handled');
+      if (String(args.p_note ?? '').trim().length < 2) return bad('22023', 'reason_required: a reason or a note, two letters at least');
+      Object.assign(line, { status: 'handled', note: String(args.p_note).trim().slice(0, 300), handled_at: now() });
+      this.log('bank.handled', line.id, { note: line.note });
+      return ok({ line: line.id, status: 'handled' });
+    }
+    if (fn === 'bank_line_reopen') {
+      if (line.status !== 'handled') return bad('23514', 'bank_line_not_handled: the line is not marked handled');
+      Object.assign(line, { status: 'open', note: '', handled_at: null });
+      this.log('bank.reopened', line.id, {});
+      return ok({ line: line.id, status: 'open' });
+    }
+    return null;
+  }
+
   rpc(fn: string, args: any): { status: number; body: any } {
     const placed = this.locationRpc(fn, args);
     if (placed) return placed;
@@ -1368,6 +1648,8 @@ export class FakeSupabase {
     if (itemed) return itemed;
     const reported = this.reportsRpc(fn, args);
     if (reported) return reported;
+    const cashed = this.cashRpc(fn, args);
+    if (cashed) return cashed;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
     // 2.88 (migration 4300): what was really paid as a deposit for these appointments — never a test link
@@ -1797,6 +2079,19 @@ export class FakeSupabase {
       if (col && body && (Array.isArray(body) ? body : [body]).some((b: Row) => b && col in b)) {
         return json(400, { code: 'PGRST204', message: `Could not find the '${col}' column of '${table}' in the schema cache` });
       }
+    }
+    // 2.95 (5000): before the migration there are no such tables (and no such columns); after it they are written by its functions only
+    if (FakeSupabase.CASH.includes(table)) {
+      if (!this.cashTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+      if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
+      if (table === 'cheque_reminders') return json(403, { code: '42501', message: 'permission denied for table cheque_reminders' });
+    }
+    if (!this.cashTables && table === 'business_finance_profile') {
+      const cols = ['cash_drawers', 'sells_products', 'cheque_remind_days'];
+      const asked = (url.searchParams.get('select') ?? '').split(',').find((c) => cols.includes(c));
+      if (asked) return json(400, { code: '42703', message: `column business_finance_profile.${asked} does not exist` });
+      const written = body && (Array.isArray(body) ? body : [body]).flatMap((b: Row) => (b ? Object.keys(b) : [])).find((c) => cols.includes(c));
+      if (written) return json(400, { code: 'PGRST204', message: `Could not find the '${written}' column of 'business_finance_profile' in the schema cache` });
     }
     // 2.91: the *_location_gate policies — a signed-in user reads and changes only the rows of the locations they see now
     const seen = FakeSupabase.LOCATED.includes(table) ? this.locationFilter() : null;

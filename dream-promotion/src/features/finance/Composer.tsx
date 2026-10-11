@@ -7,7 +7,8 @@ import { CloseButton, Modal } from '@/components/ui/feedback';
 import { DOC_LABEL, type DocRow } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { composeDocument, computeLines, type ComposeCustomer, type ComposeLine, type Discount } from './compose';
-import { DOC_INFO, allowedDocTypes } from './rules';
+import { DOC_INFO, allowedDocTypes, goodsDocTypes } from './rules';
+import { isGoods } from './goods';
 import { TERMS, dueDateFor } from './receivables';
 import { validUntilFor, type ComposerBody, type Quote } from './quotes';
 import { documentRow, financeError, issueDocumentRow, newKey } from './api';
@@ -42,7 +43,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
   const { userId, settings, profile, catalog, vat, business, products, productsReady, reloadCatalog } = useFinance();
   const { leads, addActivity, updateLead } = useApp();
   const quote = mode.kind === 'quote' ? mode.quote ?? null : null;
-  const types = allowedDocTypes(settings.entity).filter((t) => t !== 330 && (t !== 400 || !vat));
+  // 2.95: an order and a delivery note too, for a business that sells products
+  const types = [...allowedDocTypes(settings.entity).filter((t) => t !== 330 && (t !== 400 || !vat)), ...goodsDocTypes(profile.sellsProducts)];
   const [docType, setDocType] = useState(mode.kind === 'document' ? (types.includes(mode.docType) ? mode.docType : types[0]) : 0);
   const [customer, setCustomer] = useState<ComposeCustomer>(initial?.customer ?? { name: '' });
   const [leadId, setLeadId] = useState<string | null>(initial?.leadId ?? quote?.leadId ?? null);
@@ -98,7 +100,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
 
   const body = (): ComposerBody => ({ lines, pricesIncludeVat, discount, customer, notes, terms, dueDate, payments });
   const input = () => ({ docType, entity: settings.entity, vatRate: settings.vatRate, pricesIncludeVat, lines, discount, customer, payments: receipt ? payments : [],
-    docDate, dueDate: docType === 305 || docType === 300 ? dueDate : null, notes, today });
+    docDate, dueDate: docType === 305 || docType === 300 ? dueDate : null, notes, today, goods: profile.sellsProducts });
 
   async function saveDraft() {
     setBusy(true); setErrors([]);
@@ -114,7 +116,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
   async function issue() {
     const res = composeDocument(input());
     if (!res.ok) { setErrors(res.errors); return; }
-    if (!window.confirm(`להפיק ${DOC_LABEL[docType]} על ${ils(res.doc.total)}${customer.name ? ` ל${customer.name}` : ''}? מסמך שהופק לא ניתן לשינוי או למחיקה — תיקון רק בחשבונית זיכוי.`)) return;
+    if (!window.confirm(`להפיק ${DOC_LABEL[docType]} על ${ils(res.doc.total)}${customer.name ? ` ל${customer.name}` : ''}? מסמך שהופק לא ניתן לשינוי או למחיקה — ${isGoods(docType) ? 'אם הופק בטעות, מבטלים אותו.' : 'תיקון רק בחשבונית זיכוי.'}`)) return;
     setBusy(true); setErrors([]);
     const quoteId = mode.kind === 'document' ? mode.quoteId ?? null : null;
     // a draft is one document, a quote is one document (whoever converts it, on any device), otherwise this form's own key
@@ -169,7 +171,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
       )}
 
       <p className="mb-1 text-sm font-bold">לקוח</p>
-      <CustomerFields value={customer} onChange={setCustomer} leads={leads} leadId={leadId} onLead={setLeadId} needName={docType === 305 || docType === 300} />
+      <CustomerFields value={customer} onChange={setCustomer} leads={leads} leadId={leadId} onLead={setLeadId} needName={docType === 305 || docType === 300 || isGoods(docType)} />
 
       <div className="mb-1 mt-4 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-bold">שורות</p>

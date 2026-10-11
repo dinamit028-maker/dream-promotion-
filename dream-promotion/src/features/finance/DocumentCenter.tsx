@@ -9,7 +9,7 @@ import { useFinance } from './FinanceScreen';
 import { Composer, type ComposerMode } from './Composer';
 import { DocView } from './DocView';
 import { financeError } from './api';
-import { allowedDocTypes } from './rules';
+import { allowedDocTypes, goodsDocTypes } from './rules';
 import type { ComposerBody } from './quotes';
 import { Note, Pill, ddmmyyyy, ils } from './ui';
 import { softwareRegistered } from '@/features/documents/DocumentsTab';
@@ -24,7 +24,7 @@ const PAGE = 50;
 interface Draft { id: string; docType: number; customerName: string; total: number; updatedAt: string; body: ComposerBody; leadId: string | null; quoteId: string | null }
 
 export function DocumentCenter() {
-  const { settings, params, clearParams, fail, say } = useFinance();
+  const { settings, profile, params, clearParams, fail, say } = useFinance();
   const leads = useApp((s) => s.leads);
   const locState = useLocations((x) => x.state);
   const where = (d: DocRow) => (locState.businessId ? locationTag(locState, d, locState.businessId) : '');
@@ -70,7 +70,7 @@ export function DocumentCenter() {
     const n = params.get('new');
     if (!n) return;
     const lead = params.get('lead') ? leads.find((l) => l.id === params.get('lead')) : undefined;
-    const allowed = allowedDocTypes(settings.entity);
+    const allowed = [...allowedDocTypes(settings.entity), ...goodsDocTypes(profile.sellsProducts)];
     setComposer({ mode: { kind: 'document', docType: allowed.includes(Number(n)) ? Number(n) : allowed[0] },
       initial: lead ? { leadId: lead.id, customer: { name: lead.billingName || lead.name, phone: lead.phone, email: lead.email, dealer: lead.billingDealer, street: lead.billingStreet, city: lead.billingCity } } : undefined });
     clearParams();
@@ -97,7 +97,7 @@ export function DocumentCenter() {
       </div>
       <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
         <Chip on={type === null} onClick={() => setType(null)} className="shrink-0">הכל</Chip>
-        {[305, 320, 330, 300, 400].map((t) => <Chip key={t} on={type === t} onClick={() => setType(t)} className="shrink-0">{DOC_LABEL[t]}</Chip>)}
+        {[305, 320, 330, 300, 400, ...(profile.sellsProducts ? [100, 200, 210] : [])].map((t) => <Chip key={t} on={type === t} onClick={() => setType(t)} className="shrink-0">{DOC_LABEL[t]}</Chip>)}
       </div>
 
       {drafts.length > 0 && (
