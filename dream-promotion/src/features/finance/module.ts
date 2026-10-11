@@ -1,6 +1,6 @@
 import {
-  ArrowsClockwise, Bank, Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Package, Receipt, ShoppingCart, TrendUp,
-  Truck, Vault, Wallet,
+  ArrowsClockwise, Bank, Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Notebook, Package, Receipt, ShoppingCart,
+  TrendUp, Truck, Vault, Wallet,
 } from '@/components/ui/Icon';
 import type { ModuleAction, ModuleConfig, ModuleGroup } from '@/components/shell/module-nav';
 import { financeHref } from './routes';
@@ -81,9 +81,13 @@ export const CASH_GROUP: ModuleGroup = {
     { href: financeHref('bank'), label: 'התאמת בנק', Icon: Bank },
   ],
 };
-/** the module's groups — with the desks' group after the expenses when they are on */
-export function financeGroups(o: { cash: boolean }): ModuleGroup[] {
-  if (!o.cash) return FINANCE_MODULE.groups;
-  const at = FINANCE_MODULE.groups.findIndex((g) => g.id === 'expenses') + 1;
-  return [...FINANCE_MODULE.groups.slice(0, at), CASH_GROUP, ...FINANCE_MODULE.groups.slice(at)];
+/** 2.96 (T13א): manual journal entries — in "דוחות ורואה חשבון" once migration 20261011005100 is in the database (every business) */
+export const JOURNAL_LINK: ModuleGroup['links'][number] = { href: financeHref('journal'), label: 'פקודות יומן', Icon: Notebook };
+/** the module's groups — with the desks' group after the expenses when they are on, and the journal once it is in the database */
+export function financeGroups(o: { cash: boolean; journal?: boolean }): ModuleGroup[] {
+  let groups = FINANCE_MODULE.groups;
+  if (o.journal) groups = groups.map((g) => (g.id === 'reports' ? { ...g, links: [...g.links, JOURNAL_LINK] } : g));
+  if (!o.cash) return groups;
+  const at = groups.findIndex((g) => g.id === 'expenses') + 1;
+  return [...groups.slice(0, at), CASH_GROUP, ...groups.slice(at)];
 }

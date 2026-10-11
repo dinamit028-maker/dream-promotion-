@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { AIService } from '@/lib/services';
@@ -20,43 +20,13 @@ import { STORE_MODULE } from '@/features/store/module';
 import { isStorePath } from '@/features/store/routes';
 import { LocationSwitch } from '@/features/locations/LocationSwitch';
 import { useLocations } from '@/features/locations/store';
-import {
-  House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
-  UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet, Storefront, ClipboardText,
-  Package,
-} from '@/components/ui/Icon';
+import { SquaresFour, Plus, SignOut } from '@/components/ui/Icon';
 import { multiLocation } from '@/features/locations/locations';
+import { NAV, NAV_ADMIN, NAV_BOTTOM_ALL, NAV_STOCK, withStock, type NavItem } from './app-nav';
+import { FavoritesList, MenuSearch, SearchButton, SearchDialog, StarButton, useMenuEntries, useSearchShortcut } from './MenuTools';
+import { useFavorites } from './favorites-store';
 
-type NavItem = { href: string; label: string; Icon: ComponentType<any> };
-
-export const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'בית', Icon: House },
-  { href: '/create', label: 'יצירה', Icon: PencilSimpleLine },
-  { href: '/reels', label: 'אולפן רילס', Icon: FilmSlate },
-  { href: '/content', label: 'תוכן', Icon: SquaresFour },
-  { href: '/calendar', label: 'יומן', Icon: CalendarBlank },
-  { href: '/media', label: 'מדיה', Icon: Images },
-  { href: '/strategy', label: 'אסטרטגיה', Icon: Compass },
-  { href: '/ads', label: 'קמפיינים', Icon: Megaphone },
-  { href: '/leads', label: 'לקוחות', Icon: UsersThree },
-  { href: '/appointments', label: 'תורים', Icon: CalendarCheck },
-  { href: '/declarations', label: 'הצהרות בריאות', Icon: ClipboardText },
-  { href: '/register', label: 'קופה', Icon: CashRegister },
-  { href: '/finance', label: 'כספים', Icon: Wallet },
-  { href: '/store/products', label: 'חנות', Icon: Storefront },
-  { href: '/attendance', label: 'נוכחות', Icon: IdentificationBadge },
-  { href: '/analytics', label: 'ביצועים', Icon: ChartLineUp },
-];
-const NAV_BOTTOM_ALL: NavItem[] = [
-  { href: '/integrations', label: 'חיבורים', Icon: PlugsConnected },
-  { href: '/settings', label: 'הגדרות', Icon: GearSix },
-];
-/** internal screen, only for ADMIN_EMAILS (the server checks again) */
-const NAV_ADMIN: NavItem = { href: '/admin', label: 'ניהול', Icon: ShieldCheck };
-/** stock by location (T12ב) — in the menu only with more than one active location; with one, the register opens its counts */
-const NAV_STOCK: NavItem = { href: '/stock', label: 'מלאי', Icon: Package };
-/** the menu: "מלאי" right after "קופה" when the business works in more than one location */
-const withStock = (multi: boolean) => (multi ? NAV.flatMap((n) => (n.href === '/register' ? [n, NAV_STOCK] : [n])) : NAV);
+export { NAV } from './app-nav';
 // phones: the four screens opened daily sit in the tab bar; "עוד" opens a sheet with every other screen
 const MOBILE_LEFT = [NAV[0], NAV[5]];        // בית · מדיה
 const MOBILE_RIGHT = [NAV[2]];               // אולפן רילס (+ "עוד")
@@ -125,6 +95,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }
       // the locations of the business worked in (the switch at the top) — before migration 4600 there are none
       void useLocations.getState().load();
+      // the person's favorites in the menu (2.96, T11) — kept with their account
+      void useFavorites.getState().load();
       setChecking(false);
     });
     const { data: sub } = supabase().auth.onAuthStateChange((_e, session) => {
@@ -134,6 +106,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [hydrate, router, userId, businessId]);
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  // 2.96 (T11): the search in the menu — a window on a computer (the search field at the top of the menu, or Ctrl+K)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     if (!isCloudConfigured) return;
@@ -156,9 +132,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const NAV_ALL = withStock(multi);
   const NAV_BOTTOM = cashier ? [] : isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
   const NAV_MAIN = cashier ? NAV.filter((n) => n.href === '/register') : NAV_ALL;
+  // every screen the person may open — for the search and the favorites (a cashier gets neither)
+  const entries = useMenuEntries({ admin: isAdmin });
   // a cashier opening any other screen lands in the register
   useEffect(() => { if (cashier && !checking && path !== '/register') router.replace('/register'); }, [cashier, checking, path, router]);
-  useEffect(() => { setMoreOpen(false); }, [path]);
+  useEffect(() => { setMoreOpen(false); setSearchOpen(false); }, [path]);
   useEffect(() => {
     if (!moreOpen) return;
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
@@ -188,12 +166,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const sideItem = ({ href, label, Icon }: NavItem) => {
     const on = path === href;
     return (
-      <Link key={href} href={href} aria-current={on ? 'page' : undefined} title={label}
-        className={cx('flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-[15px] font-semibold transition-colors max-lg:justify-center',
-          on ? 'bg-primary-soft text-ink shadow-[inset_0_0_0_1px_rgba(139,102,255,.35),0_8px_24px_rgba(107,59,245,.25)]' : 'text-ink-2 hover:bg-surface-2 hover:text-ink')}>
-        <Icon size={21} weight={on ? 'fill' : 'regular'} aria-hidden className={cx('shrink-0', on && 'text-primary')} />
-        <span className="max-lg:sr-only">{label}</span>
-      </Link>
+      <div key={href} className="group relative">
+        <Link href={href} aria-current={on ? 'page' : undefined} title={label}
+          className={cx('flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-[15px] font-semibold transition-colors max-lg:justify-center',
+            on ? 'bg-primary-soft text-ink shadow-[inset_0_0_0_1px_rgba(139,102,255,.35),0_8px_24px_rgba(107,59,245,.25)]' : 'text-ink-2 hover:bg-surface-2 hover:text-ink')}>
+          <Icon size={21} weight={on ? 'fill' : 'regular'} aria-hidden className={cx('shrink-0', on && 'text-primary')} />
+          <span className="max-lg:sr-only">{label}</span>
+        </Link>
+        {/* 2.96 (T11): ☆ — shown on hover / focus (always when it is a favorite); not in the narrow menu of a tablet */}
+        {!cashier && <StarButton href={href} label={label} className="absolute inset-y-0 end-0 my-auto max-lg:hidden" />}
+      </div>
     );
   };
 
@@ -216,6 +198,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // a module that opens as an app of its own (2.52: finance, 2.54: the store) — its own menus instead of the app's
   const moduleConfig = isFinancePath(path) ? FINANCE_MODULE : isStorePath(path) ? STORE_MODULE : null;
   const moduleOn = Boolean(moduleConfig) && !cashier;
+  useSearchShortcut(!moduleOn && !cashier && !checking, openSearch);
   const lockedNotice = biz?.current && biz.current.state !== 'active' ? (
     <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">
       {biz.superAdmin
@@ -291,6 +274,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2.5 px-2 pb-6 max-lg:justify-center">
           <Logo /><span className="whitespace-nowrap font-display text-[16px] font-bold max-lg:sr-only">Dream Promotion</span>
         </div>
+        {/* 2.96 (T11): the search at the top of the menu — a field (the narrow menu of a tablet: a magnifier) */}
+        {!cashier && <SearchButton onClick={openSearch} className="-mt-2 mb-3 max-lg:hidden" />}
+        {!cashier && <SearchButton variant="icon" onClick={openSearch} className="-mt-3 mb-2 self-center lg:hidden" />}
+        {!cashier && <div className="max-lg:hidden"><FavoritesList entries={entries} path={path} variant="side" /></div>}
         <nav className="flex flex-col gap-1">{NAV_MAIN.map(sideItem)}</nav>
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-4">
           {NAV_BOTTOM.map(sideItem)}
@@ -361,16 +348,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button type="button" aria-label="סגירה" onClick={() => setMoreOpen(false)} className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
           <div className="safe-b absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[28px] border-t border-line bg-surface px-4 pb-6 pt-3 shadow-[0_-20px_60px_rgba(0,0,0,.5)]">
             <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-line" />
+            <MenuSearch entries={entries} onNavigate={() => setMoreOpen(false)} className="mb-3" />
+            <FavoritesList entries={entries} path={path} variant="sheet" onNavigate={() => setMoreOpen(false)} />
             <div className="grid grid-cols-3 gap-2">
               {[...NAV_ALL, ...NAV_BOTTOM].map(({ href, label, Icon }) => {
                 const on = path === href;
                 return (
-                  <Link key={href} href={href} onClick={() => setMoreOpen(false)} aria-current={on ? 'page' : undefined}
-                    className={cx('flex min-h-[84px] flex-col items-center justify-center gap-1.5 rounded-2xl border text-[13px] font-semibold',
-                      on ? 'border-primary bg-primary-soft text-ink' : 'border-line bg-surface-2 text-ink-2 active:bg-primary-soft')}>
-                    <Icon size={26} weight={on ? 'fill' : 'regular'} aria-hidden className={on ? 'text-primary' : undefined} />
-                    {label}
-                  </Link>
+                  <div key={href} className="relative">
+                    <Link href={href} onClick={() => setMoreOpen(false)} aria-current={on ? 'page' : undefined}
+                      className={cx('flex min-h-[84px] flex-col items-center justify-center gap-1.5 rounded-2xl border text-[13px] font-semibold',
+                        on ? 'border-primary bg-primary-soft text-ink' : 'border-line bg-surface-2 text-ink-2 active:bg-primary-soft')}>
+                      <Icon size={26} weight={on ? 'fill' : 'regular'} aria-hidden className={on ? 'text-primary' : undefined} />
+                      {label}
+                    </Link>
+                    <StarButton href={href} label={label} always className="absolute -top-1 -end-1" />
+                  </div>
                 );
               })}
             </div>
@@ -384,6 +376,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       )}
+      {searchOpen && !moduleOn && !cashier && <SearchDialog entries={entries} onClose={closeSearch} />}
       <ContentEditor />
       <JobRunner />
     </div>

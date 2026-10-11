@@ -32,6 +32,8 @@
 #      8 deposits of the whole cash desk at once → never more than it holds; the same file imported 8 times at once → each line
 #      once; one receipt approved on 8 lines at once → one match; one delivery note invoiced 8 times at once → one invoice; 8 return
 #      notes of one unit on a note of 3 at once → exactly 3
+#  21. manual journal entries (5100): the same new entry from 8 connections at once → one; 8 connections × 10 entries → numbers
+#      1..81, no gap, no double; one entry undone from 8 connections at once → one reversal
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -573,3 +575,23 @@ r=$(q "select (select count(*) from public.documents where business_id = '$B' an
               ((select stock_qty from public.catalog_items where id = '$SI') - $S0)")
 [ "$r" = "1 3 3" ] || fail "a delivery note invoiced 8 times / 8 returns of one on a note of 3, at once: one invoice, 3 returns, 3 back (expected 1 3 3, got: $r)"
 echo "ok: one delivery note invoiced from 8 connections at once → one invoice; 8 returns of one unit on a note of 3 → exactly 3, 3 back in stock"
+
+# ---- 21. manual journal entries (5100) -----------------------------------------------------------------------------------------------
+JE=00000000-0000-0000-0000-0000000cc1e1
+for w in $(seq 8); do worker_script "$TMP/jsame-$w.sql" 1 "select public.journal_entry_create('$JE', public.il_today(), 'income', 100, 18, null, null, 'עומס');"; done
+run_parallel jsame
+r=$(q "select count(*) || ' ' || coalesce(max(number), 0) from public.journal_entries where business_id = '$B'")
+[ "$r" = "1 1" ] || fail "the same new entry from 8 connections at once: one entry (expected 1 1, got: $r)"
+echo "ok: the same new entry from 8 connections at once → one entry, number 1"
+for w in $(seq 8); do worker_script "$TMP/jmany-$w.sql" 10 "select public.journal_entry_create(gen_random_uuid(), public.il_today(), 'expense', 10, 1.8, null, 'other', 'עומס $w');"; done
+run_parallel jmany
+r=$(q "select count(*) || ' ' || count(distinct number) || ' ' || min(number) || ' ' || max(number) from public.journal_entries where business_id = '$B'")
+[ "$r" = "81 81 1 81" ] || fail "8 connections × 10 entries: numbered 1..81, no gap, no double (expected 81 81 1 81, got: $r)"
+echo "ok: 8 connections × 10 entries at once → numbers 1..81, no gap, no double"
+for w in $(seq 8); do worker_script "$TMP/jrev-$w.sql" 1 "select public.journal_entry_reverse(gen_random_uuid(), '$JE', null, 'ביטול $w');"; done
+run_parallel jrev
+r=$(q "select (select count(*) from public.journal_entries where reverses = '$JE') || ' ' || (select count(*) from public.journal_entries where business_id = '$B')
+        || ' ' || (select count(*) from public.finance_audit_log where business_id = '$B' and action like 'journal.%')")
+[ "$r" = "1 82 82" ] || fail "one entry undone from 8 connections at once: one reversal, each in the audit log once (expected 1 82 82, got: $r)"
+echo "ok: one entry undone from 8 connections at once → one reversal, 7 refused; every entry in the audit log once"
+

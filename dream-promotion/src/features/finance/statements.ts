@@ -25,55 +25,70 @@ export const partyKey = (p: { leadId?: string | null; dealer?: string | null; na
   p.leadId ? `l:${p.leadId}` : /^\d{9}$/.test(p.dealer ?? '') ? `d:${p.dealer}` : `n:${normalizeSupplier(p.name ?? '')}`;
 
 // ---- what the database answers ----------------------------------------------------------------------------------------------
-export interface CustomerIncome { key: string; leadId: string | null; name: string; dealer: string; net: number; vat: number; gross: number; count: number }
-export interface IncomeByCustomer { from: string; to: string; vat: boolean; total: { net: number; vat: number; count: number }; customers: CustomerIncome[] }
+/** 2.96 (T13א): "manual" — how much of it manual journal entries are; key "m:" — the entries that belong to no customer */
+export interface CustomerIncome { key: string; leadId: string | null; name: string; dealer: string; net: number; vat: number; gross: number; count: number; manual: number }
+export interface IncomeByCustomer { from: string; to: string; vat: boolean; total: { net: number; vat: number; count: number; manual: number }; customers: CustomerIncome[] }
 export const toIncomeByCustomer = (j: any): IncomeByCustomer => ({
   from: str(j?.from), to: str(j?.to), vat: Boolean(j?.vat),
-  total: { net: num(j?.total?.net), vat: num(j?.total?.vat), count: num(j?.total?.count) },
+  total: { net: num(j?.total?.net), vat: num(j?.total?.vat), count: num(j?.total?.count), manual: num(j?.total?.manual) },
   customers: arr(j?.customers).map((c) => ({ key: str(c.key), leadId: strOrNull(c.leadId), name: str(c.name), dealer: str(c.dealer), net: num(c.net), vat: num(c.vat),
-    gross: num(c.gross), count: num(c.count) })),
+    gross: num(c.gross), count: num(c.count), manual: num(c.manual) })),
 });
 
 export interface ItemSales { key: string; itemId: string | null; variantId: string | null; name: string; kind: string; typeId: string | null; qty: number; net: number }
 export interface TypeSales { typeId: string | null; name: string; qty: number; net: number }
-export interface SalesByItem { from: string; to: string; vat: boolean; total: number; items: ItemSales[]; types: TypeSales[]; unattributed: { net: number; count: number } }
+export interface SalesByItem {
+  from: string; to: string; vat: boolean; total: number; items: ItemSales[]; types: TypeSales[]; unattributed: { net: number; count: number };
+  /** 2.96 (T13א): manual income entries — a line of their own */
+  manual: { net: number; count: number };
+}
 export const toSalesByItem = (j: any): SalesByItem => ({
   from: str(j?.from), to: str(j?.to), vat: Boolean(j?.vat), total: num(j?.total),
   items: arr(j?.items).map((i) => ({ key: str(i.key), itemId: strOrNull(i.itemId), variantId: strOrNull(i.variantId), name: str(i.name), kind: str(i.kind),
     typeId: strOrNull(i.typeId), qty: num(i.qty), net: num(i.net) })),
   types: arr(j?.types).map((t) => ({ typeId: strOrNull(t.typeId), name: str(t.name), qty: num(t.qty), net: num(t.net) })),
   unattributed: { net: num(j?.unattributed?.net), count: num(j?.unattributed?.count) },
+  manual: { net: num(j?.manual?.net), count: num(j?.manual?.count) },
 });
 
 export type CustomerMove = 'charge' | 'credit' | 'cancelled' | 'payment_document' | 'payment_cancel' | 'payment_credit' | 'payment_refund';
-export interface CustomerLedgerRow { date: string; kind: CustomerMove | string; docType: number | null; docNumber: number | null; debit: number; credit: number; method: string; balance: number }
+/** 2.96 (T13א): kind "manual" — a manual journal entry of the customer (docNumber: the entry's number, note: its explanation) */
+export interface CustomerLedgerRow {
+  date: string; kind: CustomerMove | 'manual' | string; docType: number | null; docNumber: number | null; debit: number; credit: number; method: string; balance: number; note: string;
+}
 export interface CustomerLedger { key: string; from: string; to: string; name: string; opening: number; debit: number; credit: number; closing: number; rows: CustomerLedgerRow[] }
 export const toCustomerLedger = (j: any): CustomerLedger => ({
   key: str(j?.key), from: str(j?.from), to: str(j?.to), name: str(j?.name), opening: num(j?.opening), debit: num(j?.debit), credit: num(j?.credit), closing: num(j?.closing),
   rows: arr(j?.rows).map((r) => ({ date: str(r.date), kind: str(r.kind), docType: numOrNull(r.docType), docNumber: numOrNull(r.docNumber), debit: num(r.debit),
-    credit: num(r.credit), method: str(r.method), balance: num(r.balance) })),
+    credit: num(r.credit), method: str(r.method), balance: num(r.balance), note: str(r.note) })),
 });
 
-export interface SupplierRow { key: string; name: string; dealer: string; count: number; net: number; vat: number; total: number; paid: number; open: number }
-export interface CategoryRow { category: string; count: number; net: number; total: number; paid: number; open: number }
+/** 2.96 (T13א): "manual" — manual expense entries in the total (never paid, never owed: not in "open"); key "m:" — of no supplier */
+export interface SupplierRow { key: string; name: string; dealer: string; count: number; net: number; vat: number; total: number; paid: number; open: number; manual: number }
+export interface CategoryRow { category: string; count: number; net: number; total: number; paid: number; open: number; manual: number }
 export interface SupplierReport {
-  from: string; to: string; total: { net: number; vat: number; total: number; paid: number; open: number; count: number }; suppliers: SupplierRow[]; categories: CategoryRow[];
+  from: string; to: string; total: { net: number; vat: number; total: number; paid: number; open: number; count: number; manual: number }; suppliers: SupplierRow[]; categories: CategoryRow[];
 }
 export const toSupplierReport = (j: any): SupplierReport => ({
   from: str(j?.from), to: str(j?.to),
-  total: { net: num(j?.total?.net), vat: num(j?.total?.vat), total: num(j?.total?.total), paid: num(j?.total?.paid), open: num(j?.total?.open), count: num(j?.total?.count) },
+  total: { net: num(j?.total?.net), vat: num(j?.total?.vat), total: num(j?.total?.total), paid: num(j?.total?.paid), open: num(j?.total?.open), count: num(j?.total?.count),
+    manual: num(j?.total?.manual) },
   suppliers: arr(j?.suppliers).map((s) => ({ key: str(s.key), name: str(s.name), dealer: str(s.dealer), count: num(s.count), net: num(s.net), vat: num(s.vat),
-    total: num(s.total), paid: num(s.paid), open: num(s.open) })),
-  categories: arr(j?.categories).map((c) => ({ category: str(c.category), count: num(c.count), net: num(c.net), total: num(c.total), paid: num(c.paid), open: num(c.open) })),
+    total: num(s.total), paid: num(s.paid), open: num(s.open), manual: num(s.manual) })),
+  categories: arr(j?.categories).map((c) => ({ category: str(c.category), count: num(c.count), net: num(c.net), total: num(c.total), paid: num(c.paid), open: num(c.open),
+    manual: num(c.manual) })),
 });
 
 export type SupplierMove = 'invoice' | 'supplier_credit' | 'payment_expense' | 'payment_reversal';
-export interface SupplierLedgerRow { date: string; kind: SupplierMove | string; number: number | null; ref: string; debit: number; credit: number; method: string; balance: number }
+/** 2.96 (T13א): kind "manual" — a manual journal entry of the supplier (number: the entry's, note: its explanation) */
+export interface SupplierLedgerRow {
+  date: string; kind: SupplierMove | 'manual' | string; number: number | null; ref: string; debit: number; credit: number; method: string; balance: number; note: string;
+}
 export interface SupplierLedger { key: string; from: string; to: string; name: string; opening: number; debit: number; credit: number; closing: number; rows: SupplierLedgerRow[] }
 export const toSupplierLedger = (j: any): SupplierLedger => ({
   key: str(j?.key), from: str(j?.from), to: str(j?.to), name: str(j?.name), opening: num(j?.opening), debit: num(j?.debit), credit: num(j?.credit), closing: num(j?.closing),
   rows: arr(j?.rows).map((r) => ({ date: str(r.date), kind: str(r.kind), number: numOrNull(r.number), ref: str(r.ref), debit: num(r.debit), credit: num(r.credit),
-    method: str(r.method), balance: num(r.balance) })),
+    method: str(r.method), balance: num(r.balance), note: str(r.note) })),
 });
 
 export interface WithholdingCustomer { key: string; leadId: string | null; name: string; dealer: string; amount: number; count: number }
@@ -128,22 +143,30 @@ const docName = (type: number | null, n: number | null) => (type ? `${DOC_LABEL[
 const KIND_HE: Record<string, string> = { service: 'שירות', product: 'מוצר', package: 'חבילה', other: 'אחר' };
 export const NO_TYPE = 'בלי סוג טיפול';
 export const NOT_BY_ITEM = 'לא לפי פריט (מסמך בלי שורות)';
+/** 2.96 (T13א): the line of the manual journal entries in a report, and of those that belong to no customer / supplier */
+export const MANUAL_ENTRIES = 'פקודות יומן ידניות';
+export const MANUAL_KEY = 'm:';
+export const MANUAL_NO_CUSTOMER = 'פקודות ידניות (בלי לקוח)';
+export const MANUAL_NO_SUPPLIER = 'פקודות ידניות (בלי ספק)';
+const manualNote = (n: number) => (ag(n) ? ` כולל פקודות יומן ידניות: ₪${n.toLocaleString('he-IL', { maximumFractionDigits: 2 })}.` : '');
 
 export function incomeTable(r: IncomeByCustomer): ReportTable {
   const columns: Column[] = r.vat
     ? [{ label: 'לקוח', type: 'text' }, { label: 'ע.מ / ח.פ', type: 'text' }, { label: 'מסמכים', type: 'count' }, { label: 'לפני מע״מ', type: 'money' },
       { label: 'מע״מ', type: 'money' }, { label: 'כולל מע״מ', type: 'money' }]
     : [{ label: 'לקוח', type: 'text' }, { label: 'ע.מ / ח.פ', type: 'text' }, { label: 'קבלות', type: 'count' }, { label: 'הכנסות', type: 'money' }];
-  const rows = r.customers.map((c) => (r.vat ? [c.name || 'לקוח מזדמן', c.dealer, c.count, c.net, c.vat, c.gross] : [c.name || 'לקוח מזדמן', c.dealer, c.count, c.net]));
+  const nameOf = (c: CustomerIncome) => (c.key === MANUAL_KEY ? MANUAL_NO_CUSTOMER : c.name || 'לקוח מזדמן');
+  const rows = r.customers.map((c) => (r.vat ? [nameOf(c), c.dealer, c.count, c.net, c.vat, c.gross] : [nameOf(c), c.dealer, c.count, c.net]));
   const total = r.vat ? ['סה״כ', '', r.total.count, r.total.net, r.total.vat, (ag(r.total.net) + ag(r.total.vat)) / 100] : ['סה״כ', '', r.total.count, r.total.net];
   return { title: 'הכנסות לפי לקוח', columns, rows, total,
-    note: r.vat ? 'חשבוניות מס וחשבוניות מס / קבלה, פחות חשבוניות זיכוי — כמו ההכנסות במסך הכספים.' : 'קבלות שלא בוטלו — כמו ההכנסות במסך הכספים.' };
+    note: (r.vat ? 'חשבוניות מס וחשבוניות מס / קבלה, פחות חשבוניות זיכוי — כמו ההכנסות במסך הכספים.' : 'קבלות שלא בוטלו — כמו ההכנסות במסך הכספים.') + manualNote(r.total.manual) };
 }
 
 export function itemsTable(r: SalesByItem): ReportTable {
   const typeName = new Map(r.types.map((t) => [t.typeId ?? '', t.name]));
   const rows: Cell[][] = r.items.map((i) => [i.name || '—', KIND_HE[i.kind] ?? '', i.typeId ? typeName.get(i.typeId) || '' : '', i.qty, i.net]);
   if (ag(r.unattributed.net)) rows.push([NOT_BY_ITEM, '', '', null, r.unattributed.net]);
+  if (ag(r.manual.net)) rows.push([MANUAL_ENTRIES, '', '', null, r.manual.net]);
   return { title: 'מכירות לפי פריט ושירות', columns: [{ label: 'פריט / שירות', type: 'text' }, { label: 'סוג', type: 'text' }, { label: 'סוג טיפול', type: 'text' },
     { label: 'כמות', type: 'qty' }, { label: r.vat ? 'הכנסות (לפני מע״מ)' : 'הכנסות', type: 'money' }],
   rows, total: ['סה״כ', '', '', null, r.total],
@@ -152,6 +175,7 @@ export function itemsTable(r: SalesByItem): ReportTable {
 export function typesTable(r: SalesByItem): ReportTable {
   const rows: Cell[][] = r.types.map((t) => [t.typeId ? t.name : NO_TYPE, t.qty, t.net]);
   if (ag(r.unattributed.net)) rows.push([NOT_BY_ITEM, null, r.unattributed.net]);
+  if (ag(r.manual.net)) rows.push([MANUAL_ENTRIES, null, r.manual.net]);
   return { title: 'מכירות לפי סוג טיפול', columns: [{ label: 'סוג טיפול', type: 'text' }, { label: 'כמות', type: 'qty' },
     { label: r.vat ? 'הכנסות (לפני מע״מ)' : 'הכנסות', type: 'money' }], rows, total: ['סה״כ', null, r.total],
   note: 'שירות — לפי סוג הטיפול שלו בקטלוג; חבילה — לפי סוג הטיפול של החבילה.' };
@@ -159,7 +183,7 @@ export function typesTable(r: SalesByItem): ReportTable {
 
 const CUSTOMER_MOVE_HE: Record<string, string> = {
   charge: 'חיוב', credit: 'זיכוי', cancelled: 'ביטול מסמך', payment_document: 'תשלום', payment_cancel: 'ביטול קבלה', payment_credit: 'החזר כספי על זיכוי',
-  payment_refund: 'החזר בקופה',
+  payment_refund: 'החזר בקופה', manual: 'פקודה ידנית',
 };
 export const customerMoveLabel = (r: Pick<CustomerLedgerRow, 'kind' | 'method'>) =>
   `${CUSTOMER_MOVE_HE[r.kind] ?? r.kind}${r.method && r.kind.startsWith('payment_') ? ` · ${payLabel(r.method)}` : ''}`;
@@ -169,33 +193,44 @@ export function customerLedgerTable(r: CustomerLedger): ReportTable {
     columns: [{ label: 'תאריך', type: 'date' }, { label: 'פעולה', type: 'text' }, { label: 'מסמך', type: 'text' }, { label: 'חובה', type: 'money' },
       { label: 'זכות', type: 'money' }, { label: 'יתרה', type: 'money' }],
     rows: [[r.from, 'יתרת פתיחה', '', null, null, r.opening],
-      ...r.rows.map((x) => [x.date, customerMoveLabel(x), docName(x.docType, x.docNumber), x.debit || null, x.credit || null, x.balance])],
+      ...r.rows.map((x) => x.kind === 'manual'
+        ? [x.date, `${customerMoveLabel(x)}${x.note ? ` — ${x.note}` : ''}`, `פקודה ${x.docNumber ?? ''}`.trim(), x.debit || null, x.credit || null, x.balance]
+        : [x.date, customerMoveLabel(x), docName(x.docType, x.docNumber), x.debit || null, x.credit || null, x.balance])],
     total: [r.to, 'יתרת סגירה', '', r.debit, r.credit, r.closing],
-    note: 'חובה: מה שהלקוח חויב בו. זכות: מה ששילם (גם ניכוי במקור) או זוכה בו. יתרה חיובית — הלקוח חייב לעסק.',
+    note: 'חובה: מה שהלקוח חויב בו. זכות: מה ששילם (גם ניכוי במקור) או זוכה בו. יתרה חיובית — הלקוח חייב לעסק.'
+      + (r.rows.some((x) => x.kind === 'manual') ? ' פקודה ידנית נכללת ביתרה — אבל לא ב"חייבים" (היא לא חשבונית).' : ''),
   };
 }
 
+// 2.96 (T13א): with manual expense entries in the period — a column of their own (they are in the total, never paid, never owed)
+const MANUAL_NOTE = ' פקודה ידנית נכללת בסה״כ — לא ב"שולם" ולא ב"לתשלום".';
 export function suppliersTable(r: SupplierReport): ReportTable {
+  const m = ag(r.total.manual) !== 0;
   return {
     title: 'הוצאות לפי ספק',
     columns: [{ label: 'ספק', type: 'text' }, { label: 'ע.מ ספק', type: 'text' }, { label: 'מסמכים', type: 'count' }, { label: 'לפני מע״מ', type: 'money' },
-      { label: 'מע״מ', type: 'money' }, { label: 'סה״כ', type: 'money' }, { label: 'שולם', type: 'money' }, { label: 'לתשלום', type: 'money' }],
-    rows: r.suppliers.map((s) => [s.name, s.dealer, s.count, s.net, s.vat, s.total, s.paid, s.open]),
-    total: ['סה״כ', '', r.total.count, r.total.net, r.total.vat, r.total.total, r.total.paid, r.total.open],
-    note: 'הוצאות מאושרות בתקופה (זיכוי מספק — בניכוי). "שולם" — לפי התשלום שנרשם בהוצאה.',
+      { label: 'מע״מ', type: 'money' }, { label: 'סה״כ', type: 'money' }, { label: 'שולם', type: 'money' }, { label: 'לתשלום', type: 'money' },
+      ...(m ? [{ label: 'פקודות ידניות', type: 'money' as const }] : [])],
+    rows: r.suppliers.map((s) => [s.key === MANUAL_KEY ? MANUAL_NO_SUPPLIER : s.name, s.dealer, s.count, s.net, s.vat, s.total, s.paid, s.open, ...(m ? [s.manual] : [])]),
+    total: ['סה״כ', '', r.total.count, r.total.net, r.total.vat, r.total.total, r.total.paid, r.total.open, ...(m ? [r.total.manual] : [])],
+    note: 'הוצאות מאושרות בתקופה (זיכוי מספק — בניכוי). "שולם" — לפי התשלום שנרשם בהוצאה.' + (m ? MANUAL_NOTE : ''),
   };
 }
 export function categoriesTable(r: SupplierReport): ReportTable {
+  const m = ag(r.total.manual) !== 0;
   return {
     title: 'הוצאות לפי סוג',
     columns: [{ label: 'סוג הוצאה', type: 'text' }, { label: 'מסמכים', type: 'count' }, { label: 'לפני מע״מ', type: 'money' }, { label: 'סה״כ', type: 'money' },
-      { label: 'שולם', type: 'money' }, { label: 'לתשלום', type: 'money' }],
-    rows: r.categories.map((c) => [categoryLabel(c.category), c.count, c.net, c.total, c.paid, c.open]),
-    total: ['סה״כ', r.total.count, r.total.net, r.total.total, r.total.paid, r.total.open],
+      { label: 'שולם', type: 'money' }, { label: 'לתשלום', type: 'money' }, ...(m ? [{ label: 'פקודות ידניות', type: 'money' as const }] : [])],
+    rows: r.categories.map((c) => [categoryLabel(c.category), c.count, c.net, c.total, c.paid, c.open, ...(m ? [c.manual] : [])]),
+    total: ['סה״כ', r.total.count, r.total.net, r.total.total, r.total.paid, r.total.open, ...(m ? [r.total.manual] : [])],
+    ...(m ? { note: MANUAL_NOTE.trim() } : {}),
   };
 }
 
-const SUPPLIER_MOVE_HE: Record<string, string> = { invoice: 'חשבונית ספק', supplier_credit: 'זיכוי מהספק', payment_expense: 'תשלום לספק', payment_reversal: 'ביטול תשלום' };
+const SUPPLIER_MOVE_HE: Record<string, string> = {
+  invoice: 'חשבונית ספק', supplier_credit: 'זיכוי מהספק', payment_expense: 'תשלום לספק', payment_reversal: 'ביטול תשלום', manual: 'פקודה ידנית',
+};
 export const supplierMoveLabel = (r: Pick<SupplierLedgerRow, 'kind' | 'method' | 'credit'>) =>
   r.kind === 'payment_expense' && r.credit > 0 ? `החזר מהספק · ${payLabel(r.method)}`
     : `${SUPPLIER_MOVE_HE[r.kind] ?? r.kind}${r.method && r.kind.startsWith('payment_') ? ` · ${payLabel(r.method)}` : ''}`;
@@ -205,7 +240,9 @@ export function supplierLedgerTable(r: SupplierLedger): ReportTable {
     columns: [{ label: 'תאריך', type: 'date' }, { label: 'פעולה', type: 'text' }, { label: 'הוצאה מס׳', type: 'text' }, { label: 'מסמך ספק', type: 'text' },
       { label: 'חובה', type: 'money' }, { label: 'זכות', type: 'money' }, { label: 'יתרה', type: 'money' }],
     rows: [[r.from, 'יתרת פתיחה', '', '', null, null, r.opening],
-      ...r.rows.map((x) => [x.date, supplierMoveLabel(x), x.number == null ? '' : String(x.number), x.ref, x.debit || null, x.credit || null, x.balance])],
+      ...r.rows.map((x) => x.kind === 'manual'
+        ? [x.date, `${supplierMoveLabel(x)}${x.note ? ` — ${x.note}` : ''}`, `פקודה ${x.number ?? ''}`.trim(), '', x.debit || null, x.credit || null, x.balance]
+        : [x.date, supplierMoveLabel(x), x.number == null ? '' : String(x.number), x.ref, x.debit || null, x.credit || null, x.balance])],
     total: [r.to, 'יתרת סגירה', '', '', r.debit, r.credit, r.closing],
     note: 'זכות: חשבוניות הספק (מה שהעסק חייב). חובה: תשלומים לספק וזיכויים ממנו. יתרה חיובית — העסק חייב לספק.',
   };

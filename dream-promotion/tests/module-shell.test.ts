@@ -13,7 +13,7 @@ import { proxy, config as proxyConfig } from '../src/proxy';
 test('every finance screen has its own address, and back', () => {
   assert.deepEqual(FINANCE_SECTIONS.map((s) => s.path), [
     '/finance', '/finance/documents', '/finance/income', '/finance/receivables', '/finance/quotes', '/finance/packages', '/finance/recurring',
-    '/finance/expenses', '/finance/cash', '/finance/bank', '/finance/reports', '/finance/accountant', '/finance/settings',
+    '/finance/expenses', '/finance/cash', '/finance/bank', '/finance/reports', '/finance/accountant', '/finance/journal', '/finance/settings',
   ]);
   for (const s of FINANCE_SECTIONS) {
     assert.equal(financeHref(s.id), s.path);
@@ -67,9 +67,10 @@ test('the proxy sends an old link on (307) and lets everything else through', ()
 });
 
 test('the module menu: every screen exactly once, in the agreed groups; the bottom bar and the "+"', () => {
-  // 2.95: the desks' group (קופות ובנק) joins the menu only once the business turned them on — with it, every screen is there once
-  const links = financeGroups({ cash: true }).flatMap((g) => g.links.map((l) => l.href));
-  assert.deepEqual([...links].sort(), FINANCE_SECTIONS.map((s) => s.path).sort(), 'all 13 screens');
+  // 2.95: the desks' group (קופות ובנק) joins the menu only once the business turned them on; 2.96: the journal once migration 5100
+  // is in the database — with both, every screen is there once
+  const links = financeGroups({ cash: true, journal: true }).flatMap((g) => g.links.map((l) => l.href));
+  assert.deepEqual([...links].sort(), FINANCE_SECTIONS.map((s) => s.path).sort(), 'all 14 screens');
   assert.equal(new Set(links).size, links.length, 'none twice');
   assert.deepEqual(financeGroups({ cash: false }), FINANCE_MODULE.groups, 'off: the menu as it was');
   assert.deepEqual(financeGroups({ cash: true }).map((g) => g.id), ['lobby', 'income', 'expenses', 'cash', 'reports', 'settings'], 'on: after the expenses');

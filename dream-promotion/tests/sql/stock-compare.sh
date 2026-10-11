@@ -9,7 +9,9 @@
 # same day (a receipt paid by cheque too) gives the same ledger, row by row, and the same summary (4900 only adds "withheld": 0).
 # 20261011005000 (the desks, deposits and the bank, T9; order / delivery note / return note, T10) rewrote the documents' checks, their
 # way into the stock and the cancellations: the same day — a business that turns nothing on — gives the same everything.
-# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default), 4800, 4900 or 5000]
+# 20261011005100 (manual journal entries, T13א) rewrote finance_summary and the reports' functions: the same day, no entry — the same
+# summary (5100 only adds "manual", all 0) and the same reports.
+# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default), 4800, 4900, 5000 or 5100]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BASE=${1:-${DP_TEST_DB:-dp_test}}
@@ -22,7 +24,8 @@ case "${2:-4700}" in
   4800) STOCK=supabase/migrations/20261011004800_items_lists_reports.sql ;;
   4900) STOCK=supabase/migrations/20261011004900_reports.sql ;;
   5000) STOCK=supabase/migrations/20261011005000_cash_bank_goods.sql ;;
-  *) fail "the migration to compare: 4700, 4800, 4900 or 5000" ;;
+  5100) STOCK=supabase/migrations/20261011005100_journal_entries.sql ;;
+  *) fail "the migration to compare: 4700, 4800, 4900, 5000 or 5100" ;;
 esac
 TAG=${2:-4700}
 TMPF=$(mktemp); trap 'rm -f "$TMPF" "$TMPF.before" "$TMPF.after"' EXIT
@@ -114,9 +117,20 @@ day() { # the same day of the business, on database $1 — prints every answer o
                                                            p.lead_id, p.reference, p.note, p.user_id)))
                        || ' ' || count(*) from public.payments p where p.business_id = '$B';" || return 1
   "${q[@]}" -c "begin; $AS
-    select 'summary ' || (public.finance_summary(public.il_today() - 30, public.il_today()) - 'withheld')::text;
+    select 'summary ' || (public.finance_summary(public.il_today() - 30, public.il_today()) - 'withheld' - 'manual')::text;
     select 'withheld ' || coalesce(public.finance_summary(public.il_today() - 30, public.il_today())->>'withheld', '0');
+    select 'manual ' || coalesce(public.finance_summary(public.il_today() - 30, public.il_today())->'manual'->>'count', '0');
     commit;" || return 1
+  # 5100 rewrote the reports of 4900 and 4800's comparison of locations too: the same answers without and with it (no entry —
+  # only the "manual": 0 it adds, which is taken out here)
+  if [ "$TAG" = 5100 ]; then
+    "${q[@]}" -c "begin; $AS
+      select 'income ' || (public.report_income_by_customer(public.il_today() - 30, public.il_today()) #- '{total,manual}')::text;
+      select 'items ' || (public.report_sales_by_item(public.il_today() - 30, public.il_today()) - 'manual')::text;
+      select 'suppliers ' || (public.report_suppliers(public.il_today() - 30, public.il_today()) #- '{total,manual}')::text;
+      select 'cmp ' || public.location_compare(public.il_today() - 30, public.il_today())::text;
+      commit;" | sed -E 's/,? ?\"manual\": 0(\.00)?//g' || return 1
+  fi
 }
 build "${BASE}_stk_before" no
 build "${BASE}_stk_after" yes
@@ -133,6 +147,9 @@ if [ "$TAG" = 4700 ]; then
 elif [ "$TAG" = 4900 ]; then
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.payments where method = 'withholding'")
   [ "$r" = "0" ] || fail "one location: no tax withheld at source appeared (got $r)"
+elif [ "$TAG" = 5100 ]; then
+  r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.journal_entries")
+  [ "$r" = "0" ] || fail "one location: no journal entry appeared (got $r)"
 elif [ "$TAG" = 5000 ]; then
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select (select count(*) from public.bank_deposits) + (select count(*) from public.bank_lines)
                                                               + (select count(*) from public.cheque_reminders) + (select count(*) from public.documents where doc_type in (100, 200, 210))

@@ -8,7 +8,7 @@ import { logEvent } from './api';
 import { loadSummary, type Summary } from './Overview';
 import { periodOf } from './reports';
 import {
-  ADVANCE_NOTE, advanceEstimate, advanceTable, cellText, customerLedgerTable, categoriesTable, incomeTable, isNumeric, itemsTable, monthsTable, partyKey,
+  ADVANCE_NOTE, MANUAL_KEY, advanceEstimate, advanceTable, cellText, customerLedgerTable, categoriesTable, incomeTable, isNumeric, itemsTable, monthsTable, partyKey,
   pnlTable, reportFileName, supplierLedgerTable, suppliersTable, tableCsv, typesTable, withholdingRowsTable, withholdingTable, yearBefore, type ReportTable,
 } from './statements';
 import {
@@ -106,7 +106,9 @@ export function CustomersView({ period, subtitle, openLedger }: ViewProps & { op
   const r = useLoad(() => loadIncomeByCustomer(period), [period.from, period.to]);
   if (!r.data) return <Waiting r={r} />;
   const d = r.data;
-  return <TableCard table={incomeTable(d)} period={period} subtitle={subtitle} onRow={(i) => openLedger(d.customers[i].key, d.customers[i].name)} rowHint="לחיצה על לקוח — הכרטסת שלו." />;
+  // 2.96: the line of manual entries that belong to no customer has no card
+  return <TableCard table={incomeTable(d)} period={period} subtitle={subtitle} onRow={(i) => { if (d.customers[i].key !== MANUAL_KEY) openLedger(d.customers[i].key, d.customers[i].name); }}
+    rowHint="לחיצה על לקוח — הכרטסת שלו." />;
 }
 
 export function ItemsView({ period, subtitle }: ViewProps) {
@@ -174,7 +176,8 @@ export function SuppliersView({ period, subtitle, openLedger }: ViewProps & { op
         <Card className="p-3"><span className="block text-xs text-muted">שולם</span><strong className="tabular-nums">{ils(d.total.paid)}</strong></Card>
         <Card className="p-3"><span className="block text-xs text-muted">עוד לא שולם</span><strong className={cx('tabular-nums', d.total.open > 0 && 'text-amber-600')}>{ils(d.total.open)}</strong></Card>
       </div>
-      <TableCard table={suppliersTable(d)} period={period} subtitle={subtitle} onRow={(i) => openLedger(d.suppliers[i].key, d.suppliers[i].name)} rowHint="לחיצה על ספק — הכרטסת שלו." />
+      <TableCard table={suppliersTable(d)} period={period} subtitle={subtitle}
+        onRow={(i) => { if (d.suppliers[i].key !== MANUAL_KEY) openLedger(d.suppliers[i].key, d.suppliers[i].name); }} rowHint="לחיצה על ספק — הכרטסת שלו." />
       <TableCard table={categoriesTable(d)} period={period} subtitle={subtitle} />
     </div>
   );

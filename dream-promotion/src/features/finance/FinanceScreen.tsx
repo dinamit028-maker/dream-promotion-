@@ -15,6 +15,7 @@ import { FINANCE_MIGRATION, accessState, financeError, type AccessState } from '
 import { Note, type CatalogPick } from './ui';
 import { financeHref, financeLabel, sectionOfPath, type FinanceSection } from './routes';
 import { financeActions, financeGroups } from './module';
+import { useJournalReadyState } from './journal-data';
 import { catalogPicks, type CatalogItem } from '@/features/catalog/catalog';
 import { loadCatalog } from '@/features/catalog/data';
 
@@ -118,8 +119,11 @@ function FinanceProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void load(); }, [load]);
   // the module's "+": only the documents this business may issue (2.95: an order and a delivery note when it sells products)
   useModuleActions(state ? financeActions(state.settings.entity, { goods: state.profile.sellsProducts }) : null);
-  // 2.95: the desks' group of the menu, once the business turned them on (else the menu as it was)
-  useModuleGroups(state?.profile.cashDrawers ? financeGroups({ cash: true }) : null);
+  // 2.95: the desks' group of the menu, once the business turned them on; 2.96: the journal, once migration 5100 is there
+  // (else the menu as it was)
+  const journal = useJournalReadyState() === true;
+  const cash = Boolean(state?.profile.cashDrawers);
+  useModuleGroups(cash || journal ? financeGroups({ cash, journal }) : null);
 
   const ctx = useMemo<Ctx | null>(() => {
     if (!state || !userId) return null;

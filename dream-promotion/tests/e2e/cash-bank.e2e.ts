@@ -409,7 +409,8 @@ async function main() {
       await f.getByRole('button', { name: 'הפקת תעודת משלוח' }).click();
       await page.getByText('הופקה תעודת משלוח מס׳ 2').waitFor();
       assert.equal(fake.tables.catalog_items[0].stock_qty, 7);
-      assert.equal(await o.getByRole('button', { name: 'תעודת משלוח מההזמנה' }).count(), 0, 'all of the order went out');
+      // all of the order went out: the order's card reloads what was made from it, and the button goes (waited for — not counted at once)
+      await o.getByRole('button', { name: 'תעודת משלוח מההזמנה' }).waitFor({ state: 'detached' });
       const n = await openDoc('תעודת משלוח 2');
       await n.getByRole('button', { name: 'תעודת החזרה' }).click();
       const r = dialog();

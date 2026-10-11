@@ -32,4 +32,6 @@ bash tests/sql/stock-compare.sh "$DB" 4900 || failed=1
 # … and without and with migration 5000 (the desks, deposits and the bank; order, delivery note and return note — the documents'
 # checks, stock and cancellations rewritten: a business that turns nothing on keeps the same day)
 bash tests/sql/stock-compare.sh "$DB" 5000 || failed=1
+# … and without and with migration 5100 (manual journal entries — the money summary and the reports rewritten: no entry, the same answers)
+bash tests/sql/stock-compare.sh "$DB" 5100 || failed=1
 exit $failed

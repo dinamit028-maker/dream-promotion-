@@ -8,6 +8,7 @@ import { logEvent } from './api';
 import { categoryLabel } from './expenses';
 import { payLabel } from './payments';
 import { vatReportRows } from './reports';
+import { manualPnlRows, manualVatRows } from './journal';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, ddmmyyyy, ils, periodNow, type Period } from './ui';
 import { LocationCompare } from './LocationCompare';
 import { useLocations } from '@/features/locations/store';
@@ -32,8 +33,8 @@ export function reportHtml(s: Summary, title: string, business: { name: string; 
   return `<!doctype html><html dir="rtl" lang="he"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>body{font-family:Arial,system-ui,sans-serif;color:#111;margin:24px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border:1px solid #bbb;padding:6px;text-align:right;font-size:13px}.tot td{font-weight:bold}.muted{color:#666;font-size:12px}</style></head>
 <body><h2>${esc(business.name)} · ${esc(business.dealerNumber)}</h2><p>${esc(title)} · ${s.from.split('-').reverse().join('/')} – ${s.to.split('-').reverse().join('/')}</p>
-<h3>רווח והפסד (הערכה)</h3><table>${row('הכנסות (לפני מע״מ)', s.revenue.net)}${row('הוצאות (לפני מע״מ)', s.expenses.net)}${row('מע״מ תשומות שאינו מקוזז', s.expenses.vat - s.expenses.vatDeductible)}${row('רווח משוער', s.profit, true)}</table>
-${s.vat ? `<h3>מע״מ</h3><table>${vatReportRows(s).map(([k, v], i) => row(k, v, i === 5)).join('')}</table>` : '<p>עוסק פטור — אין דיווח מע״מ תקופתי על עסקאות.</p>'}
+<h3>רווח והפסד (הערכה)</h3><table>${row('הכנסות (לפני מע״מ)', s.revenue.net)}${row('הוצאות (לפני מע״מ)', s.expenses.net)}${row('מע״מ תשומות שאינו מקוזז', s.expenses.vat - s.expenses.vatDeductible)}${row('רווח משוער', s.profit, true)}${manualPnlRows(s.manual).map(([k, v]) => row(k, v)).join('')}</table>
+${s.vat ? `<h3>מע״מ</h3><table>${vatReportRows(s).map(([k, v], i) => row(k, v, i === 5)).join('')}${manualVatRows(s.manual).map(([k, v]) => row(k, v)).join('')}</table>` : '<p>עוסק פטור — אין דיווח מע״מ תקופתי על עסקאות.</p>'}
 ${cats ? `<h3>הוצאות לפי קטגוריה</h3><table>${cats}</table>` : ''}
 <p class="muted">דוח עבודה מתוך Dream Promotion — לא דוח שהוגש לרשות המסים. ההגשה נעשית על ידי העסק או רואה החשבון.</p>
 <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
@@ -92,12 +93,15 @@ export function Reports() {
             <div className="flex justify-between"><dt>הוצאות (לפני מע״מ)</dt><dd>−{ils(s.expenses.net)}</dd></div>
             {s.expenses.vat - s.expenses.vatDeductible !== 0 && <div className="flex justify-between"><dt>מע״מ על הוצאות שלא מקוזז</dt><dd>−{ils(s.expenses.vat - s.expenses.vatDeductible)}</dd></div>}
             <div className="flex justify-between border-t border-line pt-1 text-base font-black"><dt>רווח משוער</dt><dd>{ils(s.profit)}</dd></div>
+            {/* 2.96 (T13א): how much of it manual journal entries are — they are in the numbers above already */}
+            {manualPnlRows(s.manual).map(([k, v]) => <div key={k} className="flex justify-between text-xs text-muted"><dt>{k}</dt><dd>{ils(v)}</dd></div>)}
           </dl>
         </Card>
         {vat ? (
           <Card className="p-4">
             <p className="mb-2 font-bold">מע״מ · {period.label}</p>
-            <dl className="grid gap-1 text-sm tabular-nums">{vatReportRows(s).map(([k, v], i) => <div key={k} className={i === 5 ? 'flex justify-between border-t border-line pt-1 font-black' : 'flex justify-between'}><dt>{k}</dt><dd>{ils(v)}</dd></div>)}</dl>
+            <dl className="grid gap-1 text-sm tabular-nums">{vatReportRows(s).map(([k, v], i) => <div key={k} className={i === 5 ? 'flex justify-between border-t border-line pt-1 font-black' : 'flex justify-between'}><dt>{k}</dt><dd>{ils(v)}</dd></div>)}
+              {manualVatRows(s.manual).map(([k, v]) => <div key={k} className="flex justify-between text-xs text-muted"><dt>{k}</dt><dd>{ils(v)}</dd></div>)}</dl>
             {s.allocationMissing > 0 && <p className="mt-2 text-sm text-warn">{s.allocationMissing} חשבוניות מס מעל הסף בלי מספר הקצאה בתקופה הזו.</p>}
           </Card>
         ) : <Note>עוסק פטור — אין דיווח מע״מ תקופתי. ההכנסות לפי הקבלות.</Note>}

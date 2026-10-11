@@ -73,7 +73,10 @@ export function Income() {
       <PeriodPicker value={period} onChange={setPeriod} />
       {!s ? (loadError ? <LoadFailed message={loadError} onRetry={() => void load()} /> : <div className="py-8 text-center"><Spinner /></div>) : <>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          <Stat label={vat ? 'הכנסות לפי מסמכים (לפני מע״מ)' : 'הכנסות לפי קבלות'} value={ils(s.revenue.net)} hint={vat ? `כולל מע״מ ${ils(s.revenue.gross)}` : undefined} />
+          {/* 2.96 (T13א): the documents' own income — manual journal entries are in the summary's, and said apart here */}
+          <Stat label={vat ? 'הכנסות לפי מסמכים (לפני מע״מ)' : 'הכנסות לפי קבלות'} value={ils(s.revenue.net - s.manual.income.net)}
+            hint={[vat ? `כולל מע״מ ${ils(s.revenue.gross - s.manual.income.net - s.manual.income.vat - s.manual.vat.output)}` : '',
+              s.manual.income.net ? `ועוד פקודות ידניות ${ils(s.manual.income.net)}` : ''].filter(Boolean).join(' · ') || undefined} />
           <Stat label="נכנס בפועל" value={ils(t.in)} hint="קבלות וחשבוניות מס/קבלה" />
           <Stat label="יצא בפועל" value={ils(t.out)} hint="החזרים, זיכויים, הוצאות, ביטולים" />
           <Stat label="נטו בתקופה" value={ils(t.net)} tone={t.net >= 0 ? 'ok' : 'bad'} hint={t.withheld ? `ניכוי במקור ${ils(t.withheld)} — לא כסף, לא בסכומים` : undefined} />

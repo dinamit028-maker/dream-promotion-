@@ -14,13 +14,16 @@
  * the owner; any other move of such a product refused), price lists and SKU series (their functions), location_compare.
  * 2.94 (4900): tax withheld at source on a receipt (its checks, its ledger row, out of finance_summary's cash) and the reports
  * (report_* — the same rules as the database's, on the fake's rows); before the migration: none of it, and its columns are missing.
+ * 2.96 (5100): manual journal entries (journal_writer, journal_entry_create / _reverse — their checks, the number, the audit log;
+ * the table read through its location policy, never written), their share of finance_summary ("manual"), of the reports and of
+ * location_compare; and the person's own data (auth user_metadata — the favorites of the menu, PUT /auth/v1/user).
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
-import { partyKey } from '../../src/features/finance/statements';
+import { MANUAL_KEY, partyKey } from '../../src/features/finance/statements';
 
 type Row = Record<string, any>;
 export type Tables = Record<string, Row[]>;
@@ -95,6 +98,11 @@ export class FakeSupabase {
   reportsTables = true;
   /** 2.95: migration 5000 is in the database (the desks, deposits, cheques and the bank; an order, a delivery note, a return note) — false: as before it */
   cashTables = true;
+  /** 2.96: migration 5100 is in the database (journal_entries and its functions; the summary, the reports and location_compare with
+   *  the entries) — false: as before it */
+  journalTables = true;
+  /** 2.96: the signed-in person's own data (auth user_metadata) — the favorites of the menu (dp_favorites) are kept in it */
+  userMeta: Row = {};
   static CASH = ['bank_deposits', 'bank_deposit_cheques', 'bank_statements', 'bank_lines', 'bank_matches', 'cheque_reminders'];
   private serialEventId = 0;
   static ITEMS = ['catalog_serials', 'catalog_serial_events', 'price_lists', 'price_list_items', 'sku_series'];
@@ -172,21 +180,36 @@ export class FakeSupabase {
     const recv = this.receivables().filter((x) => !x.cancelled && x.balance > 0), today = this.today();
     const types: Row = {};
     for (const d of docs) { const k = String(d.doc_type); types[k] ??= { count: 0, total: 0, cancelled: 0 }; types[k].count++; types[k].total = r2(types[k].total + Number(d.total)); if (canc.has(d.id)) types[k].cancelled++; }
-    const cats = [...new Set(exp.map((e) => e.category))].map((c) => { const l = exp.filter((e) => e.category === c); return { category: c, net: r2(l.reduce((a, e) => a + Number(e.amount_before_vat), 0)), vat: r2(l.reduce((a, e) => a + Number(e.vat_amount), 0)), total: r2(l.reduce((a, e) => a + Number(e.total), 0)), count: l.length }; });
+    // 2.96 (5100): the manual journal entries of the period (the location picked — the table's own policy): income and its VAT on
+    // sales, an expense in its kind of expense (its VAT deductible as recorded, not in the count), VAT entries on either side
+    const je = this.journalTables ? this.journalSeen().filter((j) => j.entry_date >= from && j.entry_date <= to) : [];
+    const jsum = (f: (j: Row) => boolean, c: 'amount' | 'vat') => je.filter(f).reduce((a, j) => a + Number(j[c]), 0);
+    const jr = { incNet: jsum((j) => j.kind === 'income', 'amount'), incVat: jsum((j) => j.kind === 'income', 'vat'),
+      expNet: jsum((j) => j.kind === 'expense', 'amount'), expVat: jsum((j) => j.kind === 'expense', 'vat'),
+      vatOut: jsum((j) => j.kind === 'vat' && j.vat_side === 'output', 'vat'), vatIn: jsum((j) => j.kind === 'vat' && j.vat_side === 'input', 'vat') };
+    const cats = [...new Set([...exp.map((e) => e.category), ...je.filter((j) => j.kind === 'expense').map((j) => j.category)])].map((c) => {
+      const l = exp.filter((e) => e.category === c), m = je.filter((j) => j.kind === 'expense' && j.category === c);
+      const mNet = m.reduce((a, j) => a + Number(j.amount), 0), mVat = m.reduce((a, j) => a + Number(j.vat), 0);
+      return { category: c, net: r2(l.reduce((a, e) => a + Number(e.amount_before_vat), 0) + mNet), vat: r2(l.reduce((a, e) => a + Number(e.vat_amount), 0) + mVat),
+        total: r2(l.reduce((a, e) => a + Number(e.total), 0) + mNet + mVat), count: l.length };
+    });
+    const income = rev(docs) + jr.incNet, salesVat = outVat + jr.incVat + jr.vatOut, deductible = eDed + jr.expVat + jr.vatIn;
     const month = to.slice(0, 7);
     return {
       from, to, entity: vat ? 'licensed_dealer' : 'exempt_dealer', vat,
-      revenue: { net: r2(rev(docs)), vat: r2(outVat), gross: r2(rev(docs) + outVat) }, documents: types,
-      expenses: { net: r2(eNet), vat: r2(eVat), vatDeductible: r2(eDed), total: r2(eNet + eVat), count: exp.length, byCategory: cats },
-      vatPayable: vat ? r2(outVat - eDed) : 0, profit: r2(rev(docs) - (eNet + eVat - eDed)),
+      revenue: { net: r2(income), vat: r2(salesVat), gross: r2(income + salesVat) }, documents: types,
+      expenses: { net: r2(eNet + jr.expNet), vat: r2(eVat + jr.expVat + jr.vatIn), vatDeductible: r2(deductible), total: r2(eNet + eVat + jr.expNet + jr.expVat), count: exp.length, byCategory: cats },
+      vatPayable: vat ? r2(salesVat - deductible) : 0, profit: r2(income - (eNet + eVat - eDed + jr.expNet)),
       cash: { in: r2(cin), out: r2(cout), net: r2(cin - cout), byMethod: methods },
       // 2.89: "overdue" by the lines (a plan's payments by their own dates)
       receivables: { open: r2(recv.reduce((a, x) => a + x.balance, 0)), count: recv.length,
         overdue: r2(this.receivableLines().filter((l) => l.open_amount > 0 && l.due_date && l.due_date < today).reduce((a, l) => a + l.open_amount, 0)),
         overdueCount: new Set(this.receivableLines().filter((l) => l.open_amount > 0 && l.due_date && l.due_date < today).map((l) => l.document_id)).size },
       pending: { count: this.t('sales').filter((x) => x.status === 'pending').length, total: 0 }, posWithoutDocument: { count: 0, total: 0 }, allocationMissing: 0,
-      months: [{ month, revenue: r2(rev(docs)), expenses: r2(eNet + eVat - eDed) }], lockedUntil: this.finance.lockedUntil,
+      months: [{ month, revenue: r2(income), expenses: r2(eNet + eVat - eDed + jr.expNet) }], lockedUntil: this.finance.lockedUntil,
       ...(this.reportsTables ? { withheld: r2(withheld) } : {}),
+      ...(this.journalTables ? { manual: { count: je.length, income: { net: r2(jr.incNet), vat: r2(jr.incVat) }, expense: { net: r2(jr.expNet), vat: r2(jr.expVat) },
+        vat: { output: r2(jr.vatOut), input: r2(jr.vatIn) } } } : {}),
     };
   }
 
@@ -1184,6 +1207,11 @@ export class FakeSupabase {
       const sign = (x: Row) => (x.supplier_doc_type === 'credit' ? -1 : 1);
       const exNet = ex.reduce((a, x) => a + sign(x) * Number(x.amount_before_vat), 0);
       const cost = ex.reduce((a, x) => a + sign(x) * (Number(x.amount_before_vat) + Number(x.vat_amount) - (vat ? round(Number(x.vat_amount) * Number(x.vat_deductible_pct ?? 100) / 100) : 0)), 0);
+      // 2.96 (5100): the manual entries at this location — income (and VAT on sales), an expense at its amount before VAT
+      const jl = this.journalTables ? this.t('journal_entries').filter((j) => j.business_id === b && j.location_id === l.id && inRange(j.entry_date)) : [];
+      const jIncome = jl.filter((j) => j.kind === 'income').reduce((a, j) => a + Number(j.amount), 0);
+      const jVat = jl.filter((j) => j.kind === 'income' || (j.kind === 'vat' && j.vat_side === 'output')).reduce((a, j) => a + Number(j.vat), 0);
+      const jExpense = jl.filter((j) => j.kind === 'expense').reduce((a, j) => a + Number(j.amount), 0);
       const sales = this.t('sales').filter((x) => at(x) && x.status === 'paid' && inRange(ilDay(x.paid_at ?? x.created_at)));
       const refunds = this.t('sale_refunds').filter((x) => at(x) && inRange(ilDay(x.created_at)));
       const lines = new Map<string, { itemId: string | null; name: string; qty: number; total: number }>();
@@ -1201,7 +1229,8 @@ export class FakeSupabase {
         return a + Math.max(0, r.qty) * Number(v?.price ?? it.price);
       }, 0);
       return { id: l.id, name: l.name, active: l.active, main: l.id === b,
-        revenue: { net: round(net), vat: round(vatA) }, expenses: { net: round(exNet), cost: round(cost) }, profit: round(net - cost),
+        revenue: { net: round(net + jIncome), vat: round(vatA + jVat) }, expenses: { net: round(exNet + jExpense), cost: round(cost + jExpense) },
+        profit: round(net + jIncome - cost - jExpense),
         sales: { count: sales.length, total: round(sales.reduce((a, x) => a + Number(x.total), 0)), online: sales.filter((x) => x.channel === 'online').length,
           refunds: round(refunds.reduce((a, x) => a + Number(x.amount), 0)), refundCount: refunds.length },
         items: [...lines.values()].sort((x, y) => y.total - x.total || x.name.localeCompare(y.name)).slice(0, 10).map((x) => ({ ...x, total: round(x.total) })),
@@ -1228,6 +1257,10 @@ export class FakeSupabase {
     const docs = all.filter((d) => d.doc_date >= from && d.doc_date <= to).sort((a, b) => `${a.doc_date}${a.issued_at ?? ''}`.localeCompare(`${b.doc_date}${b.issued_at ?? ''}`));
     const leadName = (id: string | null) => (id ? this.t('leads').find((l) => l.id === id)?.name ?? null : null);
     const ilDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date(iso));
+    // 2.96 (5100): the manual journal entries the reports read (as the signed-in user: the location picked), and of the period
+    const journal = this.journalTables ? this.journalSeen() : [];
+    const entries = journal.filter((j) => j.entry_date >= from && j.entry_date <= to);
+    const noManual = (o: Row): Row => { if (this.journalTables) return o; const { manual: _m, ...rest } = o; return rest; };
     /** a card: the opening balance (before the period), the rows of the period with the balance as it runs */
     const card = (mv: Row[], sign: 1 | -1) => {
       mv.sort((a, b) => `${a.day}|${a.at}|${a.kind}|${a.rid}`.localeCompare(`${b.day}|${b.at}|${b.kind}|${b.rid}`));
@@ -1239,18 +1272,28 @@ export class FakeSupabase {
     };
 
     if (fn === 'report_income_by_customer') {
+      // the documents, and (2.96) a manual income entry or a VAT entry on sales — by its customer, or on a line of its own ("m:")
+      const rows: Row[] = [
+        ...docs.filter((x) => (vat && [305, 320, 330].includes(x.doc_type)) || (!vat && x.doc_type === 400 && !cancelled(x.id)))
+          .map((d) => ({ k: key(d), lead: d.lead_id ?? null, dealer: d.customer_dealer ?? '', name: d.customer_name ?? '', at: `${d.doc_date}${d.issued_at ?? ''}`, net: rev(d), vat: vatOf(d), manual: 0 })),
+        ...entries.filter((j) => j.kind === 'income' || (j.kind === 'vat' && j.vat_side === 'output')).map((j) => {
+          const c = j.party_kind === 'customer';
+          return { k: c ? partyKey({ leadId: j.lead_id, dealer: j.party_dealer, name: j.party_name }) : MANUAL_KEY, lead: j.lead_id ?? null, dealer: j.party_dealer ?? '',
+            name: c ? j.party_name : '', at: `${j.entry_date}${j.created_at ?? ''}`, net: Number(j.amount), vat: Number(j.vat), manual: Number(j.amount) };
+        }),
+      ].sort((a, b) => a.at.localeCompare(b.at));
       const g = new Map<string, Row>();
-      for (const d of docs.filter((x) => (vat && [305, 320, 330].includes(x.doc_type)) || (!vat && x.doc_type === 400 && !cancelled(x.id)))) {
-        const k = key(d);
-        const x = g.get(k) ?? { key: k, leadId: null, name: '', dealer: '', net: 0, vat: 0, count: 0 };
-        x.net = r2(x.net + rev(d)); x.vat = r2(x.vat + vatOf(d)); x.count++;
-        if (d.lead_id) x.leadId = d.lead_id;
-        if (d.customer_dealer) x.dealer = d.customer_dealer;
-        x.name = d.customer_name ?? '';
-        g.set(k, x);
+      for (const r of rows) {
+        const x = g.get(r.k) ?? { key: r.k, leadId: null, name: '', dealer: '', net: 0, vat: 0, count: 0, manual: 0 };
+        x.net = r2(x.net + r.net); x.vat = r2(x.vat + r.vat); x.manual = r2(x.manual + r.manual); x.count++;
+        if (r.lead) x.leadId = r.lead;
+        if (r.dealer) x.dealer = r.dealer;
+        x.name = r.name;
+        g.set(r.k, x);
       }
-      const customers = [...g.values()].map((x): Row => ({ ...x, name: leadName(x.leadId) ?? x.name, gross: r2(x.net + x.vat) })).sort((a, b) => b.net - a.net || a.name.localeCompare(b.name));
-      return ok({ from, to, vat, total: { net: r2(customers.reduce((a, c) => a + c.net, 0)), vat: r2(customers.reduce((a, c) => a + c.vat, 0)), count: customers.reduce((a, c) => a + c.count, 0) }, customers });
+      const customers = [...g.values()].map((x): Row => noManual({ ...x, name: leadName(x.leadId) ?? x.name, gross: r2(x.net + x.vat) })).sort((a, b) => b.net - a.net || a.name.localeCompare(b.name));
+      return ok({ from, to, vat, total: noManual({ net: r2(customers.reduce((a, c) => a + c.net, 0)), vat: r2(customers.reduce((a, c) => a + c.vat, 0)),
+        count: customers.reduce((a, c) => a + c.count, 0), manual: r2(customers.reduce((a, c) => a + (c.manual ?? 0), 0)) }), customers });
     }
     if (fn === 'report_sales_by_item') {
       const items = new Map<string, Row>();
@@ -1292,7 +1335,10 @@ export class FakeSupabase {
         const t = types.get(i.typeId ?? '') ?? { typeId: i.typeId, name: i.typeId ? this.t('treatment_types').find((x) => x.id === i.typeId)?.name ?? '' : '', qty: 0, net: 0 };
         t.qty = r2(t.qty + i.qty); t.net = r2(t.net + i.net); types.set(i.typeId ?? '', t);
       }
-      return ok({ from, to, vat, total, items: out, types: [...types.values()].sort((a, b) => b.net - a.net || a.name.localeCompare(b.name)), unattributed: { net: unNet, count: unN } });
+      // 2.96 (5100): the manual income entries — in the total, and a line of their own (no item, no treatment type)
+      const inc = entries.filter((j) => j.kind === 'income'), mNet = r2(inc.reduce((a, j) => a + Number(j.amount), 0));
+      return ok({ from, to, vat, total: r2(total + mNet), items: out, types: [...types.values()].sort((a, b) => b.net - a.net || a.name.localeCompare(b.name)),
+        unattributed: { net: unNet, count: unN }, ...(this.journalTables ? { manual: { net: mNet, count: inc.length } } : {}) });
     }
     if (fn === 'report_customer_ledger') {
       if (!/^(l|d|n):/.test(String(args.p_key ?? ''))) return { status: 400, body: { code: '22023', message: 'customer: a key' } };
@@ -1312,9 +1358,17 @@ export class FakeSupabase {
         mv.push({ day: p.paid_on, at: p.created_at ?? '', kind: `payment_${p.source}`, docType: x.doc_type, docNumber: x.doc_number,
           debit: p.direction === 'out' ? Number(p.amount) : 0, credit: p.direction === 'in' ? Number(p.amount) : 0, method: p.method, rid: p.id });
       }
+      // 2.96 (5100): a manual entry of this customer — owed more when it is positive, less when it is negative
+      const mineJ = journal.filter((j) => j.party_kind === 'customer' && partyKey({ leadId: j.lead_id, dealer: j.party_dealer, name: j.party_name }) === args.p_key);
+      for (const j of mineJ) {
+        const gross = Number(j.amount) + Number(j.vat);
+        mv.push({ day: j.entry_date, at: j.created_at ?? '', kind: 'manual', docType: null, docNumber: j.number, debit: Math.max(gross, 0), credit: Math.max(-gross, 0), method: '', rid: j.id, note: j.explanation });
+      }
       const last = [...mine].sort((a, b) => `${b.doc_date}${b.issued_at ?? ''}`.localeCompare(`${a.doc_date}${a.issued_at ?? ''}`))[0];
-      const name = (String(args.p_key).startsWith('l:') ? leadName(String(args.p_key).slice(2)) : null) ?? last?.customer_name ?? '';
-      return ok({ key: args.p_key, from, to, name, ...card(mv, 1) });
+      const lastJ = [...mineJ].sort((a, b) => `${b.entry_date}${b.created_at ?? ''}`.localeCompare(`${a.entry_date}${a.created_at ?? ''}`))[0];
+      const name = (String(args.p_key).startsWith('l:') ? leadName(String(args.p_key).slice(2)) : null) ?? last?.customer_name ?? lastJ?.party_name ?? '';
+      const c = card(mv, 1);
+      return ok({ key: args.p_key, from, to, name, ...c, rows: this.journalTables ? c.rows.map((r) => ({ ...r, note: r.note ?? '' })) : c.rows });
     }
     const expenses = this.t('expenses');
     const paidOf = (e: Row) => this.t('payments').filter((p) => p.expense_id === e.id && ['expense', 'reversal'].includes(p.source))
@@ -1322,24 +1376,31 @@ export class FakeSupabase {
     if (fn === 'report_suppliers') {
       const list = expenses.filter((e) => e.status === 'confirmed' && e.doc_date >= from && e.doc_date <= to)
         .sort((a, b) => `${a.doc_date}${a.created_at ?? ''}`.localeCompare(`${b.doc_date}${b.created_at ?? ''}`))
-        .map((e) => { const sg = e.supplier_doc_type === 'credit' ? -1 : 1; return { e, k: supplierKey(e), amount: sg * Number(e.total), net: sg * Number(e.amount_before_vat), vat: sg * Number(e.vat_amount), paid: r2(paidOf(e)) }; });
+        .map((e) => { const sg = e.supplier_doc_type === 'credit' ? -1 : 1; return { e, k: supplierKey(e), amount: sg * Number(e.total), net: sg * Number(e.amount_before_vat), vat: sg * Number(e.vat_amount), paid: r2(paidOf(e)), manual: 0, at: `${e.doc_date}${e.created_at ?? ''}` }; })
+        // 2.96 (5100): a manual expense entry — by its supplier, or on a line of its own ("m:") without one; never paid, never owed
+        .concat(entries.filter((j) => j.kind === 'expense').map((j) => {
+          const s = j.party_kind === 'supplier', gross = Number(j.amount) + Number(j.vat);
+          return { e: { supplier_name: s ? j.party_name : '', supplier_dealer: j.party_dealer ?? '', category: j.category }, k: s ? partyKey({ dealer: j.party_dealer, name: j.party_name }) : MANUAL_KEY,
+            amount: gross, net: Number(j.amount), vat: Number(j.vat), paid: 0, manual: gross, at: `${j.entry_date}${j.created_at ?? ''}` };
+        }))
+        .sort((a, b) => a.at.localeCompare(b.at));
       const group = (f: (x: Row) => string) => {
         const m = new Map<string, Row>();
         for (const x of list) {
-          const g = m.get(f(x)) ?? { count: 0, net: 0, vat: 0, total: 0, paid: 0 };
-          Object.assign(g, { count: g.count + 1, net: r2(g.net + x.net), vat: r2(g.vat + x.vat), total: r2(g.total + x.amount), paid: r2(g.paid + x.paid), name: x.e.supplier_name,
+          const g = m.get(f(x)) ?? { count: 0, net: 0, vat: 0, total: 0, paid: 0, manual: 0 };
+          Object.assign(g, { count: g.count + 1, net: r2(g.net + x.net), vat: r2(g.vat + x.vat), total: r2(g.total + x.amount), paid: r2(g.paid + x.paid), manual: r2(g.manual + x.manual), name: x.e.supplier_name,
             dealer: x.e.supplier_dealer || g.dealer || '', category: x.e.category });
           m.set(f(x), g);
         }
         return m;
       };
-      const suppliers = [...group((x) => x.k).entries()].map(([k, g]) => ({ key: k, name: g.name, dealer: g.dealer, count: g.count, net: g.net, vat: g.vat, total: g.total, paid: g.paid, open: r2(g.total - g.paid) }))
-        .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
-      const categories = [...group((x) => x.e.category).entries()].map(([c, g]) => ({ category: c, count: g.count, net: g.net, total: g.total, paid: g.paid, open: r2(g.total - g.paid) }))
-        .sort((a, b) => b.total - a.total || a.category.localeCompare(b.category));
+      const suppliers = [...group((x) => x.k).entries()].map(([k, g]) => noManual({ key: k, name: g.name, dealer: g.dealer, count: g.count, net: g.net, vat: g.vat, total: g.total, paid: g.paid,
+        open: r2(g.total - g.paid - g.manual), manual: g.manual })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+      const categories = [...group((x) => x.e.category).entries()].map(([c, g]) => noManual({ category: c, count: g.count, net: g.net, total: g.total, paid: g.paid,
+        open: r2(g.total - g.paid - g.manual), manual: g.manual })).sort((a, b) => b.total - a.total || a.category.localeCompare(b.category));
       const sum = (f: (x: Row) => number) => r2(list.reduce((a, x) => a + f(x), 0));
-      return ok({ from, to, total: { net: sum((x) => x.net), vat: sum((x) => x.vat), total: sum((x) => x.amount), paid: sum((x) => x.paid), open: sum((x) => x.amount - x.paid), count: list.length },
-        suppliers, categories });
+      return ok({ from, to, total: noManual({ net: sum((x) => x.net), vat: sum((x) => x.vat), total: sum((x) => x.amount), paid: sum((x) => x.paid), open: sum((x) => x.amount - x.paid - x.manual),
+        count: list.length, manual: sum((x) => x.manual) }), suppliers, categories });
     }
     if (fn === 'report_supplier_ledger') {
       if (!/^(d|n):/.test(String(args.p_key ?? ''))) return { status: 400, body: { code: '22023', message: 'supplier: a key' } };
@@ -1351,8 +1412,16 @@ export class FakeSupabase {
         mv.push({ day: p.paid_on, at: p.created_at ?? '', kind: `payment_${p.source}`, number: e.expense_number, ref: e.supplier_doc_number ?? '',
           debit: p.direction === 'out' ? Number(p.amount) : 0, credit: p.direction === 'in' ? Number(p.amount) : 0, method: p.method, rid: p.id });
       }
+      // 2.96 (5100): a manual entry of this supplier — the business owes more when it is positive, less when it is negative
+      const mineJ = journal.filter((j) => j.party_kind === 'supplier' && partyKey({ dealer: j.party_dealer, name: j.party_name }) === args.p_key);
+      for (const j of mineJ) {
+        const gross = Number(j.amount) + Number(j.vat);
+        mv.push({ day: j.entry_date, at: j.created_at ?? '', kind: 'manual', number: j.number, ref: '', debit: Math.max(-gross, 0), credit: Math.max(gross, 0), method: '', rid: j.id, note: j.explanation });
+      }
       const last = [...mine].sort((a, b) => `${b.doc_date}${b.created_at ?? ''}`.localeCompare(`${a.doc_date}${a.created_at ?? ''}`))[0];
-      return ok({ key: args.p_key, from, to, name: last?.supplier_name ?? '', ...card(mv, -1) });
+      const lastJ = [...mineJ].sort((a, b) => `${b.entry_date}${b.created_at ?? ''}`.localeCompare(`${a.entry_date}${a.created_at ?? ''}`))[0];
+      const c = card(mv, -1);
+      return ok({ key: args.p_key, from, to, name: last?.supplier_name ?? lastJ?.party_name ?? '', ...c, rows: this.journalTables ? c.rows.map((r) => ({ ...r, note: r.note ?? '' })) : c.rows });
     }
     if (fn === 'report_withholding') {
       const w = this.t('payments').filter((p) => p.method === 'withholding' && p.paid_on >= from && p.paid_on <= to)
@@ -1639,7 +1708,93 @@ export class FakeSupabase {
     return null;
   }
 
+  // ---- 2.96 (migration 5100): manual journal entries -------------------------------------------------------------------------
+  /** the entries the signed-in user sees (journal_entries_location_gate: the location picked, or the member's own) */
+  private journalSeen(): Row[] {
+    const seen = this.locationFilter();
+    return this.t('journal_entries').filter((j) => j.business_id === this.opts.businessId && (!seen || seen.includes(j.location_id)));
+  }
+  /** journal_writer(): the business's owners — role owner, full access, every location */
+  private journalWriter() {
+    const m = this.t('business_members').find((x) => x.user_id === this.opts.userId && (x.business_id ?? this.opts.businessId) === this.opts.businessId);
+    return this.owner && !this.memberLocations && this.finance.member && (m?.role ?? 'owner') === 'owner' && (m?.access ?? 'full') === 'full';
+  }
+  /** journal_writer / journal_entry_create / journal_entry_reverse — their checks (tests/sql/journal.check.sql proves the real ones) */
+  private journalRpc(fn: string, args: any): { status: number; body: any } | null {
+    if (!['journal_writer', 'journal_entry_create', 'journal_entry_reverse'].includes(fn)) return null;
+    if (!this.journalTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const ok = (body: any) => ({ status: 200, body });
+    const refuse = (message: string, code = '22023') => ({ status: 400, body: { code, message, details: null, hint: null } });
+    if (fn === 'journal_writer') return ok(this.journalWriter());
+    if (!this.journalWriter()) return refuse("journal_not_allowed: only the business's owners record a manual entry", '42501');
+    const b = this.opts.businessId, T = this.t('journal_entries'), today = this.today(), lock = this.finance.lockedUntil;
+    const id = String(args.p_id ?? '');
+    if (!id) return refuse('journal_id: a new entry has an id');
+    const same = T.find((j) => j.id === id);
+    const nextNumber = () => T.filter((j) => j.business_id === b).reduce((a, j) => Math.max(a, j.number), 0) + 1;
+    const explanation = String(args.p_explanation ?? '').trim();
+    if (fn === 'journal_entry_reverse') {
+      if (same) return same.business_id !== b || same.reverses !== (args.p_entry ?? null) ? refuse('not allowed', '42501') : ok({ id, number: same.number, created: false });
+      const o = T.find((j) => j.id === args.p_entry && j.business_id === b);
+      if (!o) return refuse('journal_entry: the entry was not found in this business');
+      if (o.reverses) return refuse('journal_reverse: a reversing entry is not reversed — record a new entry instead', '23514');
+      if (T.some((x) => x.reverses === o.id)) return refuse('journal_reversed: the entry was already reversed', '23514');
+      const d = String(args.p_date ?? today);
+      if (d > today || d < o.entry_date) return refuse('journal_date: a reversal is dated on or after its entry, today or before');
+      if (lock && d <= lock) return refuse(`period_locked: the books are closed until ${lock}`, '23514');
+      if (explanation.length < 2 || explanation.length > 500) return refuse('journal_explanation: an explanation, 2 to 500 letters');
+      const number = nextNumber();
+      T.push({ ...o, id, number, entry_date: d, amount: -Number(o.amount), vat: -Number(o.vat), explanation, reverses: o.id, user_id: this.opts.userId, created_at: now() });
+      this.log('journal.reversed', id, { number, reverses: o.number, date: d, kind: o.kind, amount: -Number(o.amount), vat: -Number(o.vat), explanation });
+      return ok({ id, number, created: true, reverses: o.number });
+    }
+    if (same) return same.business_id !== b ? refuse('not allowed', '42501') : ok({ id, number: same.number, created: false });
+    const d = String(args.p_date ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d > today || d < '2000-01-01') return refuse('journal_date: an entry is dated today or before');
+    if (lock && d <= lock) return refuse(`period_locked: the books are closed until ${lock}`, '23514');
+    const kind = String(args.p_kind ?? '');
+    if (!['income', 'expense', 'vat', 'other'].includes(kind)) return refuse('journal_kind: income, expense, VAT or other');
+    const amt = Number(args.p_amount ?? 0), v = Number(args.p_vat ?? 0);
+    const agorot = (x: number) => Number.isFinite(x) && Math.abs(x * 100 - Math.round(x * 100)) < 1e-6 && Math.abs(x) <= 1e8;
+    if (!agorot(amt) || !agorot(v)) return refuse('journal_amount: an amount of money (agorot)');
+    if (amt === 0 && v === 0) return refuse('journal_amount: an amount or VAT');
+    if (v !== 0 && !this.vatBusiness()) return refuse('journal_vat: an exempt dealer records no VAT');
+    const side = kind === 'income' ? 'output' : kind === 'expense' ? 'input' : kind === 'vat' ? args.p_vat_side ?? null : null;
+    if (kind === 'vat' && !['output', 'input'].includes(side)) return refuse('journal_vat_side: VAT on sales or on inputs');
+    if (kind === 'vat' && (amt !== 0 || v === 0)) return refuse('journal_vat: a VAT entry is VAT only');
+    if (kind === 'other' && v !== 0) return refuse('journal_vat: an "other" entry carries no VAT');
+    const category = kind === 'expense' ? String(args.p_category ?? '').trim() || 'other' : null;
+    if (category && !/^[a-z_]{2,30}$/.test(category)) return refuse('journal_category: a kind of expense');
+    if (explanation.length < 2 || explanation.length > 500) return refuse('journal_explanation: an explanation, 2 to 500 letters');
+    let pk: string | null = null, lead: string | null = null, pname = '', pdealer = '';
+    const p = args.p_party;
+    if (p && typeof p === 'object' && Object.keys(p).length) {
+      pk = String(p.kind ?? '');
+      if (kind === 'vat' || !['customer', 'supplier'].includes(pk) || (pk === 'customer' && kind === 'expense') || (pk === 'supplier' && kind === 'income')) {
+        return refuse('journal_party: a customer on income, a supplier on an expense, either on "other" — none on VAT');
+      }
+      if (pk === 'customer' && p.leadId) {
+        const l = this.t('leads').find((x) => x.id === p.leadId && (x.business_id ?? b) === b);
+        if (!l) return refuse('journal_party: a customer card of the business');
+        lead = l.id; pname = String(l.name ?? '').slice(0, 120);
+      } else pname = String(p.name ?? '').trim().slice(0, 120);
+      pdealer = String(p.dealer ?? '').trim();
+      if (pdealer && !/^\d{9}$/.test(pdealer)) return refuse('journal_party: a dealer number is 9 digits');
+      if (!lead && pname.length < 2 && !pdealer) return refuse('journal_party: a name or a dealer number');
+    }
+    const loc = args.p_location ?? this.locationPick();
+    if (!loc || !this.places().locations.some((l) => l.id === loc && l.active)) return refuse('journal_location: an active location of the business');
+    const number = nextNumber();
+    T.push({ id, business_id: b, location_id: loc, number, entry_date: d, kind, amount: amt, vat: v, vat_side: side, category, explanation,
+      party_kind: pk, lead_id: lead, party_name: pname, party_dealer: pdealer, reverses: null, user_id: this.opts.userId, created_at: now() });
+    this.log('journal.created', id, { number, date: d, kind, amount: amt, vat: v, vatSide: side, category, location: loc,
+      party: pk ? { kind: pk, leadId: lead, name: pname, dealer: pdealer } : null, explanation });
+    return ok({ id, number, created: true });
+  }
+
   rpc(fn: string, args: any): { status: number; body: any } {
+    const journaled = this.journalRpc(fn, args);
+    if (journaled) return journaled;
     const placed = this.locationRpc(fn, args);
     if (placed) return placed;
     const stocked = this.stockRpc(fn, args);
@@ -2044,7 +2199,9 @@ export class FakeSupabase {
 
     // ---- auth ----
     if (url.pathname.startsWith('/auth/v1/')) {
-      const user = { id: this.opts.userId, aud: 'authenticated', role: 'authenticated', email: this.opts.email, app_metadata: {}, user_metadata: {}, created_at: now() };
+      // 2.96: the person's own data — updateUser({ data }) merges into it (the favorites of the menu), getUser() reads it back
+      if (url.pathname === '/auth/v1/user' && method === 'PUT' && body?.data && typeof body.data === 'object') this.userMeta = { ...this.userMeta, ...body.data };
+      const user = { id: this.opts.userId, aud: 'authenticated', role: 'authenticated', email: this.opts.email, app_metadata: {}, user_metadata: { ...this.userMeta }, created_at: now() };
       if (url.pathname === '/auth/v1/user') return json(200, user);
       if (url.pathname === '/auth/v1/token') return json(200, session(this.opts.userId, this.opts.email));
       if (url.pathname === '/auth/v1/logout') return { status: 204 };
@@ -2093,8 +2250,13 @@ export class FakeSupabase {
       const written = body && (Array.isArray(body) ? body : [body]).flatMap((b: Row) => (b ? Object.keys(b) : [])).find((c) => cols.includes(c));
       if (written) return json(400, { code: 'PGRST204', message: `Could not find the '${written}' column of 'business_finance_profile' in the schema cache` });
     }
+    // 2.96 (5100): before the migration there is no such table; after it, read through its policies and written by its functions only
+    if (table === 'journal_entries') {
+      if (!this.journalTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+      if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
+    }
     // 2.91: the *_location_gate policies — a signed-in user reads and changes only the rows of the locations they see now
-    const seen = FakeSupabase.LOCATED.includes(table) ? this.locationFilter() : null;
+    const seen = FakeSupabase.LOCATED.includes(table) || table === 'journal_entries' ? this.locationFilter() : null;
     const all = this.t(table);
     const gate = this.stockGate(table);
     const rows = seen ? all.filter((r) => seen.includes(this.rowLocation(r))) : gate ? all.filter(gate) : all;

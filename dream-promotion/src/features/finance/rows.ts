@@ -80,6 +80,25 @@ export function financeError(e: unknown): string {
   if (/bank_match_items/.test(m)) return 'בוחרים בין 1 ל-50 קבלות, תשלומים או הפקדות.';
   if (/the bank is the whole business/.test(m)) return 'התאמת בנק — רק למי שרואה את כל הסניפים.';
   if (/this location is not yours/.test(m)) return 'הסניף הזה לא שלך.';
+  // 2.96 (migration 20261011005100): manual journal entries
+  if (/journal_not_allowed/.test(m)) return 'רק הבעלים של העסק (ורואה חשבון שצורף לעסק) רושמים פקודה ידנית.';
+  if (/journal_date/.test(m)) return 'תאריך הפקודה — היום או לפני (פקודה הפוכה — מתאריך הפקודה שהיא הופכת ועד היום).';
+  if (/journal_kind/.test(m)) return 'סוג הפקודה: הכנסה, הוצאה, מע״מ או אחר.';
+  if (/journal_amount/.test(m)) return 'סכום — מספר עד אגורות, ולא אפס.';
+  if (/journal_vat_side/.test(m)) return 'מע״מ עסקאות או מע״מ תשומות?';
+  if (/journal_vat: an exempt dealer/.test(m)) return 'עוסק פטור לא רושם מע״מ.';
+  if (/journal_vat: a VAT entry/.test(m)) return 'פקודת מע״מ — רק סכום מע״מ (בלי סכום לפני מע״מ).';
+  if (/journal_vat/.test(m)) return 'פקודה מסוג "אחר" — בלי מע״מ.';
+  if (/journal_category/.test(m)) return 'סוג ההוצאה לא תקין.';
+  if (/journal_explanation/.test(m)) return 'הסבר — חובה (2 עד 500 תווים).';
+  if (/journal_party: a dealer number/.test(m)) return 'ע.מ / ח.פ — 9 ספרות.';
+  if (/journal_party: a customer card/.test(m)) return 'הלקוח לא נמצא ברשימת הלקוחות של העסק.';
+  if (/journal_party: a name/.test(m)) return 'שם או מספר עוסק של הלקוח / הספק.';
+  if (/journal_party/.test(m)) return 'הכנסה שייכת ללקוח, הוצאה — לספק, "אחר" — לאחד מהם; פקודת מע״מ — לאף אחד.';
+  if (/journal_location/.test(m)) return 'בוחרים סניף פעיל של העסק.';
+  if (/journal_entry:/.test(m)) return 'הפקודה לא נמצאה בעסק הזה.';
+  if (/journal_reversed/.test(m)) return 'הפקודה כבר בוטלה בפקודה הפוכה.';
+  if (/journal_reverse/.test(m)) return 'פקודה הפוכה לא מבטלים — רושמים פקודה חדשה.';
   if (/reason_required/.test(m)) return 'צריך לכתוב סיבה או הערה (שתי אותיות לפחות).';
   if (/a reason is required/.test(m)) return 'צריך לכתוב סיבה (5 תווים לפחות).';
   if (/42501|row-level security|permission denied|not allowed/i.test(m)) return 'אין הרשאה לפעולה הזו.';

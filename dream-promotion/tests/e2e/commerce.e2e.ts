@@ -395,7 +395,7 @@ async function main() {
     });
 
     await step('a scanned barcode adds its size / colour at once; the sale is held, survives a reload, and keeps the variant', async () => {
-      const search = reg.getByLabel('חיפוש');
+      const search = reg.getByLabel('חיפוש', { exact: true });   // the register's box (2.96: the menu's own is "חיפוש בתפריט")
       await search.fill('7290000000011');
       await search.press('Enter');
       await reg.getByText('חולצת כותנה · M / לבן').first().waitFor();

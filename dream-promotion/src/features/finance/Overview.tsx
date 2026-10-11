@@ -10,6 +10,7 @@ import { categoryLabel } from './expenses';
 import { payLabel } from './payments';
 import { Note, PeriodPicker, Stat, ils, periodNow, type Period } from './ui';
 import { remindersReady } from './plans-data';
+import { toManual, type ManualSummary } from './journal';
 
 /**
  * The overview: real numbers only — every figure comes from finance_summary() in the database (documents, the payments
@@ -27,6 +28,8 @@ export interface Summary {
   months: { month: string; revenue: number; expenses: number }[]; lockedUntil: string | null;
   /** 2.94: tax withheld at source in the period — it paid invoices, but it is not money (out of cash.in; 0 before migration 4900) */
   withheld: number;
+  /** 2.96 (T13א): how much of the income, expenses and VAT manual journal entries are (in them already; none before migration 5100) */
+  manual: ManualSummary;
 }
 const num = (v: unknown) => Number(v ?? 0);
 export const toSummary = (j: any): Summary => ({
@@ -39,6 +42,7 @@ export const toSummary = (j: any): Summary => ({
   pending: { count: num(j.pending?.count), total: num(j.pending?.total) }, posWithoutDocument: { count: num(j.posWithoutDocument?.count), total: num(j.posWithoutDocument?.total) },
   allocationMissing: num(j.allocationMissing), months: (j.months ?? []).map((m: any) => ({ month: m.month, revenue: num(m.revenue), expenses: num(m.expenses) })),
   withheld: num(j.withheld),
+  manual: toManual(j.manual),
 });
 export async function loadSummary(p: { from: string; to: string }): Promise<{ ok: true; s: Summary } | { ok: false; error: string }> {
   const { data, error } = await supabase().rpc('finance_summary', { p_from: p.from, p_to: p.to });
@@ -75,8 +79,10 @@ export function Overview() {
       {!s && !error && <div className="py-8 text-center"><Spinner /></div>}
       {s && <>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          <Stat label={vat ? 'הכנסות (לפני מע״מ)' : 'הכנסות (קבלות)'} value={ils(s.revenue.net)} hint={vat ? `מע״מ עסקאות ${ils(s.revenue.vat)}` : 'עוסק פטור — לפי קבלות'} />
-          <Stat label="הוצאות" value={ils(s.expenses.net + s.expenses.vat - s.expenses.vatDeductible)} hint={`${s.expenses.count} הוצאות מאושרות`} onClick={() => go('expenses')} />
+          <Stat label={vat ? 'הכנסות (לפני מע״מ)' : 'הכנסות (קבלות)'} value={ils(s.revenue.net)}
+            hint={`${vat ? `מע״מ עסקאות ${ils(s.revenue.vat)}` : 'עוסק פטור — לפי קבלות'}${s.manual.income.net ? ` · מתוכן פקודות ידניות ${ils(s.manual.income.net)}` : ''}`} />
+          <Stat label="הוצאות" value={ils(s.expenses.net + s.expenses.vat - s.expenses.vatDeductible)}
+            hint={`${s.expenses.count} הוצאות מאושרות${s.manual.expense.net ? ` · ופקודות ידניות ${ils(s.manual.expense.net)}` : ''}`} onClick={() => go('expenses')} />
           <Stat label="רווח משוער" value={ils(s.profit)} tone={s.profit >= 0 ? 'ok' : 'bad'} hint="הכנסות פחות הוצאות (לפני מס הכנסה)" />
           {vat ? <Stat label="מע״מ לתשלום (משוער)" value={ils(s.vatPayable)} hint={`תשומות לקיזוז ${ils(s.expenses.vatDeductible)}`} onClick={() => go('reports')} />
             : <Stat label="מע״מ" value="—" hint="עוסק פטור לא גובה מע״מ" />}

@@ -7,6 +7,9 @@
  *   LOC_COMPARE=<dir>  holds every screen against that folder, pixel by pixel — any change fails
  * The version tag and the software line of a document are covered (they change with every version, by design); a covered pixel
  * is not compared (the cover's edge moves by a pixel when the version is wider or narrower).
+ *   LOC_MASK_MENUS=1   when a change of the menus themselves is deliberate (2.96: the search and the stars of T11, "פקודות יומן"):
+ *                      the side menus are covered in the comparison only — every other pixel is held as before; the pictures
+ *                      saved (LOC_SHOTS) stay whole, for the next comparison
  *
  * Run: npx -y tsx tests/e2e/single-location.e2e.ts   (starts `next dev` on port 3225; needs the preinstalled Chromium)
  */
@@ -133,7 +136,7 @@ async function waitForServer(dev: ChildProcess) {
 
 async function main() {
   mkdirSync(SHOTS, { recursive: true });
-  const saveTo = process.env.LOC_SHOTS, compareTo = process.env.LOC_COMPARE;
+  const saveTo = process.env.LOC_SHOTS, compareTo = process.env.LOC_COMPARE, maskMenus = process.env.LOC_MASK_MENUS === '1';
   if (saveTo) mkdirSync(saveTo, { recursive: true });
   const pw: any = await import(process.env.PLAYWRIGHT_PATH ?? 'playwright').catch(() => import('/opt/node-tools/node_modules/playwright/index.js' as string));
   const { chromium } = pw.default ?? pw;
@@ -192,6 +195,8 @@ async function main() {
     writeFileSync(path.join(SHOTS, `single-${name}.png`), buf);
     if (saveTo) writeFileSync(path.join(saveTo, `${name}.png`), buf);
     if (!compareTo) return;
+    // a deliberate change of the menus: compared without them (a second picture, the side menus covered)
+    const now: Buffer = maskMenus ? await page.screenshot({ type: 'png', fullPage: true, animations: 'disabled', caret: 'hide', mask: [...mask, page.locator('aside')] }) : buf;
     const before = path.join(compareTo, `${name}.png`);
     if (!existsSync(before)) { diffs.push(`${name}: no earlier picture`); return; }
     const r = await cmpPage.evaluate(async ([a, b]: string[]) => {
@@ -208,8 +213,8 @@ async function main() {
         if (Math.max(Math.abs(p[i] - q[i]), Math.abs(p[i + 1] - q[i + 1]), Math.abs(p[i + 2] - q[i + 2])) > 40) n++;
       }
       return { size: '', n };
-    }, [`data:image/png;base64,${readFileSync(before).toString('base64')}`, `data:image/png;base64,${buf.toString('base64')}`]);
-    if (r.size || r.n > 0) { diffs.push(`${name}: ${r.size || `${r.n} pixels changed`}`); writeFileSync(path.join(SHOTS, `single-${name}.after.png`), buf); }
+    }, [`data:image/png;base64,${readFileSync(before).toString('base64')}`, `data:image/png;base64,${now.toString('base64')}`]);
+    if (r.size || r.n > 0) { diffs.push(`${name}: ${r.size || `${r.n} pixels changed`}`); writeFileSync(path.join(SHOTS, `single-${name}.after.png`), now); }
   };
   // a tab of the register (its label may carry a count: "מכירות ודוחות (1)")
   const tab = async (page: any, label: string) => { await page.getByRole('button', { name: new RegExp(`^${label}`) }).first().click(); await page.waitForTimeout(400); };
