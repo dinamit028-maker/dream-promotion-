@@ -23,7 +23,9 @@ import { useLocations } from '@/features/locations/store';
 import {
   House, PencilSimpleLine, FilmSlate, SquaresFour, CalendarBlank, Images, Compass, Megaphone,
   UsersThree, ChartLineUp, PlugsConnected, GearSix, Plus, SignOut, ShieldCheck, CalendarCheck, IdentificationBadge, CashRegister, Wallet, Storefront, ClipboardText,
+  Package,
 } from '@/components/ui/Icon';
+import { multiLocation } from '@/features/locations/locations';
 
 type NavItem = { href: string; label: string; Icon: ComponentType<any> };
 
@@ -51,6 +53,10 @@ const NAV_BOTTOM_ALL: NavItem[] = [
 ];
 /** internal screen, only for ADMIN_EMAILS (the server checks again) */
 const NAV_ADMIN: NavItem = { href: '/admin', label: 'ניהול', Icon: ShieldCheck };
+/** stock by location (T12ב) — in the menu only with more than one active location; with one, the register opens its counts */
+const NAV_STOCK: NavItem = { href: '/stock', label: 'מלאי', Icon: Package };
+/** the menu: "מלאי" right after "קופה" when the business works in more than one location */
+const withStock = (multi: boolean) => (multi ? NAV.flatMap((n) => (n.href === '/register' ? [n, NAV_STOCK] : [n])) : NAV);
 // phones: the four screens opened daily sit in the tab bar; "עוד" opens a sheet with every other screen
 const MOBILE_LEFT = [NAV[0], NAV[5]];        // בית · מדיה
 const MOBILE_RIGHT = [NAV[2]];               // אולפן רילס (+ "עוד")
@@ -146,8 +152,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.location.reload();
     } catch (e: any) { setSwitching(false); window.alert(`לא הצלחנו לעבור עסק: ${e.message}`); }
   }
+  const multi = useLocations((s) => multiLocation(s.state));
+  const NAV_ALL = withStock(multi);
   const NAV_BOTTOM = cashier ? [] : isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
-  const NAV_MAIN = cashier ? NAV.filter((n) => n.href === '/register') : NAV;
+  const NAV_MAIN = cashier ? NAV.filter((n) => n.href === '/register') : NAV_ALL;
   // a cashier opening any other screen lands in the register
   useEffect(() => { if (cashier && !checking && path !== '/register') router.replace('/register'); }, [cashier, checking, path, router]);
   useEffect(() => { setMoreOpen(false); }, [path]);
@@ -203,7 +211,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const signOut = signOutEverywhere;
 
-  const current = [...NAV, ...NAV_BOTTOM].find((n) => n.href === path);
+  const current = [...NAV, NAV_STOCK, ...NAV_BOTTOM].find((n) => n.href === path);
   const register = path === '/register';
   // a module that opens as an app of its own (2.52: finance, 2.54: the store) — its own menus instead of the app's
   const moduleConfig = isFinancePath(path) ? FINANCE_MODULE : isStorePath(path) ? STORE_MODULE : null;
@@ -354,7 +362,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="safe-b absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-[28px] border-t border-line bg-surface px-4 pb-6 pt-3 shadow-[0_-20px_60px_rgba(0,0,0,.5)]">
             <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-line" />
             <div className="grid grid-cols-3 gap-2">
-              {[...NAV, ...NAV_BOTTOM].map(({ href, label, Icon }) => {
+              {[...NAV_ALL, ...NAV_BOTTOM].map(({ href, label, Icon }) => {
                 const on = path === href;
                 return (
                   <Link key={href} href={href} onClick={() => setMoreOpen(false)} aria-current={on ? 'page' : undefined}

@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { supabase, isCloudConfigured } from '@/lib/supabase/client';
 import { authHeaders } from '@/lib/services/http';
@@ -20,14 +21,16 @@ import { israelToIso } from '@/lib/il-time';
 import { isDuplicateId } from '@/lib/db-errors';
 import { METHODS, computeSale, ils, isPosSale, methodLabel, payRequestText, saleDay, salesCsv, summarize, type Line, type Method, type Refund, type Sale } from './money';
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
-import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type HeldMap } from './stock';
+import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type Held } from './stock';
 import { billingColumns } from './billing';
 import { issueDocumentRow } from '@/features/finance/api';
 import { MIGRATION_3300, applyVariantStock, catalogError, lineName, toCatalogItem, toVariant, variantLevel, variantStockText, variantsOf, type CatalogItem, type CatalogVariant } from '@/features/catalog/catalog';
 import { PublishSwitch, type EditorFocus } from '@/features/catalog/PublishSwitch';
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
 import { useLocations } from '@/features/locations/store';
-import { pickRegister, registerLabel, registersHere, saleTag, showRegisterPicker } from '@/features/locations/locations';
+import { locationName, multiLocation, pickRegister, registerLabel, registersHere, saleTag, showRegisterPicker } from '@/features/locations/locations';
+import { atLocationStock, moveRows, registerAtLocation, type StockRow } from '@/features/stock/stock-locations';
+import { adjustAt, loadStockRows } from '@/features/stock/stock-data';
 
 /** Toolbox stage 3: sell, record payments, refunds, reports, close of day, commissions, documents, price list & stock. */
 type Item = PosItem & { sort: number };
@@ -82,15 +85,27 @@ export function RegisterScreen() {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [variants, setVariants] = useState<CatalogVariant[]>([]);
   const [catalogReady, setCatalogReady] = useState(true);
-  // units held for orders on the site (2.56): not sold here; before migration 3500 there are none
-  const [held, setHeld] = useState<HeldMap>(() => heldMap([]));
-  const loadHeld = useCallback(async (): Promise<HeldMap | null> => {
+  // the stock of this register's location (T12ב, migration 4700): with more than one location, the register shows, sells, receives
+  // and counts the units of its own location; with one location — or before the migration — the totals, exactly as before
+  const regLocation = loc.ready && registerId ? loc.registers.find((r) => r.id === registerId)?.locationId ?? null : null;
+  const wantLevels = registerAtLocation({ multi: multiLocation(loc), limited: loc.limited, businessId: loc.businessId }, regLocation);
+  const [levels, setLevels] = useState<StockRow[] | null>(null);
+  const loadLevels = useCallback(async () => { setLevels(wantLevels ? await loadStockRows() : null); }, [wantLevels]);
+  useEffect(() => { void loadLevels(); }, [loadLevels]);
+  const here = useMemo(() => (levels && regLocation ? atLocationStock(items, variants, levels, regLocation) : { items, variants }), [items, variants, levels, regLocation]);
+  const stockHere = levels && regLocation ? { locationId: regLocation, name: locationName(loc, regLocation), nameOf: (id: string | null) => locationName(loc, id ?? loc.businessId) } : null;
+  // units held for orders on the site (2.56): not sold here; before migration 3500 there are none. They are held at the store's
+  // shipping location (4700) — a register at another location sells its own units
+  const [heldRows, setHeldRows] = useState<Held[]>([]);
+  const loadHeld = useCallback(async (): Promise<Held[] | null> => {
     const r = await supabase().rpc('reserved_stock');
     if (r.error) return null;
-    const m = heldMap(r.data as any);
-    setHeld(m);
-    return m;
+    const rows = (r.data ?? []) as Held[];
+    setHeldRows(rows);
+    return rows;
   }, []);
+  const heldHere = useCallback((rows: Held[]) => heldMap(rows.filter((x) => !x.location || !regLocation || x.location === regLocation)), [regLocation]);
+  const held = useMemo(() => heldHere(heldRows), [heldHere, heldRows]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
@@ -174,7 +189,8 @@ export function RegisterScreen() {
     setItems((it.data ?? []).map(toItem));
     setCatalog((it.data ?? []).map(toCatalogItem));
     if (!va.error) setVariants(((va.data ?? []) as any[]).map(toVariant));
-  }, []);
+    void loadLevels();
+  }, [loadLevels]);
 
   // arriving from an appointment ("💳 חיוב"): customer + service prefilled
   useEffect(() => {
@@ -230,7 +246,7 @@ export function RegisterScreen() {
     let leadId = c.customer.leadId || leads.find((l) => c.customer.phone && phoneDigits(l.phone) === phoneDigits(c.customer.phone))?.id || null;
     // a new customer is saved first — the sale points to it
     if (!leadId && c.customer.name.trim()) leadId = await addLeadNow({ name: c.customer.name.trim(), phone: c.customer.phone.trim(), source: 'קופה', date: israelParts(Date.now()).date, status: c.paidNow ? 'נסגר' : 'מעוניין', value: 0 });
-    const heldName = heldConflict(c.lines, items, variants, (await loadHeld()) ?? held);
+    const heldName = heldConflict(c.lines, here.items, here.variants, heldHere((await loadHeld()) ?? heldRows));
     if (heldName) return { ok: false, error: `${heldName}: היחידות שמורות להזמנה באתר שממתינה לתשלום. אפשר למכור אותן כשההזמנה תשולם או תבוטל (עד רבע שעה).` };
     const now = new Date().toISOString();
     const id = c.saleId ?? crypto.randomUUID();
@@ -259,11 +275,12 @@ export function RegisterScreen() {
     }
     const sale = toSale(data);
     setSales((all) => [sale, ...all.filter((x) => x.id !== sale.id)]);
-    // the database moved the stock (trigger); the screen follows at once
-    const after = applyStock(items, sale.items);
-    setItems(after);
-    const vAfter = applyVariantStock(variants, sale.items);
-    setVariants(vAfter);
+    // the database moved the stock (trigger) — at this register's location; the screen follows at once
+    setItems(applyStock(items, sale.items));
+    setVariants(applyVariantStock(variants, sale.items));
+    if (levels && regLocation) setLevels(moveRows(levels, regLocation, sale.items));
+    const after = applyStock(here.items, sale.items);
+    const vAfter = applyVariantStock(here.variants, sale.items);
     const touched = new Set(sale.items.map((l) => l.itemId).filter(Boolean));
     // an item with variants: the size / colour that is running out (the item's sum says little)
     const sold = new Set(sale.items.map((l) => l.variantId).filter(Boolean));
@@ -313,8 +330,9 @@ export function RegisterScreen() {
     const { error: e } = await supabase().from('sales').update({ status: 'cancelled' }).eq('id', s.id);
     if (e) { setError(errText(e)); return; }
     setSales((all) => all.map((x) => (x.id === s.id ? { ...x, status: 'cancelled' } : x)));
-    setItems((all) => applyStock(all, s.items, -1)); // the database put the units back
+    setItems((all) => applyStock(all, s.items, -1)); // the database put the units back (at the sale's location)
     setVariants((all) => applyVariantStock(all, s.items, -1));
+    void loadLevels();
     if (s.leadId) addActivity(s.leadId, 'note', `בוטלה ${paid ? 'מכירה' : 'בקשת תשלום'}: ${ils(s.total)}`);
     let note = '';
     if (paid && userId) {
@@ -354,7 +372,7 @@ export function RegisterScreen() {
     } else if (ins.error) return { ok: false, error: refundErrText(ins.error) };
     const r = toRefund(data);
     setRefunds((all) => [r, ...all.filter((x) => x.id !== r.id)]);
-    if (r.restock && !replay) { setItems((all) => applyStock(all, r.items, -1)); setVariants((all) => applyVariantStock(all, r.items, -1)); }
+    if (r.restock && !replay) { setItems((all) => applyStock(all, r.items, -1)); setVariants((all) => applyVariantStock(all, r.items, -1)); void loadLevels(); }
     let message = `ההחזר נרשם: ${ils(r.amount)} ב${methodLabel(r.method)}`;
     if (business.ready && licensed) {
       const { data } = await supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at');
@@ -383,7 +401,7 @@ export function RegisterScreen() {
 
   const pending = sales.filter((s) => s.status === 'pending');
   const today = israelParts(Date.now()).date;
-  const low = lowStockList(items.filter((i) => i.active));
+  const low = lowStockList(here.items.filter((i) => i.active));
   const tabs: [Tab, string][] = cashier ? [['sell', 'מכירה']]
     : [['sell', 'מכירה'], ['sales', 'מכירות ודוחות'], ['shift', 'סגירת יום'], ['commissions', 'עמלות'], ['docs', 'מסמכים'], ['catalog', 'מחירון ומלאי'], ['settings', 'הגדרות']];
   const fullBtn = (
@@ -423,7 +441,7 @@ export function RegisterScreen() {
               <span className="min-w-0 truncate">⚠️ מלאי נמוך: {low.slice(0, 4).map((i) => `${i.name} (${stockText(i)})`).join(' · ')}{low.length > 4 ? ` ועוד ${low.length - 4}` : ''}</span><span className="shrink-0">למלאי ←</span>
             </button>
           )}
-          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={items} variants={variants} siteHeld={held} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
+          <PosView key={prefill ? 'prefill' : 'pos'} userId={userId} items={here.items} variants={here.variants} siteHeld={held} sales={sales} leads={leads} employees={employees} todayAppts={todayAppts}
             vat={vat} payLinkReady={Boolean(settings.payLink)} onCheckout={checkout} onShowDoc={cashier ? undefined : () => setTab('docs')} prefill={prefill}
             onGoCatalog={cashier ? undefined : () => setTab('catalog')} wide={kiosk} />
         </>
@@ -441,8 +459,8 @@ export function RegisterScreen() {
 
       {!loading && tab === 'docs' && <DocumentsTab userId={userId} business={business} licensed={licensed} onError={setError} />}
 
-      {!loading && tab === 'catalog' && <CatalogTab userId={userId} items={items} catalog={catalog} variants={variants} ready={catalogReady} reload={() => void reloadCatalog()}
-        onError={(e) => setError(typeof e === 'string' ? e : errText(e))}
+      {!loading && tab === 'catalog' && <CatalogTab userId={userId} items={here.items} catalog={catalog} variants={here.variants} ready={catalogReady} reload={() => void reloadCatalog()}
+        onError={(e) => setError(typeof e === 'string' ? e : errText(e))} at={stockHere} multi={multiLocation(loc)}
         onStock={(id, qty) => setItems((all) => all.map((i) => (i.id === id ? { ...i, stockQty: qty, trackStock: true } : i)))} />}
 
       {!loading && tab === 'settings' && (
@@ -571,9 +589,12 @@ function SalesTab({ sales, refunds, onPaid, onCancel, onRemind, canRemind, onOpe
   );
 }
 
-function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, onStock }: {
+function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, onStock, at, multi }: {
   userId: string; items: Item[]; catalog: CatalogItem[]; variants: CatalogVariant[]; ready: boolean;
   reload: () => void; onError: (e: unknown) => void; onStock: (id: string, qty: number) => void;
+  /** the register's location, when it counts its own stock (T12ב) — the quantities here are of that location */
+  at: { locationId: string; name: string; nameOf: (id: string | null) => string } | null;
+  multi: boolean;
 }) {
   // the one product editor (2.54): a new item and every change of an existing one open it; "באתר" next to every item
   const [edit, setEdit] = useState<{ id: string | null; focus?: EditorFocus } | null>(null);
@@ -596,13 +617,19 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
     if (!fresh.length) return;
     await run(supabase().from('catalog_items').insert(fresh.map((s: any, k: number) => ({ user_id: userId, name: s.name, price: Number(s.price), kind: 'service', sort: items.length + k }))));
   }
-  /** "+ קבלת סחורה" / "ספירת מלאי" — through adjust_stock(), so every unit is logged */
+  /** "+ קבלת סחורה" / "ספירת מלאי" — through adjust_stock(), so every unit is logged; with locations, at the register's (stock_adjust) */
   async function adjust(i: Item, mode: 'add' | 'set') {
-    const raw = window.prompt(mode === 'add' ? `כמה יחידות של "${i.name}" התקבלו?` : `כמה יחידות של "${i.name}" יש בפועל? (ספירה)`, mode === 'set' ? String(Math.max(0, i.stockQty)) : '');
+    const where = at ? ` ב${at.name}` : '';
+    const raw = window.prompt(mode === 'add' ? `כמה יחידות של "${i.name}" התקבלו${where}?` : `כמה יחידות של "${i.name}" יש בפועל${where}? (ספירה)`, mode === 'set' ? String(Math.max(0, i.stockQty)) : '');
     if (raw === null) return;
     const p = planAdjust(i.trackStock ? i.stockQty : 0, mode, Number(raw));
     if (!p.ok) return onError({ message: p.error });
     const note = mode === 'add' ? (window.prompt('הערה (לא חובה) — למשל: ספק, חשבונית', '') ?? '') : '';
+    if (at) {
+      const r = await adjustAt(at.locationId, i.id, null, mode, Number(raw), note);
+      if (!r.ok) return onError(r.error);
+      return reload();   // the total and every location's count, as the database has them now
+    }
     const { data, error } = await supabase().rpc('adjust_stock', { p_item: i.id, p_mode: mode, p_qty: Number(raw), p_note: note });
     if (error) return onError(/adjust_stock|schema cache/.test(error.message) ? { message: 'relation stock does not exist' } : error);
     onStock(i.id, Number(data));
@@ -612,12 +639,17 @@ function CatalogTab({ userId, items, catalog, variants, ready, reload, onError, 
     const { data } = await supabase().from('stock_movements').select('*').eq('item_id', i.id).order('created_at', { ascending: false }).limit(40);
     // a move of a variant names it ("מכירה · M / שחור")
     const label = (r: any) => { const v = r.variant_id ? variants.find((x) => x.id === r.variant_id) : null; return v ? lineName('', v).replace(/^ · /, '') : ''; };
-    setHistory({ item: i, rows: ((data ?? []) as any[]).map((r) => ({ at: r.created_at, delta: r.delta, after: r.qty_after, reason: r.reason, note: [label(r), r.note ?? ''].filter(Boolean).join(' · ') })) });
+    // with locations: where each move was, and what was left there
+    setHistory({ item: i, rows: ((data ?? []) as any[]).map((r) => ({ at: r.created_at, delta: r.delta, after: at && r.location_after != null ? r.location_after : r.qty_after, reason: r.reason,
+      note: [at ? at.nameOf(r.location_id ?? null) : '', label(r), r.note ?? ''].filter(Boolean).join(' · ') })) });
   }
   return (
     <div className="grid gap-3">
       {low.length > 0 && <p className="rounded-2xl bg-amber-500/15 p-3 text-sm font-semibold text-amber-800 dark:text-amber-200">⚠️ מלאי נמוך: {low.map((i) => `${i.name} (${stockText(i)})`).join(' · ')}</p>}
-      <p className="text-xs text-muted">⭐ = מועדף בקופה (מומלץ 8–16 פריטים). החצים קובעים את הסדר. מלאי: &quot;קבלה&quot; מוסיפה יחידות, &quot;ספירה&quot; קובעת את מה שיש בפועל — כל מכירה מורידה מהמלאי לבד.</p>
+      <p className="text-xs text-muted">⭐ = מועדף בקופה (מומלץ 8–16 פריטים). החצים קובעים את הסדר. מלאי: &quot;קבלה&quot; מוסיפה יחידות, &quot;ספירה&quot; קובעת את מה שיש בפועל — כל מכירה מורידה מהמלאי לבד.
+        {at ? ` הכמויות כאן הן של ${at.name} (הסניף של הקופה).` : ''}</p>
+      <Link href={multi ? '/stock' : '/stock?tab=counts'} className="text-sm font-semibold text-primary">
+        {multi ? '📦 מלאי בכל הסניפים, העברות וספירות ←' : '📋 ספירת מלאי מסודרת (הבעלים מאשרים את הפערים) ←'}</Link>
       {[...favs, ...items.filter((i) => !i.favorite)].map((i) => {
         const level = stockLevel(i);
         return (

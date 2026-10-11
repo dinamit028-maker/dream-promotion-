@@ -45,7 +45,7 @@ export function planAdjust(current: number, mode: 'add' | 'set', qty: number): {
   return qty >= 0 ? { ok: true, delta: qty - current, after: qty } : { ok: false, error: 'הספירה לא יכולה להיות שלילית' };
 }
 
-export const MOVE_HE: Record<string, string> = { sale: 'מכירה', refund: 'החזר למלאי', cancel: 'ביטול מכירה', receive: 'קבלת סחורה', count: 'ספירת מלאי', adjust: 'תיקון' };
+export const MOVE_HE: Record<string, string> = { sale: 'מכירה', refund: 'החזר למלאי', cancel: 'ביטול מכירה', receive: 'קבלת סחורה', count: 'ספירת מלאי', adjust: 'תיקון', transfer: 'העברה בין סניפים' };
 
 // ---- units held for orders on the site (2.56) ----------------------------------------------------------------------------------
 /**
@@ -53,7 +53,7 @@ export const MOVE_HE: Record<string, string> = { sale: 'מכירה', refund: 'ה
  * such a sale (c_sales_reserved); these give the screen the same answer first. A sale that touches no held unit behaves
  * exactly as before — negative stock included.
  */
-export interface Held { item_id: string; variant_id: string | null; qty: number }
+export interface Held { item_id: string; variant_id: string | null; qty: number; /** the store's shipping location (4700) */ location?: string | null }
 export interface HeldMap { byItem: Map<string, number>; byVariant: Map<string, number> }
 export function heldMap(rows: Held[] | null | undefined): HeldMap {
   const byItem = new Map<string, number>(), byVariant = new Map<string, number>();

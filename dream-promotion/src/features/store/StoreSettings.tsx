@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { cx } from '@/lib/utils';
-import { Button, PageHead, Pill } from '@/components/ui/primitives';
+import { Button, PageHead, Pill, SmallSelect } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
 import { bookingUrl, checklist, checkDomains, connectDomain, openStore, previewLink, removeDomain, slugAvailable, updateStore, type KitApplied, type StorePatch } from './data';
@@ -17,6 +17,8 @@ import {
 import { AiShort } from './AiShort';
 import { AreaRow, Block, Notice, PicturePicker, TextRow } from './ui';
 import { useStoreData } from './useStoreData';
+import { useLocations } from '@/features/locations/store';
+import { activeLocations, multiLocation } from '@/features/locations/locations';
 
 /**
  * "הגדרות ודומיין" (2.55): opening the store, its details and contact, Analytics / Search Console, the domain, and the
@@ -77,7 +79,11 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
   const [f, setF] = useState({
     name: store.name, description: store.description, logoUrl: store.logoUrl, phone: store.phone, whatsapp: store.whatsapp,
     email: store.email, address: store.address, ga4: store.ga4Id, gsc: store.gscCode, showStock: store.showStockCount,
+    shipFrom: store.locationId ?? store.businessId,
   });
+  // T12ב: with more than one location, the site sells — and ships from — one of them (its stock is what the site has)
+  const loc = useLocations((s) => s.state);
+  const multi = multiLocation(loc);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'error' | 'warn'; text: string } | null>(null);
@@ -100,6 +106,7 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
     const patch: StorePatch = {
       name: f.name.trim(), description: f.description.trim(), logo_url: f.logoUrl, phone: f.phone.trim(), whatsapp: wa.value,
       email: f.email.trim(), address: f.address.trim(), ga4_id: ga, gsc_code: gsc, show_stock_count: f.showStock,
+      ...(multi && f.shipFrom !== (store.locationId ?? store.businessId) ? { location_id: f.shipFrom } : {}),
     };
     const r = await updateStore(store.id, patch);
     setSaving(false);
@@ -145,6 +152,17 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
           <Switch on={f.showStock} onClick={() => set('showStock', !f.showStock)} label='להציג "נשארו X במלאי"' />
         </label>
       </Block>
+
+      {multi && (
+        <Block title="המלאי של האתר" id="ship-from" sub="האתר מוכר את מה שיש בסניף אחד, וההזמנות יורדות מהמלאי שלו (ונשלחות ממנו). הזמנה שכבר נפתחה נשארת עם הסניף שהיה כשנפתחה.">
+          <label className="mb-2 flex min-h-11 items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-ink-2">המלאי של האתר — מסניף</span>
+            <SmallSelect value={f.shipFrom} onChange={(e) => set('shipFrom', e.target.value)} className="w-auto" aria-label="המלאי של האתר — מסניף">
+              {activeLocations(loc).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </SmallSelect>
+          </label>
+        </Block>
+      )}
 
       <Block title="גוגל" id="google" sub="שני הקודים מוצגים באתר — אין כאן חיבור לחשבון גוגל.">
         <TextRow label="Google Analytics — מזהה מדידה" value={f.ga4} onChange={(v) => set('ga4', v)} dir="ltr" placeholder="G-XXXXXXXXXX"
