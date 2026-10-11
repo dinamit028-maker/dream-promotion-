@@ -22,6 +22,9 @@
 #      the timer 8 times at once, on two dates → one charge per plan and period, each handed to the server once; a paused plan none
 #  17. locations and registers (4600): 8 connections open a day on one register at once → one; on two registers → one each (the same
 #      person); 80 documents from 8 connections in two locations → one series, no gap; 16 new locations at once → never more than 10
+#  18. stock by location (4700): 80 sales from 8 connections at two locations, crossing → each location's count and the total right;
+#      the same transfer sent and received from 8 connections at once → once each; one count approved 8 times at once → its
+#      differences once; 8 new counts of one location at once → one open
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -408,4 +411,47 @@ run_parallel newloc
 r=$(q "select count(*) from public.business_locations where business_id = '$B'")
 [ "$r" = "10" ] || fail "16 new locations at once: never more than 10 (got: $r)"
 echo "ok: 16 new locations from 8 connections at once → 10, never more"
+
+# ---- 18. stock by location: crossing sales at two locations, a transfer and a count approved from 8 connections (4700) ----------
+SI=00000000-0000-0000-0000-0000000cc1b1; ST1=00000000-0000-0000-0000-0000000cc1b2; SC1=00000000-0000-0000-0000-0000000cc1b3
+q "insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock) values ('$SI', '$U', '$B', 'מוצר עומס', 10, 'product', true);" >/dev/null
+q "begin; $AS select public.stock_adjust('$B', '$SI', null, 'set', 100); select public.stock_adjust('$LL', '$SI', null, 'add', 40); commit;" >/dev/null
+q "update public.register_shifts set closed_at = now(), counted_cash = 0, expected_cash = 0, difference = 0 where business_id = '$B' and closed_at is null;" >/dev/null
+ssale() { echo "insert into public.sales (user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at, register_id)
+  values ('$U', '[{\"name\":\"x\",\"price\":10,\"qty\":1,\"itemId\":\"$SI\"}]', 10, 10, 18, 1.53, 'cash', 'paid', now(), '$1');"; }
+for w in $(seq 8); do
+  : > "$TMP/ssale-$w.sql"
+  for k in $(seq 5); do
+    printf 'begin;\n%s\n%s\ncommit;\nbegin;\n%s\n%s\ncommit;\n' "$AS" "$(ssale "$([ $((w % 2)) = 0 ] && echo "$B" || echo "$LR")")" \
+      "$AS" "$(ssale "$([ $((w % 2)) = 0 ] && echo "$LR" || echo "$B")")" >> "$TMP/ssale-$w.sql"
+  done
+  chmod 644 "$TMP/ssale-$w.sql"
+done
+run_parallel ssale
+r=$(q "select public.stock_at('$B', '$SI', null) || ' ' || public.stock_at('$LL', '$SI', null) || ' ' || (select stock_qty from public.catalog_items where id = '$SI')
+        || ' ' || (select coalesce(sum(delta), 0) from public.stock_movements where item_id = '$SI' and location_id = '$LL')")
+[ "$r" = "60 0 60 0" ] || fail "80 crossing sales at two locations: 60 left at the main one, none at the branch (expected 60 0 60 0, got: $r)"
+echo "ok: 80 sales from 8 connections at two locations, crossing → each location's count and the total right, no deadlock"
+q "begin; $AS select public.stock_adjust('$LL', '$SI', null, 'add', 10); commit;" >/dev/null
+for w in $(seq 8); do worker_script "$TMP/tsend-$w.sql" 1 "select public.stock_transfer_send('$ST1', '$B', '$LL', '[{\"itemId\":\"$SI\",\"qty\":5}]');"; done
+run_parallel tsend
+for w in $(seq 8); do worker_script "$TMP/trecv-$w.sql" 1 "select public.stock_transfer_receive('$ST1', '[]');"; done
+run_parallel trecv
+r=$(q "select (select count(*) from public.stock_transfers where id = '$ST1' and status = 'received') || ' ' ||
+              (select count(*) || '/' || sum(delta) from public.stock_movements where transfer_id = '$ST1') || ' ' ||
+              public.stock_at('$B', '$SI', null) || ' ' || public.stock_at('$LL', '$SI', null)")
+[ "$r" = "1 2/0 55 15" ] || fail "one transfer sent and received from 8 connections: once each (expected 1 2/0 55 15, got: $r)"
+echo "ok: the same transfer sent and received from 8 connections at once → one transfer, out once and in once"
+for w in $(seq 8); do worker_script "$TMP/cstart-$w.sql" 1 "select public.stock_count_start(gen_random_uuid(), '$LL');"; done
+run_parallel cstart
+r=$(q "select count(*) from public.stock_counts where location_id = '$LL' and status = 'open'")
+[ "$r" = "1" ] || fail "8 new counts of one location at once: one open (got: $r)"
+q "begin; $AS select public.stock_count_cancel(id) from public.stock_counts where location_id = '$LL' and status = 'open'; commit;" >/dev/null
+q "begin; $AS select public.stock_count_start('$SC1', '$B'); select public.stock_count_set('$SC1', '$SI', null, 50); commit;" >/dev/null
+for w in $(seq 8); do worker_script "$TMP/capprove-$w.sql" 1 "select public.stock_count_approve('$SC1');"; done
+run_parallel capprove
+r=$(q "select (select status from public.stock_counts where id = '$SC1') || ' ' ||
+              (select count(*) || '/' || sum(delta) from public.stock_movements where count_id = '$SC1') || ' ' || public.stock_at('$B', '$SI', null)")
+[ "$r" = "approved 1/-5 50" ] || fail "one count approved from 8 connections: its difference once (expected approved 1/-5 50, got: $r)"
+echo "ok: 8 new counts of one location at once → one open; one count approved 8 times at once → its difference once"
 

@@ -23,4 +23,6 @@ done
 bash tests/sql/concurrency.sh "$DB" || failed=1
 # a business with one location: the same rows and the same view before and after migration 4600 (locations)
 bash tests/sql/locations-compare.sh "$DB" || failed=1
+# a business with one location: the same day of the business without and with migration 4700 (stock by location)
+bash tests/sql/stock-compare.sh "$DB" || failed=1
 exit $failed
