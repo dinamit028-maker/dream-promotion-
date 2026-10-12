@@ -170,6 +170,9 @@ async function main() {
     await ctx.route(`${BASE}/api/doc/sign-status`, (r: any) => r.fulfill({ json: { configured: false } }));
     await ctx.route(`${BASE}/api/ai`, (r: any) => r.fulfill(r.request().method() === 'GET' ? { json: { available: true, model: 'test' } } : { status: 400, json: { code: 'unknown_task' } }));
     await ctx.route(`${BASE}/api/video`, (r: any) => r.fulfill(r.request().method() === 'GET' ? { json: { available: true } } : { status: 400, json: { error: 'no' } }));
+    // 2.98: the money lobby's currency line — the rates the server would answer, of the fixed day (the same picture every run)
+    await ctx.route(`${BASE}/api/finance/fx`, (r: any) => r.fulfill({ json: { source: 'boi', rates: [{ code: 'USD', rate: 3.717, unit: 1, updated: `${DAY}T12:30:00.000Z` },
+      { code: 'EUR', rate: 4.051, unit: 1, updated: `${DAY}T12:30:00.000Z` }, { code: 'GBP', rate: 4.805, unit: 1, updated: `${DAY}T12:30:00.000Z` }] } }));
     ctx.setDefaultTimeout(30_000); ctx.setDefaultNavigationTimeout(180_000);
     const page = await ctx.newPage();
     page.on('pageerror', (e: Error) => errors.push(e.message));

@@ -15,6 +15,7 @@ import { cardTarget, draftsTotal, weekCharges, type CardId } from './overview-li
 import { loadRecurringPlans, recurringReady } from './recurring-data';
 import { useReportsReady } from './reports-data';
 import { toExpense } from './expenses';
+import { FxCard } from './FxCard';
 
 /**
  * The overview: real numbers only — every figure comes from finance_summary() in the database (documents, the payments
@@ -22,6 +23,8 @@ import { toExpense } from './expenses';
  * 2.97 (T7): every card opens its list — filtered by the card's own rules, for the same period (overview-lists.ts: cardTarget),
  * and the list shows the card's number. Two cards of their own: the week's recurring charges and the expenses waiting for
  * approval — each figured by the same function as its list (weekCharges / draftsTotal).
+ * 2.98: foreign currencies at the top (FxCard) — the Bank of Israel's representative rates and a converter; not money of the
+ * business, so not tied to the period.
  */
 export interface Summary {
   from: string; to: string; entity: string; vat: boolean;
@@ -99,6 +102,7 @@ export function Overview() {
 
   return (
     <div className="grid gap-4">
+      <FxCard />
       <PeriodPicker value={period} onChange={setPeriod} vatKind={profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'} />
       {error && <Note tone="warn">{error}</Note>}
       {!s && !error && <div className="py-8 text-center"><Spinner /></div>}

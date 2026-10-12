@@ -9,6 +9,9 @@
  *   the customer's card: "💰 כספים" — owed and late, the plan's payments, the payments, the documents; "💳 שליחת לינק לתשלום"
  *   (one invoice: its dialog; an invoice and a quote: which one); the packages in the same box, also while it is closed;
  *   the allocation thresholds read "אושר מול רואה חשבון" (migration 5200); a phone: the overview, a list and the card fit.
+ * 2.98: foreign currencies at the top of the overview — the dollar, the euro and the pound at the Bank of Israel's representative
+ *   rate, with its date; the converter both ways (the yen whole, the dinar's fils); a bad number says so; the bank does not answer:
+ *   "not available" and "load again", never a guessed rate (the server's route is faked here: /api/finance/fx — tests/fx.test.ts).
  * The numbers' rules are tested apart: tests/overview-lists.test.ts and tests/card-money.test.ts (the lists'), the database's
  * functions on Postgres (tests/sql/*.check.sql).
  *
@@ -171,6 +174,12 @@ async function main() {
   const errors: string[] = [];
   const calls: string[] = [];
   const asked: any[] = [];
+  // 2.98: the representative rates the server would answer (/api/finance/fx), or the bank not answering
+  let fxDown = false;
+  const fxAuth: string[] = [];
+  const FX_AT = `${TODAY}T12:30:00.000Z`;
+  const FX = { source: 'boi', rates: [{ code: 'USD', rate: 3.717, unit: 1, updated: FX_AT }, { code: 'EUR', rate: 4.051, unit: 1, updated: FX_AT },
+    { code: 'GBP', rate: 4.805, unit: 1, updated: FX_AT }, { code: 'JPY', rate: 2.4983, unit: 100, updated: FX_AT }, { code: 'JOD', rate: 5.243, unit: 1, updated: FX_AT }] };
 
   async function context(viewport: { width: number; height: number }) {
     const phone = viewport.width < 600;
@@ -214,6 +223,10 @@ async function main() {
         receipt_document_id: null, receipt_error: '', created_at: new Date().toISOString() };
       fake.tables.payment_requests.push(row);
       return r.fulfill({ json: { link: row, url: `${BASE}/pay/${row.id}.sig`, text: `לתשלום: ${BASE}/pay/${row.id}.sig`, emailed: false } });
+    });
+    await ctx.route(`${BASE}/api/finance/fx`, (r: any) => {
+      fxAuth.push(r.request().headers().authorization ?? '');
+      return r.fulfill(fxDown ? { status: 503, json: { code: 'fx_unavailable', message: 'שערי המטבע לא זמינים כרגע. נסו שוב מאוחר יותר.' } } : { json: FX });
     });
     ctx.setDefaultTimeout(30_000); ctx.setDefaultNavigationTimeout(180_000);
     const page = await ctx.newPage();
@@ -475,10 +488,66 @@ async function main() {
       await page.getByText(/אושר מול רואה חשבון \(11\.10\.2026\): הסף ותאריך התחולה\. לא נבדק כאן מול פרסום רשמי של רשות המסים\./).waitFor();
     });
 
+    await step('foreign currencies at the top of the overview: the dollar, the euro and the pound — the representative rate, with its date', async () => {
+      await overview();
+      const fx = page.getByRole('region', { name: 'מטבעות חוץ', exact: true });
+      await fx.getByText('₪3.717').waitFor();
+      const line = (await fx.innerText()).replace(/\s+/g, ' ');
+      for (const t of ['דולר ₪3.717', 'אירו ₪4.051', 'ליש״ט ₪4.805', `שער יציג, ${dmy(TODAY)}`]) assert.ok(line.includes(t), `"${t}" in: ${line}`);
+      assert.match(fxAuth.at(-1) ?? '', /^Bearer /, 'the screen asks the server with the session');
+      assert.equal(await fx.locator('output').count(), 0, 'the converter opens on a tap');
+    });
+
+    await step('the converter both ways: 100 dollars = ₪371.70 and back; 100 shekels = 4,003 yen (whole) and 19.073 dinars; "1,5" says it is not a number', async () => {
+      const fx = page.getByRole('region', { name: 'מטבעות חוץ', exact: true });
+      await fx.getByRole('button', { name: 'ממיר מטבעות' }).click();
+      const out = fx.locator('output');
+      await fx.getByLabel('סכום בדולר ארה״ב').fill('100');
+      await out.getByText('₪371.70').waitFor();
+      await fx.getByText('מדולר ארה״ב לשקלים').waitFor();
+      await fx.getByText('1 USD = ₪3.717').first().waitFor();
+      await fx.getByText('₪1 = 0.2690 USD').first().waitFor();
+      await fx.getByText(`השער היציג של בנק ישראל, מ-${dmy(TODAY)}.`).waitFor();
+      await fx.getByRole('button', { name: '⇄ החלפת כיוון' }).click();
+      await fx.getByText('משקלים לדולר ארה״ב').waitFor();
+      await fx.getByLabel('סכום בשקלים').fill('371.70');
+      await out.getByText('100.00 USD').waitFor();
+      await fx.getByLabel('מטבע', { exact: true }).selectOption('JPY');
+      await fx.getByLabel('סכום בשקלים').fill('100');
+      await out.getByText('4,003 JPY').waitFor();
+      await fx.getByText('100 JPY = ₪2.4983').first().waitFor();
+      await fx.getByLabel('מטבע', { exact: true }).selectOption('JOD');
+      await out.getByText('19.073 JOD').waitFor();
+      await fx.getByLabel('סכום בשקלים').fill('1,5');
+      await out.getByText('מספר לא תקין — ספרות ונקודה עשרונית בלבד').waitFor();
+      await shot('ov-8-fx.png');
+      await fx.getByRole('button', { name: 'סגירת הממיר' }).click();
+      assert.equal(await fx.locator('output').count(), 0);
+    });
+
+    await step('the bank does not answer: "not available" and "load again" — never a guessed rate; then it answers', async () => {
+      fxDown = true;
+      await overview();
+      const fx = page.getByRole('region', { name: 'מטבעות חוץ', exact: true });
+      await fx.getByText('שערי המטבע לא זמינים כרגע. נסו שוב מאוחר יותר.').waitFor();
+      assert.equal(await fx.getByText('₪3.717').count(), 0);
+      assert.equal(await fx.getByRole('button', { name: 'ממיר מטבעות' }).count(), 0);
+      fxDown = false;
+      await fx.getByRole('button', { name: 'לטעון שוב את השערים' }).click();
+      await fx.getByText('₪3.717').waitFor();
+      await fx.getByRole('button', { name: 'ממיר מטבעות' }).waitFor();
+    });
+
     await step('a phone: the overview, a list and the card\'s money fit', async () => {
       const { page: phone } = await context(PHONE);
       await overview(phone);
       await fits(phone, 'the overview');
+      const pfx = phone.getByRole('region', { name: 'מטבעות חוץ', exact: true });
+      await pfx.getByRole('button', { name: 'ממיר מטבעות' }).click();
+      await pfx.getByLabel('סכום בדולר ארה״ב').fill('250');
+      await pfx.locator('output').getByText('₪929.25').waitFor();
+      await fits(phone, 'the currency converter');
+      await shot('ov-9-phone-fx.png', phone);
       await shot('ov-6-phone.png', phone);
       await stat('באיחור', phone).click();
       await phone.getByRole('region', { name: 'באיחור', exact: true }).waitFor();
