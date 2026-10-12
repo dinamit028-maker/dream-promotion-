@@ -1520,6 +1520,8 @@ select (select count(*) from public.catalog_items where track_serials) as with_n
   - טלפון: הדוחות, הכרטסת והספקים — בלי גלילה הצידה (הטבלה גוללת בתוך הכרטיס).
 - **4900 פעמיים:** על מסד עם כל 49 המיגרציות ועוד הרצה של 4900 — כל 20 קבצי הבדיקות עוברים. על מסד בלי 4100 / 4400 / 4700 — עוצרת בשורה הראשונה, ושום דבר לא נוסף.
 
+> **מיגרציה 4900 הוחלה על המסד החי ב-12.10.2026,** בהדבקה אחת עם 5000, 5100 ו-5200, לפי הסדר, ב-SQL Editor, אחרי אישור שלך. הבדיקות שלמטה רצו בקריאה בלבד, לפני ההדבקה ואחריה.
+
 **לפני ההחלה (בקריאה בלבד):**
 ```sql
 select to_regprocedure('public.report_withholding(date,date)') as reports,
@@ -1527,6 +1529,7 @@ select to_regprocedure('public.report_withholding(date,date)') as reports,
   (select count(*) from public.payments) as payments, (select count(*) from public.documents) as documents;
 ```
 - **אמור לחזור:** `reports` = `null`, ב-`methods` אין 'withholding', ושני מספרים — לשמור אותם.
+- **תוצאה (12.10.2026, לפני ההדבקה):** אף פונקציה של 4900 לא הייתה במסד; ב-`methods` — מזומן, אשראי, העברה, ביט, צ׳ק ואחר, בלי 'withholding'; 14 תשלומים, 21 מסמכים.
 
 **אחרי ההחלה (בקריאה בלבד):**
 ```sql
@@ -1537,6 +1540,7 @@ select to_regprocedure('public.report_withholding(date,date)') is not null as re
   (select count(*) from public.business_finance_profile where advance_pct is not null) as advances;
 ```
 - **אמור לחזור:** `true`, אותם `payments` ו-`documents` כמו לפני, ו-`0, 0, 0` (כלום לא השתנה).
+- **תוצאה (12.10.2026, אחרי ההחלה):** `true`, 14, 21, 0, 0, 0 — כמו לפני.
 
 **בטלפון (אחרי ההחלה):**
 1. **חשבונית פתוחה ← "קבלה על תשלום" ← "+ ניכוי במקור":** סכום (מאישור הניכוי של הלקוח) ואחוז. **אמור לקרות:** ההעברה יורדת באותו סכום; בקבלה — "ניכוי במקור (5%)"; החשבונית שולמה; ב"הכנסות" — הניכוי לא בסכום שנכנס, ומוצג בנפרד.
@@ -1574,6 +1578,8 @@ select to_regprocedure('public.report_withholding(date,date)') is not null as re
 - **5000 פעמיים:** על מסד עם כל 50 המיגרציות ועוד הרצה של 5000 — כל 21 קבצי הבדיקות עוברים. על מסד בלי 4900 — עוצרת בשורה הראשונה, ושום דבר לא נוסף.
 - **`tests/e2e/single-location.e2e.ts`** — 13 המסכים של עסק עם סניף אחד, פיקסל בפיקסל, אחרי 5000 (המתגים כבויים).
 
+> **מיגרציה 5000 הוחלה על המסד החי ב-12.10.2026,** בהדבקה אחת עם 4900, 5100 ו-5200, לפי הסדר, ב-SQL Editor, אחרי אישור שלך. הבדיקות שלמטה רצו בקריאה בלבד, לפני ההדבקה ואחריה.
+
 **לפני ההחלה (בקריאה בלבד; אחרי ש-4900 הוחלה):**
 ```sql
 select to_regprocedure('public.report_business(date,date)') is not null as reports_4900,
@@ -1582,6 +1588,7 @@ select to_regprocedure('public.report_business(date,date)') is not null as repor
   (select count(*) from public.documents) as documents, (select count(*) from public.payments) as payments, (select count(*) from public.stock_movements) as moves;
 ```
 - **אמור לחזור:** `true` (אחרת — להחיל קודם את 4900), `deposits` = `null`, ב-`doc_types` אין 100 / 200 / 210, ושלושה מספרים — לשמור אותם.
+- **תוצאה (12.10.2026, לפני ההדבקה של ארבעתן — ולכן `reports_4900` = `false`):** `deposits` = `null`, ב-`doc_types` — 300, 305, 320, 330 ו-400; 21 מסמכים, 14 תשלומים. תנועות המלאי לא נספרו לפני.
 
 **אחרי ההחלה (בקריאה בלבד):**
 ```sql
@@ -1592,6 +1599,7 @@ select to_regclass('public.bank_deposits') is not null and to_regclass('public.b
   (select count(*) from public.bank_deposits) + (select count(*) from public.bank_lines) + (select count(*) from public.cheque_reminders) as new_rows;
 ```
 - **אמור לחזור:** `true`, ב-`doc_types` גם 100, 200 ו-210, אותם שלושה מספרים כמו לפני, ו-`0, 0` (שום מתג לא דלוק, שום שורה חדשה).
+- **תוצאה (12.10.2026, אחרי ההחלה):** `true`, 100, 200, 210, 300, 305, 320, 330 ו-400; 21 מסמכים, 14 תשלומים, 0 תנועות מלאי; `0, 0`.
 
 **בטלפון (אחרי ההחלה):**
 1. **"כספים ← הגדרות כספים ← מה מופעל בכספים":** לסמן "קופות, הפקדות והתאמת בנק" ולשמור. **אמור לקרות:** "קופות ובנק" בתפריט הכספים (אחרי "הוצאות").
@@ -1638,6 +1646,8 @@ select to_regclass('public.bank_deposits') is not null and to_regclass('public.b
 - **5100 פעמיים:** על מסד עם כל 51 המיגרציות ועוד הרצה של 5100 — כל 22 קבצי הבדיקות עוברים. על מסד בלי 4900 — עוצרת בשורה הראשונה, ושום דבר לא נוסף.
 - **`tests/e2e/single-location.e2e.ts`** — 13 המסכים של עסק עם סניף אחד, פיקסל בפיקסל, עם `LOC_MASK_MENUS=1` (התפריטים השתנו בכוונה — שדה החיפוש ו"פקודות יומן" — ומכוסים בהשוואה; כל השאר כמו קודם).
 
+> **מיגרציה 5100 הוחלה על המסד החי ב-12.10.2026,** בהדבקה אחת עם 4900, 5000 ו-5200, לפי הסדר, ב-SQL Editor, אחרי אישור שלך. הבדיקות שלמטה רצו בקריאה בלבד, לפני ההדבקה ואחריה.
+
 **לפני ההחלה (בקריאה בלבד; אחרי ש-4900 הוחלה):**
 ```sql
 select to_regprocedure('public.report_business(date,date)') is not null as reports_4900,
@@ -1646,6 +1656,7 @@ select to_regprocedure('public.report_business(date,date)') is not null as repor
   (select count(*) from public.documents) as documents, (select count(*) from public.expenses) as expenses, (select count(*) from public.payments) as payments;
 ```
 - **אמור לחזור:** `true, true` (אחרת — להחיל קודם את 4900), `journal` = `null`, ושלושה מספרים — לשמור אותם.
+- **תוצאה (12.10.2026, לפני ההדבקה של ארבעתן — ולכן `reports_4900` = `false`):** `compare_4800` = `true`, `journal` = `null`; 21 מסמכים, הוצאה אחת, 14 תשלומים.
 
 **אחרי ההחלה (בקריאה בלבד):**
 ```sql
@@ -1658,6 +1669,7 @@ select to_regclass('public.journal_entries') is not null as journal,
   position('journal_entries' in pg_get_functiondef('public.finance_summary(date,date)'::regprocedure)) > 0 as summary_reads_them;
 ```
 - **אמור לחזור:** `true, true, 5, 0`, אותם שלושה מספרים כמו לפני, ו-`true`.
+- **תוצאה (12.10.2026, אחרי ההחלה):** `true, true, 5, 0`, ‏21, 1, 14 — כמו לפני, ו-`true`.
 
 **בטלפון / במחשב (אחרי ההחלה):**
 1. **חיפוש:** בתפריט — "חיפוש מסך…" (בטלפון: "עוד" ← השדה למעלה), להקליד "גבייה". **אמור לקרות:** "חייבים" ראשון; Enter / לחיצה — המסך נפתח. במחשב — גם Ctrl+K.
@@ -1666,7 +1678,7 @@ select to_regclass('public.journal_entries') is not null as journal,
 4. **פקודה ראשונה — רק פקודה אמיתית, או בעסק בדיקה:** פקודה שנרשמת לא נמחקת (רק פקודה הפוכה). **אמור לקרות:** אחרי הרישום — "פקודה 1 נרשמה"; בדוחות — "מתוכן פקודות יומן ידניות"; ביומן הביקורת — "נרשמה פקודה ידנית".
 5. **editor / viewer / קופאי/ת:** אין "+ פקודה ידנית" (קופאי/ת — לא רואה את הכספים בכלל).
 
-**לא נבדק כאן:** פקודות על המסד החי (המיגרציה לא הוחלה), ⌘K במק אמיתי (נבדק Ctrl+K), והפקודות בקובץ המבנה האחיד (לא נבנה — שאלה לרואה החשבון).
+**לא נבדק כאן:** פקודה על המסד החי (המיגרציה הוחלה ב-12.10.2026 ונבדקה בקריאה בלבד; אף פקודה לא נרשמה שם), ⌘K במק אמיתי (נבדק Ctrl+K), והפקודות בקובץ המבנה האחיד (לא נבנה — שאלה לרואה החשבון).
 
 ## 35. לוח בקרה שמוביל לפעולה ולשונית "כספים" בכרטיס הלקוח; תשובות רואה החשבון (2.97.0, מיגרציה 5200)
 
@@ -1692,6 +1704,8 @@ select to_regclass('public.journal_entries') is not null as journal,
 - **`tests/e2e/reports.e2e.ts`** (שונה): מקדמות — ₪1,200 × 7.5% = ₪90, פחות ₪59 ניכוי במקור = **₪31** (והטבלה: לפני קיזוז, ניכוי, אחרי קיזוז).
 - **`tests/e2e/paylinks.e2e.ts`** (שונה): המקדמה שולמה והקבלה מחכה לאישור — "(יתרה אחרי מקדמה ₪100)"; הקבלה הופקה — "(יתרה אחרי מקדמה ₪100, חשבונית מס / קבלה 8)"; בלי 5200 — הסכום בלבד, כמו קודם.
 
+> **מיגרציה 5200 הוחלה על המסד החי ב-12.10.2026,** בהדבקה אחת עם 4900, 5000 ו-5100, לפי הסדר, ב-SQL Editor, אחרי אישור שלך. הבדיקות שלמטה רצו בקריאה בלבד, לפני ההדבקה ואחריה.
+
 **לפני ההחלה של 5200 (בקריאה בלבד):**
 ```sql
 select to_regprocedure('public.appointment_deposits(uuid[])') is not null as deposits_4300,
@@ -1699,6 +1713,7 @@ select to_regprocedure('public.appointment_deposits(uuid[])') is not null as dep
   (select array_agg(version || ':' || effective_from || ':' || threshold_before_vat || ':' || verified order by version) from public.tax_allocation_rules) as rules;
 ```
 - **אמור לחזור:** `true, true`, וארבעת הספים עם `false`.
+- **תוצאה (12.10.2026, לפני ההדבקה):** `true, true`; 1:2024-05-05:25000, ‏2:2025-01-01:20000, ‏3:2026-01-01:10000, ‏4:2026-06-01:5000 — כולם `false`.
 
 **אחרי ההחלה (בקריאה בלבד):**
 ```sql
@@ -1709,6 +1724,7 @@ select to_regprocedure('public.appointment_deposit_receipts(uuid[])') is not nul
   (select count(*) from public.tax_allocation_rules) as rules;
 ```
 - **אמור לחזור:** `true, true, false, 4, 4`.
+- **תוצאה (12.10.2026, אחרי ההחלה):** `true, true, false, 4, 4`.
 
 **בטלפון / במחשב:**
 1. **לובי הכספים:** ללחוץ על "באיחור". **אמור לקרות:** "חייבים" עם "באיחור" מסומן, ולמעלה אותו סכום ואותו מספר מסמכים כמו בכרטיס. כך גם "הוצאות" (אותה תקופה), "נכנס לקופה ולבנק", "חיובים השבוע", "הוצאות לאישור".
@@ -1716,4 +1732,4 @@ select to_regprocedure('public.appointment_deposit_receipts(uuid[])') is not nul
 3. **דוחות ← מקדמות** (עם שיעור בהגדרות): **אמור לקרות:** "מקדמה לפני קיזוז", "ניכוי במקור בתקופה", "מקדמה משוערת (אחרי קיזוז…)" — ו"הערכה בלבד".
 4. **אחרי 5200 — הגדרות הכספים:** ארבעת הספים "אושר מול רואה חשבון". **בקופה, תור עם מקדמה ששולמה וקבלה שהופקה:** שורת השירות "(יתרה אחרי מקדמה ₪…, חשבונית מס / קבלה …)".
 
-**לא נבדק כאן:** 5200 על המסד החי (לא הוחלה), תשלום אמיתי בלינק מהכרטיס (רק מסוף בדיקה), ושורת המקדמה על מקדמה אמיתית (רק על נתוני הבדיקה).
+**לא נבדק כאן:** 5200 על המסד החי מעבר לבדיקות בקריאה בלבד (הוחלה ב-12.10.2026, למעלה), תשלום אמיתי בלינק מהכרטיס (רק מסוף בדיקה), ושורת המקדמה על מקדמה אמיתית (רק על נתוני הבדיקה).
