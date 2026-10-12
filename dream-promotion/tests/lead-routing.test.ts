@@ -469,3 +469,43 @@ test('the card: the owner moves a lead and sends it to the new person once; send
   const other = await call(route, 'GET', `/api/leads/assignment?lead=${c.id}`, 'stranger');
   assert.equal(other.status, 404, 'another business\'s contact: not found');
 });
+
+test('new_lead waits for Meta\'s approval (132001): the lead is kept "failed"; after the approval "לשלוח שוב" sends it once — two at once, still once', async () => {
+  const { syncLeads } = await import('../src/lib/server/meta-leads');
+  const route = await import('../src/app/api/leads/assignment/route');
+  // what Meta answers for a template that is not approved yet
+  waAnswer = () => ({ status: 400, body: { error: { message: '(#132001) Template name does not exist in the translation', type: 'OAuthException', code: 132001,
+    error_data: { messaging_product: 'whatsapp', details: 'template name (new_lead) does not exist in he' }, fbtrace_id: 'Tpl1' } } });
+  meta['/111/leads'].data.push({ id: 'L-T', created_time: ago(0.1), field_data: [field('full_name', 'טל'), field('phone_number', '0521010101')] });
+  tables.meta_lead_sync.length = 0;
+  const r = await syncLeads({ deadline: Date.now() + 40_000 });
+  assert.deepEqual(r.whatsapp, { sent: 0, failed: 1, skipped: 0 });
+  const t = lead('L-T');
+  assert.equal(t.assigned_staff_id, 'dana', 'assigned all the same');
+  const [n] = notes(t.id);
+  assert.deepEqual([n.status, n.attempts, n.error_code, n.error.code, n.error.fbtrace], ['failed', 2, '132001', '132001', 'Tpl1']);
+  assert.equal(n.error.details, 'template name (new_lead) does not exist in he', 'Meta\'s whole error is kept');
+  assert.equal(wa.length, 2, 'the first try and one more — then it waits');
+  assert.deepEqual(pushes.map((p) => [p.endpoint, p.body]), [['https://push.test/owner', 'טל · לייזר → דנה · קוד 132001']]);
+
+  // the timer, again and again: a failed message is never sent by itself, and never queued a second time
+  for (let i = 0; i < 2; i++) { tables.meta_lead_sync.length = 0; await syncLeads({ deadline: Date.now() + 40_000 }); }
+  assert.equal(wa.length, 2);
+  assert.equal(notes(t.id).length, 1, 'one message for the lead');
+
+  // Meta approves new_lead; the owner presses "לשלוח שוב" on two devices at the same moment — one message goes out
+  waAnswer = ok;
+  const resend = { action: 'resend', id: n.id };
+  const both = await Promise.all([call(route, 'POST', '/api/leads/assignment', 'owner', resend), call(route, 'POST', '/api/leads/assignment', 'owner', resend)]);
+  assert.deepEqual(both.map((x) => x.status).sort(), [200, 409], 'one sender takes it, the other is told it is taken');
+  assert.equal(wa.length, 3, 'one more message — not two');
+  assert.deepEqual(wa[2].params, wa[0].params, 'the same message that waited, to the same person');
+  assert.equal(wa[2].to, '972501111111');
+  assert.deepEqual([n.status, n.attempts, n.error_code, n.error, n.wa_message_id, Boolean(n.sent_at)], ['sent', 3, '', null, 'wamid.972501111111.3', true]);
+
+  // once it went out: "לשלוח שוב" is refused, and the timer sends nothing more
+  assert.equal((await call(route, 'POST', '/api/leads/assignment', 'owner', resend)).status, 409);
+  tables.meta_lead_sync.length = 0;
+  await syncLeads({ deadline: Date.now() + 40_000 });
+  assert.equal(wa.length, 3);
+});

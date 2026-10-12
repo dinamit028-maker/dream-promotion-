@@ -34,6 +34,9 @@
 #      notes of one unit on a note of 3 at once → exactly 3
 #  21. manual journal entries (5100): the same new entry from 8 connections at once → one; 8 connections × 10 entries → numbers
 #      1..81, no gap, no double; one entry undone from 8 connections at once → one reversal
+#  22. lead departments (5300), as the server (service_role): the same Meta lead queued for one person from 8 connections at once →
+#      one message; a message that failed with 132001 (new_lead not approved yet) sent again from 8 connections at once → taken by
+#      one (the conditional update of `claim`), 7 find nothing; once it went out, 8 more → none
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -595,3 +598,31 @@ r=$(q "select (select count(*) from public.journal_entries where reverses = '$JE
 [ "$r" = "1 82 82" ] || fail "one entry undone from 8 connections at once: one reversal, each in the audit log once (expected 1 82 82, got: $r)"
 echo "ok: one entry undone from 8 connections at once → one reversal, 7 refused; every entry in the audit log once"
 
+# ---- 22. lead departments: a WhatsApp message is queued once and taken once (5300) -------------------------------------------------
+LL=00000000-0000-0000-0000-0000000cc5b1; LS=00000000-0000-0000-0000-0000000cc5a1; LN=00000000-0000-0000-0000-0000000cc5c1
+q "insert into public.leads (id, user_id, business_id, name, phone) values ('$LL', '$U', '$B', 'ליד עומס', '050-5555555') on conflict do nothing;
+   insert into public.lead_staff (id, business_id, name, phone) values ('$LS', '$B', 'צוות עומס', '972501112233') on conflict do nothing;" >/dev/null
+server_script() { # $1 = file, $2 = the statement — as the server does it (service_role), each connection its own transaction
+  printf 'begin;\nset local role service_role;\n%s\ncommit;\n' "$2" > "$1"; chmod 644 "$1"
+}
+for w in $(seq 8); do server_script "$TMP/waq-$w.sql" "insert into public.lead_notifications (business_id, lead_id, staff_id, kind, dedupe_key, external_id, status)
+  values ('$B', '$LL', '$LS', 'lead', 'lead:race-1:$LS', 'race-1', 'queued');"; done
+run_parallel waq
+r=$(q "select count(*) from public.lead_notifications where business_id = '$B' and dedupe_key = 'lead:race-1:$LS'")
+[ "$r" = "1" ] || fail "the same Meta lead queued for one person from 8 connections at once: one message (got $r)"
+echo "ok: the same Meta lead queued for one person from 8 connections at once → one message"
+# new_lead not approved yet: Meta answered 132001 twice, the message waits as failed
+q "insert into public.lead_notifications (id, business_id, lead_id, staff_id, kind, dedupe_key, external_id, status, attempts, error_code)
+   values ('$LN', '$B', '$LL', '$LS', 'lead', 'lead:race-2:$LS', 'race-2', 'failed', 2, '132001') on conflict do nothing;" >/dev/null
+CLAIM="update public.lead_notifications set status = 'sending', claimed_at = now(), attempts = attempts + 1 where id = '$LN' and status = 'failed';"
+for w in $(seq 8); do server_script "$TMP/war-$w.sql" "$CLAIM"; done
+run_parallel war
+r=$(q "select status || ' ' || attempts from public.lead_notifications where id = '$LN'")
+[ "$r" = "sending 3" ] || fail "a failed message (132001) sent again from 8 connections at once: taken once (expected sending 3, got: $r)"
+echo "ok: a message that failed with 132001, sent again from 8 connections at once → taken by one (attempts 2 → 3), 7 find nothing"
+q "update public.lead_notifications set status = 'sent', sent_at = now(), error_code = '' where id = '$LN';" >/dev/null
+for w in $(seq 8); do server_script "$TMP/was-$w.sql" "$CLAIM"; done
+run_parallel was
+r=$(q "select status || ' ' || attempts from public.lead_notifications where id = '$LN'")
+[ "$r" = "sent 3" ] || fail "a message that went out, sent again from 8 connections: none (expected sent 3, got: $r)"
+echo "ok: once it went out, 8 more \"לשלוח שוב\" at once → none taken"
