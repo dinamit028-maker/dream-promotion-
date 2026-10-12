@@ -356,11 +356,22 @@ export async function leadForms(pageToken: string, pageId: string): Promise<Lead
 
 /** A form's leads created after `sinceUnix` (seconds), oldest pages first as Meta returns them. */
 export async function formLeads(pageToken: string, formId: string, sinceUnix: number, max = 1000) {
-  const out: { id: string; created_time?: string; field_data?: { name: string; values?: string[] }[]; ad_name?: string; form_id?: string }[] = [];
+  try {
+    return await readFormLeads(pageToken, formId, sinceUnix, max, `${LEAD_FIELDS},campaign_id,campaign_name`);
+  } catch (e: any) {
+    // the campaign (2.99 — a department can be recognised by it) is extra: when Meta refuses the field, the leads come
+    // without it, exactly as before; any other error (a dead token, a missing permission) is thrown as it was
+    if (/meta_100\b|permission_denied/.test(String(e?.message ?? e))) return readFormLeads(pageToken, formId, sinceUnix, max, LEAD_FIELDS);
+    throw e;
+  }
+}
+const LEAD_FIELDS = 'created_time,id,field_data,ad_name,form_id';
+async function readFormLeads(pageToken: string, formId: string, sinceUnix: number, max: number, fields: string) {
+  const out: { id: string; created_time?: string; field_data?: { name: string; values?: string[] }[]; ad_name?: string; form_id?: string; campaign_id?: string; campaign_name?: string }[] = [];
   let after: string | undefined;
   do {
     const j = await graph(`/${formId}/leads`, {
-      access_token: pageToken, fields: 'created_time,id,field_data,ad_name,form_id', limit: '100',
+      access_token: pageToken, fields, limit: '100',
       filtering: JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(sinceUnix) }]),
       ...(after ? { after } : {}),
     });
@@ -368,6 +379,34 @@ export async function formLeads(pageToken: string, formId: string, sinceUnix: nu
     after = j.paging?.next ? j.paging?.cursors?.after : undefined;
   } while (after && out.length < max);
   return out;
+}
+
+export type LeadFormDetail = { id: string; name: string; status: string; questions: { key: string; label: string; options: string[] }[] };
+/**
+ * A Page's lead forms with their questions and the choices of each (2.99 — the owner picks a form, or a question and its answer,
+ * for a department). The choices are asked for first; when Meta refuses that field, the questions come without them.
+ */
+export async function leadFormsDetailed(pageToken: string, pageId: string): Promise<LeadFormDetail[]> {
+  const read = async (questions: string) => {
+    const out: LeadFormDetail[] = [];
+    let after: string | undefined;
+    do {
+      const j = await graph(`/${pageId}/leadgen_forms`, { access_token: pageToken, fields: `id,name,status,questions{${questions}}`, limit: '100', ...(after ? { after } : {}) });
+      for (const f of j.data ?? []) {
+        out.push({
+          id: String(f.id), name: String(f.name ?? ''), status: String(f.status ?? ''),
+          questions: ((f.questions ?? []) as any[]).filter((q) => q?.key).map((q) => ({
+            key: String(q.key), label: String(q.label ?? ''),
+            options: ((q.options ?? []) as any[]).map((o) => String(o?.value ?? o?.key ?? '')).filter(Boolean).slice(0, 50),
+          })),
+        });
+      }
+      after = j.paging?.next ? j.paging?.cursors?.after : undefined;
+    } while (after && out.length < 500);
+    return out;
+  };
+  try { return await read('key,label,options'); }
+  catch (e: any) { if (/meta_100\b/.test(String(e?.message ?? e))) return read('key,label'); throw e; }
 }
 
 // ------------------------------------------------------------- comments & messages --

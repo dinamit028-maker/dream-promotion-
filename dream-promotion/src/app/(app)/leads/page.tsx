@@ -1,5 +1,6 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { Button, Card, Chip, Field, Input, PageHead } from '@/components/ui/primitives';
 import { EmptyState, Modal } from '@/components/ui/feedback';
@@ -12,6 +13,8 @@ import { ContactSheet } from '@/features/crm/ContactSheet';
 import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
 import { InboxSettings } from '@/features/crm/InboxSettings';
 import { INBOX_FILTERS, channelOf } from '@/features/crm/meta-inbox';
+import { NO_DEPARTMENT } from '@/features/crm/lead-routing';
+import { isMine, noDepartment, useLeadRouting } from '@/features/crm/lead-routing-data';
 
 /**
  * CRM — the business's contacts: leads and customers in one place (toolbox stage 1).
@@ -34,14 +37,26 @@ export default function LeadsPage() {
   const [channel, setChannel] = useState<'all' | 'leads' | 'messenger' | 'fb' | 'ig'>('all');
   const inChannel = (l: Lead) => channel === 'all' || channelOf(l) === channel;
   const channelCount = (id: string) => leads.filter((l) => channelOf(l) === id).length;
+  // lead departments (2.99): "הלידים שלי" — the contacts of the person on the team who is me; "ללא מחלקה"; who is responsible
+  const { view: routing } = useLeadRouting();
+  const me = routing?.me ?? [];
+  const meKey = me.join(',');
+  const [mine, setMine] = useState<'all' | 'mine' | 'none'>('all');
+  const inMine = (l: Lead) => mine === 'all' || (mine === 'mine' ? isMine(l, me) : noDepartment(l));
+  const staffName = (id: string | null | undefined) => (id && routing?.staff.find((s) => s.id === id)?.name) || '';
+  // a push about a lead opens its card (/leads?lead=<id>)
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('lead');
+    if (id) setOpenId(id);
+  }, []);
 
   const due = useMemo(() => leads.filter((l) => { const s = followupState(l); return s === 'overdue' || s === 'today'; }), [leads]);
   const shown = useMemo(() => {
     const base = stage === 'due' ? due : stage === 'all' ? leads : leads.filter((l) => l.status === stage);
     // what needs attention first: overdue / today follow-ups, then the newest
     const rank = (l: Lead) => ({ overdue: 0, today: 1, upcoming: 2 } as Record<string, number>)[followupState(l) ?? ''] ?? 3;
-    return base.filter((l) => inChannel(l) && matches(l, q)).sort((a, b) => rank(a) - rank(b) || (b.date > a.date ? 1 : -1));
-  }, [leads, due, stage, q, channel]);
+    return base.filter((l) => inChannel(l) && inMine(l) && matches(l, q)).sort((a, b) => rank(a) - rank(b) || (b.date > a.date ? 1 : -1));
+  }, [leads, due, stage, q, channel, mine, meKey]);
   const customers = leads.filter((l) => l.status === 'נסגר');
   const revenue = customers.reduce((a, l) => a + (Number(l.value) || 0), 0);
 
@@ -65,9 +80,10 @@ export default function LeadsPage() {
             <span className={cx('rounded-full px-2 py-0.5 text-[11px] font-bold', st.tone)}>{st.label}</span>
             {fs === 'overdue' && <span className="rounded-full bg-(--danger)/15 px-2 py-0.5 text-[11px] font-bold text-(--danger)">לחזור — עבר הזמן</span>}
             {fs === 'today' && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">לחזור היום</span>}
+            {routing && noDepartment(l) && <span className="rounded-full bg-zinc-500/15 px-2 py-0.5 text-[11px] font-bold text-ink-2">{NO_DEPARTMENT}</span>}
           </span>
           <span className="mt-0.5 block truncate text-xs text-muted" dir="auto">
-            {[l.date && `נכנס ${shortDate(l.date)}`, l.phone, l.source, ...(l.tags ?? []).map((t) => `#${t}`)].filter(Boolean).join(' · ')}
+            {[l.date && `נכנס ${shortDate(l.date)}`, staffName(l.assignedStaffId) && `אחראי: ${staffName(l.assignedStaffId)}`, l.phone, l.source, ...(l.tags ?? []).map((t) => `#${t}`)].filter(Boolean).join(' · ')}
             {fs === 'upcoming' && l.nextFollowup ? ` · תזכורת ${formatIL(l.nextFollowup, { dateStyle: 'short' })}` : ''}
           </span>
         </button>
@@ -80,7 +96,10 @@ export default function LeadsPage() {
   return (
     <>
       <PageHead title="לקוחות" sub={`${leads.length} אנשי קשר · ${customers.length} לקוחות${revenue ? ` · ₪${revenue.toLocaleString('he-IL')}` : ''}`}
-        action={<div className="flex gap-2">
+        action={<div className="flex flex-wrap gap-2">
+          {routing && (routing.owner || routing.departments.length > 0) && (
+            <Link href="/leads/departments" className="inline-flex min-h-10 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">🏷️ מחלקות</Link>
+          )}
           <Button variant="ghost" onClick={() => setSettings(true)} aria-label="הגדרות לקוחות">⚙️ הגדרות</Button>
           <Button variant="primary" onClick={() => setAdding(true)}>+ איש קשר</Button>
         </div>} />
@@ -108,6 +127,14 @@ export default function LeadsPage() {
               ))}
             </div>
           </div>
+
+          {routing && (me.length > 0 || leads.some(noDepartment)) && (
+            <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="סינון לפי אחראי">
+              <Chip on={mine === 'all'} onClick={() => setMine('all')}>כל הלידים</Chip>
+              {me.length > 0 && <Chip on={mine === 'mine'} onClick={() => setMine('mine')}>הלידים שלי {leads.filter((l) => isMine(l, me)).length}</Chip>}
+              {leads.some(noDepartment) && <Chip on={mine === 'none'} onClick={() => setMine('none')}>{NO_DEPARTMENT} {leads.filter(noDepartment).length}</Chip>}
+            </div>
+          )}
 
           {INBOX_FILTERS.some((f) => channelCount(f.id) > 0) && (
             <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="סינון לפי ערוץ">
@@ -140,7 +167,7 @@ export default function LeadsPage() {
           {view === 'board' && (
             <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-2">
               {STAGES.map((s) => {
-                const col = leads.filter((l) => l.status === s.id && inChannel(l) && matches(l, q));
+                const col = leads.filter((l) => l.status === s.id && inChannel(l) && inMine(l) && matches(l, q));
                 return (
                   <Card key={s.id} className="w-64 shrink-0 p-3">
                     <p className="mb-2 flex items-center justify-between text-sm font-bold">

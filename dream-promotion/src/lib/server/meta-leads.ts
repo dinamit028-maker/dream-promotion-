@@ -2,6 +2,7 @@ import { adminDb } from './admin';
 import { open } from './secrets';
 import { businessOpen } from './business';
 import { formLeads, leadForms } from './meta';
+import { loadRouting, routeMetaLead, sendQueued, type RoutingConfig } from './lead-routing';
 import {
   META_LEADS_SOURCE, RECONNECT_FOR_LEADS, SPONSORED_TAG, isLeadsPermissionError, leadDetails, leadNote, mapMetaLead, noteMarker, planImport,
   type MappedLead,
@@ -14,6 +15,8 @@ import {
  * the business the Page is assigned to (business_id is set explicitly, never from anyone's "current" one).
  * Nothing is imported twice: the Meta lead id is unique per business; a lead that matched an existing
  * contact by phone is marked inside its note.
+ * 2.99: in a business with lead departments, every new lead also gets its department and person, and a WhatsApp message to
+ * that person is queued — sent at the end of the sync (lead-routing.ts).
  */
 const FIRST_SYNC_DAYS = 30;                 // a Page switched on for the first time brings the last month
 const OVERLAP_MS = 10 * 60_000;             // re-read a little before the last sync — duplicates are skipped anyway
@@ -40,11 +43,12 @@ export async function syncPage(page: PageRow, now = new Date()): Promise<PageRes
   try {
     const token = open(page.access_token);
     const owner = await ownerOf(page.business_id, page.user_id);
+    const routing = await loadRouting(page.business_id).catch(() => null);
     for (const form of await leadForms(token, page.external_id)) {
       const raw = await formLeads(token, form.id, since / 1000);
       if (!raw.length) continue;
-      const mapped = raw.map((r) => mapMetaLead(r, form.labels));
-      const added = await importLeads(page.business_id, owner, form.name, mapped);
+      const mapped = raw.map((r) => ({ ...mapMetaLead(r, form.labels), formId: String(r.form_id ?? form.id) }));
+      const added = await importLeads(page.business_id, owner, form.name, mapped, routing);
       res.imported += added.imported; res.noted += added.noted; res.skipped += added.skipped;
     }
     await saveState({ last_synced_at: now.toISOString(), last_error: '', imported_total: (state?.imported_total ?? 0) + res.imported });
@@ -57,7 +61,7 @@ export async function syncPage(page: PageRow, now = new Date()): Promise<PageRes
 }
 
 /** Writes one form's batch into one business. Exported for tests (in-memory database). */
-export async function importLeads(businessId: string, owner: string, formName: string, mapped: MappedLead[]) {
+export async function importLeads(businessId: string, owner: string, formName: string, mapped: MappedLead[], routing: RoutingConfig | null = null) {
   const db = adminDb();
   const out = { imported: 0, noted: 0, skipped: 0 };
   const { data: existing } = await db.from('leads').select('id, phone, external_id').eq('business_id', businessId).limit(10000);
@@ -71,6 +75,15 @@ export async function importLeads(businessId: string, owner: string, formName: s
     user_id: owner, business_id: businessId, lead_id: leadId, kind: 'note', body: leadNote(formName, m, withMarker),
     ...(m.createdAt ? { created_at: m.createdAt } : {}),
   });
+  // the department, the person and the WhatsApp message (2.99); a contact and its person once per batch — a second lead of the
+  // same phone in one batch is the same enquiry. A failure here never stops the import: the contact is in the CRM anyway.
+  const routedHere = new Set<string>();
+  const route = async (leadId: string, m: MappedLead, existing: boolean) => {
+    if (!routing || routedHere.has(leadId)) return;
+    routedHere.add(leadId);
+    try { await routeMetaLead(routing, { businessId, leadId, formName, lead: m, existing }); }
+    catch (e: any) { console.error('[lead-routing]', String(e?.message ?? e).slice(0, 200)); }
+  };
 
   for (const step of planImport(mapped, (existing ?? []) as any[], noted)) {
     const m = step.lead;
@@ -78,7 +91,9 @@ export async function importLeads(businessId: string, owner: string, formName: s
     if (step.kind === 'existing' || step.kind === 'same_batch') {
       const leadId = step.kind === 'existing' ? step.leadId : created.get(step.firstExternalId);
       if (!leadId) { out.skipped++; continue; }
-      await note(leadId, m, true); out.noted++; continue;
+      await note(leadId, m, true); out.noted++;
+      await route(leadId, m, true);
+      continue;
     }
     const ins = await db.from('leads').insert({
       user_id: owner, business_id: businessId, name: m.name, phone: m.phone, email: m.email, notes: leadDetails(m),
@@ -93,6 +108,7 @@ export async function importLeads(businessId: string, owner: string, formName: s
     created.set(m.externalId, ins.data.id);
     await note(ins.data.id, m, false);
     out.imported++;
+    await route(ins.data.id, m, false);
   }
   return out;
 }
@@ -108,7 +124,10 @@ export async function syncLeads(opts: { deadline: number; businessId?: string; a
   if (error) throw new Error(error.message);
 
   const open_ = new Map<string, boolean>();
-  const summary = { pages: 0, imported: 0, noted: 0, skipped: 0, lockedSkipped: 0, errors: 0, results: [] as PageResult[] };
+  const summary = {
+    pages: 0, imported: 0, noted: 0, skipped: 0, lockedSkipped: 0, errors: 0, results: [] as PageResult[],
+    whatsapp: { sent: 0, failed: 0, skipped: 0 },
+  };
   for (const p of (pages ?? []) as PageRow[]) {
     if (Date.now() > opts.deadline) break;
     if (!open_.has(p.business_id)) open_.set(p.business_id, await businessOpen(p.business_id));
@@ -117,6 +136,12 @@ export async function syncLeads(opts: { deadline: number; businessId?: string; a
     summary.pages++; summary.imported += r.imported; summary.noted += r.noted; summary.skipped += r.skipped;
     if (r.error) summary.errors++;
     summary.results.push(r);
+  }
+  // the WhatsApp messages queued now (or left from a sync that ran out of time) — of the open businesses synced here only
+  for (const [biz, isOpen] of open_) {
+    if (!isOpen || Date.now() > opts.deadline - 5_000) continue;
+    const w = await sendQueued({ deadline: opts.deadline, businessId: biz }).catch(() => ({ sent: 0, failed: 0, skipped: 0 }));
+    summary.whatsapp.sent += w.sent; summary.whatsapp.failed += w.failed; summary.whatsapp.skipped += w.skipped;
   }
   return summary;
 }

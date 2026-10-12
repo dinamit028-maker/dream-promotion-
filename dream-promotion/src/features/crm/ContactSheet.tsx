@@ -12,6 +12,7 @@ import { channelOfSource } from './meta-inbox';
 import { authHeaders } from '@/lib/services/http';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { CrmFinance } from './CrmFinance';
+import { LeadRoutingPanel } from './LeadRoutingPanel';
 import { ClientPhotos } from '@/features/client-file/ClientPhotos';
 import { ClientDeclarations } from '@/features/client-file/ClientDeclarations';
 import { ClientTimeline } from '@/features/client-file/ClientTimeline';
@@ -61,7 +62,9 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
   }, [leadId]);
 
   if (!lead || !draft) return null;
-  const dirty = JSON.stringify({ ...draft, tags: parseTags(tagsText) }) !== JSON.stringify({ ...lead, tags: lead.tags ?? [] });
+  // only the fields of "פרטים" — a change elsewhere (the stage, the person responsible set by the server) is not an unsaved edit
+  const editable = (l: Lead, tags: string[]) => JSON.stringify([l.name, l.phone, l.email ?? '', l.source, l.notes ?? '', Number(l.value) || 0, tags]);
+  const dirty = editable(draft, parseTags(tagsText)) !== editable(lead, lead.tags ?? []);
 
   function save() {
     if (!draft || !draft.name.trim()) return;
@@ -139,6 +142,9 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         {lead.email && <a href={`mailto:${lead.email}`} onClick={() => addActivity(lead.id, 'email', 'שלחתי מייל')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">✉️ מייל</a>}
         <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>
       </div>
+
+      {/* its department and the person responsible, and the WhatsApp messages about it (2.99) */}
+      {isCloudConfigured && <LeadRoutingPanel lead={lead} />}
 
       {/* the contact's money (2.51; T7 — 2.97): what is owed, documents, payments, a plan's payments, quotes, recurring charges,
           links — and their packages (2.87), shown in the same box also while it is closed */}

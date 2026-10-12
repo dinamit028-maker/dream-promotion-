@@ -65,7 +65,7 @@ export const KEYWORDS: Record<string, string[]> = {
   '/store/settings': ['דומיין', 'כתובת האתר', 'סיסמה'],
 };
 
-/** screens inside a module's screen: a report of its own (2.94) — found by the search, not in the menu */
+/** screens inside a screen: a report of its own (2.94), the lead departments (2.99) — found by the search, not in the menu */
 export const DEEP_LINKS: MenuEntry[] = [
   { href: '/finance/reports?view=customers', label: 'הכנסות לפי לקוח', where: 'כספים › דוחות', keywords: ['לקוחות', 'הכנסה'] },
   { href: '/finance/reports?view=items', label: 'מכירות לפי פריט וטיפול', where: 'כספים › דוחות', keywords: ['פריטים', 'מוצרים', 'שירותים', 'סוג טיפול'] },
@@ -74,6 +74,8 @@ export const DEEP_LINKS: MenuEntry[] = [
   { href: '/finance/reports?view=sledger', label: 'כרטסת ספק', where: 'כספים › דוחות', keywords: ['כרטסת', 'תנועות ספק'] },
   { href: '/finance/reports?view=withholding', label: 'ניכוי במקור', where: 'כספים › דוחות', keywords: ['ניכוי', 'מס במקור', 'אישור ניכוי'] },
   { href: '/finance/reports?view=advances', label: 'מקדמות מס הכנסה', where: 'כספים › דוחות', keywords: ['מקדמות', 'מס הכנסה'] },
+  // 2.99: the lead departments, inside לקוחות
+  { href: '/leads/departments', label: 'מחלקות לידים', where: 'לקוחות', keywords: ['מחלקה', 'אחראי', 'צוות', 'וואטסאפ', 'ניתוב לידים', 'הלידים שלי'] },
 ];
 
 const entry = (href: string, label: string, where: string, Icon?: ComponentType<any>): MenuEntry => ({ href, label, where, keywords: KEYWORDS[href.split('?')[0]] ?? [], Icon });
