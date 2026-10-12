@@ -131,6 +131,11 @@ export interface Lead {
   lastContact?: string | null; nextFollowup?: string | null;
   /** details for an invoice to a business (register 2.50): name on the invoice, dealer / company number, address */
   billingName?: string; billingDealer?: string; billingStreet?: string; billingCity?: string;
+  /**
+   * lead departments (2.99): the department, the person responsible ("אחראי", a person of lead_staff), when the routing ran
+   * (with no department: "ללא מחלקה") and why. Set by the server only — the database refuses them from the browser.
+   */
+  departmentId?: string | null; assignedStaffId?: string | null; routedAt?: string | null; routedBy?: string;
 }
 
 export type LeadActivityKind = 'note' | 'call' | 'whatsapp' | 'email' | 'meeting' | 'status' | 'purchase';

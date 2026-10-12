@@ -10,12 +10,19 @@ export const SPONSORED_TAG = 'ליד ממומן';
 export const RECONNECT_FOR_LEADS = 'צריך לחבר מחדש את Meta עם הרשאת לידים';
 
 export type MetaFieldDatum = { name: string; values?: string[] };
-export type MetaLeadRaw = { id: string; created_time?: string; field_data?: MetaFieldDatum[]; ad_name?: string; form_id?: string };
+export type MetaLeadRaw = {
+  id: string; created_time?: string; field_data?: MetaFieldDatum[]; ad_name?: string; form_id?: string;
+  /** the campaign of the ad (2.99 — a department can be recognised by it); missing on an organic lead */
+  campaign_id?: string; campaign_name?: string;
+};
 export type MappedLead = {
   externalId: string; createdAt: string | null; name: string; phone: string; email: string;
   /** the phone exactly as the customer typed it in the form — kept in the history to check against */
   rawPhone: string;
   answers: { q: string; a: string }[]; adName: string;
+  /** where it came from and every field exactly as Meta sent it — to recognise its department (2.99, lead-routing.ts) */
+  formId: string; campaignId: string; campaignName: string;
+  fields: { key: string; label: string; values: string[] }[];
 };
 
 /** Israeli format: +972 50-123-4567 / 0501234567 → 050-1234567, 03 1234567 → 03-1234567; foreign numbers keep +country. */
@@ -75,6 +82,10 @@ export function mapMetaLead(raw: MetaLeadRaw, labels: Record<string, string> = {
     email: (email?.value ?? '').toLowerCase().slice(0, 160),
     answers,
     adName: raw.ad_name ?? '',
+    formId: String(raw.form_id ?? ''),
+    campaignId: String(raw.campaign_id ?? ''),
+    campaignName: String(raw.campaign_name ?? ''),
+    fields: (raw.field_data ?? []).map((f) => ({ key: String(f.name), label: labels[String(f.name)] ?? '', values: (f.values ?? []).map(String) })),
   };
 }
 

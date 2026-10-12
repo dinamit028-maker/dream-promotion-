@@ -87,6 +87,7 @@ export const Repo = {
         email: r.email ?? '', tags: r.tags ?? [], value: Number(r.value ?? 0),
         lastContact: r.last_contact_at ?? null, nextFollowup: r.next_followup_at ?? null,
         billingName: r.billing_name ?? '', billingDealer: r.billing_dealer ?? '', billingStreet: r.billing_street ?? '', billingCity: r.billing_city ?? '',
+        departmentId: r.department_id ?? null, assignedStaffId: r.assigned_staff_id ?? null, routedAt: r.routed_at ?? null, routedBy: r.routed_by ?? '',
       })),
       activities: ((acts as any)?.data ?? []).map((r: any): LeadActivity => ({
         id: r.id, leadId: r.lead_id, kind: r.kind, body: r.body ?? '', at: r.created_at,

@@ -241,7 +241,8 @@ async function main() {
       for (let i = 0; i < 3 && await page.getByRole('dialog').count(); i++) await page.keyboard.press('Escape');
       // the receipt says it: "ניכוי במקור (5%)"
       await goto('/finance/documents');
-      await page.getByText('קבלה 1').first().click({ timeout: 120_000 });
+      // the receipt's row ("קבלה 1 · …"), never "חשבונית מס / קבלה 1" — which sorts first when the test runs before its seeded hour
+      await page.getByText(/^קבלה 1 ·/).first().click({ timeout: 120_000 });
       await dialog().getByText('ניכוי במקור (5%)').waitFor();
       await page.keyboard.press('Escape');
       // the income screen: what came in is money only (1,121 + 236); tax withheld on its own
