@@ -3,7 +3,7 @@
  * (390×844, and 375 for sideways scrolling) and on a computer (1440×900), against the in-memory Supabase of
  * fake-supabase.ts (the accounting rules themselves are proven on Postgres in tests/sql).
  * The module's own shell: its header, the menu from the right (groups, one open at a time), the bottom bar, the "+",
- * every one of the 10 screens at its own address, the phone's back button, an old link, "חזרה ל-Dream", the business
+ * every screen of the menu at its own address, the phone's back button, an old link, "חזרה ל-Dream", the business
  * switch, a locked business, the computer's sidebar and "חדש".
  * The money: a tax invoice from the contacts, the receivables and a reminder, a receipt, a credit invoice with money
  * back, a quote accepted and converted, an expense with its VAT share, the VAT working paper, the audit check, the CRM
@@ -38,8 +38,11 @@ const TEAL_LIGHT = 'rgb(15, 118, 110)';
 // the phone's menu: the links that sit inside a group (the group opens first)
 const GROUP_OF: Record<string, string> = {
   'מסמכים': 'הכנסות', 'הכנסות': 'הכנסות', 'חייבים': 'הכנסות', 'הצעות מחיר': 'הכנסות', 'חבילות': 'הכנסות', 'דוחות': 'דוחות ורואה חשבון', 'רואה חשבון': 'דוחות ורואה חשבון',
+  'פקודות יומן': 'דוחות ורואה חשבון',
 };
 const PATH_OF: Record<string, string> = Object.fromEntries(FINANCE_SECTIONS.map((s) => [s.label, s.path]));
+// the menu of a business that did not turn the desks on: "קופות ובנק" is in it only once they are (2.95, cash-bank.e2e.ts)
+const MENU = FINANCE_SECTIONS.filter((s) => s.id !== 'cash' && s.id !== 'bank');
 const BAR: Record<string, string> = { 'לובי': '/finance', 'הכנסות': '/finance/income', 'הוצאות': '/finance/expenses', 'חייבים': '/finance/receivables' };
 type Biz = { id: string; name: string; state: 'active' | 'locked' | 'expired' };
 
@@ -445,16 +448,16 @@ async function main() {
       await page.getByText('החיבור לרשות המסים לא הוגדר.').waitFor();
     });
 
-    await step('every one of the 10 screens from the menu, at its own address; the phone\'s back button; a direct link; nothing sideways at 375', async () => {
-      for (const s of FINANCE_SECTIONS) {
+    await step('every screen from the menu, at its own address; the phone\'s back button; a direct link; nothing sideways at 375', async () => {
+      for (const s of MENU) {
         await menuTo(page, s.label);
         await noSideScroll(page, s.label);
       }
       await shot(page, 'm1-phone-settings.jpg');
-      // the phone's back button: the screen before, and the one before it; forward again
+      // the phone's back button: the screen before, and the one before it; forward again (2.96: "פקודות יומן" — after "רואה חשבון")
+      await page.goBack(); await at(page, '/finance/journal'); await heading(page, 'פקודות יומן');
       await page.goBack(); await at(page, '/finance/accountant'); await heading(page, 'רואה חשבון');
-      await page.goBack(); await at(page, '/finance/reports'); await heading(page, 'דוחות');
-      await page.goForward(); await at(page, '/finance/accountant'); await heading(page, 'רואה חשבון');
+      await page.goForward(); await at(page, '/finance/journal'); await heading(page, 'פקודות יומן');
       // a direct link (a refresh, a link in a message) opens that screen, and the bottom bar marks it
       await goto(page, '/finance/receivables');
       await heading(page, 'חייבים');
@@ -462,7 +465,7 @@ async function main() {
       // 375 wide (a small phone): every screen again, nothing sideways — the menu and the "+" too
       await page.setViewportSize({ width: 375, height: 812 });
       try {
-        for (const s of FINANCE_SECTIONS) { await menuTo(page, s.label); await noSideScroll(page, `${s.label} at 375`); }
+        for (const s of MENU) { await menuTo(page, s.label); await noSideScroll(page, `${s.label} at 375`); }
         await page.getByRole('button', { name: 'תפריט', exact: true }).click();
         await noSideScroll(page, 'the menu at 375');
         await page.keyboard.press('Escape');
@@ -622,8 +625,10 @@ async function main() {
       const side = p.locator('aside[aria-label="ניווט כספים"]');
       await side.waitFor({ timeout: 120_000 });
       await p.getByText('רווח משוער').waitFor();
+      // 2.96: "פקודות יומן" joins the menu once the screen knows migration 5100 is there
+      await side.getByRole('link', { name: 'פקודות יומן' }).waitFor();
       assert.deepEqual((await side.getByRole('link').allInnerTexts()).map((t: string) => t.trim()),
-        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'חיובים חוזרים', 'הוצאות', 'דוחות', 'רואה חשבון', 'הגדרות כספים']);
+        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'חיובים חוזרים', 'הוצאות', 'דוחות', 'רואה חשבון', 'פקודות יומן', 'הגדרות כספים']);
       for (const g of ['הכנסות', 'דוחות ורואה חשבון']) await side.locator('p', { hasText: new RegExp(`^${g}$`) }).waitFor();
       await heading(p, 'כספים · FollowMe');
       assert.equal(await p.getByRole('button', { name: 'תפריט', exact: true }).count(), 0, 'no bottom bar');
@@ -644,7 +649,7 @@ async function main() {
       await at(p, '/finance/expenses');
       await dialog(p).getByRole('heading', { name: 'הוצאה חדשה' }).waitFor();
       await p.keyboard.press('Escape');
-      for (const s of FINANCE_SECTIONS) {
+      for (const s of MENU) {
         const link = side.getByRole('link', { name: s.label, exact: true });
         await link.click();
         await at(p, s.path);

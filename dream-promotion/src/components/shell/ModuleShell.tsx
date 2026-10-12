@@ -6,6 +6,7 @@ import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { VersionTag } from '@/components/system/VersionTag';
 import { ArrowRight, ArrowsLeftRight, CaretDown, Check, List, Plus, UserCircle, X } from '@/components/ui/Icon';
 import { groupOfPath, isActiveLink, toggleGroup, type ModuleAction, type ModuleConfig, type ModuleGroup, type ModuleLink } from './module-nav';
+import { FavoritesList, MenuSearch, SearchButton, SearchDialog, StarButton, useMenuEntries, useSearchShortcut } from './MenuTools';
 
 export type { ModuleAction, ModuleConfig, ModuleGroup, ModuleLink } from './module-nav';
 
@@ -19,6 +20,20 @@ export type { ModuleAction, ModuleConfig, ModuleGroup, ModuleLink } from './modu
 export interface ModuleBusiness { id: string; name: string; state: 'active' | 'locked' | 'expired' }
 
 const ActionsCtx = createContext<((a: ModuleAction[] | null) => void) | null>(null);
+const GroupsCtx = createContext<((g: ModuleGroup[] | null) => void) | null>(null);
+/**
+ * a screen inside the module replaces the menu's groups (finance 2.95: "קופות ובנק" only once the business turned the desks on) —
+ * null keeps the module's own; the same groups again (by their links) change nothing
+ */
+export function useModuleGroups(groups: ModuleGroup[] | null) {
+  const set = useContext(GroupsCtx);
+  const key = groups ? groups.map((g) => `${g.id}:${g.links.map((l) => l.href).join(',')}`).join('|') : '';
+  useEffect(() => {
+    if (!set) return;
+    set(groups);
+    return () => set(null);
+  }, [set, key]); // eslint-disable-line react-hooks/exhaustive-deps
+}
 /** a screen inside the module replaces the "+" actions (finance: only the documents this business may issue) */
 export function useModuleActions(actions: ModuleAction[] | null) {
   const set = useContext(ActionsCtx);
@@ -54,17 +69,29 @@ const stateLabel = (b: ModuleBusiness) => (b.state === 'active' ? '' : b.state =
 export function ModuleShell({ config, path, children, exitHref, businessName, userName, businesses = [], currentBusinessId, canSwitch, switching, onSwitchBusiness, notice, locationSwitch }: Props) {
   const [override, setOverride] = useState<ModuleAction[] | null>(null);
   const actions = override ?? config.actions;
+  const [groupsOverride, setGroupsOverride] = useState<ModuleGroup[] | null>(null);
+  const groups = groupsOverride ?? config.groups;
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState<'new' | 'business' | null>(null);
   const [newMenu, setNewMenu] = useState(false);
-  const [open, setOpen] = useState<string | null>(() => groupOfPath(config.groups, path));
+  const [open, setOpen] = useState<string | null>(() => groupOfPath(groups, path));
+  // 2.96 (T11): the search in the menu (a window on a computer — the search field at the top of the menu, or Ctrl+K) and the
+  // favorites, over all of Dream
+  const entries = useMenuEntries({ moduleName: config.name, moduleGroups: groups });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+  useSearchShortcut(true, openSearch);
   const menuButton = useRef<HTMLButtonElement>(null);
   const plusButton = useRef<HTMLButtonElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const newBox = useRef<HTMLDivElement>(null);
 
-  // a new page: every panel closes, and the menu will open on the page's group
-  useEffect(() => { setMenu(false); setSheet(null); setNewMenu(false); setOpen(groupOfPath(config.groups, path)); }, [path, config.groups]);
+  // a new page: every panel closes — only a new page (a screen that adds a link to the menu once it loads must not close the
+  // search or the menu the person just opened)
+  useEffect(() => { setMenu(false); setSheet(null); setNewMenu(false); setSearchOpen(false); }, [path]);
+  // the menu opens on the page's group
+  useEffect(() => { setOpen(groupOfPath(groups, path)); }, [path, groups]);
 
   // closing by hand returns the focus to the button that opened the panel
   const closeMenu = useCallback(() => { setMenu(false); menuButton.current?.focus(); }, []);
@@ -98,7 +125,7 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
   );
 
   return (
-    <ActionsCtx.Provider value={setOverride}>
+    <ActionsCtx.Provider value={setOverride}><GroupsCtx.Provider value={setGroupsOverride}>
       <div className={cx(config.theme, 'flex min-h-screen')} data-module={config.id}>
         {/* ---- computer: the module's sidebar ---------------------------------------------------------------- */}
         <aside aria-label={`ניווט ${config.name}`}
@@ -110,7 +137,9 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
             <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-module text-module-ink"><config.Icon size={20} weight="fill" /></span>
             <strong className="font-display text-[17px] font-bold">{config.name}</strong>
           </div>
-          <ModuleNav groups={config.groups} path={path} />
+          <SearchButton onClick={openSearch} className="mb-3" />
+          <FavoritesList entries={entries} path={path} variant="side" />
+          <ModuleNav groups={groups} path={path} star="hover" />
           <div className="mt-auto border-t border-line pt-3">
             <Person userName={userName} businessName={businessName} />
             <VersionTag className="px-3 pt-1 text-[11px] text-muted" />
@@ -213,7 +242,9 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                <ModuleNav groups={config.groups} path={path} accordion open={open} onToggle={(id) => setOpen((o) => toggleGroup(o, id))} onNavigate={() => setMenu(false)} />
+                <MenuSearch entries={entries} onNavigate={() => setMenu(false)} className="mb-3" />
+                <FavoritesList entries={entries} path={path} variant="side" onNavigate={() => setMenu(false)} />
+                <ModuleNav groups={groups} path={path} accordion open={open} onToggle={(id) => setOpen((o) => toggleGroup(o, id))} onNavigate={() => setMenu(false)} star="always" />
               </div>
               <div className="shrink-0 border-t border-line p-3">
                 <Person userName={userName} businessName={businessName} />
@@ -268,18 +299,21 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
             {switching && <p className="mt-2 text-sm text-muted">עוברים עסק…</p>}
           </Sheet>
         )}
+        {searchOpen && <SearchDialog entries={entries} onClose={closeSearch} />}
       </div>
-    </ActionsCtx.Provider>
+    </GroupsCtx.Provider></ActionsCtx.Provider>
   );
 }
 
-function ModuleNav({ groups, path, accordion, open, onToggle, onNavigate }: {
+function ModuleNav({ groups, path, accordion, open, onToggle, onNavigate, star }: {
   groups: ModuleGroup[]; path: string; accordion?: boolean; open?: string | null; onToggle?: (id: string) => void; onNavigate?: () => void;
+  /** 2.96 (T11): ☆ next to every screen — on hover / focus (a computer), or always (a phone's menu) */
+  star?: 'hover' | 'always';
 }) {
   return (
     <nav className="flex flex-col gap-1">
       {groups.map((g) => {
-        if (g.links.length === 1) return <Item key={g.id} link={{ ...g.links[0], label: g.label, Icon: g.Icon }} on={isActiveLink(path, g.links[0].href)} onClick={onNavigate} />;
+        if (g.links.length === 1) return <Item key={g.id} link={{ ...g.links[0], label: g.label, Icon: g.Icon }} on={isActiveLink(path, g.links[0].href)} onClick={onNavigate} star={star} />;
         const here = g.links.some((l) => isActiveLink(path, l.href));
         const expanded = accordion ? open === g.id : true;
         return (
@@ -295,7 +329,7 @@ function ModuleNav({ groups, path, accordion, open, onToggle, onNavigate }: {
             ) : <p className="px-3 pb-1 pt-3 text-xs font-bold text-muted">{g.label}</p>}
             {expanded && (
               <div id={`module-group-${g.id}`} className={cx('flex flex-col gap-0.5', accordion && 'ps-4')}>
-                {g.links.map((l) => <Item key={l.href} link={l} on={isActiveLink(path, l.href)} onClick={onNavigate} />)}
+                {g.links.map((l) => <Item key={l.href} link={l} on={isActiveLink(path, l.href)} onClick={onNavigate} star={star} />)}
               </div>
             )}
           </div>
@@ -305,15 +339,17 @@ function ModuleNav({ groups, path, accordion, open, onToggle, onNavigate }: {
   );
 }
 
-function Item({ link: { href, label, Icon }, on, onClick }: { link: ModuleLink; on: boolean; onClick?: () => void }) {
-  return (
+function Item({ link: { href, label, Icon }, on, onClick, star }: { link: ModuleLink; on: boolean; onClick?: () => void; star?: 'hover' | 'always' }) {
+  const link = (
     <Link href={href} aria-current={on ? 'page' : undefined} onClick={onClick}
-      className={cx('flex min-h-11 items-center gap-3 rounded-2xl px-3 text-[15px] font-semibold transition-colors',
+      className={cx('flex min-h-11 items-center gap-3 rounded-2xl px-3 text-[15px] font-semibold transition-colors', star && 'pe-11',
         on ? 'bg-module-soft text-ink shadow-[inset_0_0_0_1px_var(--module-line)]' : 'text-ink-2 hover:bg-surface-2 hover:text-ink')}>
       <Icon size={20} weight={on ? 'fill' : 'regular'} aria-hidden className={cx('shrink-0', on && 'text-module')} />
       <span className="truncate">{label}</span>
     </Link>
   );
+  if (!star) return link;
+  return <div className="group relative">{link}<StarButton href={href} label={label} always={star === 'always'} className="absolute inset-y-0 end-0 my-auto" /></div>;
 }
 
 function Tab({ link: { href, label, Icon }, on }: { link: ModuleLink; on: boolean }) {

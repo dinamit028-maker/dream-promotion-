@@ -9,9 +9,11 @@ import { useFinance } from './FinanceScreen';
 import { Composer, type ComposerMode } from './Composer';
 import { DocView } from './DocView';
 import { financeError } from './api';
-import { allowedDocTypes } from './rules';
+import { allowedDocTypes, goodsDocTypes } from './rules';
 import type { ComposerBody } from './quotes';
 import { Note, Pill, ddmmyyyy, ils } from './ui';
+import { allocationMissingDocs, periodFromQuery } from './overview-lists';
+import { SEED_RULES, toRule } from './allocation';
 import { softwareRegistered } from '@/features/documents/DocumentsTab';
 import { locationTag } from '@/features/locations/locations';
 import { useLocations } from '@/features/locations/store';
@@ -19,12 +21,14 @@ import { useLocations } from '@/features/locations/store';
 /**
  * "מסמכים" — the document center: every legal document of the business (from the register too), drafts, and a new
  * document of any type the business may issue. Filtered and paged by the database (50 at a time), not in the browser.
+ * 2.97 (T7): ?show=allocation&from&to — the overview's "חשבוניות מס מעל הסף … בלי מספר הקצאה" opens the very invoices it
+ * counted (allocationMissingDocs: finance_summary's rules), for its period; until 2.97 the filter of the address was ignored.
  */
 const PAGE = 50;
 interface Draft { id: string; docType: number; customerName: string; total: number; updatedAt: string; body: ComposerBody; leadId: string | null; quoteId: string | null }
 
 export function DocumentCenter() {
-  const { settings, params, clearParams, fail, say } = useFinance();
+  const { settings, profile, params, clearParams, fail, say } = useFinance();
   const leads = useApp((s) => s.leads);
   const locState = useLocations((x) => x.state);
   const where = (d: DocRow) => (locState.businessId ? locationTag(locState, d, locState.businessId) : '');
@@ -37,6 +41,36 @@ export function DocumentCenter() {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [open, setOpen] = useState<DocRow | null>(null);
   const [composer, setComposer] = useState<{ mode: ComposerMode; initial?: Partial<ComposerBody> & { leadId?: string | null } } | null>(null);
+  // the invoices without an allocation number (2.97): of the overview's period — null: the whole list, as always
+  const [alloc, setAlloc] = useState<{ from: string; to: string } | null>(() => {
+    const p = params.get('show') === 'allocation' ? periodFromQuery(params) : null;
+    return p ? { from: p.from, to: p.to } : null;
+  });
+  const [missing, setMissing] = useState<DocRow[] | null>(null);
+  useEffect(() => {
+    if (!alloc) { setMissing(null); return; }
+    let alive = true;
+    void (async () => {
+      const sb = supabase();
+      const [d, r] = await Promise.all([
+        sb.from('documents').select('*').in('doc_type', [305, 320]).neq('customer_dealer', '').gte('doc_date', alloc.from).lte('doc_date', alloc.to)
+          .order('doc_date', { ascending: false }).limit(2000),
+        sb.from('tax_allocation_rules').select('*'),
+      ]);
+      if (d.error) { if (alive) { fail(financeError(d.error)); setMissing([]); } return; }
+      const docs = ((d.data ?? []) as any[]).map(toDoc);
+      const rules = (r.data?.length ? (r.data as any[]).map(toRule) : SEED_RULES);
+      const ids = docs.map((x) => x.id);
+      const rows: any[] = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const a = await sb.from('tax_allocations').select('document_id, status, is_test').in('document_id', ids.slice(i, i + 100));
+        rows.push(...((a.data ?? []) as any[]));
+      }
+      const list = allocationMissingDocs(docs, rules, rows.map((x) => ({ documentId: x.document_id, status: x.status, isTest: Boolean(x.is_test) })), settings.entity);
+      if (alive) setMissing(list);
+    })();
+    return () => { alive = false; };
+  }, [alloc, settings.entity, fail]);
 
   const load = useCallback(async (append = false) => {
     const sb = supabase();
@@ -70,7 +104,7 @@ export function DocumentCenter() {
     const n = params.get('new');
     if (!n) return;
     const lead = params.get('lead') ? leads.find((l) => l.id === params.get('lead')) : undefined;
-    const allowed = allowedDocTypes(settings.entity);
+    const allowed = [...allowedDocTypes(settings.entity), ...goodsDocTypes(profile.sellsProducts)];
     setComposer({ mode: { kind: 'document', docType: allowed.includes(Number(n)) ? Number(n) : allowed[0] },
       initial: lead ? { leadId: lead.id, customer: { name: lead.billingName || lead.name, phone: lead.phone, email: lead.email, dealer: lead.billingDealer, street: lead.billingStreet, city: lead.billingCity } } : undefined });
     clearParams();
@@ -97,7 +131,7 @@ export function DocumentCenter() {
       </div>
       <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
         <Chip on={type === null} onClick={() => setType(null)} className="shrink-0">הכל</Chip>
-        {[305, 320, 330, 300, 400].map((t) => <Chip key={t} on={type === t} onClick={() => setType(t)} className="shrink-0">{DOC_LABEL[t]}</Chip>)}
+        {[305, 320, 330, 300, 400, ...(profile.sellsProducts ? [100, 200, 210] : [])].map((t) => <Chip key={t} on={type === t} onClick={() => setType(t)} className="shrink-0">{DOC_LABEL[t]}</Chip>)}
       </div>
 
       {drafts.length > 0 && (
@@ -114,6 +148,27 @@ export function DocumentCenter() {
             </div>
           ))}
         </div>
+      )}
+
+      {alloc && (
+        <section aria-label="בלי מספר הקצאה" className="grid gap-1.5 rounded-2xl border border-amber-500/40 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="min-w-0 flex-1 text-sm font-bold">חשבוניות מס מעל הסף לעוסק — בלי מספר הקצאה · {ddmmyyyy(alloc.from)}–{ddmmyyyy(alloc.to)}</p>
+            <Chip on onClick={() => { setAlloc(null); clearParams(); }}>✕ לכל המסמכים</Chip>
+          </div>
+          {missing === null ? <Spinner /> : <>
+            <p className="text-sm">{missing.length} חשבוניות</p>
+            {!missing.length ? <Note>לכל החשבוניות בתקופה יש מספר הקצאה (או שלא נדרש).</Note> : missing.map((d) => (
+              <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
+                <span className="min-w-0 flex-1">
+                  <strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber} · {d.customerName || 'לקוח'}</strong>
+                  <span className="text-xs text-muted">{ddmmyyyy(d.docDate)} · לפני מע״מ {ils(d.afterDiscount)} · ע.מ {d.customerDealer}</span>
+                </span>
+                <Pill tone="bad">חסר מספר הקצאה</Pill>
+              </button>
+            ))}
+          </>}
+        </section>
       )}
 
       {docs === null ? <div className="py-8 text-center"><Spinner /></div> : !docs.length ? (

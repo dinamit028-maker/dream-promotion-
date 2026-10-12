@@ -91,7 +91,11 @@ seen() { # $1 = the member
      select 'shifts ' || count(*) || ' ' || count(*) filter (where closed_at is null) from public.register_shifts;
      select 'orders ' || count(*) from public.orders;
      select 'receivables ' || count(*) || ' ' || coalesce(sum(balance), 0) from public.receivables;
-     select 'summary ' || coalesce(public.finance_summary(public.il_today() - 30, public.il_today())::text, '') where public.my_access() = 'full';
+     select 'summary ' || coalesce((public.finance_summary(public.il_today() - 30, public.il_today()) - 'withheld' - 'manual')::text, '') where public.my_access() = 'full';
+     -- 4900 (later than 4600) adds one line to the summary, tax withheld at source: none here (before it: no line, read as 0)
+     select 'withheld ' || coalesce(public.finance_summary(public.il_today() - 30, public.il_today())->>'withheld', '0') where public.my_access() = 'full';
+     -- 5100 adds another, the manual journal entries: none here (before it: no line, read as 0)
+     select 'manual ' || coalesce(public.finance_summary(public.il_today() - 30, public.il_today())->'manual'->>'count', '0') where public.my_access() = 'full';
      commit;" | grep -v '^$' | grep -v 'set_config\|^[0-9a-f-]*$'
 }
 before_rows=$(rows); before_owner=$(seen "$O"); before_cashier=$(seen "$K")

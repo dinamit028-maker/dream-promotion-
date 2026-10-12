@@ -9,10 +9,26 @@ import { withSerials } from '@/features/catalog/serials';
  *   licensed dealer → 320 "חשבונית מס / קבלה"     exempt dealer → 400 "קבלה"
  *   correction of a 320 → 330 "חשבונית מס זיכוי" pointing to the original (1256/1257)
  */
-export const DOC_LABEL: Record<number, string> = { 300: 'חשבונית עסקה', 305: 'חשבונית מס', 320: 'חשבונית מס / קבלה', 330: 'חשבונית מס זיכוי', 400: 'קבלה' };
+export const DOC_LABEL: Record<number, string> = { 300: 'חשבונית עסקה', 305: 'חשבונית מס', 320: 'חשבונית מס / קבלה', 330: 'חשבונית מס זיכוי', 400: 'קבלה',
+  // 2.95 (T10): for a business that sells products — the unified file's codes
+  100: 'הזמנה', 200: 'תעודת משלוח', 210: 'תעודת החזרה' };
+/** the total's name on a printed document */
+export const totalLabel = (t: number) =>
+  t === 330 ? 'סה״כ זיכוי' : t === 400 || t === 320 ? 'סה״כ שולם' : t === 100 ? 'סה״כ הזמנה' : t === 200 ? 'סה״כ' : t === 210 ? 'סה״כ החזרה' : 'סה״כ לתשלום';
+/** a delivery note's last line: who received the goods (signed on paper) */
+export const RECEIVED_LINE = 'קיבלתי את הסחורה המפורטת לעיל — שם: ____________________   חתימה: ____________________';
+/** the line on a document naming the document it stands on (fields 1256/1257): a credit invoice's invoice, an invoice's delivery note / order */
+export function baseDocLine(d: { docType: number; baseDocType?: number | null; baseDocNumber?: number | null }): string {
+  if (!d.baseDocNumber || !d.baseDocType) return '';
+  const what = `${DOC_LABEL[d.baseDocType] ?? 'מסמך'} מס׳ ${d.baseDocNumber}`;
+  return d.docType === 330 ? `זיכוי עבור ${what}` : d.docType === 210 ? `החזרה על ${what}` : `על פי ${what}`;
+}
 /** register payment method → spec field 1306 (1 cash, 2 cheque, 3 credit card, 4 bank transfer, 9 other) */
 export const PAY_CODE: Record<Method, number> = { cash: 1, card: 3, transfer: 4, bit: 9, link: 9, other: 9, split: 9 };
 export const PAY_LABEL: Record<number, string> = { 1: 'מזומן', 2: 'המחאה', 3: 'כרטיס אשראי', 4: 'העברה בנקאית', 9: 'אחר' };
+/** a payment's line on a printed receipt: its method — tax withheld at source by its name and percent (2.94), not "אחר" */
+export const docPayLabel = (p: { method: number; m?: string; pct?: number | null }) =>
+  p.m === 'withholding' ? `ניכוי במקור${p.pct != null && Number.isFinite(Number(p.pct)) ? ` (${Number(p.pct)}%)` : ''}` : PAY_LABEL[p.method] ?? 'אחר';
 
 const ag = (n: number) => Math.round(n * 100);
 const sh = (a: number) => a / 100;

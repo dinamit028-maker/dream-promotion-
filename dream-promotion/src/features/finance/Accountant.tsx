@@ -15,6 +15,10 @@ import { financeError, logEvent } from './api';
 import { toExpense } from './expenses';
 import { toLedgerRow } from './payments';
 import { documentsCsv, expensesCsv, ledgerCsv, receivablesCsv } from './reports';
+import { loadIncomeByCustomer, loadSuppliers, loadWithholding, reportsReady } from './reports-data';
+import { incomeTable, suppliersTable, tableCsv, withholdingRowsTable } from './statements';
+import { journalTable } from './journal';
+import { journalReady, loadEntries } from './journal-data';
 import { toReceivable } from './receivables';
 import { ACTOR_HE, auditLine, auditSeal, toAuditRow, type AuditRow } from './audit';
 import { toAllocationRow, isRealAllocation } from './allocation';
@@ -79,6 +83,18 @@ export function Accountant() {
       zip.file(`${root}/יומן-תשלומים.csv`, ledgerCsv(ledger));
       zip.file(`${root}/חייבים.csv`, receivablesCsv(recv.filter((r) => !r.cancelled && r.balance > 0), todayIL()));
       zip.file(`${root}/דוח-${period.label}.html`, reportHtml(sum.s, `דוח ${period.label}`, business));
+      // 2.94 (migration 20261011004900): income by customer, suppliers paid and not yet, tax withheld at source — the reports' own files
+      if (await reportsReady()) {
+        const [inc, sup, wh] = await Promise.all([loadIncomeByCustomer(period), loadSuppliers(period), loadWithholding(period)]);
+        if (inc.ok) zip.file(`${root}/הכנסות-לפי-לקוח.csv`, tableCsv(incomeTable(inc.data)));
+        if (sup.ok) zip.file(`${root}/ספקים-שולם-ולתשלום.csv`, tableCsv(suppliersTable(sup.data)));
+        if (wh.ok && wh.data.rows.length) zip.file(`${root}/ניכוי-במקור.csv`, tableCsv(withholdingRowsTable(wh.data)));
+      }
+      // 2.96 (migration 20261011005100): the period's manual journal entries (they are in the summary above already)
+      if (await journalReady()) {
+        const je = await loadEntries(period);
+        if (je.ok && je.data.length) zip.file(`${root}/פקודות-יומן.csv`, tableCsv(journalTable(je.data, { vatOn: vat })));
+      }
       // the last hash of the audit chain, kept with the accountant (outside the system)
       const [head, chain] = await Promise.all([
         sb.from('finance_audit_log').select('id, hash, at').order('id', { ascending: false }).limit(1).maybeSingle(),

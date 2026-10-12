@@ -410,6 +410,69 @@ select pg_temp.as_user('00000000-0000-0000-0000-00000000e405');
 select pg_temp.check((select count(*) = 0 from public.appointment_deposits(array['00000000-0000-0000-0000-00000000ea04'::uuid])),
   'another business gets nothing');
 commit;
+-- 2.97 (migration 5200, the accountant's answer of 11.10.2026): the register's line names the deposit's document — the same amount
+-- as appointment_deposits(), and the document only once it was issued (a cancelled one is never named)
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000e401');
+select pg_temp.check((select amount = 100 and receipts = '[]'::jsonb from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid])),
+  'the same ₪100 as appointment_deposits(), and no document before the deposit''s receipt is issued');
+select pg_temp.check((select count(*) = 0 from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea01'::uuid])),
+  'a test deposit: nothing (as appointment_deposits())');
+commit;
+begin;
+set local role service_role;
+-- the server issues the deposit's tax invoice-receipt (320 — clinic A charges VAT) with the link's key, as issuePaylinkReceipt does
+create temp table rdd as select pg_temp.issue(jsonb_build_object('user_id', '00000000-0000-0000-0000-00000000e401',
+  'business_id', '00000000-0000-0000-0000-00000000eb01', 'doc_type', 320, 'doc_number', 0, 'doc_date', public.il_today(), 'customer_name', 'דנה',
+  'lead_id', '00000000-0000-0000-0000-00000000ec02',
+  'lines', '[{"name": "מקדמה — לייזר רגליים", "qty": 1, "unitPriceExVat": 84.75, "discountExVat": 0, "totalExVat": 84.75, "vatRate": 18, "kind": 1}]'::jsonb,
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'm', 'card', 'amount', 100, 'date', public.il_today())),
+  'before_discount', 84.75, 'discount', 0, 'after_discount', 84.75, 'vat_amount', 15.25, 'total', 100, 'vat_rate', 18,
+  'idempotency_key', 'paylink:' || (select id from rd))) as id;
+grant select on rdd to public;
+select pg_temp.check((public.paylink_receipt_done((select id from rd), (select id from rdd), '')->>'receipt') = 'issued', 'the deposit''s receipt is issued');
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000e401');
+select pg_temp.check((select amount = 100 and receipts = jsonb_build_array(jsonb_build_object('type', 320, 'number', d.doc_number))
+                        from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid]), public.documents d
+                       where d.id = (select id from rdd)),
+  'issued: the line names it — a tax invoice-receipt (320) and its number');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000e403');
+select pg_temp.check((select amount = 100 and jsonb_array_length(receipts) = 1
+                        from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid])),
+  'the register''s cashier gets it too (the line is the cashier''s to sell)');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000e405');
+select pg_temp.check((select count(*) = 0 from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid])),
+  'another business gets nothing');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000e406');
+select pg_temp.check((select amount = 100 and receipts = '[]'::jsonb
+                        from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid])),
+  'the super admin, a member of neither, without access opened: the amount (as appointment_deposits()) — no document');
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000e406');
+select public.open_finance_access('00000000-0000-0000-0000-00000000eb01', 'בדיקת מקדמה בקופה', 30);
+select pg_temp.check((select jsonb_array_length(receipts) = 1 from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid])),
+  'with access opened (and logged), the super admin sees the document too — as its row');
+rollback;
+begin;
+set local role anon;
+select pg_temp.refused($$select * from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid])$$, 'not without signing in');
+commit;
+-- a cancelled document is never named (the amount is appointment_deposits()'s, as before). A 320 is never cancelled (a credit
+-- invoice corrects it) — an exempt business's 400 is; the cancellation's check is set aside in this rolled-back transaction only
+begin;
+alter table public.document_cancellations disable trigger b_document_cancellations_check;
+insert into public.document_cancellations (document_id, user_id, reason) values ((select id from rdd), '00000000-0000-0000-0000-00000000e401', 'בדיקה');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000e401');
+select pg_temp.check((select amount = 100 and receipts = '[]'::jsonb from public.appointment_deposit_receipts(array['00000000-0000-0000-0000-00000000ea04'::uuid])),
+  'a cancelled receipt is not named');
+rollback;
 
 -- ======================================================================================================================
 -- 9. who sees and who writes: the money screens read; the cashier, another business and the super admin see nothing;

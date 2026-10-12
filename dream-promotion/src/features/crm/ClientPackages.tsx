@@ -12,8 +12,9 @@ import { PACKAGES_CHANGED, loadPackages } from '@/features/finance/packages-data
  * treatment is left or the validity is about to end, and what is still to pay. Money data: row-level security shows it to
  * whoever sees the business's money (never a cashier); nothing is shown when the customer has no package, or before
  * migration 20261010004200 is in the database. Selling one: "💰 כספים" ← "מכירת חבילה".
+ * 2.97 (T7): shown inside the card's "💰 כספים" box (embedded) — always, also while the rest of the box is closed.
  */
-export function ClientPackages({ leadId }: { leadId: string }) {
+export function ClientPackages({ leadId, embedded = false }: { leadId: string; embedded?: boolean }) {
   const [list, setList] = useState<ClientPackage[] | null>(null);
   const [all, setAll] = useState(false);
   const load = useCallback(async () => {
@@ -33,7 +34,7 @@ export function ClientPackages({ leadId }: { leadId: string }) {
   const shown = all ? list : live;
   const rest = list.length - live.length;
   return (
-    <div className="mb-4 rounded-2xl border border-line p-3">
+    <div className={embedded ? 'border-t border-line p-3' : 'mb-4 rounded-2xl border border-line p-3'}>
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <p className="text-sm font-bold">📦 חבילות</p>
         <Link href={financeHref('packages')} className="text-xs font-semibold text-primary">לכל החבילות ←</Link>

@@ -9,6 +9,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarPlus, Sparkle, SunHorizon } from '@/components/ui/Icon';
 import { followupState } from '@/features/crm/crm';
+import { FavoritesList, useMenuEntries } from '@/components/shell/MenuTools';
+import { useFavorites } from '@/components/shell/favorites-store';
+import { favoriteEntries } from '@/components/shell/favorites';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -18,6 +21,10 @@ export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
   const todays = content.filter((c) => c.date === today());
   const upcoming = content.filter((c) => c.date && c.date > today()).sort((a, b) => a.date!.localeCompare(b.date!)).slice(0, 6);
+  // 2.96 (T11): the screens the person starred in the menu
+  const entries = useMenuEntries();
+  const favCount = useFavorites((s) => favoriteEntries(s.list, entries).length);
+  const favLoaded = useFavorites((s) => s.loaded);
 
   return (
     <>
@@ -27,6 +34,9 @@ export default function Dashboard() {
         </h1>
         <p className="mt-3 text-lg text-ink-2 sm:text-xl">מה ניצור היום?</p>
       </div>
+
+      <FavoritesList entries={entries} variant="home" />
+      {favLoaded && !favCount && <p className="mb-6 text-sm text-muted">☆ ליד מסך בתפריט — והוא יופיע כאן, במועדפים, ובראש התפריט.</p>}
 
       {dueLeads.length > 0 && (
         <Link href="/leads" className="mb-6 flex items-center justify-between gap-3 rounded-2xl bg-amber-500/15 px-4 py-3">
@@ -40,7 +50,8 @@ export default function Dashboard() {
 
       {/* the command bar: one sentence in, content out */}
       <div className="relative mb-10">
-        <div aria-hidden className="pointer-events-none absolute -inset-6 rounded-[40px] bg-[#8B66FF]/15 blur-3xl" />
+        {/* the glow stays inside the page's margin (on a phone -inset-6 made the page 8px wider than the screen) */}
+        <div aria-hidden className="pointer-events-none absolute -inset-x-3 -inset-y-6 rounded-[40px] bg-[#8B66FF]/15 blur-3xl sm:-inset-6" />
         <div className="relative rounded-[26px] border border-[#8B66FF]/30 bg-(--glass) p-4 shadow-[0_24px_70px_rgba(0,0,0,.45)] backdrop-blur-xl sm:p-5">
         <Textarea className="min-h-[84px] border-line bg-(--glass-bg) text-[17px]" value={prompt} onChange={(e) => setPrompt(e.target.value)}
           placeholder="תארו מה בא לכם לפרסם — למשל: ריל שמסביר את הטיפול החדש שלנו" />

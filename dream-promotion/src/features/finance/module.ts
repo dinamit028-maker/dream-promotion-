@@ -1,7 +1,8 @@
 import {
-  ArrowsClockwise, Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Package, Receipt, ShoppingCart, TrendUp, Wallet,
+  ArrowsClockwise, Bank, Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Notebook, Package, Receipt, ShoppingCart,
+  TrendUp, Truck, Vault, Wallet,
 } from '@/components/ui/Icon';
-import type { ModuleAction, ModuleConfig } from '@/components/shell/module-nav';
+import type { ModuleAction, ModuleConfig, ModuleGroup } from '@/components/shell/module-nav';
 import { financeHref } from './routes';
 import { chargesVat, type EntityType } from './rules';
 
@@ -16,7 +17,7 @@ import { chargesVat, type EntityType } from './rules';
  * A receipt of a VAT business is issued on the invoice that was paid ("קבלה על תשלום" — the composer offers no
  * stand-alone 400 when VAT is charged, Composer.tsx), so its "+" opens "חייבים" and says so.
  */
-export function financeActions(entity?: EntityType): ModuleAction[] {
+export function financeActions(entity?: EntityType, o: { goods?: boolean } = {}): ModuleAction[] {
   const vat = entity ? chargesVat(entity) : true;
   const doc = (type: number, label: string, Icon: ModuleAction['Icon']): ModuleAction =>
     ({ id: `doc-${type}`, label, Icon, href: financeHref('documents', { new: String(type) }) });
@@ -24,8 +25,11 @@ export function financeActions(entity?: EntityType): ModuleAction[] {
     ? [doc(305, 'חשבונית מס', FileText), doc(320, 'חשבונית מס / קבלה', Receipt),
       { id: 'doc-400', label: 'קבלה', Icon: HandCoins, hint: 'על חשבונית ששולמה — מתוך "חייבים"', href: financeHref('receivables', { receipt: '1' }) }]
     : [doc(300, 'חשבונית עסקה', FileText), doc(400, 'קבלה', HandCoins)];
+  // 2.95 (T10): a business that sells products — an order and a delivery note (a return note is made from its delivery note)
+  const goods = o.goods ? [doc(100, 'הזמנה', ClipboardText), doc(200, 'תעודת משלוח', Truck)] : [];
   return [
     ...docs,
+    ...goods,
     { id: 'quote', label: 'הצעת מחיר', Icon: ClipboardText, href: financeHref('quotes', { new: '1' }) },
     { id: 'expense', label: 'הוצאה', Icon: ShoppingCart, href: financeHref('expenses', { new: '1' }) },
   ];
@@ -66,3 +70,24 @@ export const FINANCE_MODULE: ModuleConfig = {
   ],
   actions: financeActions(),
 };
+
+/**
+ * 2.95 (T9): the desks, deposits, cheques and the bank — a group of the menu only once the business turned them on (the money
+ * settings): a business that did not sees the menu as it was. FinanceScreen hands the shell these groups (useModuleGroups).
+ */
+export const CASH_GROUP: ModuleGroup = {
+  id: 'cash', label: 'קופות ובנק', Icon: Vault, links: [
+    { href: financeHref('cash'), label: 'קופות והפקדות', Icon: Vault },
+    { href: financeHref('bank'), label: 'התאמת בנק', Icon: Bank },
+  ],
+};
+/** 2.96 (T13א): manual journal entries — in "דוחות ורואה חשבון" once migration 20261011005100 is in the database (every business) */
+export const JOURNAL_LINK: ModuleGroup['links'][number] = { href: financeHref('journal'), label: 'פקודות יומן', Icon: Notebook };
+/** the module's groups — with the desks' group after the expenses when they are on, and the journal once it is in the database */
+export function financeGroups(o: { cash: boolean; journal?: boolean }): ModuleGroup[] {
+  let groups = FINANCE_MODULE.groups;
+  if (o.journal) groups = groups.map((g) => (g.id === 'reports' ? { ...g, links: [...g.links, JOURNAL_LINK] } : g));
+  if (!o.cash) return groups;
+  const at = groups.findIndex((g) => g.id === 'expenses') + 1;
+  return [...groups.slice(0, at), CASH_GROUP, ...groups.slice(at)];
+}

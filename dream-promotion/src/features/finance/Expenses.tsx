@@ -13,7 +13,9 @@ import {
 } from './expenses';
 import { expensesCsv } from './reports';
 import { PAY_METHODS } from './payments';
-import { Note, PeriodPicker, Pill, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
+import { Note, PeriodPicker, Pill, Stat, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
+import { draftsTotal, expensesCost, periodFromQuery } from './overview-lists';
+import { useJournalReadyState } from './journal-data';
 import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
@@ -27,6 +29,8 @@ import { useLocations } from '@/features/locations/store';
  * Products bought come into stock through the register's stock log (no second inventory).
  * 2.89 (migration 4400): a duplicate is a warning, never a block — the same file again (its sha256), or the same supplier and
  * number, or supplier + total + date; "זו הוצאה אחרת" is kept with the expense (who and when: the database's) and logged.
+ * 2.97 (T7): the overview's "הוצאות" opens the period's confirmed expenses with the card's number (their cost as finance_summary
+ * counts it, and the manual expense entries); "הוצאות לאישור" opens every draft, whatever its date.
  */
 let dupCache: boolean | null = null;
 async function duplicatesReady(): Promise<boolean> {
@@ -47,38 +51,65 @@ const EMPTY = (today: string): ExpenseForm => ({ supplierName: '', supplierDeale
 
 export function Expenses() {
   const { params, clearParams, fail, vat } = useFinance();
-  const [period, setPeriod] = useState<Period>(() => periodNow('month'));
+  // 2.97 (T7): the overview's cards open here — "הוצאות" (?show=confirmed&from&to: its period, its number) and "הוצאות לאישור"
+  // (?show=drafts: every draft, whatever its date)
+  const [period, setPeriod] = useState<Period>(() => periodFromQuery(params) ?? periodNow('month'));
+  const [allDates, setAllDates] = useState(() => params.get('show') === 'drafts');
   const [list, setList] = useState<Expense[] | null>(null);
-  const [status, setStatus] = useState<'all' | 'draft' | 'void'>('all');
+  const [status, setStatus] = useState<'all' | 'draft' | 'void' | 'confirmed'>(() => (params.get('show') === 'drafts' ? 'draft' : params.get('show') === 'confirmed' ? 'confirmed' : 'all'));
   const [edit, setEdit] = useState<Expense | 'new' | null>(null);
   const locState = useLocations((x) => x.state);
   const where = (e: Expense) => (locState.businessId ? locationTag(locState, e, locState.businessId) : '');
+  // the manual expense entries of the period (migration 5100) — the overview's "הוצאות" counts them too
+  const journal = useJournalReadyState();
+  const [manual, setManual] = useState(0);
   const load = useCallback(async () => {
-    let q = supabase().from('expenses').select('*').gte('doc_date', period.from).lte('doc_date', period.to).order('doc_date', { ascending: false }).limit(500);
+    let q = supabase().from('expenses').select('*').order('doc_date', { ascending: false }).limit(2000);
+    if (!allDates) q = q.gte('doc_date', period.from).lte('doc_date', period.to);
     if (status !== 'all') q = q.eq('status', status);
-    const { data, error } = await q;
+    const [{ data, error }, j] = await Promise.all([q, journal && !allDates
+      ? supabase().from('journal_entries').select('amount').eq('kind', 'expense').gte('entry_date', period.from).lte('entry_date', period.to).limit(5000)
+      : Promise.resolve({ data: [] as any[], error: null })]);
     if (error) { fail(financeError(error)); setList([]); return; }
     setList(((data ?? []) as any[]).map(toExpense));
-  }, [period, status, fail]);
+    setManual(j.error ? 0 : ((j.data ?? []) as any[]).reduce((a, x) => a + Math.round(Number(x.amount) * 100), 0) / 100);
+  }, [period, status, allDates, journal, fail]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (params.get('new')) { setEdit('new'); clearParams(); } }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
   const confirmed = (list ?? []).filter((e) => e.status === 'confirmed');
   const totalA = confirmed.reduce((a, e) => a + Math.round(e.total * 100) * (e.supplierDocType === 'credit' ? -1 : 1), 0);
+  const cost = expensesCost(list ?? [], vat, manual);
+  const drafts = draftsTotal(list ?? []);
 
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="primary" onClick={() => setEdit('new')}><Camera size={18} aria-hidden />+ הוצאה</Button>
         <span className="flex-1" />
-        {list && list.length > 0 && <Button size="sm" variant="ghost" onClick={() => { download(`הוצאות-${period.from}-${period.to}.csv`, expensesCsv(list, vat)); void logEvent('export.csv', 'expenses', '', { rows: list.length }); }}>ייצוא לאקסל</Button>}
+        {list && list.length > 0 && <Button size="sm" variant="ghost" onClick={() => { download(allDates ? 'הוצאות-ממתינות.csv' : `הוצאות-${period.from}-${period.to}.csv`, expensesCsv(list, vat)); void logEvent('export.csv', 'expenses', '', { rows: list.length }); }}>ייצוא לאקסל</Button>}
       </div>
-      <PeriodPicker value={period} onChange={setPeriod} />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PeriodPicker value={allDates ? { ...period, from: '', to: '' } : period} onChange={(p) => { setAllDates(false); setPeriod(p.from && p.to ? p : periodNow('month')); }} />
+        {status === 'draft' && <Chip on={allDates} onClick={() => setAllDates((x) => !x)}>כל התאריכים</Chip>}
+      </div>
       <div className="flex flex-wrap gap-1.5">
         <Chip on={status === 'all'} onClick={() => setStatus('all')}>הכל</Chip>
+        <Chip on={status === 'confirmed'} onClick={() => setStatus('confirmed')}>מאושרות</Chip>
         <Chip on={status === 'draft'} onClick={() => setStatus('draft')}>ממתינות לאישור</Chip>
         <Chip on={status === 'void'} onClick={() => setStatus('void')}>מבוטלות</Chip>
       </div>
-      {list === null ? <div className="py-8 text-center"><Spinner /></div> : !list.length ? <Note>אין הוצאות בתקופה הזו. מצלמים חשבונית או מעלים PDF — ו"קריאה אוטומטית" ממלאת את הטופס לבדיקה שלכם.</Note> : <>
+      {/* the overview's numbers, from the same rows: "הוצאות" (the period's cost, as finance_summary counts it) and "הוצאות לאישור" */}
+      {list !== null && (status === 'all' || status === 'confirmed') && !allDates && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Stat label="הוצאות" value={ils(cost.total)} hint={`${cost.count} הוצאות מאושרות${cost.manual ? ` · ופקודות ידניות ${ils(cost.manual)}` : ''}`} />
+        </div>
+      )}
+      {list !== null && status === 'draft' && allDates && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Stat label="הוצאות לאישור" value={ils(drafts.total)} tone={drafts.count ? 'warn' : undefined} hint={`${drafts.count} ממתינות לאישור`} />
+        </div>
+      )}
+      {list === null ? <div className="py-8 text-center"><Spinner /></div> : !list.length ? <Note>{allDates ? 'אין הוצאות שממתינות לאישור.' : 'אין הוצאות בתקופה הזו. מצלמים חשבונית או מעלים PDF — ו"קריאה אוטומטית" ממלאת את הטופס לבדיקה שלכם.'}</Note> : <>
         <p className="text-sm text-muted">{confirmed.length} הוצאות מאושרות · סה״כ {ils(totalA / 100)}</p>
         <div className="grid gap-1.5">
           {list.map((e) => (

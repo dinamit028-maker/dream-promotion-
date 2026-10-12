@@ -19,6 +19,8 @@ export const AUDIT_ACTION_HE: Record<string, string> = {
   'export.open_format': 'הופק ממשק פתוח', 'export.csv': 'יוצא קובץ', 'export.package': 'הופקה חבילה לרו״ח', 'reminder.sent': 'נשלחה תזכורת תשלום', 'report.printed': 'דוח הודפס',
   // 2.52.1: who may work in the business (migration 20261005003200)
   'member.added': 'אדם צורף לעסק', 'member.changed': 'הרשאה של אדם בעסק שונתה', 'member.removed': 'אדם הוסר מהעסק',
+  // 2.96 (migration 20261011005100): manual journal entries
+  'journal.created': 'נרשמה פקודה ידנית', 'journal.reversed': 'נרשמה פקודה הפוכה',
 };
 const ACCESS_HE: Record<string, string> = { full: 'גישה מלאה', register: 'קופה בלבד' };
 const ROLE_HE: Record<string, string> = { owner: 'בעלים', editor: 'עורך/ת', viewer: 'צפייה בלבד' };
@@ -37,6 +39,7 @@ export function auditLine(r: AuditRow): string {
   if (d.email) parts.push(String(d.email).slice(0, 120));
   if (d.access && String(r.action).startsWith('member.')) parts.push(d.role === 'viewer' ? ROLE_HE.viewer : ACCESS_HE[d.access] ?? String(d.access));
   if (d.reason) parts.push(`סיבה: ${String(d.reason).slice(0, 80)}`);
+  if (String(r.action).startsWith('journal.') && d.explanation) parts.push(String(d.explanation).slice(0, 80));
   if (d.until) parts.push(`עד ${String(d.until).slice(0, 16).replace('T', ' ')}`);
   return parts.filter(Boolean).join(' · ');
 }

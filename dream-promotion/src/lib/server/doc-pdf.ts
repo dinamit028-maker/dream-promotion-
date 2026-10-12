@@ -3,7 +3,7 @@ import path from 'node:path';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import bidiFactory from 'bidi-js';
-import { DOC_LABEL, PAY_LABEL, issuerFor, issuerLocationLine, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, RECEIVED_LINE, baseDocLine, docPayLabel, issuerFor, issuerLocationLine, totalLabel, type DocRow } from '@/features/documents/documents';
 import type { Business, Doc } from '@/features/documents/openformat';
 import { issuerIdLine } from '@/features/finance/rules';
 
@@ -111,7 +111,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   y -= 15;
   const cAddr = [d.customerStreet, d.customerCity].filter(Boolean).join(', ');
   if (cAddr) { text(cAddr, { right: W - M }); y -= 15; }
-  if (d.baseDocNumber) { text(`זיכוי עבור ${DOC_LABEL[d.baseDocType ?? 0] ?? ''} מס׳ ${d.baseDocNumber}`, { right: W - M }, 10, bold); y -= 15; }
+  if (baseDocLine(d)) { text(baseDocLine(d), { right: W - M }, 10, bold); y -= 15; }
   y -= 6;
 
   // ---- lines ----
@@ -143,7 +143,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   if (d.discount) totals.push(['הנחה', `-${money(d.discount)}`]);
   totals.push([withVat ? 'סה״כ לפני מע״מ' : 'סה״כ', money(d.afterDiscount)]);
   if (withVat) totals.push([`מע״מ ${rate}%`, money(d.vatAmount)]);
-  totals.push([d.docType === 330 ? 'סה״כ זיכוי' : d.docType === 400 || d.docType === 320 ? 'סה״כ שולם' : 'סה״כ לתשלום', `${money(d.total)} ₪`, true]);
+  totals.push([totalLabel(d.docType), `${money(d.total)} ₪`, true]);
   for (const [k, v, strong] of totals) {
     newPageIfNeeded(18);
     text(k, { right: W - M - 5 }, strong ? 12 : 10, strong ? bold : font);
@@ -160,7 +160,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
     for (const p of d.payments) {
       newPageIfNeeded(16);
       const cheque = p.cheque?.number ? ` · צ׳ק ${p.cheque.number}${p.cheque.bank ? ` · בנק ${p.cheque.bank}` : ''}${p.cheque.branch ? ` · סניף ${p.cheque.branch}` : ''}${p.cheque.dueDate ? ` · פירעון ${ddmmyyyy(p.cheque.dueDate)}` : ''}` : '';
-      text(fit(`${PAY_LABEL[p.method] ?? 'אחר'} · ${ddmmyyyy(p.date)}${cheque}`, 10, font, W - 2 * M - 110), { right: W - M - 5 });
+      text(fit(`${docPayLabel(p)} · ${ddmmyyyy(p.date)}${cheque}`, 10, font, W - 2 * M - 110), { right: W - M - 5 });
       text(money(p.amount), { left: M + 5 });
       y -= 16;
     }
@@ -169,7 +169,8 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   // ---- notes, payment instructions, the business's note ----
   const bank = (d.docType === 305 || d.docType === 300) && iss.bankAccount
     ? `לתשלום בהעברה: ${[iss.bankName, iss.bankBranch ? `סניף ${iss.bankBranch}` : '', `חשבון ${iss.bankAccount}`].filter(Boolean).join(' · ')}` : '';
-  for (const [t, f, c] of [[d.notes ?? '', font, ink], [bank, font, ink], [iss.note ?? '', font, muted]] as [string, PDFFont, typeof ink][]) {
+  const received = d.docType === 200 ? RECEIVED_LINE : '';   // a delivery note: who received the goods (2.95)
+  for (const [t, f, c] of [[d.notes ?? '', font, ink], [bank, font, ink], [received, font, ink], [iss.note ?? '', font, muted]] as [string, PDFFont, typeof ink][]) {
     if (!t) continue;
     y -= 6;
     // long text wraps by words (right to left), at most 6 lines each

@@ -10,7 +10,7 @@ import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeDb } from './fakedb';
 import {
-  afterDeposit, amountError, depositDays, paylinkEmail, paylinkError, paylinkGate, paylinkMessage, paylinkPill, paylinkState, receiptLine, toPaylink,
+  afterDeposit, amountError, depositDays, depositDocsLabel, toDepositDocs, paylinkEmail, paylinkError, paylinkGate, paylinkMessage, paylinkPill, paylinkState, receiptLine, toPaylink,
 } from '../src/features/finance/paylinks';
 import { orderRef, paylinkRef, paylinkRefOk } from '../src/lib/server/order-link';
 import { docInvariants } from '../src/features/finance/compose';
@@ -88,6 +88,19 @@ test('a deposit offset: the price less what was really paid, named so; a deposit
   assert.deepEqual(afterDeposit('לייזר רגליים', 400, 100), { name: 'לייזר רגליים (יתרה אחרי מקדמה ₪100)', price: 300 });
   assert.deepEqual(afterDeposit('לייזר רגליים', 400, 0), { name: 'לייזר רגליים', price: 400 });
   assert.equal(afterDeposit('x', 50, 100).price, 0, 'never below zero');
+  // 2.97 — the accountant (11.10.2026): the line names the deposit's document once it was issued
+  assert.deepEqual(afterDeposit('לייזר רגליים', 400, 100, [{ type: 320, number: 15 }]),
+    { name: 'לייזר רגליים (יתרה אחרי מקדמה ₪100, חשבונית מס / קבלה 15)', price: 300 });
+  assert.equal(afterDeposit('ייעוץ', 300, 150, [{ type: 400, number: 4 }, { type: 400, number: 3 }]).name, 'ייעוץ (יתרה אחרי מקדמה ₪150, קבלה 3, 4)',
+    'two deposits of one appointment: both, by number');
+  assert.equal(depositDocsLabel([{ type: 320, number: 2 }, { type: 400, number: 1 }]), 'חשבונית מס / קבלה 2; קבלה 1');
+  assert.equal(afterDeposit('לייזר', 400, 0, [{ type: 320, number: 15 }]).name, 'לייזר', 'no deposit: nothing named');
+  const long = afterDeposit('א'.repeat(200), 400, 100, [{ type: 320, number: 15 }]).name;
+  assert.equal(long.length, 120, 'at most 120 characters');
+  assert.ok(long.endsWith('(יתרה אחרי מקדמה ₪100, חשבונית מס / קבלה 15)'), 'the name is cut — never the reference');
+  assert.deepEqual(toDepositDocs([{ type: 320, number: 15 }, { type: 999, number: 1 }, { type: 400, number: 0 }, { type: '400', number: '7' }, null]),
+    [{ type: 320, number: 15 }, { type: 400, number: 7 }], 'only real documents: a known type and a number');
+  assert.deepEqual(toDepositDocs(undefined), [], 'before migration 5200: none');
   const now = Date.parse('2026-10-10T10:00:00Z');
   assert.equal(depositDays('2026-10-11T09:00:00Z', now), 1);
   assert.equal(depositDays('2026-10-13T12:00:00Z', now), 4);

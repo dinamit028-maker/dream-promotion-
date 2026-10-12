@@ -7,13 +7,15 @@ import { CloseButton, Modal } from '@/components/ui/feedback';
 import { DOC_LABEL, type DocRow } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { composeDocument, computeLines, type ComposeCustomer, type ComposeLine, type Discount } from './compose';
-import { DOC_INFO, allowedDocTypes } from './rules';
+import { DOC_INFO, allowedDocTypes, goodsDocTypes } from './rules';
+import { isGoods } from './goods';
 import { TERMS, dueDateFor } from './receivables';
 import { validUntilFor, type ComposerBody, type Quote } from './quotes';
 import { documentRow, financeError, issueDocumentRow, newKey } from './api';
 import { quoteKey } from './keys';
 import type { PaymentEntry } from './payments';
 import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from './ui';
+import { useReportsReady } from './reports-data';
 import { documentDateRateNote } from './vat';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { useLocations } from '@/features/locations/store';
@@ -41,7 +43,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
   const { userId, settings, profile, catalog, vat, business, products, productsReady, reloadCatalog } = useFinance();
   const { leads, addActivity, updateLead } = useApp();
   const quote = mode.kind === 'quote' ? mode.quote ?? null : null;
-  const types = allowedDocTypes(settings.entity).filter((t) => t !== 330 && (t !== 400 || !vat));
+  // 2.95: an order and a delivery note too, for a business that sells products
+  const types = [...allowedDocTypes(settings.entity).filter((t) => t !== 330 && (t !== 400 || !vat)), ...goodsDocTypes(profile.sellsProducts)];
   const [docType, setDocType] = useState(mode.kind === 'document' ? (types.includes(mode.docType) ? mode.docType : types[0]) : 0);
   const [customer, setCustomer] = useState<ComposeCustomer>(initial?.customer ?? { name: '' });
   const [leadId, setLeadId] = useState<string | null>(initial?.leadId ?? quote?.leadId ?? null);
@@ -53,6 +56,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
   const [terms, setTerms] = useState(initial?.terms ?? profile.paymentTerms);
   const [dueDate, setDueDate] = useState<string>(initial?.dueDate ?? dueDateFor(today, initial?.terms ?? profile.paymentTerms));
   const [payments, setPayments] = useState<PaymentEntry[]>((initial?.payments as PaymentEntry[] | undefined) ?? []);
+  // 2.94: tax withheld at source on a receipt — once migration 20261011004900 is in the database
+  const withholdingOk = useReportsReady();
   const [notes, setNotes] = useState(initial?.notes ?? quote?.notes ?? '');
   const [validUntil, setValidUntil] = useState(quote?.validUntil ?? validUntilFor(today, profile.quoteValidDays));
   const [key] = useState(() => newKey('direct'));
@@ -95,7 +100,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
 
   const body = (): ComposerBody => ({ lines, pricesIncludeVat, discount, customer, notes, terms, dueDate, payments });
   const input = () => ({ docType, entity: settings.entity, vatRate: settings.vatRate, pricesIncludeVat, lines, discount, customer, payments: receipt ? payments : [],
-    docDate, dueDate: docType === 305 || docType === 300 ? dueDate : null, notes, today });
+    docDate, dueDate: docType === 305 || docType === 300 ? dueDate : null, notes, today, goods: profile.sellsProducts });
 
   async function saveDraft() {
     setBusy(true); setErrors([]);
@@ -111,7 +116,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
   async function issue() {
     const res = composeDocument(input());
     if (!res.ok) { setErrors(res.errors); return; }
-    if (!window.confirm(`להפיק ${DOC_LABEL[docType]} על ${ils(res.doc.total)}${customer.name ? ` ל${customer.name}` : ''}? מסמך שהופק לא ניתן לשינוי או למחיקה — תיקון רק בחשבונית זיכוי.`)) return;
+    if (!window.confirm(`להפיק ${DOC_LABEL[docType]} על ${ils(res.doc.total)}${customer.name ? ` ל${customer.name}` : ''}? מסמך שהופק לא ניתן לשינוי או למחיקה — ${isGoods(docType) ? 'אם הופק בטעות, מבטלים אותו.' : 'תיקון רק בחשבונית זיכוי.'}`)) return;
     setBusy(true); setErrors([]);
     const quoteId = mode.kind === 'document' ? mode.quoteId ?? null : null;
     // a draft is one document, a quote is one document (whoever converts it, on any device), otherwise this form's own key
@@ -166,7 +171,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
       )}
 
       <p className="mb-1 text-sm font-bold">לקוח</p>
-      <CustomerFields value={customer} onChange={setCustomer} leads={leads} leadId={leadId} onLead={setLeadId} needName={docType === 305 || docType === 300} />
+      <CustomerFields value={customer} onChange={setCustomer} leads={leads} leadId={leadId} onLead={setLeadId} needName={docType === 305 || docType === 300 || isGoods(docType)} />
 
       <div className="mb-1 mt-4 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-bold">שורות</p>
@@ -210,7 +215,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
       </div>
 
       {receipt && mode.kind === 'document' && (
-        <div className="mt-2"><p className="mb-1 text-sm font-bold">איך שולם</p><PaymentsEditor payments={payments} onChange={setPayments} total={preview.totals.total} today={today} /></div>
+        <div className="mt-2"><p className="mb-1 text-sm font-bold">איך שולם</p><PaymentsEditor payments={payments} onChange={setPayments} total={preview.totals.total} today={today} withholding={withholdingOk} /></div>
       )}
       <Field label="הערות על המסמך (לא חובה)"><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={mode.kind === 'quote' ? 2000 : 1000} className="min-h-16" /></Field>
 

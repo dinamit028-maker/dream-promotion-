@@ -10,6 +10,8 @@ import { documentRow, financeError, issueDocumentRow, logEvent } from './api';
 import { LEDGER_SOURCE_HE, ledgerTotals, payLabel, toLedgerRow, type LedgerRow } from './payments';
 import { ledgerCsv } from './reports';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Stat, ddmmyyyy, download, ils, periodNow, todayIL, type Period } from './ui';
+import { periodFromQuery } from './overview-lists';
+import { israelToIso } from '@/lib/il-time';
 import { PaylinkList, usePaylinks } from './Paylinks';
 
 /**
@@ -17,12 +19,17 @@ import { PaylinkList, usePaylinks } from './Paylinks';
  * side; the register's paid sales that have no document yet — issued here with the same idempotency key as the
  * register uses ("sale:<id>"), so a sale never gets two documents; and (2.88) the latest payment links with their statuses
  * — a receipt waiting for the owner's approval is issued from there.
+ * 2.97 (T7): the money in and out are finance_summary's (the overview's card) for the whole period; the sales without a document
+ * are counted by the days of the period in Israel (they were by +03:00 — a winter evening's sale fell into the next day).
  */
 interface Paid { id: string; customer: string; total: number; at: string; raw: any }
+const LEDGER_MAX = 500;
+const nextDay = (d: string) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
 
 export function Income() {
-  const { userId, settings, business, vat, fail, say } = useFinance();
-  const [period, setPeriod] = useState<Period>(() => periodNow('month'));
+  const { userId, settings, business, vat, fail, say, params } = useFinance();
+  // 2.97 (T7): the overview's "נכנס לקופה ולבנק" (and "מכירות ששולמו בלי מסמך") open here, on the card's period
+  const [period, setPeriod] = useState<Period>(() => periodFromQuery(params) ?? periodNow('month'));
   const [s, setS] = useState<Summary | null>(null);
   const [ledger, setLedger] = useState<LedgerRow[] | null>(null);
   const [missing, setMissing] = useState<Paid[]>([]);
@@ -34,8 +41,9 @@ export function Income() {
     const sb = supabase();
     const [sum, led, sales] = await Promise.all([
       loadSummary(period),
-      sb.from('payments').select('*').gte('paid_on', period.from).lte('paid_on', period.to).order('paid_on', { ascending: false }).limit(500),
-      sb.from('sales').select('*').eq('status', 'paid').gte('paid_at', `${period.from}T00:00:00+03:00`).lte('paid_at', `${period.to}T23:59:59+03:00`).limit(1000),
+      sb.from('payments').select('*').gte('paid_on', period.from).lte('paid_on', period.to).order('paid_on', { ascending: false }).limit(LEDGER_MAX),
+      // the days of the period in Israel (winter and summer time alike) — as finance_summary counts the sales without a document
+      sb.from('sales').select('*').eq('status', 'paid').gte('paid_at', israelToIso(period.from, '00:00')).lt('paid_at', israelToIso(nextDay(period.to), '00:00')).limit(5000),
     ]);
     if (!sum.ok) { setLoadError(sum.error); return; }
     setS(sum.s);
@@ -67,16 +75,20 @@ export function Income() {
     void load();
   }
 
-  const t = ledgerTotals(ledger ?? []);
+  // the money in and out: finance_summary's for the whole period (the overview's card) — the ledger below shows its latest rows
+  const t = s ? { in: s.cash.in, out: s.cash.out, net: s.cash.net, withheld: s.withheld } : ledgerTotals(ledger ?? []);
   return (
     <div className="grid gap-3">
       <PeriodPicker value={period} onChange={setPeriod} />
       {!s ? (loadError ? <LoadFailed message={loadError} onRetry={() => void load()} /> : <div className="py-8 text-center"><Spinner /></div>) : <>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-          <Stat label={vat ? 'הכנסות לפי מסמכים (לפני מע״מ)' : 'הכנסות לפי קבלות'} value={ils(s.revenue.net)} hint={vat ? `כולל מע״מ ${ils(s.revenue.gross)}` : undefined} />
+          {/* 2.96 (T13א): the documents' own income — manual journal entries are in the summary's, and said apart here */}
+          <Stat label={vat ? 'הכנסות לפי מסמכים (לפני מע״מ)' : 'הכנסות לפי קבלות'} value={ils(s.revenue.net - s.manual.income.net)}
+            hint={[vat ? `כולל מע״מ ${ils(s.revenue.gross - s.manual.income.net - s.manual.income.vat - s.manual.vat.output)}` : '',
+              s.manual.income.net ? `ועוד פקודות ידניות ${ils(s.manual.income.net)}` : ''].filter(Boolean).join(' · ') || undefined} />
           <Stat label="נכנס בפועל" value={ils(t.in)} hint="קבלות וחשבוניות מס/קבלה" />
           <Stat label="יצא בפועל" value={ils(t.out)} hint="החזרים, זיכויים, הוצאות, ביטולים" />
-          <Stat label="נטו בתקופה" value={ils(t.net)} tone={t.net >= 0 ? 'ok' : 'bad'} />
+          <Stat label="נטו בתקופה" value={ils(t.net)} tone={t.net >= 0 ? 'ok' : 'bad'} hint={t.withheld ? `ניכוי במקור ${ils(t.withheld)} — לא כסף, לא בסכומים` : undefined} />
         </div>
         {missing.length > 0 && (
           <Card className="p-4">
@@ -89,10 +101,11 @@ export function Income() {
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between gap-2"><p className="font-bold">יומן תשלומים</p>
             {ledger && ledger.length > 0 && <Button size="sm" variant="ghost" onClick={() => { download(`תשלומים-${period.from}-${period.to}.csv`, ledgerCsv(ledger)); void logEvent('export.csv', 'payments', '', { rows: ledger.length }); }}>ייצוא</Button>}</div>
+          {ledger && ledger.length >= LEDGER_MAX && <p className="mb-1 text-xs text-muted">מוצגות {LEDGER_MAX} התנועות האחרונות של התקופה — הסכומים למעלה הם של כל התקופה.</p>}
           {!ledger?.length ? <p className="text-sm text-muted">אין תנועות בתקופה הזו.</p> : (
             <ul className="grid gap-1 text-sm">{ledger.slice(0, 100).map((r) => (
               <li key={r.id} className="flex min-w-0 items-center justify-between gap-2 border-b border-line py-1.5 last:border-0">
-                <span className="min-w-0 truncate">{ddmmyyyy(r.paidOn)} · {LEDGER_SOURCE_HE[r.source]} · {payLabel(r.method)}{r.note ? ` · ${r.note}` : ''}</span>
+                <span className="min-w-0 truncate">{ddmmyyyy(r.paidOn)} · {LEDGER_SOURCE_HE[r.source]} · {payLabel(r.method)}{r.method === 'withholding' && r.pct != null ? ` ${r.pct}%` : ''}{r.note ? ` · ${r.note}` : ''}</span>
                 <strong className={r.direction === 'in' ? 'tabular-nums text-emerald-600 dark:text-emerald-400' : 'tabular-nums text-red-600 dark:text-red-400'}>{r.direction === 'in' ? '+' : '−'}{ils(r.amount)}</strong>
               </li>
             ))}</ul>

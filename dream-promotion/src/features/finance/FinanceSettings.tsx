@@ -16,6 +16,9 @@ import type { AllocationRule } from './allocation';
 import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
 import { PaylinkSettings } from './Paylinks';
 import { ReminderSettingsCard } from './Reminders';
+import { useReportsReady } from './reports-data';
+import { ADVANCE_NOTE, advancePctError } from './statements';
+import { useCashReady } from './cash-data';
 
 /**
  * Money settings: the business's legal identity (what every document prints — and keeps, as it was, from 2.51), VAT,
@@ -42,6 +45,11 @@ export function FinanceSettings() {
   const [taxBack, setTaxBack] = useState<string | null>(null);
   const [rules, setRules] = useState<AllocationRule[] | null>(null);
   const [grants, setGrants] = useState<{ reason: string; grantedAt: string; expiresAt: string; revokedAt: string | null }[]>([]);
+  // 2.94: the income tax advances' percent (the reports show an estimate by it) — once migration 20261011004900 is in the database
+  const reportsOk = useReportsReady();
+  const [advance, setAdvance] = useState(profile.advancePct == null ? '' : String(profile.advancePct));
+  // 2.95: the desks and the bank; "selling products" — once migration 20261011005000 is in the database
+  const cashOk = useCashReady();
   useEffect(() => {
     try { setTaxBack(new URLSearchParams(window.location.search).get('tax')); } catch { /* no address to read */ }
   }, []);
@@ -59,13 +67,18 @@ export function FinanceSettings() {
   const warn = rateWarning(s.vatRate, todayIL(), chargesVat(s.entity));
   async function save() {
     if (s.dealerNumber && !/^\d{9}$/.test(s.dealerNumber)) { fail('מספר עוסק / ח.פ — 9 ספרות'); return; }
+    const advanceBad = reportsOk ? advancePctError(advance) : null;
+    if (advanceBad) { fail(advanceBad); return; }
+    if (cashOk && !(Number.isInteger(p.chequeRemindDays) && p.chequeRemindDays >= 0 && p.chequeRemindDays <= 30)) { fail('תזכורת לצ׳ק — בין 0 ל-30 ימים לפני הפירעון'); return; }
     setBusy(true);
     const sb = supabase();
     const a = await sb.from('register_settings').upsert({ user_id: userId, entity_type: s.entity, business_type: businessTypeOf(s.entity), vat_rate: chargesVat(s.entity) ? s.vatRate : 0,
       dealer_number: s.dealerNumber, company_number: s.companyNumber, legal_name: s.legalName.trim(), street: s.street.trim(), house_no: s.houseNo.trim(), city: s.city.trim(), zip: s.zip.trim() }, { onConflict: 'business_id' });
     const b = a.error ? a : await sb.from('business_finance_profile').upsert({ user_id: userId, trading_name: p.tradingName.trim(), phone: p.phone.trim(), email: p.email.trim(),
       bank_name: p.bankName.trim(), bank_branch: p.bankBranch.trim(), bank_account: p.bankAccount.trim(), payment_terms: p.paymentTerms, quote_valid_days: p.quoteValidDays,
-      doc_note: p.docNote.trim(), vat_period: p.vatPeriod, accountant_name: p.accountantName.trim(), accountant_email: p.accountantEmail.trim() }, { onConflict: 'business_id' });
+      doc_note: p.docNote.trim(), vat_period: p.vatPeriod, accountant_name: p.accountantName.trim(), accountant_email: p.accountantEmail.trim(),
+      ...(reportsOk ? { advance_pct: advance.trim() ? Number(advance.trim()) : null } : {}),
+      ...(cashOk ? { cash_drawers: p.cashDrawers, cheque_remind_days: p.chequeRemindDays, sells_products: p.sellsProducts } : {}) }, { onConflict: 'business_id' });
     setBusy(false);
     if (b.error) { fail(financeError(b.error)); return; }
     say('ההגדרות נשמרו. מסמכים שכבר הופקו שומרים את הפרטים שהיו בהם.'); await reload();
@@ -123,6 +136,35 @@ export function FinanceSettings() {
           <Field label="מייל"><Input value={p.accountantEmail} onChange={(e) => setPv('accountantEmail', e.target.value)} inputMode="email" dir="ltr" /></Field>
         </div>
       </Card>
+      {reportsOk && (
+        <Card className="p-4">
+          <p className="mb-2 font-bold">מקדמות מס הכנסה</p>
+          <Field label="שיעור המקדמה % (מפנקס המקדמות; ריק = לא מוצג)">
+            <Input value={advance} onChange={(e) => setAdvance(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} inputMode="decimal" dir="ltr" className="w-28" placeholder="למשל 5" />
+          </Field>
+          {advancePctError(advance) && <Note tone="warn">{advancePctError(advance)}</Note>}
+          <p className="text-xs text-muted">בדוחות (&quot;מקדמות&quot;) מוצגת הערכה: הכנסות התקופה × השיעור. {ADVANCE_NOTE}</p>
+        </Card>
+      )}
+      {cashOk && (
+        <Card className="p-4">
+          <p className="mb-1 font-bold">מה מופעל בכספים</p>
+          <p className="mb-2 text-xs text-muted">כל אחד מאלה מופיע רק אחרי שמפעילים אותו. כיבוי מסתיר אותו שוב — שום דבר שנרשם לא נמחק.</p>
+          <label className="flex items-start gap-2 py-1.5 text-sm">
+            <input type="checkbox" className="mt-1" checked={p.cashDrawers} onChange={(e) => setPv('cashDrawers', e.target.checked)} />
+            <span><strong>קופות, הפקדות והתאמת בנק</strong><span className="block text-xs text-muted">קופה לכל אמצעי תשלום (מזומן, צ׳קים, אשראי, העברות, ביט), הפקדות לבנק, מעקב צ׳קים, והעלאת קובץ תנועות מהבנק להתאמה. מופיע בתפריט הכספים.</span></span>
+          </label>
+          {p.cashDrawers && (
+            <Field label="תזכורת לצ׳ק — כמה ימים לפני הפירעון (0 = בלי תזכורת)">
+              <Input type="number" min={0} max={30} value={p.chequeRemindDays} onChange={(e) => setPv('chequeRemindDays', Math.max(0, Math.min(30, Math.round(Number(e.target.value) || 0))))} className="w-24" />
+            </Field>
+          )}
+          <label className="flex items-start gap-2 py-1.5 text-sm">
+            <input type="checkbox" className="mt-1" checked={p.sellsProducts} onChange={(e) => setPv('sellsProducts', e.target.checked)} />
+            <span><strong>מכירת מוצרים</strong><span className="block text-xs text-muted">הזמנה, תעודת משלוח ותעודת החזרה, ומתעודת משלוח — חשבונית בלחיצה. מתאים לחנות; קליניקה לא צריכה את זה.</span></span>
+          </label>
+        </Card>
+      )}
       <div><Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'שומר…' : 'שמירת ההגדרות'}</Button></div>
 
       <Card className="p-4"><PaylinkSettings userId={userId} /></Card>
@@ -141,10 +183,13 @@ export function FinanceSettings() {
         {!rules ? <Spinner /> : (
           <ul className="grid gap-1 text-sm">{rules.map((r) => (
             <li key={r.version} className="flex flex-wrap items-center gap-2"><span>מ-{ddmmyyyy(r.effectiveFrom)}: מעל {ils(r.thresholdBeforeVat)} לפני מע״מ, לעוסק</span>
-              <Pill tone={r.verified ? 'ok' : 'warn'}>{r.verified ? 'אומת' : 'לא אומת מול פרסום רשמי'}</Pill></li>
+              {/* 2.97 (migration 5200): confirmed with the accountant on 11.10.2026 — the note says by whom and when */}
+              <Pill tone={r.verified ? 'ok' : 'warn'}>{r.verified ? 'אושר מול רואה חשבון' : 'לא אומת מול פרסום רשמי'}</Pill></li>
           ))}</ul>
         )}
-        <p className="mt-2 text-xs text-muted">הספים נלקחו ממקורות משניים ומסומנים "לא אומת" עד שרו״ח מאשר מול פרסום רשות המסים. Dream Promotion לא מאושרת על ידי רשות המסים, ולא מדווחת אליה בלי חיבור אמיתי שאושר.</p>
+        <p className="mt-2 text-xs text-muted">{rules && rules.length > 0 && rules.every((r) => r.verified)
+          ? `${rules[0].sourceNote || 'הספים אושרו מול רואה חשבון.'} `
+          : 'הספים נלקחו ממקורות משניים ומסומנים "לא אומת" עד שרו״ח מאשר אותם. '}Dream Promotion לא מאושרת על ידי רשות המסים, ולא מדווחת אליה בלי חיבור אמיתי שאושר.</p>
       </Card>
 
       <Card className="p-4">

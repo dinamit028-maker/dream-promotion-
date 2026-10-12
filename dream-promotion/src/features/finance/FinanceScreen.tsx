@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
 import { Button, Card, Chip, Field, Input, PageHead } from '@/components/ui/primitives';
-import { useModuleActions } from '@/components/shell/ModuleShell';
+import { useModuleActions, useModuleGroups } from '@/components/shell/ModuleShell';
 import { EmptyState, Spinner } from '@/components/ui/feedback';
 import { Wallet } from '@/components/ui/Icon';
 import { formatIL } from '@/lib/il-time';
@@ -14,7 +14,8 @@ import { entityOf, chargesVat, type EntityType } from './rules';
 import { FINANCE_MIGRATION, accessState, financeError, type AccessState } from './api';
 import { Note, type CatalogPick } from './ui';
 import { financeHref, financeLabel, sectionOfPath, type FinanceSection } from './routes';
-import { financeActions } from './module';
+import { financeActions, financeGroups } from './module';
+import { useJournalReadyState } from './journal-data';
 import { catalogPicks, type CatalogItem } from '@/features/catalog/catalog';
 import { loadCatalog } from '@/features/catalog/data';
 
@@ -32,9 +33,15 @@ export type FinanceTab = FinanceSection;
 export interface Profile {
   tradingName: string; phone: string; email: string; bankName: string; bankBranch: string; bankAccount: string; paymentTerms: string;
   quoteValidDays: number; docNote: string; vatPeriod: 'monthly' | 'bimonthly'; accountantName: string; accountantEmail: string;
+  /** 2.94 (migration 20261011004900): the percent of the income tax advances — the reports show an estimate by it (null = not set) */
+  advancePct: number | null;
+  /** 2.95 (migration 20261011005000): the desks, deposits and the bank on (their menu group); a cheque reminded these days before */
+  cashDrawers: boolean; chequeRemindDays: number;
+  /** 2.95: the business sells products — an order, a delivery note and a return note */
+  sellsProducts: boolean;
 }
 export const EMPTY_PROFILE: Profile = { tradingName: '', phone: '', email: '', bankName: '', bankBranch: '', bankAccount: '', paymentTerms: 'immediate', quoteValidDays: 30,
-  docNote: '', vatPeriod: 'bimonthly', accountantName: '', accountantEmail: '' };
+  docNote: '', vatPeriod: 'bimonthly', accountantName: '', accountantEmail: '', advancePct: null, cashDrawers: false, chequeRemindDays: 3, sellsProducts: false };
 export interface Settings {
   entity: EntityType; vatRate: number; dealerNumber: string; companyNumber: string; legalName: string; street: string; houseNo: string; city: string; zip: string; payLink: string;
 }
@@ -59,6 +66,9 @@ export const toProfile = (r: any): Profile => (!r ? EMPTY_PROFILE : {
   tradingName: r.trading_name ?? '', phone: r.phone ?? '', email: r.email ?? '', bankName: r.bank_name ?? '', bankBranch: r.bank_branch ?? '', bankAccount: r.bank_account ?? '',
   paymentTerms: r.payment_terms ?? 'immediate', quoteValidDays: Number(r.quote_valid_days ?? 30), docNote: r.doc_note ?? '', vatPeriod: r.vat_period === 'monthly' ? 'monthly' : 'bimonthly',
   accountantName: r.accountant_name ?? '', accountantEmail: r.accountant_email ?? '',
+  advancePct: r.advance_pct == null || !Number.isFinite(Number(r.advance_pct)) ? null : Number(r.advance_pct),
+  cashDrawers: r.cash_drawers === true, sellsProducts: r.sells_products === true,
+  chequeRemindDays: Number.isInteger(Number(r.cheque_remind_days)) && r.cheque_remind_days != null ? Number(r.cheque_remind_days) : 3,
 });
 
 export function FinanceLayout({ children }: { children: ReactNode }) {
@@ -107,8 +117,13 @@ function FinanceProvider({ children }: { children: ReactNode }) {
     if (cat.ok) setState((s) => (s ? { ...s, catalog: catalogPicks(cat.data.items, cat.data.variants), products: cat.data.items, productsReady: cat.data.ready } : s));
   }, []);
   useEffect(() => { void load(); }, [load]);
-  // the module's "+": only the documents this business may issue
-  useModuleActions(state ? financeActions(state.settings.entity) : null);
+  // the module's "+": only the documents this business may issue (2.95: an order and a delivery note when it sells products)
+  useModuleActions(state ? financeActions(state.settings.entity, { goods: state.profile.sellsProducts }) : null);
+  // 2.95: the desks' group of the menu, once the business turned them on; 2.96: the journal, once migration 5100 is there
+  // (else the menu as it was)
+  const journal = useJournalReadyState() === true;
+  const cash = Boolean(state?.profile.cashDrawers);
+  useModuleGroups(cash || journal ? financeGroups({ cash, journal }) : null);
 
   const ctx = useMemo<Ctx | null>(() => {
     if (!state || !userId) return null;

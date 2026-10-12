@@ -1,4 +1,5 @@
 import { ils } from '@/features/register/money';
+import { DOC_LABEL } from '@/features/documents/documents';
 import type { TerminalInfo } from '@/features/store/checkout';
 import { linkify, type Email } from '@/features/store/commerce';
 
@@ -119,13 +120,28 @@ export function amountError(raw: string, left: number): string | null {
 export const LINK_DAYS = [1, 3, 7, 14, 30] as const;
 
 // ---- a deposit, offset from the final payment ------------------------------------------------------------------------------
+/** a document issued for a deposit (appointment_deposit_receipts, migration 20261011005200): its type and number */
+export interface DepositDoc { type: number; number: number }
+export const toDepositDocs = (v: unknown): DepositDoc[] => (Array.isArray(v) ? v : [])
+  .map((d: any) => ({ type: Number(d?.type), number: Number(d?.number) }))
+  .filter((d) => Number.isInteger(d.type) && DOC_LABEL[d.type] !== undefined && Number.isInteger(d.number) && d.number > 0);
+/** "חשבונית מס / קבלה 15" — by type, the numbers in order ("קבלה 3, 4"); '' for none */
+export function depositDocsLabel(docs: DepositDoc[]): string {
+  const by = new Map<number, number[]>();
+  for (const d of docs) by.set(d.type, [...(by.get(d.type) ?? []), d.number]);
+  return [...by].map(([t, ns]) => `${DOC_LABEL[t]} ${[...ns].sort((a, b) => a - b).join(', ')}`).join('; ');
+}
 /**
  * The register's line for an appointment whose deposit was really paid (appointment_deposits — never a test one): the
  * service's price less the deposit, named so — the deposit already has its own document, so the two add up to the price.
+ * 2.97 (the accountant, 11.10.2026): the line names the deposit's document once it was issued ("…, חשבונית מס / קבלה 15") —
+ * the name is what is cut to 120 characters, never the reference.
  */
-export function afterDeposit(name: string, price: number, deposit: number): { name: string; price: number } {
+export function afterDeposit(name: string, price: number, deposit: number, docs: DepositDoc[] = []): { name: string; price: number } {
   if (!(deposit > 0)) return { name, price };
-  return { name: `${name} (יתרה אחרי מקדמה ${ils(deposit)})`.slice(0, 120), price: Math.max(0, Math.round((price - deposit) * 100) / 100) };
+  const ref = depositDocsLabel(docs);
+  const tail = ` (יתרה אחרי מקדמה ${ils(deposit)}${ref ? `, ${ref}` : ''})`;
+  return { name: `${name.slice(0, Math.max(1, 120 - tail.length))}${tail}`.slice(0, 120), price: Math.max(0, Math.round((price - deposit) * 100) / 100) };
 }
 /** how many days a deposit link may live: until the appointment (1 to 7) */
 export const depositDays = (startIso: string, now = Date.now()) => Math.min(7, Math.max(1, Math.ceil((Date.parse(startIso) - now) / 864e5)));

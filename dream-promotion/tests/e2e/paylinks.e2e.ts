@@ -372,14 +372,32 @@ async function main() {
       await d.getByRole('button', { name: 'סיום' }).click();
       await page.getByRole('button', { name: /נשלח/ }).first().waitFor();
       assert.equal(await page.getByRole('button', { name: '💳 לינק למקדמה' }).count(), 0, 'one deposit link per appointment');
-      // paid for real: the register's charge is the rest
-      Object.assign(links().at(-1)!, { status: 'paid', is_test: false, paid_at: new Date().toISOString(), paid_amount: 100, provider_txn: 'txn-d', receipt_status: 'issued' });
+      // paid for real: the register's charge is the rest — its receipt still waits for the owner (no document to name yet)
+      Object.assign(links().at(-1)!, { status: 'paid', is_test: false, paid_at: new Date().toISOString(), paid_amount: 100, provider_txn: 'txn-d', receipt_status: 'awaiting' });
       await goto('/appointments');
       const charge = page.getByRole('link', { name: /💳 חיוב \(אחרי מקדמה ₪100\)/ });
       await charge.waitFor();
-      const q = new URL(`${BASE}${await charge.getAttribute('href')}`).searchParams;
+      let q = new URL(`${BASE}${await charge.getAttribute('href')}`).searchParams;
       assert.equal(q.get('price'), '300');
       assert.equal(q.get('item'), 'לייזר רגליים (יתרה אחרי מקדמה ₪100)');
+      // 2.97 — the accountant (11.10.2026): once the deposit's receipt is issued, the line names it (here: tax invoice-receipt 8)
+      const receipt = { ...fake.tables.documents[0], id: '00000000-0000-0000-0000-00000000d320', doc_type: 320, doc_number: 8, link_no: 2, lead_id: NOA,
+        lines: [{ name: 'מקדמה — לייזר רגליים', qty: 1, unitPriceExVat: 84.75, discountExVat: 0, totalExVat: 84.75, vatRate: 18, kind: 1 }],
+        payments: [{ method: 3, m: 'card', amount: 100, date: today }], before_discount: 84.75, after_discount: 84.75, vat_amount: 15.25, total: 100, share_token: 'd'.repeat(64) };
+      fake.tables.documents.push(receipt);
+      Object.assign(links().at(-1)!, { receipt_status: 'issued', receipt_document_id: receipt.id });
+      await goto('/appointments');
+      await charge.waitFor();
+      q = new URL(`${BASE}${await charge.getAttribute('href')}`).searchParams;
+      assert.equal(q.get('price'), '300');
+      assert.equal(q.get('item'), 'לייזר רגליים (יתרה אחרי מקדמה ₪100, חשבונית מס / קבלה 8)');
+      // before migration 5200: the amount alone, as before
+      fake.depositDocsFn = false;
+      await goto('/appointments');
+      await charge.waitFor();
+      q = new URL(`${BASE}${await charge.getAttribute('href')}`).searchParams;
+      assert.equal(q.get('item'), 'לייזר רגליים (יתרה אחרי מקדמה ₪100)', 'before 5200: no document named, the same amount');
+      fake.depositDocsFn = true;
       await fits('the agenda with a deposit');
       await shot('p10-deposit.png');
       // the service's deposit is set in "שירותים"

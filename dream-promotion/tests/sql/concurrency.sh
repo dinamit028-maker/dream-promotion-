@@ -28,6 +28,12 @@
 #  19. serial numbers and SKU series (4800): one number sold from 8 registers at once → sold once (the DoD); sales and transfers of
 #      two numbered products from 8 connections, crossing → every number once, no deadlock; 8 connections × 10 new products with the
 #      next SKU of one series → 80 codes, none twice, no gap
+#  20. the desks, deposits, the bank and the goods documents (5000): one cheque deposited from 8 connections at once → in one deposit;
+#      8 deposits of the whole cash desk at once → never more than it holds; the same file imported 8 times at once → each line
+#      once; one receipt approved on 8 lines at once → one match; one delivery note invoiced 8 times at once → one invoice; 8 return
+#      notes of one unit on a note of 3 at once → exactly 3
+#  21. manual journal entries (5100): the same new entry from 8 connections at once → one; 8 connections × 10 entries → numbers
+#      1..81, no gap, no double; one entry undone from 8 connections at once → one reversal
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -508,3 +514,84 @@ r=$(q "select count(*) || ' ' || count(distinct sku) || ' ' || min(sku) || ' ' |
          from public.catalog_items where business_id = '$B' and sku like 'LD-%'")
 [ "$r" = "80 80 LD-0001 LD-0080 81" ] || fail "80 new products with the next SKU from 8 connections: none twice, no gap (expected 80 80 LD-0001 LD-0080 81, got: $r)"
 echo "ok: 80 new products from 8 connections, each with the next SKU of one series → LD-0001..LD-0080, none twice, no gap"
+
+# ---- 20. the desks, deposits, the bank and the goods documents (5000) --------------------------------------------------------------
+W=$(q "select id from public.business_locations where business_id = '$B' and kind = 'warehouse' order by created_at, id limit 1")
+[ -n "$W" ] || fail "a location of its own for the desk"
+CH=00000000-0000-0000-0000-0000000cc1d1
+for k in 1 2 3 4; do q "begin; $AS $(printf "$DOC" ', location_id, idempotency_key' 320 100 100 18 118 100 "$(pay 118)" ", '$W', 'desk-cash-$k'") commit;" >/dev/null; done
+q "begin; $AS $(printf "$DOC" ', location_id, idempotency_key' 320 100 100 18 118 100 \
+   "jsonb_build_array(jsonb_build_object('method', 2, 'amount', 118, 'm', 'cheque', 'cheque', jsonb_build_object('number', '777')))" ", '$W', 'desk-cheque'") commit;" >/dev/null
+q "begin; $AS $(printf "$DOC" ', location_id, idempotency_key' 320 100 100 18 118 100 \
+   "jsonb_build_array(jsonb_build_object('method', 4, 'amount', 118, 'm', 'transfer'))" ", '$W', 'desk-transfer'") commit;" >/dev/null
+CHP=$(q "select p.id from public.payments p join public.documents d on d.id = p.document_id where d.idempotency_key = 'desk-cheque' and p.business_id = '$B'")
+TRP=$(q "select p.id from public.payments p join public.documents d on d.id = p.document_id where d.idempotency_key = 'desk-transfer' and p.business_id = '$B'")
+for w in $(seq 8); do worker_script "$TMP/dchq-$w.sql" 1 "select public.bank_deposit_create(gen_random_uuid(), public.il_today(), '$W', 0, array['$CHP'::uuid], '');"; done
+run_parallel dchq
+r=$(q "select (select count(*) from public.bank_deposit_cheques where payment_id = '$CHP' and active) || ' ' ||
+              (select count(*) from public.bank_deposits where business_id = '$B' and location_id = '$W')")
+[ "$r" = "1 1" ] || fail "one cheque deposited from 8 connections at once: in one deposit (expected 1 1, got: $r)"
+echo "ok: one cheque deposited from 8 connections at once → one deposit holds it, 7 refused"
+for w in $(seq 8); do worker_script "$TMP/dcash-$w.sql" 1 "select public.bank_deposit_create(gen_random_uuid(), public.il_today(), '$W', 118, '{}', '');"; done
+run_parallel dcash
+r=$(q "select (select count(*) from public.bank_deposits where business_id = '$B' and location_id = '$W' and cash > 0) || ' ' || public.cash_desk_cash('$B', '$W')
+        || ' ' || (select count(distinct number) || '/' || count(*) from public.bank_deposits where business_id = '$B')")
+[ "$r" = "4 0.00 5/5" ] || fail "8 deposits of 118 from a desk of 472 at once: exactly 4, the desk at 0, numbers unique (expected 4 0.00 5/5, got: $r)"
+echo "ok: 8 deposits of the cash desk at once → never more than it holds (4 of 8), no number twice"
+FILE=$(q "select jsonb_agg(jsonb_build_object('date', public.il_today() - (g % 5), 'amount', 100 + g, 'description', 'שורה ' || g)) from generate_series(1, 20) g")
+for w in $(seq 8); do worker_script "$TMP/bimp-$w.sql" 1 "select public.bank_import(gen_random_uuid(), 'עומס', 'file.csv', '$FILE'::jsonb);"; done
+run_parallel bimp
+r=$(q "select (select count(*) from public.bank_lines where business_id = '$B') || ' ' || (select count(*) from public.bank_statements where business_id = '$B')
+        || ' ' || (select sum(lines_new) from public.bank_statements where business_id = '$B')")
+[ "$r" = "20 8 20" ] || fail "the same file imported from 8 connections at once: each line once (expected 20 8 20, got: $r)"
+echo "ok: the same file of 20 lines imported from 8 connections at once → 20 lines, each once"
+q "begin; $AS select public.bank_import(gen_random_uuid(), 'עומס', 'file2.csv', (select jsonb_agg(jsonb_build_object('date', public.il_today(), 'amount', 118, 'description', 'העברה ' || g)) from generate_series(1, 8) g)); commit;" >/dev/null
+for w in $(seq 8); do
+  worker_script "$TMP/bmatch-$w.sql" 1 "select public.bank_match((select id from public.bank_lines where business_id = '$B' and description = 'העברה $w'), array['$TRP'::uuid]);"
+done
+run_parallel bmatch
+r=$(q "select (select count(*) from public.bank_matches where payment_id = '$TRP' and active) || ' ' ||
+              (select count(*) from public.bank_lines where business_id = '$B' and description like 'העברה %' and status = 'matched')")
+[ "$r" = "1 1" ] || fail "one receipt approved on 8 lines at once: one match (expected 1 1, got: $r)"
+echo "ok: one receipt approved on 8 lines from 8 connections at once → one match, 7 lines still open"
+q "insert into public.business_finance_profile (business_id, user_id, sells_products) values ('$B', '$U', true)
+   on conflict (business_id) do update set sells_products = true;" >/dev/null
+GL='[{"name":"מוצר עומס","qty":%s,"unitPriceExVat":10,"discountExVat":0,"totalExVat":%s,"vatRate":18,"kind":1,"itemId":"'$SI'"}]'
+gdoc() { # $1 type, $2 qty, $3 key, $4 base type + number ("" = none)
+  local b=$(($2 * 10)); local v; v=$(q "select round($b * 0.18, 2)"); local tot; tot=$(q "select $b + $v")
+  echo "insert into public.documents (user_id, doc_type, doc_number, doc_date, before_discount, discount, after_discount, vat_amount, total, vat_rate, lines, payments, idempotency_key$( [ -n "$4" ] && echo ', base_doc_type, base_doc_number'))
+    values ('$U', $1, 0, public.il_today(), $b, 0, $b, $v, $tot, 18, '$(printf "$GL" "$2" "$b")', '[]', $3$( [ -n "$4" ] && echo ", $4"));"
+}
+q "begin; $AS $(gdoc 200 3 "'gd-1'" "") $(gdoc 200 3 "'gd-2'" "") commit;" >/dev/null
+N1=$(q "select doc_number from public.documents where business_id = '$B' and idempotency_key = 'gd-1'")
+N2=$(q "select doc_number from public.documents where business_id = '$B' and idempotency_key = 'gd-2'")
+S0=$(q "select stock_qty from public.catalog_items where id = '$SI'")
+for w in $(seq 8); do worker_script "$TMP/ginv-$w.sql" 1 "$(gdoc 305 3 "'gi-$w'" "200, $N1")"; done
+run_parallel ginv
+for w in $(seq 8); do worker_script "$TMP/gret-$w.sql" 1 "$(gdoc 210 1 "'gr-$w'" "200, $N2")"; done
+run_parallel gret
+r=$(q "select (select count(*) from public.documents where business_id = '$B' and doc_type = 305 and base_doc_type = 200 and base_doc_number = $N1) || ' ' ||
+              (select count(*) from public.documents where business_id = '$B' and doc_type = 210 and base_doc_type = 200 and base_doc_number = $N2) || ' ' ||
+              ((select stock_qty from public.catalog_items where id = '$SI') - $S0)")
+[ "$r" = "1 3 3" ] || fail "a delivery note invoiced 8 times / 8 returns of one on a note of 3, at once: one invoice, 3 returns, 3 back (expected 1 3 3, got: $r)"
+echo "ok: one delivery note invoiced from 8 connections at once → one invoice; 8 returns of one unit on a note of 3 → exactly 3, 3 back in stock"
+
+# ---- 21. manual journal entries (5100) -----------------------------------------------------------------------------------------------
+JE=00000000-0000-0000-0000-0000000cc1e1
+for w in $(seq 8); do worker_script "$TMP/jsame-$w.sql" 1 "select public.journal_entry_create('$JE', public.il_today(), 'income', 100, 18, null, null, 'עומס');"; done
+run_parallel jsame
+r=$(q "select count(*) || ' ' || coalesce(max(number), 0) from public.journal_entries where business_id = '$B'")
+[ "$r" = "1 1" ] || fail "the same new entry from 8 connections at once: one entry (expected 1 1, got: $r)"
+echo "ok: the same new entry from 8 connections at once → one entry, number 1"
+for w in $(seq 8); do worker_script "$TMP/jmany-$w.sql" 10 "select public.journal_entry_create(gen_random_uuid(), public.il_today(), 'expense', 10, 1.8, null, 'other', 'עומס $w');"; done
+run_parallel jmany
+r=$(q "select count(*) || ' ' || count(distinct number) || ' ' || min(number) || ' ' || max(number) from public.journal_entries where business_id = '$B'")
+[ "$r" = "81 81 1 81" ] || fail "8 connections × 10 entries: numbered 1..81, no gap, no double (expected 81 81 1 81, got: $r)"
+echo "ok: 8 connections × 10 entries at once → numbers 1..81, no gap, no double"
+for w in $(seq 8); do worker_script "$TMP/jrev-$w.sql" 1 "select public.journal_entry_reverse(gen_random_uuid(), '$JE', null, 'ביטול $w');"; done
+run_parallel jrev
+r=$(q "select (select count(*) from public.journal_entries where reverses = '$JE') || ' ' || (select count(*) from public.journal_entries where business_id = '$B')
+        || ' ' || (select count(*) from public.finance_audit_log where business_id = '$B' and action like 'journal.%')")
+[ "$r" = "1 82 82" ] || fail "one entry undone from 8 connections at once: one reversal, each in the audit log once (expected 1 82 82, got: $r)"
+echo "ok: one entry undone from 8 connections at once → one reversal, 7 refused; every entry in the audit log once"
+

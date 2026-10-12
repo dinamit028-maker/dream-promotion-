@@ -252,7 +252,8 @@ select pg_temp.refused_with($$select public.record_manual_allocation('00000000-0
   'already has', 'a second allocation number for the same document');
 select pg_temp.refused($$insert into public.tax_allocations (business_id, document_id, status, gateway, is_test, allocation_number)
   values ('00000000-0000-0000-0000-0000000f0001', '00000000-0000-0000-0000-0000000a1003', 'approved', 'mock', true, '123456789')$$, 'a test number that looks real');
-select pg_temp.check((select count(*) from public.tax_allocation_rules where not verified) = 4, 'the four thresholds are marked unverified');
+-- 2.97 (migration 20261011005200): confirmed with the accountant on 11.10.2026 — before it, the four were unverified
+select pg_temp.check((select count(*) from public.tax_allocation_rules where verified) = 4, 'the four thresholds are marked confirmed (the accountant, 5200)');
 select pg_temp.refused($$update public.tax_allocation_rules set threshold_before_vat = 1$$, 'a rule changes from the app');
 select pg_temp.refused($$select * from public.tax_authority_connections$$, 'the Tax Authority tokens are readable');
 select pg_temp.refused($$select * from public.finance_counters$$, 'the counters are readable');

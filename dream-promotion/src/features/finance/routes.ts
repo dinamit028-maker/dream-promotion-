@@ -4,8 +4,8 @@
  * card) are moved to the new address by src/proxy.ts with legacyFinanceRedirect().
  * Pure functions only: the proxy runs before every /finance request.
  */
-export type FinanceSection = 'overview' | 'documents' | 'income' | 'receivables' | 'quotes' | 'packages' | 'recurring' | 'expenses' | 'reports' | 'accountant'
-  | 'settings';
+export type FinanceSection = 'overview' | 'documents' | 'income' | 'receivables' | 'quotes' | 'packages' | 'recurring' | 'expenses' | 'cash' | 'bank' | 'reports'
+  | 'accountant' | 'journal' | 'settings';
 
 export const FINANCE_SECTIONS: readonly { id: FinanceSection; path: string; label: string }[] = [
   { id: 'overview', path: '/finance', label: 'לובי כספים' },
@@ -16,8 +16,13 @@ export const FINANCE_SECTIONS: readonly { id: FinanceSection; path: string; labe
   { id: 'packages', path: '/finance/packages', label: 'חבילות' },
   { id: 'recurring', path: '/finance/recurring', label: 'חיובים חוזרים' },
   { id: 'expenses', path: '/finance/expenses', label: 'הוצאות' },
+  // 2.95 (T9): in the menu once the business turned the desks on (module.ts, CASH_GROUP)
+  { id: 'cash', path: '/finance/cash', label: 'קופות והפקדות' },
+  { id: 'bank', path: '/finance/bank', label: 'התאמת בנק' },
   { id: 'reports', path: '/finance/reports', label: 'דוחות' },
   { id: 'accountant', path: '/finance/accountant', label: 'רואה חשבון' },
+  // 2.96 (T13א): in the menu once migration 20261011005100 is in the database (module.ts, financeGroups)
+  { id: 'journal', path: '/finance/journal', label: 'פקודות יומן' },
   { id: 'settings', path: '/finance/settings', label: 'הגדרות כספים' },
 ];
 const BY_ID = new Map(FINANCE_SECTIONS.map((s) => [s.id, s]));
