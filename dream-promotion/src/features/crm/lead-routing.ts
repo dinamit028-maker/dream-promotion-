@@ -4,13 +4,18 @@ import { formatIL } from '@/lib/il-time';
 
 /**
  * Lead departments (2.99): which department a new lead from a Meta form belongs to, who on the team gets it, and the five
- * values of the WhatsApp template new_lead. Pure (no database, no network) — tested on its own (tests/lead-routing.test.ts).
+ * values of the WhatsApp template (NEW_LEAD_TEMPLATE). Pure (no database, no network) — tested on its own (tests/lead-routing.test.ts).
  * The number of the business (Dream's WhatsApp number) writes to the TEAM only: the recipient is always a person of
  * lead_staff — never a customer's phone (the customer's phone is only a value inside the message).
  */
 
-/** the approved template: 5 values — {{1}} department, {{2}} name, {{3}} phone, {{4}} the form's details, {{5}} a wa.me link */
-export const NEW_LEAD_TEMPLATE = { name: 'new_lead', language: 'he', params: 5 } as const;
+/**
+ * The approved template: 5 values — {{1}} department, {{2}} name, {{3}} phone, {{4}} the form's details, {{5}} a wa.me link.
+ * Its category in Meta must be UTILITY ("שירות ציבורי"): Meta may not deliver a MARKETING template to a person who has not
+ * written to the number in the last 24 hours. new_lead, which Meta made MARKETING, was accepted and never arrived (12.10.2026);
+ * lead_assigned is the same 5 values as UTILITY (2.99.2).
+ */
+export const NEW_LEAD_TEMPLATE = { name: 'lead_assigned', language: 'he', params: 5 } as const;
 /** {{4}}: one line, at most this long */
 export const DETAILS_MAX = 900;
 /** a lead older than this is assigned but not sent (a Page's first sync brings a month back) */
@@ -108,7 +113,7 @@ export function detailsLine(p: { formName?: string; email?: string; answers: { q
 }
 
 /**
- * the five values of new_lead for a lead — the customer's phone is a value in the message, never the recipient.
+ * the five values of the template for a lead — the customer's phone is a value in the message, never the recipient.
  * {{4}}: the form's answers, or (a lead moved by the owner) the contact's notes, a line each joined by " · "
  */
 export function leadTemplateParams(p: {
@@ -204,13 +209,13 @@ const HINTS: Record<string, string> = {
   '133004': 'השרת של Meta לא זמין כרגע.',
   '1': 'תקלה זמנית אצל Meta.',
   '2': 'השירות של Meta לא זמין כרגע.',
-  '132000': 'מספר המשתנים לא תואם לתבנית new_lead (צריך 5).',
-  '132001': 'התבנית new_lead לא קיימת בעברית (he), או שעוד לא אושרה.',
+  '132000': `מספר המשתנים לא תואם לתבנית ${NEW_LEAD_TEMPLATE.name} (צריך 5).`,
+  '132001': `התבנית ${NEW_LEAD_TEMPLATE.name} לא קיימת בעברית (he), או שעוד לא אושרה.`,
   '132005': 'הטקסט ארוך מדי לתבנית.',
   '132007': 'התוכן מפר את כללי התבניות של Meta.',
   '132012': 'אחד המשתנים לא בפורמט שהתבנית מצפה לו.',
-  '132015': 'התבנית new_lead מושהית ב-Meta (איכות נמוכה).',
-  '132016': 'התבנית new_lead מושבתת ב-Meta.',
+  '132015': `התבנית ${NEW_LEAD_TEMPLATE.name} מושהית ב-Meta (איכות נמוכה).`,
+  '132016': `התבנית ${NEW_LEAD_TEMPLATE.name} מושבתת ב-Meta.`,
   '133010': 'המספר השולח לא רשום ב-WhatsApp Cloud API.',
   '130497': 'אי אפשר לשלוח למספרים במדינה הזו.',
   '368': 'החשבון חסום זמנית בגלל הפרת מדיניות של Meta.',
@@ -218,6 +223,13 @@ const HINTS: Record<string, string> = {
 /** a short Hebrew explanation of a code ('' when there is none — Meta's own message is shown anyway) */
 export function waErrorHint(code: string): string {
   return HINTS[code] ?? HINTS[code.split('/')[0]] ?? '';
+}
+
+/** the owner's screen, under the template's state: a warning when Meta keeps it as MARKETING ('' when the category is fine) */
+export function templateCategoryWarning(category: string): string {
+  return String(category ?? '').toUpperCase() === 'MARKETING'
+    ? 'הקטגוריה ב-Meta היא "שיווק": Meta עלולה לא למסור את ההודעה למי שלא כתב למספר ב-24 השעות האחרונות. להודעות לצוות צריך "שירות ציבורי".'
+    : '';
 }
 
 // ---------------------------------------------------------------------------------------------- a message on the card --
