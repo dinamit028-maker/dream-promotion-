@@ -89,6 +89,11 @@
   - אף פעם פעמיים: כל הודעה היא שורה ב-`lead_notifications` עם `dedupe_key` ייחודי לעסק (`lead:<מזהה Meta>:<אדם>`, ‏`move:<איש קשר>:<אדם>`), ונלקחת לשליחה רק בעדכון מותנה (`claim`). כשל — עוד ניסיון אחד (לא אחרי פסק זמן: אולי הגיעה), השגיאה המלאה של Meta על השורה, ו-push לבעלים. שליחה חוזרת — רק של `failed` / `skipped`, רק הבעלים.
   - המחלקה, האחראי, `routed_at` ו-`routed_by` של איש קשר — רק השרת (`leads_guard_routing` מסרב לדפדפן). העברה לאחראי אחר — רק הבעלים, דרך `/api/leads/assignment`. חמש הטבלאות — לשרת בלבד (בלי RLS לדפדפן): המסכים דרך `/api/leads/departments` ו-`/api/leads/assignment`, ששם נבדקים החבר והבעלים.
   - ליד ישן (יותר מ-24 שעות — `FRESH_HOURS`) מקבל מחלקה ואחראי, ולא נשלח. עסק בלי מחלקות ובלי נמען ברירת מחדל — הייבוא כמו קודם (`loadRouting` = null). עד ש-5300 במסד — שום דבר מזה לא רץ ולא מוצג.
+- שעון הנוכחות של העובד (מ-2.100.0, בלי מיגרציה — `features/timeclock/clock-app.ts`):
+  - העובד לא רואה שום דבר של Dream: `/clock/*` ו-`/c/*` מקבלים `clockMetadata` (בלי ה-manifest של Dream — ה-start_url שלו `/dashboard` מוביל להתחברות), ובשגיאה — `ErrorScreen home={null}`. מסך חדש של השעון — אותו כלל, בלי קישור ל-Dream.
+  - האייקון במסך הבית: manifest לכל עובד (`/api/clock/<token>/manifest`, `clockManifest`) — start_url = הקישור האישי, scope ‏`/clock/`. הדף מקשר אליו דרך `Shell app={token}` (React מעביר ל-`<head>`, כבר ב-HTML של השרת). לא סומכים על localStorage באייקון: באייפון לאפליקציה במסך הבית יש אחסון משלה.
+  - סריקה בתוך הדף: `QrScanner` (BarcodeDetector, ואחרת jsQR) → `siteFromScan` (רק `/c/<קוד>`, מכל כתובת; הכתובת לא נפתחת) → אותו `POST /api/clock/<token>` עם `site`. רק השרת בודק את הקוד.
+  - שינוי במסכי השעון — `tests/e2e/clock.e2e.ts` (Chromium מלא, `channel: 'chromium'` — ל-headless shell אין מצלמה).
 - Supabase דרך ה-MCP: פקודה שמכילה drop נתקעת (ממתינה לאישור). להשתמש ב-create or replace, ולוודא אחרי כל כתיבה שהיא באמת רצה.
   - גם `delete` נתקע, אפילו כשהוא רק כתוב בגוף של פונקציה (נמצא ב-3400). פונקציה כזו בעל המערכת מריץ ב-SQL Editor, ואחר כך בודקים דרך ה-MCP בקריאה בלבד. לא עוקפים את העצירה.
   - פקודה שנתקעה נכשלת אחרי 60 שניות. לבדוק מה נשמר לפני כל ניסיון נוסף.
