@@ -48,6 +48,8 @@ test('clock API: bad, revoked and inactive links', async () => {
   const r = await import('../src/app/api/clock/[token]/route');
   assert.equal((await r.GET(new Request('http://x'), ctx('short'))).status, 404);
   assert.equal((await r.GET(new Request('http://x'), ctx('tok_DOESNOTEXISTDOESNOTEXIST12'))).status, 404, 'a regenerated (old) link stops working');
+  assert.equal((await (await r.POST(post({ action: 'in' }), ctx('tok_DOESNOTEXISTDOESNOTEXIST12'))).json()).message, 'הקישור לא תקין, בקש קישור חדש מהמנהל',
+    'the clock says what to do — never a way to Dream\'s sign-in');
   assert.equal((await r.POST(post({ action: 'in' }), ctx('tok_INACTIVEINACTIVEINACTIVE123'))).status, 403, 'inactive employee cannot clock in');
   assert.equal((await r.POST(post({ action: 'dance' }), ctx())).status, 400);
 });

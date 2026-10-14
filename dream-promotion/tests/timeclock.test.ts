@@ -40,6 +40,21 @@ test('time clock: CSV for Excel', () => {
   assert.match(csv, /"מיכל","סה״כ","","","8.25","₪330"/);
 });
 
+import { LONG_SHIFT_MIN, shiftLine } from '../src/features/timeclock/hours';
+test('time clock: a recent shift on the employee\'s page — times in order, the exit day, over 14 hours', () => {
+  // October 2026: Israel is UTC+3
+  assert.deepEqual(shiftLine('2026-10-12T06:00:00Z', '2026-10-12T14:00:00Z'), { inTime: '09:00', outTime: '17:00', outOtherDay: false, minutes: 480, tooLong: false });
+  const night = shiftLine('2026-10-12T19:00:00Z', '2026-10-13T03:00:00Z');   // 22:00 → 06:00
+  assert.equal(night.inTime, '22:00'); assert.equal(night.outTime, '06:00');
+  assert.equal(night.outOtherDay, true, 'the exit is on the next day'); assert.equal(night.tooLong, false);
+  assert.equal(shiftLine('2026-10-12T21:30:00Z', '2026-10-13T05:00:00Z').outOtherDay, false, 'Israel days, not UTC: 00:30 → 08:00 is one day');
+  assert.equal(LONG_SHIFT_MIN, 14 * 60);
+  assert.equal(shiftLine('2026-10-12T05:00:00Z', '2026-10-12T19:00:00Z').tooLong, false, 'exactly 14 hours is not over');
+  assert.equal(shiftLine('2026-10-12T05:00:00Z', '2026-10-12T19:01:00Z').tooLong, true);
+  const forgot = shiftLine('2026-10-12T05:00:00Z', '2026-10-13T07:00:00Z');   // forgot to clock out
+  assert.equal(forgot.minutes, 26 * 60); assert.equal(forgot.tooLong, true); assert.equal(forgot.outOtherDay, true);
+});
+
 import { distanceMeters, newSiteCode } from '../src/features/timeclock/hours';
 test('time clock: location lock distance and site codes', () => {
   const clinic = { lat: 32.1133, lng: 34.8044 };

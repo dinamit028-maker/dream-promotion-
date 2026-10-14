@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/server/admin';
 import { israelToIso, israelParts } from '@/lib/il-time';
 import { distanceMeters } from '@/features/timeclock/hours';
+import { LINK_NOT_VALID, isClockToken } from '@/features/timeclock/clock-app';
 import { UNAVAILABLE, businessOpen } from '@/lib/server/business';
 
 export const runtime = 'nodejs';
@@ -11,7 +12,7 @@ export const runtime = 'nodejs';
  * 30+ characters, revocable by the owner). Times are always the server's, never the phone's.
  */
 async function employeeOf(token: string) {
-  if (!/^[A-Za-z0-9_-]{20,80}$/.test(token)) return null;
+  if (!isClockToken(token)) return null;
   const db = adminDb();
   const { data: emp } = await db.from('employees').select('id, user_id, business_id, name, active').eq('token', token).maybeSingle();
   if (!emp) return null;
@@ -22,6 +23,9 @@ async function employeeOf(token: string) {
     .eq('business_id', (emp as any).business_id).maybeSingle().then((r) => r, () => ({ data: null }));
   return { ...(emp as any), business: (brand as any)?.name ?? '', rules: (rules as any) ?? null };
 }
+
+/** a wrong, old (replaced) or cancelled link — the clock page shows the message, never Dream's sign-in */
+const NOT_FOUND = { code: 'not_found', message: LINK_NOT_VALID } as const;
 
 /** QR is required once the business created its code (and did not switch the requirement off) */
 const scanRequired = (emp: any) => Boolean(emp.rules?.site_code && emp.rules?.require_qr !== false);
@@ -47,7 +51,7 @@ async function state(emp: any) {
 export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const emp = await employeeOf(params.token);
-  if (!emp) return NextResponse.json({ code: 'not_found', message: 'הקישור לא תקין או שבוטל' }, { status: 404 });
+  if (!emp) return NextResponse.json(NOT_FOUND, { status: 404 });
   if (emp === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   const site = new URL(req.url).searchParams.get('site');
   const siteOk = !scanRequired(emp) || (Boolean(site) && site === emp.rules.site_code);
@@ -57,7 +61,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const params = await ctx.params;   // Next 15: the route's params arrive as a promise
   const emp = await employeeOf(params.token);
-  if (!emp) return NextResponse.json({ code: 'not_found', message: 'הקישור לא תקין או שבוטל' }, { status: 404 });
+  if (!emp) return NextResponse.json(NOT_FOUND, { status: 404 });
   if (emp === 'locked') return NextResponse.json(UNAVAILABLE, { status: 403 });
   if (!emp.active) return NextResponse.json({ code: 'inactive', message: 'העובד/ת לא פעיל/ה. פנו למנהל/ת.' }, { status: 403 });
   const body = await req.json().catch(() => ({}));
