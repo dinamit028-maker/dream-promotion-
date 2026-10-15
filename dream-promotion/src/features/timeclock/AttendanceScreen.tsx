@@ -156,7 +156,7 @@ export function AttendanceScreen() {
                       {mine.map((e) => (
                         <button key={e.id} type="button" onClick={() => setEditing(e)} className="flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2 text-start text-sm tabular-nums hover:ring-1 hover:ring-primary">
                           <span>{formatIL(e.clockIn, { weekday: 'short', day: 'numeric', month: 'numeric' })}{(e.edited || e.source === 'manual') && <span className="ms-1 text-[10px] text-warn">· תוקן</span>}</span>
-                          <span>{time(e.clockIn)}–{e.clockOut ? time(e.clockOut) : '…'} · {e.clockOut ? hhmm(minutesOf(e)) : 'פתוחה'}</span>
+                          <span><bdi dir="ltr">{time(e.clockIn)}–{e.clockOut ? time(e.clockOut) : '…'}</bdi> · {e.clockOut ? hhmm(minutesOf(e)) : 'פתוחה'}</span>
                         </button>
                       ))}
                       <Button size="sm" variant="ghost" onClick={() => setEditing({ employeeId: emp.id })}>+ משמרת ידנית</Button>
@@ -181,7 +181,7 @@ export function AttendanceScreen() {
                   <Button size="sm" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(link(emp)); say('הקישור הועתק'); }}>העתקת קישור</Button>
                   {waLink(emp.phone) && <a className="rounded-full border border-line px-3 py-1 text-sm" target="_blank" rel="noopener"
                     href={waLink(emp.phone, qr?.site_code && qr.require_qr
-                    ? `היי ${emp.name.split(' ')[0]}, זה הקישור האישי שלך לשעון הנוכחות של ${brand.name || 'העסק'}: ${link(emp)}\nפותחים אותו פעם אחת בטלפון — ומאז, בכל כניסה ויציאה פשוט סורקים במצלמה את קוד ה-QR שתלוי בעסק.`
+                    ? `היי ${emp.name.split(' ')[0]}, זה הקישור האישי שלך לשעון הנוכחות של ${brand.name || 'העסק'}: ${link(emp)}\nבאייפון כדאי להוסיף אותו למסך הבית (שיתוף ← "הוספה למסך הבית"). בכל כניסה ויציאה פותחים את השעון, לוחצים "סריקה" ומכוונים לקוד ה-QR שתלוי בעסק.`
                     : `היי ${emp.name.split(' ')[0]}, זה הקישור האישי שלך לשעון הנוכחות של ${brand.name || 'העסק'}: ${link(emp)}\nכניסה ויציאה בלחיצה. כדאי להוסיף למסך הבית.`)}>💬 שליחה</a>}
                   <Button size="sm" variant="ghost" onClick={() => { if (window.confirm('ליצור קישור חדש? הקישור הישן יפסיק לעבוד מיד.')) void run(() => supabase().from('employees').update({ token: newToken() }).eq('id', emp.id), 'נוצר קישור חדש'); }}>קישור חדש</Button>
                   <Button size="sm" variant="ghost" onClick={() => void run(() => supabase().from('employees').update({ active: !emp.active }).eq('id', emp.id))}>{emp.active ? 'השבתה' : 'הפעלה'}</Button>
@@ -277,7 +277,7 @@ function QrTab({ userId, business, value, onSaved, onError }: { userId: string; 
     if (!w || !img) return;
     w.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>שעון נוכחות — ${business}</title>
       <style>body{font-family:system-ui,Arial,sans-serif;text-align:center;padding:40px}h1{font-size:34px;margin:0}h2{font-size:22px;font-weight:600;margin:8px 0 24px}img{width:70vmin;max-width:520px}p{font-size:18px;color:#444}</style></head>
-      <body><h1>${business.replace(/</g, '')}</h1><h2>שעון נוכחות — כניסה ויציאה</h2><img src="${img}" alt="QR"><p>פותחים את המצלמה, סורקים, ולוחצים על הקישור.</p>
+      <body><h1>${business.replace(/</g, '')}</h1><h2>שעון נוכחות — כניסה ויציאה</h2><img src="${img}" alt="QR"><p>פותחים את שעון הנוכחות בטלפון, לוחצים &quot;סריקה&quot; ומכוונים לקוד.</p>
       <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`);
     w.document.close();
   }

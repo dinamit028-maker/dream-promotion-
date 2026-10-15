@@ -17,6 +17,19 @@ export const decimalHours = (min: number) => Math.round((min / 60) * 100) / 100;
 
 export const dayOf = (iso: string) => israelParts(new Date(iso)).date;
 
+/** a single shift longer than this is flagged on the employee's page — usually a forgotten clock-out */
+export const LONG_SHIFT_MIN = 14 * 60;
+
+/**
+ * A closed shift as the employee's page lists it: the times in order (in → out — the page shows them left to right),
+ * the day of the clock-out when it is not the day the shift started (Israel), and over 14 hours flagged.
+ */
+export function shiftLine(clockIn: string, clockOut: string) {
+  const i = israelParts(new Date(clockIn)), o = israelParts(new Date(clockOut));
+  const minutes = minutesOf({ clockIn, clockOut });
+  return { inTime: i.time, outTime: o.time, outOtherDay: o.date !== i.date, minutes, tooLong: minutes > LONG_SHIFT_MIN };
+}
+
 /** first and last calendar day of a month, as YYYY-MM-DD (Israel) */
 export function monthRange(ym: string) {
   const [y, m] = ym.split('-').map(Number);

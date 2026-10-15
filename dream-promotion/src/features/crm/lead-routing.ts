@@ -13,7 +13,7 @@ import { formatIL } from '@/lib/il-time';
  * The approved template: 5 values — {{1}} department, {{2}} name, {{3}} phone, {{4}} the form's details, {{5}} a wa.me link.
  * Its category in Meta must be UTILITY ("שירות ציבורי"): Meta may not deliver a MARKETING template to a person who has not
  * written to the number in the last 24 hours. new_lead, which Meta made MARKETING, was accepted and never arrived (12.10.2026);
- * lead_assigned is the same 5 values as UTILITY (2.99.2).
+ * lead_assigned is the same 5 values as UTILITY (2.100.2).
  */
 export const NEW_LEAD_TEMPLATE = { name: 'lead_assigned', language: 'he', params: 5 } as const;
 /** {{4}}: one line, at most this long */

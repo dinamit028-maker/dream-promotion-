@@ -14,23 +14,37 @@ import { FinalScene } from '@/features/landing/FinalScene';
 import {
   CalendarBlank, FilmSlate, Megaphone, UsersThree, PencilSimpleLine, TiktokLogo,
   Robot, CalendarCheck, AddressBook, CashRegister, ShoppingBag, IdentificationBadge,
+  WhatsappLogo, ClipboardText, Receipt, Storefront, Wallet,
 } from '@/components/ui/Icon';
 
+// the toolbox: what is built and in use is "כבר בארגז" (in three groups, so the list reads on a phone);
+// what is not ready yet is "נכנס בקרוב"
 const TOOLS_NOW = [
-  { I: PencilSimpleLine, t: 'תוכן ופוסטים', d: 'קאפשן, כותרת והאשטגים בעברית, בטון של העסק.' },
-  { I: FilmSlate, t: 'רילסים וסרטוני AI', d: 'מתסריט לסרטון מוכן, בלי צילומים ובלי עורך.' },
-  { I: CalendarBlank, t: 'יומן תוכן', d: 'שבוע שלם מתוכנן בלחיצה, בשעות שהקהל ער.' },
-  { I: Megaphone, t: 'קמפיינים', d: 'מטרה, קהל ותקציב. המודעה נכתבת בשבילכם.' },
-  { I: UsersThree, t: 'לוח לידים', d: 'כל פנייה במקום אחד, עם סטטוס לכל לקוח.' },
-  { I: TiktokLogo, t: 'חיבור ל-TikTok', d: 'הסרטונים נשלחים ישר לחשבון של העסק.' },
+  { g: 'שיווק', items: [
+    { I: PencilSimpleLine, t: 'תוכן ופוסטים', d: 'קאפשן, כותרת והאשטגים בעברית, בטון של העסק.' },
+    { I: FilmSlate, t: 'רילסים וסרטוני AI', d: 'מתסריט לסרטון מוכן, בלי צילומים ובלי עורך.' },
+    { I: CalendarBlank, t: 'יומן תוכן', d: 'שבוע שלם של תוכן, מתוכנן בלחיצה.' },
+    { I: Megaphone, t: 'קמפיינים', d: 'מטרה, קהל ותקציב. המודעה נכתבת בשבילכם.' },
+    { I: TiktokLogo, t: 'חיבור ל-TikTok', d: 'הסרטונים נשלחים לטיוטות בחשבון של העסק.' },
+  ] },
+  { g: 'לקוחות', items: [
+    { I: UsersThree, t: 'לוח לידים', d: 'כל פנייה במקום אחד, עם סטטוס לכל לקוח.' },
+    { I: AddressBook, t: 'CRM', d: 'כרטיס לכל לקוח: היסטוריה, רכישות ותזכורות.' },
+    { I: WhatsappLogo, t: 'ניתוב לידים לאחראי', d: 'כל ליד מטופס מגיע למחלקה שלו ונשלח בוואטסאפ לעובד האחראי.' },
+    { I: CalendarCheck, t: 'זימון תורים', d: 'לקוחות קובעים לבד, והיומן מתעדכן.' },
+    { I: ClipboardText, t: 'הצהרות בריאות', d: 'הלקוח חותם בטלפון לפני הטיפול, וההצהרה נשמרת בכרטיס.' },
+  ] },
+  { g: 'ניהול העסק', items: [
+    { I: CashRegister, t: 'קופה דיגיטלית', d: 'מכירות, החזרים וסגירת יום, עם מסמך לכל מכירה.' },
+    { I: Receipt, t: 'חשבוניות וכספים', d: 'הצעות מחיר, חשבוניות, קבלות, הוצאות ודוחות.' },
+    { I: ShoppingBag, t: 'חנות אונליין', d: 'אתר לעסק עם מוצרים ומלאי, ועיצוב בלחיצה.' },
+    { I: IdentificationBadge, t: 'שעון נוכחות', d: 'כניסה ויציאה לעובדים מהטלפון, ודוח חודשי.' },
+    { I: Storefront, t: 'ניהול סניפים', d: 'כמה סניפים וקופות, ומלאי לכל סניף.' },
+  ] },
 ];
 const TOOLS_NEXT = [
   { I: Robot, t: 'צ׳אטבוט AI ללידים', d: 'עונה לכל פנייה מיד ומחמם את הליד עד לשיחה.' },
-  { I: CalendarCheck, t: 'זימון תורים', d: 'לקוחות קובעים לבד, והיומן מתעדכן.' },
-  { I: AddressBook, t: 'CRM', d: 'כרטיס לכל לקוח: היסטוריה, רכישות ותזכורות.' },
-  { I: CashRegister, t: 'קופה דיגיטלית', d: 'גבייה וקבלות, מחוברת לסליקה קיימת.' },
-  { I: ShoppingBag, t: 'חנות אונליין', d: 'מוצרים, הזמנות ומלאי באותו מקום.' },
-  { I: IdentificationBadge, t: 'שעון נוכחות', d: 'כניסה ויציאה לעובדים, כשהעסק גדל.' },
+  { I: Wallet, t: 'תשלום אונליין', d: 'תשלום בכרטיס בחנות, בקישור לתשלום ובמקדמה על תור.' },
 ];
 
 const NAV = [
@@ -71,36 +85,39 @@ export default function Landing() {
       <Campaigns />
       <Leads />
 
-      {/* the bigger vision: an honest status on every tool */}
+      {/* the bigger vision: an honest status on every tool — what is in use, and what is on the way */}
       <section id="toolbox" className="mx-auto max-w-6xl scroll-mt-20 px-5 py-28">
         <h2 className="max-w-3xl font-display text-4xl font-black leading-tight sm:text-6xl">ארגז כלים לעסק של אדם אחד</h2>
         <p className="mt-4 max-w-2xl text-lg leading-relaxed text-ink-2">
-          כל מה שצריך כדי לפתוח עסק מחר בבוקר ולנהל אותו לבד, בבית אחד. חלק מהכלים כבר עובדים, והשאר בדרך.
+          כל מה שצריך כדי לפתוח עסק מחר בבוקר ולנהל אותו לבד, בבית אחד. רוב הכלים כבר עובדים, והשאר בדרך.
         </p>
-        <div className="mt-12 grid gap-12 lg:grid-cols-2 lg:gap-16">
-          <div>
-            <h3 className="flex items-center gap-2 font-display text-xl font-bold"><span className="h-2.5 w-2.5 rounded-full bg-[#43D2AE]" aria-hidden />כבר בארגז</h3>
-            <ul className="mt-5 divide-y divide-line border-y border-line">
-              {TOOLS_NOW.map(({ I, t, d }) => (
-                <li key={t} className="flex items-start gap-4 py-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-[#8B66FF]/15 text-primary"><I size={22} aria-hidden /></span>
-                  <div><p className="font-display text-lg font-bold">{t}</p><p className="mt-0.5 leading-relaxed text-ink-2">{d}</p></div>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h3 className="flex items-center gap-2 font-display text-xl font-bold text-ink-2"><span className="h-2.5 w-2.5 rounded-full border-2 border-(--muted)" aria-hidden />נכנס בקרוב</h3>
-            <ul className="mt-5 divide-y divide-dashed divide-line border-y border-dashed border-line">
-              {TOOLS_NEXT.map(({ I, t, d }) => (
-                <li key={t} className="flex items-start gap-4 py-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-dashed border-line text-muted"><I size={22} aria-hidden /></span>
-                  <div><p className="font-display text-lg font-bold text-ink">{t}</p><p className="mt-0.5 leading-relaxed text-muted">{d}</p></div>
-                </li>
-              ))}
-            </ul>
-          </div>
+
+        <h3 className="mt-12 flex items-center gap-2 font-display text-xl font-bold"><span className="h-2.5 w-2.5 rounded-full bg-[#43D2AE]" aria-hidden />כבר בארגז</h3>
+        <div className="mt-6 grid gap-10 md:grid-cols-3 md:gap-8">
+          {TOOLS_NOW.map(({ g, items }) => (
+            <div key={g}>
+              <h4 className="font-display text-sm font-bold text-primary">{g}</h4>
+              <ul className="mt-2 divide-y divide-line border-y border-line">
+                {items.map(({ I, t, d }) => (
+                  <li key={t} className="flex items-start gap-4 py-4">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-[#8B66FF]/15 text-primary"><I size={22} aria-hidden /></span>
+                    <div><p className="font-display text-lg font-bold">{t}</p><p className="mt-0.5 leading-relaxed text-ink-2">{d}</p></div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
+
+        <h3 className="mt-14 flex items-center gap-2 font-display text-xl font-bold text-ink-2"><span className="h-2.5 w-2.5 rounded-full border-2 border-(--muted)" aria-hidden />נכנס בקרוב</h3>
+        <ul className="mt-5 grid border-y border-dashed border-line md:grid-cols-2 md:gap-x-8">
+          {TOOLS_NEXT.map(({ I, t, d }, i) => (
+            <li key={t} className={`flex items-start gap-4 py-4 ${i ? 'max-md:border-t max-md:border-dashed max-md:border-line' : ''}`}>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-dashed border-line text-muted"><I size={22} aria-hidden /></span>
+              <div><p className="font-display text-lg font-bold text-ink">{t}</p><p className="mt-0.5 leading-relaxed text-muted">{d}</p></div>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <FinalScene />
