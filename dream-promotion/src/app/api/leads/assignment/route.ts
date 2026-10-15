@@ -13,7 +13,7 @@ export const maxDuration = 30;
  * A contact's department, person and WhatsApp messages (2.99) — the card.
  *  GET ?lead=<id>        → its department, its person, why, and every message about it (any member, not a cashier)
  *  POST { action }       → the owner only:
- *    assign { leadId, staffId | null, send }  another person (or none); with send, new_lead to the new person — once per
+ *    assign { leadId, staffId | null, send }  another person (or none); with send, the template to the new person — once per
  *                                             contact and person, ever (a move back and forth never sends twice)
  *    resend { id }                            a message that failed, or was skipped (WhatsApp not connected / an old lead),
  *                                             sent now — taken by one sender only, never one that went out

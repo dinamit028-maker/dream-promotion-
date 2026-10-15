@@ -85,6 +85,7 @@ class Server {
   ];
   defaultStaffId: string | null = null;
   connected = false;
+  category = 'UTILITY';
   ready = true;
   posts: any[] = [];
   notes: Record<string, any[]> = {
@@ -166,7 +167,7 @@ async function main() {
         const base = server.view(owner, owner ? OWNER : EDITOR);
         if (view === 'setup' && owner && base.ready) {
           return r.fulfill({ json: { ...base, members: [{ userId: OWNER, name: 'בעלת הסטודיו', role: 'owner' }, { userId: EDITOR, name: 'מיכל (חשבון)', role: 'editor' }],
-            health: server.connected ? { connected: true, number: { display: '+1 555-010-0123', name: 'Test Number', quality: 'GREEN' }, template: { status: 'PENDING', language: 'he', category: 'UTILITY' } } : { connected: false },
+            health: server.connected ? { connected: true, number: { display: '+1 555-010-0123', name: 'Test Number', quality: 'GREEN' }, template: { status: 'PENDING', language: 'he', category: server.category } } : { connected: false },
             recent: [{ ...server.notes[ROTEM][0], leadName: 'רותם כהן' }, { ...server.notes[NOA][0], leadName: 'נועה לוי' }] } });
         }
         return r.fulfill({ json: base });
@@ -387,7 +388,8 @@ async function main() {
       await goto('/leads/departments');
       await page.getByText('💬 וואטסאפ מחובר').waitFor({ timeout: 60_000 });
       await page.getByText('שולח מ: +1 555-010-0123 · Test Number').waitFor();
-      await page.getByText('התבנית new_lead (עברית): ממתינה לאישור של Meta — עד שהיא מאושרת, השליחה נכשלת (קוד 132001).').waitFor();
+      await page.getByText('התבנית lead_assigned (עברית, שירות ציבורי): ממתינה לאישור של Meta — עד שהיא מאושרת, השליחה נכשלת (קוד 132001).').waitFor();
+      assert.equal(await page.getByText(/הקטגוריה ב-Meta היא "שיווק"/).count(), 0, 'UTILITY: no warning');
       const team = page.getByRole('region', { name: 'הצוות שמקבל לידים' });
       const michal = team.getByRole('listitem').filter({ hasText: 'מיכל' });
       await michal.getByRole('button', { name: 'שליחת הודעת בדיקה' }).click();
@@ -404,6 +406,12 @@ async function main() {
       const recent = page.getByRole('region', { name: 'הודעות אחרונות' });
       await recent.getByText(/רותם כהן/).waitFor();
       await shot('ld-5-connected.png');
+      // Meta makes the template MARKETING (as it did to new_lead, 12.10.2026): the screen says so, and what it should be
+      server.category = 'MARKETING';
+      await goto('/leads/departments');
+      await page.getByText('התבנית lead_assigned (עברית, שיווק): ממתינה לאישור של Meta — עד שהיא מאושרת, השליחה נכשלת (קוד 132001).').waitFor({ timeout: 60_000 });
+      await page.getByRole('alert').filter({ hasText: 'הקטגוריה ב-Meta היא "שיווק"' }).getByText(/להודעות לצוות צריך "שירות ציבורי"/).waitFor();
+      server.category = 'UTILITY';
     });
 
     await step('a member (not the owner): sees the departments and the person, never changes them', async () => {

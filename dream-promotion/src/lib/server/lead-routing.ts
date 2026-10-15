@@ -9,7 +9,7 @@ import type { MappedLead } from '@/features/crm/meta-leads';
 
 /**
  * Lead departments on the server (2.99, migration 20261012005300). A new lead from a Meta form → its department (lead-routing.ts)
- * → the contact gets the department and the person responsible ("אחראי") → one WhatsApp message (template new_lead) to that
+ * → the contact gets the department and the person responsible ("אחראי") → one WhatsApp message (the template lead_assigned) to that
  * person only, queued in lead_notifications and sent at the end of the sync:
  *  - never twice: one row per Meta lead and person (unique dedupe_key), and a row is taken by one sender only
  *    (queued → sending, a conditional update) — a second sync, or two at once, find it taken;
