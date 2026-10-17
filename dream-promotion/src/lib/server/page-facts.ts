@@ -20,13 +20,18 @@ export async function pageFacts(userId: string, p: Record<string, unknown>): Pro
   const { data: r } = await db.from('register_settings').select('legal_name, dealer_number, company_number, entity_type').eq('business_id', business).maybeSingle();
   const st = s as any, rs = (r ?? {}) as any;
   const company = rs.entity_type === 'company' || (!rs.dealer_number && rs.company_number);
+  // 2.103: the company that runs the site, when the store names one (as the site shows it) — the law stays the store's country's
+  const op = String(st.legal_name ?? '').trim() ? {
+    legalName: String(st.legal_name).trim(), number: String(st.legal_number ?? ''), address: String(st.legal_address ?? '') || (st.address ?? ''),
+    numberKind: (['company', 'dealer', 'ein'] as const).find((k) => k === st.legal_number_kind) ?? ('' as const),
+  } : null;
   const kind = p.kind === 'policy' ? 'policy' : 'page';
   const policy = kind === 'policy' && POLICIES.includes(p.policy as PolicyKind) ? (p.policy as PolicyKind) : null;
   return {
     kind: policy ? 'policy' : 'page', policy, title: String(p.title ?? '').slice(0, 120), current: String(p.current ?? '').slice(0, 6000),
     store: {
       name: st.name ?? '', legalName: rs.legal_name ?? '', number: (company ? rs.company_number : rs.dealer_number) || rs.company_number || '',
-      numberKind: company ? 'company' : 'dealer', address: st.address ?? '', phone: st.phone ?? '', email: st.email ?? '', whatsapp: st.whatsapp ?? '',
+      numberKind: company ? 'company' : 'dealer', address: st.address ?? '', ...op, phone: st.phone ?? '', email: st.email ?? '', whatsapp: st.whatsapp ?? '',
       country: st.country || 'IL', description: String(st.description ?? '').slice(0, 500),
     },
     selling: {

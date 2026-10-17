@@ -533,6 +533,40 @@ async function main() {
       await block(st, 'לפני שעולים לאוויר').getByText('דרך ליצור קשר (טלפון, וואטסאפ או מייל) — קיים').waitFor();
     });
 
+    await step('2.103 — the company that runs the site: an American company, its EIN in the usual form, the line the site will show; never saved half; emptied — the business\'s details again', async () => {
+      const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await st.waitForTimeout(100); assert.ok(ok()); };
+      const docs = structuredClone(fake.tables.register_settings);
+      const op = block(st, 'החברה שמפעילה את האתר');
+      await op.getByText('החשבוניות והקבלות תמיד על שם העסק', { exact: false }).waitFor();
+      await op.getByLabel('שם החברה').fill('Good Luck Forever Inc.');
+      await op.getByLabel('מספר החברה באתר').selectOption('ein');
+      await op.getByLabel('המספר', { exact: true }).fill('12 3456789');
+      await op.getByLabel('כתובת החברה').fill('221 Rutgers St, Maplewood, NJ 07040');
+      await op.getByLabel('מדינת החברה').selectOption('US');
+      await op.getByText('בתחתית האתר: Good Luck Forever Inc. · EIN 12 3456789 · 221 Rutgers St, Maplewood, NJ 07040').waitFor();
+      await st.getByRole('button', { name: 'שמירת הפרטים' }).click();
+      await until(() => store().legal_name === 'Good Luck Forever Inc.');
+      assert.deepEqual([store().legal_name, store().legal_number, store().legal_number_kind, store().legal_address, store().legal_country],
+        ['Good Luck Forever Inc.', '12-3456789', 'ein', '221 Rutgers St, Maplewood, NJ 07040', 'US']);
+      const number = op.getByLabel('המספר', { exact: true });
+      for (let i = 0; i < 50 && (await number.inputValue()) !== '12-3456789'; i++) await st.waitForTimeout(100);
+      assert.equal(await number.inputValue(), '12-3456789', 'in its usual form');
+      assert.deepEqual(fake.tables.register_settings, docs, 'the documents\' details are not touched');
+      // a number without its company: refused before anything is saved
+      await op.getByLabel('שם החברה').fill('');
+      await st.getByRole('button', { name: 'שמירת הפרטים' }).click();
+      await st.getByText('בלי שם החברה האתר מציג את פרטי העסק. מלאו את השם, או רוקנו את שאר השדות.').waitFor();
+      assert.equal(store().legal_name, 'Good Luck Forever Inc.', 'nothing saved half');
+      // emptied: the business's details again (the number goes with its kind)
+      await op.getByLabel('מספר החברה באתר').selectOption('');
+      await op.getByLabel('כתובת החברה').fill('');
+      await op.getByLabel('מדינת החברה').selectOption('');
+      await st.getByRole('button', { name: 'שמירת הפרטים' }).click();
+      await until(() => store().legal_name === '');
+      assert.deepEqual([store().legal_number, store().legal_number_kind, store().legal_address, store().legal_country], ['', '', '', '']);
+      await noSideScroll(st, 'the company that runs the site, on a phone');
+    });
+
     await step('the domain: recorded with its www, the DNS records and the steps in Vercel — never "פעיל" from here', async () => {
       await st.getByLabel('הדומיין').fill('https://www.FollowMeCollection.com/');
       await st.getByRole('button', { name: 'חיבור' }).click();

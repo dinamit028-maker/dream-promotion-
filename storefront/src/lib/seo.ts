@@ -16,7 +16,7 @@ export function orgJsonLd(site: Live) {
         ...(store.logo_url ? { logo: store.logo_url } : {}),
         ...(store.contact.phone ? { telephone: store.contact.phone } : {}),
         ...(store.contact.email ? { email: store.contact.email } : {}),
-        ...(store.legal.address ? { address: { '@type': 'PostalAddress', streetAddress: store.legal.address, addressCountry: store.country } } : {}),
+        ...(store.legal.address ? { address: { '@type': 'PostalAddress', streetAddress: store.legal.address, addressCountry: store.legal.country || store.country } } : {}),
       },
       {
         '@type': 'WebSite', '@id': `${origin}/#website`, url: `${origin}/`, name: store.name, inLanguage: store.lang === 'he' ? 'he-IL' : 'en',

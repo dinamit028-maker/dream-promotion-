@@ -96,3 +96,20 @@ test('short texts people leave empty: a category\'s description, the store\'s se
   assert.match(prompt, /שקיות בד/); assert.match(prompt, /בלי מחירים, מבצעים, משלוח/);
   assert.doesNotMatch(prompt, /515778223|0503566969/, 'a category\'s text needs no legal number or phone');
 });
+
+test('2.103: a store that names the company that runs it — the AI writes with that company (the law stays the store\'s country\'s)', async () => {
+  const s = tables.stores[0];
+  Object.assign(s, { legal_name: 'Good Luck Forever Inc.', legal_number: '12-3456789', legal_number_kind: 'ein', legal_address: '221 Rutgers St, Maplewood, NJ 07040', legal_country: 'US' });
+  try {
+    const f = (await pageFacts('owner', { kind: 'policy', policy: 'privacy', title: 'פרטיות', current: '' }))!;
+    assert.deepEqual([f.store.legalName, f.store.number, f.store.numberKind, f.store.address, f.store.country],
+      ['Good Luck Forever Inc.', '12-3456789', 'ein', '221 Rutgers St, Maplewood, NJ 07040', 'IL']);
+    const text = factsText(f);
+    assert.match(text, /השם החוקי: Good Luck Forever Inc\./); assert.match(text, /EIN: 12-3456789/);
+    assert.doesNotMatch(text, /פולו מי אופנה|515778223/, 'never the business\'s name or number beside it');
+  } finally {
+    for (const k of ['legal_name', 'legal_number', 'legal_number_kind', 'legal_address', 'legal_country']) delete s[k];
+  }
+  const back = (await pageFacts('owner', { kind: 'page', title: 'x' }))!;
+  assert.equal(back.store.legalName, 'פולו מי אופנה בע"מ', 'without one — the business\'s details, as before');
+});

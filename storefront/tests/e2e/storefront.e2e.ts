@@ -235,6 +235,28 @@ async function main() {
       await ctx.close();
     });
 
+    await step('2.103 — the company that runs the site: its name and address at the bottom of every page, never the business\'s number beside it; its EIN; emptied — the business\'s details again', async () => {
+      const { ctx, page } = await phone();
+      const legal = async () => { await page.goto(url('followme.test')); return (await page.locator('footer .legal').innerText()) as string; };
+      try {
+        psql(`update public.stores set legal_name = 'Good Luck Forever Inc.', legal_address = '221 Rutgers St, Maplewood, NJ 07040', legal_country = 'US' where id = '${FOLLOWME_STORE}'`);
+        await refreshAll();
+        const line = await legal();
+        assert.match(line, /Good Luck Forever Inc\. · 221 Rutgers St, Maplewood, NJ 07040/);
+        assert.doesNotMatch(line, /פולואו מי|516000001|ח\.פ\.|ע\.מ\.|הרצל/, 'never the business\'s name, number or address beside another company');
+        const org = JSON.parse((await page.locator('script[type="application/ld+json"]').first().textContent()) ?? '{}')['@graph'][0];
+        assert.deepEqual([org.name, org.address?.streetAddress, org.address?.addressCountry], ['Good Luck Forever Inc.', '221 Rutgers St, Maplewood, NJ 07040', 'US']);
+        psql(`update public.stores set legal_number = '12-3456789', legal_number_kind = 'ein' where id = '${FOLLOWME_STORE}'`);
+        await refreshAll();
+        assert.match(await legal(), /Good Luck Forever Inc\. · EIN\s*12-3456789 · 221 Rutgers St/, 'a number of its own, with its label');
+      } finally {
+        psql(`update public.stores set legal_name = '', legal_number = '', legal_number_kind = '', legal_address = '', legal_country = '' where id = '${FOLLOWME_STORE}'`);
+        await refreshAll();
+      }
+      assert.match(await legal(), /פולואו מי בע"מ · ח\.פ\.\s*516000001 · הרצל 10, תל אביב/, 'emptied — the business\'s details again');
+      await ctx.close();
+    });
+
     await step('cookies: Google Analytics only after "אישור"; "דחייה" leaves nothing', async () => {
       ga.length = 0;
       const { ctx, page } = await phone();
@@ -972,6 +994,9 @@ async function main() {
       const cmp = await (await browser.newContext()).newPage();   // compares two pictures in a canvas (no image library)
       await cmp.evaluate('window.__name = (f) => f');   // tsx names the functions it hands the page with a helper of its own
       const ready = async (p: any) => {
+        // after the page is hydrated: a bar removed before it comes back when React renders the page again (2.103 — seen once,
+        // the collection of bags-3d 20px lower)
+        await p.waitForLoadState('networkidle');
         await p.evaluate(() => document.querySelectorAll('.preview-bar, .consent').forEach((e) => e.remove()));
         await p.evaluate(() => document.fonts.ready);
         await p.waitForFunction(() => Array.from(document.images).filter((i) => { const r = i.getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; }).every((i) => i.complete));
