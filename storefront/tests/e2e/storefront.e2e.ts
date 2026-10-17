@@ -305,6 +305,10 @@ async function main() {
       assert.equal(await page.locator('.gallery img').count(), 2);
       assert.equal(await page.locator('.gallery img').first().getAttribute('alt'), 'שקית בד שחורה');
       assert.match((await page.locator('.gallery img').first().getAttribute('srcset')) ?? '', /tote-1-400\.webp 400w, .*tote-1-1600\.webp 1600w/);
+      // one picture across the phone, the next a swipe away (2.102.2: the section gallery's rules share the class name, and
+      // once made it two to a row — the picture in half the width)
+      const [first, wide] = await page.evaluate(() => [document.querySelector('.gallery figure')!.getBoundingClientRect().width, innerWidth]);
+      assert.ok(first > wide * 0.8, `the first picture fills the phone (${first} of ${wide})`);
       const price = page.locator('.buy-price');
       assert.match(await price.innerText(), /20/);
       await page.getByRole('button', { name: 'M', exact: true }).click();
@@ -333,6 +337,10 @@ async function main() {
       assert.ok(product.offers.some((o: any) => o.availability === 'https://schema.org/OutOfStock'));
       assert.ok(lds.some((t: string) => t.includes('"BreadcrumbList"') && t.includes('שקיות אקולוגיות')), 'breadcrumbs through its collection');
       await page.screenshot({ path: path.join(SHOTS, 'product-390.png'), fullPage: true });
+      // a product with no picture: its placeholder, as wide as a picture would be
+      await page.goto(url('followme.test', '/products/paper-bag'));
+      const [empty, w] = await page.evaluate(() => [document.querySelector('.gallery-empty')!.getBoundingClientRect().width, innerWidth]);
+      assert.ok(empty > w * 0.8, `the placeholder fills the phone (${empty} of ${w})`);
       await ctx.close();
     });
 

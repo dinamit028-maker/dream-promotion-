@@ -175,11 +175,12 @@ input, select, textarea {
 .gallery::-webkit-scrollbar { display: none; }
 .gallery figure { margin: 0; flex: 0 0 88%; scroll-snap-align: center; }
 .gallery img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: var(--radius); background: var(--c-surface); border: 1px solid var(--c-border); }
-.gallery-empty { aspect-ratio: 4 / 5; border-radius: var(--radius); background: var(--c-accent-soft); display: flex; align-items: center; justify-content: center; }
+.gallery-empty { flex: 0 0 88%; aspect-ratio: 4 / 5; border-radius: var(--radius); background: var(--c-accent-soft); display: flex; align-items: center; justify-content: center; }
+/* on a computer: the first picture across, the rest four to a row (as it has looked since 2.62) */
 @media (min-width: 900px) {
-  .gallery { display: grid; grid-template-columns: 1fr 1fr; overflow: visible; margin: 0; padding: 0; }
+  .gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; overflow: visible; margin: 16px 0 0; padding: 0; }
   .gallery figure { flex: none; }
-  .gallery figure:first-child { grid-column: 1 / -1; }
+  .gallery figure:first-child, .product .gallery-empty { grid-column: 1 / -1; }
 }
 .product-title { font-size: clamp(1.6rem, 5vw, 2.3rem); font-weight: 800; letter-spacing: -.01em; }
 .buy { display: grid; gap: 14px; margin-block: 8px 20px; }
@@ -319,11 +320,13 @@ input, select, textarea {
 .card-noimage .plain-art, .tile-art.plain-art { width: 60%; }
 .card-placeholder .card-media { border: 2px dashed var(--c-border); }
 .band[id] { scroll-margin-top: 80px; }
-.gallery { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (min-width: 900px) { .gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; } }
+/* the section's list only (ul): the product's own pictures (.product .gallery, a div — above) share the class name, and these
+   rules once took them over — one picture in half the phone's width (2.102.2) */
+ul.gallery { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 900px) { ul.gallery { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; } }
 .gallery-item { display: flex; flex-direction: column; gap: 6px; }
 .gallery-item img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--radius); }
-.gallery-empty { aspect-ratio: 1; border: 2px dashed var(--c-border); border-radius: var(--radius); align-items: center; justify-content: center; padding: 12px; }
+.gallery-item.gallery-empty { aspect-ratio: 1; border: 2px dashed var(--c-border); border-radius: var(--radius); align-items: center; justify-content: center; padding: 12px; }
 .gallery-empty .plain-art, .gallery-empty .bag-art { width: 50%; }
 .gallery-caption { font-size: .92rem; }
 .card-placeholder .card-link:hover .card-name { text-decoration: none; }

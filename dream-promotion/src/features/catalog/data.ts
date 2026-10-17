@@ -136,6 +136,11 @@ export async function updateMedia(id: string, cols: { alt?: string; position?: n
   const { error } = await supabase().from('catalog_media').update(cols).eq('id', id);
   return error ? fail(error) : { ok: true, data: true };
 }
+/** how many pictures an item has — null when the database could not be asked (the import, before a second try: 2.102.2) */
+export async function pictureCount(itemId: string): Promise<number | null> {
+  const { count, error } = await supabase().from('catalog_media').select('id', { count: 'exact', head: true }).eq('item_id', itemId);
+  return error ? null : count ?? 0;
+}
 /** pictures: through the server (signed uploads; deleting removes the files too) */
 export async function mediaApi<T = any>(body: Record<string, unknown>): Promise<Result<T>> {
   try {
