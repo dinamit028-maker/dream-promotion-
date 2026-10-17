@@ -247,7 +247,7 @@ select pg_temp.check((public.sf_store('00000000-0000-0000-0000-000000345001'))#>
   and (public.sf_store('00000000-0000-0000-0000-000000345001'))#>>'{legal,number_kind}' = 'company'
   and (public.sf_store('00000000-0000-0000-0000-000000345001'))#>>'{legal,address}' = 'הרצל 1, תל אביב', 'the business''s legal details for the footer');
 select pg_temp.check((select array_agg(k order by k collate "C") from jsonb_object_keys(public.sf_store('00000000-0000-0000-0000-000000345001')) k)
-  = '{access,can_buy,collections,contact,country,currency,description,ga4_id,gsc_code,id,lang,legal,logo_url,menus,name,policies,primary_domain,show_stock_count,slug,status,template,theme}',
+  = '{a11y_widget,access,can_buy,collections,contact,country,currency,description,ga4_id,gsc_code,id,lang,legal,logo_url,menus,name,policies,primary_domain,show_stock_count,slug,status,template,theme}',
   'sf_store returns its allow-list only');
 select pg_temp.check(pg_temp.slugs((public.sf_store('00000000-0000-0000-0000-000000345001'))->'collections') = 'eco,paper', 'only the published collections');
 select pg_temp.check((select string_agg(e->>'policy', ',') from jsonb_array_elements((public.sf_store('00000000-0000-0000-0000-000000345001'))->'policies') e)

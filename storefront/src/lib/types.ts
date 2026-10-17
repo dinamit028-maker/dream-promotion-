@@ -27,6 +27,8 @@ export interface Store extends StoreLite {
   policies: { policy: PolicyKind; title: string }[];
   collections: { slug: string; title: string; image_url: string }[];
   can_buy: boolean;          // sells on the site (stage 3): a cart in the header, "הוספה לסל" on a product
+  /** 2.104 (migration 5600): the accessibility menu — false only when the owner turned it off; absent before the migration = on */
+  a11y_widget?: boolean;
 }
 
 /** the store as sf_store returns it: whole when it may be shown, only its name when it is not on the air */

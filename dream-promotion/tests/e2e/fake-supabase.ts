@@ -441,7 +441,9 @@ export class FakeSupabase {
       fill({ status: 'draft', template: 'bags', lang: 'he', logo_url: '', description: '', phone: '', whatsapp: '', email: '', address: '', ga4_id: '', gsc_code: '',
         show_stock_count: false, published_at: null, updated_at: now(),
         // 3700: an address from the business's name, and a password (the database makes them; here, fixed)
-        slug: 'sagabot', storefront_password: 'e2epass123', password_lock: false, subdomain_seen_at: null });
+        slug: 'sagabot', storefront_password: 'e2epass123', password_lock: false, subdomain_seen_at: null,
+        // 5600: the accessibility button, on
+        a11y_widget: true });
       if (r.status === 'published') return `store_not_ready: ${this.storeMissing(r).join(',')}`;
     }
     if (table === 'store_theme_versions') {

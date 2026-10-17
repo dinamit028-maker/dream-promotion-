@@ -7,8 +7,11 @@
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+/* 2.104: what the keyboard focuses (or a link jumps to) is scrolled clear of the sticky header and of the accessibility button — never
+   under them (WCAG 2.4.11). The bands' own 80px moved here (the same place for their anchors as before). */
+html { scroll-padding-block: 80px 84px; }
 body {
-  margin: 0; background: var(--c-bg); color: var(--c-text); line-height: 1.6; font-size: 16px;
+  margin: 0; background: var(--c-bg); color: var(--c-text); line-height: 1.6; font-size: 1rem;
   font-family: var(--font, 'Heebo Variable', 'Heebo', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif);
   text-rendering: optimizeLegibility;
 }
@@ -242,6 +245,68 @@ input, select, textarea {
 .consent-text { font-size: .95rem; color: var(--c-muted); }
 .consent-actions { display: flex; gap: 10px; }
 .consent-actions .btn { flex: 1; }
+
+/* the accessibility menu (2.104, A11yMenu.tsx): a button at the bottom left of every page (the right is a WhatsApp button's place),
+   its panel — a sheet at the bottom of a phone, a card above the button on a computer — and the shopper's choices on <html> */
+.a11y-fab {
+  position: fixed; left: 16px; bottom: 16px; z-index: 55; width: 52px; height: 52px; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--c-primary); color: var(--c-on-primary); border: 2px solid var(--c-surface); box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
+}
+.a11y-fab svg { width: 30px; height: 30px; }
+.a11y-fab:focus-visible { outline: 3px solid var(--c-accent); outline-offset: 3px; border-radius: 50%; }
+html.a11y-lift .a11y-fab { bottom: calc(24px + var(--a11y-lift, 0px)); }   /* above the cookie banner while it is open */
+.a11y-panel {
+  position: fixed; inset-inline: 8px; bottom: 8px; z-index: 70; max-height: min(85vh, 640px); overflow-y: auto; padding: 16px;
+  background: var(--c-surface); color: var(--c-text); border: 1px solid var(--c-border); border-radius: var(--radius);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .25); text-align: start;
+}
+.a11y-panel[hidden] { display: none; }
+@media (min-width: 640px) { .a11y-panel { inset-inline: auto; left: 16px; bottom: 80px; width: 360px; } }
+.a11y-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.a11y-title { font-size: 1.25rem; margin: 0; }
+.a11y-close { min-width: 44px; min-height: 44px; border: 0; border-radius: 999px; background: none; color: inherit; font-size: 1.7rem; line-height: 1; cursor: pointer; }
+.a11y-sizes { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
+.a11y-legend { font-weight: 700; padding: 0; margin-bottom: 8px; }
+.a11y-size-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 380px) { .a11y-size-row { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.a11y-size, .a11y-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 1px solid var(--c-border); border-radius: 10px; cursor: pointer; }
+.a11y-size { justify-content: center; text-align: center; font-size: .95rem; }
+.a11y-size:has(input:checked), .a11y-toggle:has(input:checked) { border: 2px solid var(--c-text); padding: 5px 9px; font-weight: 700; }
+.a11y-size input, .a11y-toggle input { min-height: 0; width: 20px; height: 20px; margin: 0; padding: 0; flex: none; accent-color: var(--c-primary); }
+.a11y-toggles { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+.a11y-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.a11y-reset { min-height: 44px; padding-inline: 18px; }
+.a11y-reset:disabled { opacity: .5; cursor: default; }
+.a11y-statement { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; text-decoration: underline; }
+
+/* the shopper's choices (lib/a11y.ts) — every text is in rem, so the root's size makes all of it bigger */
+html.a11y-text-1 { font-size: 112.5%; }
+html.a11y-text-2 { font-size: 125%; }
+html.a11y-text-3 { font-size: 150%; }
+html:is(.a11y-text-2, .a11y-text-3) :is(h1, h2, h3, .hero-title, .page-title, .product-title, .brand-name) { overflow-wrap: anywhere; }
+/* high contrast: black, white and yellow everywhere — whatever the template's colours (pictures and drawings stay as they are) */
+html.a11y-contrast body, html.a11y-contrast body *:not(svg, svg *, img, picture, video) {
+  background-color: #000000 !important; color: #ffffff !important; border-color: #ffffff !important; text-shadow: none !important; box-shadow: none !important;
+}
+/* the links yellow: more specific than the rule above — (0,1,4) over its (0,1,3) — or it would make them white too */
+html.a11y-contrast body a:not(svg), html.a11y-contrast body a *:not(svg, svg *) { color: #ffe14d !important; }
+html.a11y-contrast :is(.btn, button, input, select, textarea, .a11y-fab) { border: 2px solid #ffffff !important; }
+html.a11y-contrast .btn-primary, html.a11y-contrast .btn-primary *:not(svg, svg *) { background-color: #ffe14d !important; color: #000000 !important; }
+html.a11y-contrast :focus-visible { outline: 3px solid #ffe14d !important; outline-offset: 3px; }
+html.a11y-contrast input { accent-color: #ffe14d !important; }   /* a chosen radio / checkbox: yellow, not the template's colour */
+html.a11y-contrast :is(.hero, .band, .tile, .card3-media)::after { background: none !important; }
+/* links marked: underlined and framed, the buttons that are links too */
+html.a11y-links a { text-decoration: underline !important; text-decoration-thickness: 2px !important; text-underline-offset: 3px !important; outline: 2px solid currentColor; outline-offset: 2px; }
+html.a11y-links a:focus-visible { outline: 3px solid var(--c-accent); outline-offset: 4px; }   /* the focus still shows, apart from the frame */
+/* a readable font: one plain sans-serif for every text */
+html.a11y-font body, html.a11y-font body *:not(svg, svg *) { font-family: Arial, 'Assistant Variable', 'Heebo Variable', sans-serif !important; letter-spacing: normal !important; }
+/* no motion: no animation, no transition, no smooth scrolling */
+html.a11y-still *, html.a11y-still *::before, html.a11y-still *::after { animation: none !important; transition: none !important; }
+html.a11y-still, html.a11y-still * { scroll-behavior: auto !important; }
+/* more space between the lines (and between paragraphs) */
+html.a11y-spacing body, html.a11y-spacing body *:not(svg, svg *) { line-height: 1.9 !important; }
+html.a11y-spacing :is(p, li) { margin-block-end: .8em; }
 .soon { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; gap: 8px; }
 .soon-logo { max-height: 72px; width: auto; margin-bottom: 12px; }
 .soon-name { font-weight: 800; font-size: 1.4rem; }
@@ -319,7 +384,6 @@ input, select, textarea {
 .plain-hills { fill: var(--c-accent); opacity: .35; }
 .card-noimage .plain-art, .tile-art.plain-art { width: 60%; }
 .card-placeholder .card-media { border: 2px dashed var(--c-border); }
-.band[id] { scroll-margin-top: 80px; }
 /* the section's list only (ul): the product's own pictures (.product .gallery, a div — above) share the class name, and these
    rules once took them over — one picture in half the phone's width (2.102.2) */
 ul.gallery { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -388,6 +452,9 @@ ul.gallery { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap:
 .tiles--editorial .tile-media { position: relative; aspect-ratio: 4 / 5; border-radius: 0; }
 .tiles--editorial .tile-media::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0, 0, 0, .55), transparent 55%); }
 .tiles--editorial .tile-title { position: absolute; inset-inline: 14px; bottom: 12px; z-index: 1; margin: 0; color: #ffffff; font-size: 1.2rem; }
+/* 2.104: no picture (the drawing) — the title dark on the light drawing, without the shade: white on it was unreadable (axe: 1.14:1) */
+.tiles--editorial .tile-media:has(.tile-art)::after { content: none; }
+.tiles--editorial .tile:has(.tile-art) .tile-title { color: var(--c-text); }
 .tiles--editorial .tile-count { position: absolute; top: 10px; inset-inline-start: 10px; z-index: 1; background: var(--c-surface); color: var(--c-text); font-size: .8rem; padding: 2px 10px; }
 @media (min-width: 1000px) { .tiles--editorial { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; } .tiles--editorial .tile-title { font-size: 1.5rem; } }
 .tiles--circles { display: flex; gap: 18px; overflow-x: auto; scrollbar-width: none; padding-bottom: 6px; }

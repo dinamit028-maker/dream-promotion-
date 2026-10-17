@@ -567,6 +567,25 @@ async function main() {
       await noSideScroll(st, 'the company that runs the site, on a phone');
     });
 
+    await step('2.104 — accessibility: the site\'s button is on; the owner turns it off and on again; the statement — the automatic one until the business publishes its own', async () => {
+      const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await st.waitForTimeout(100); assert.ok(ok()); };
+      const a11y = block(st, 'נגישות');
+      await a11y.getByText('בכל עמוד באתר: כפתור נגישות משמאל למטה', { exact: false }).waitFor();
+      await a11y.getByText('עד שתפרסמו הצהרה משלכם, האתר מציג הצהרת נגישות אוטומטית', { exact: false }).waitFor();
+      const sw = a11y.getByRole('switch', { name: 'כפתור נגישות באתר' });
+      assert.equal(await sw.getAttribute('aria-checked'), 'true', 'on from the start');
+      await sw.click();
+      await st.getByRole('button', { name: 'שמירת הפרטים' }).click();
+      await until(() => store().a11y_widget === false);
+      assert.equal(await sw.getAttribute('aria-checked'), 'false');
+      await sw.click();
+      await st.getByRole('button', { name: 'שמירת הפרטים' }).click();
+      await until(() => store().a11y_widget === true);
+      assert.equal(await a11y.getByRole('link', { name: 'עריכת הצהרת הנגישות' }).getAttribute('href'), '/store/pages?policy=accessibility');
+      await noSideScroll(st, 'accessibility, on a phone');
+      await a11y.screenshot({ path: path.join(SHOTS, 'c5b-store-accessibility-phone.png') });
+    });
+
     await step('the domain: recorded with its www, the DNS records and the steps in Vercel — never "פעיל" from here', async () => {
       await st.getByLabel('הדומיין').fill('https://www.FollowMeCollection.com/');
       await st.getByRole('button', { name: 'חיבור' }).click();
@@ -619,6 +638,11 @@ async function main() {
       for (const [kind, title] of [['privacy', 'מדיניות פרטיות'], ['accessibility', 'הצהרת נגישות']] as const) {
         await st.locator('li', { hasText: `/policies/${kind}` }).getByRole('button', { name: 'כתיבה' }).click();
         await st.getByRole('heading', { name: title }).waitFor();
+        if (kind === 'accessibility') {
+          // 2.104: the editor starts with the site's automatic statement (the store's name, the menu, the contact) and a note to the owner
+          const starter = await st.getByLabel('טקסט', { exact: true }).inputValue();
+          assert.match(starter, /אנחנו רוצים שכל אחד ואחת יוכלו להשתמש באתר[\s\S]*## תפריט הנגישות[\s\S]*- ניגודיות גבוהה[\s\S]*\[לפני שמפרסמים/, starter);
+        }
         await write(title, `## ${title}\n\nטקסט מלא של העסק.`);
       }
       assert.deepEqual(fake.tables.store_pages.map((g) => [g.kind, g.policy, g.slug, g.published]),

@@ -73,7 +73,8 @@ export function ProductGrid({ items, currency, eagerFirst = 0, layout = '' }: { 
 /** 2.58: before there are products, the owner's preview shows where they will be — shapes only, never a made-up product */
 export function PlaceholderGrid({ count = 4, label = 'כאן יופיע מוצר', layout = '' }: { count?: number; label?: string; layout?: string }) {
   return (
-    <ul className={layout === 'carousel' ? 'grid grid--carousel' : 'grid'} role="list" aria-label="מקום למוצרים">
+    // a carousel of places (2.104): nothing in it to focus — the row itself takes the focus, so the keyboard can scroll it
+    <ul className={layout === 'carousel' ? 'grid grid--carousel' : 'grid'} role="list" aria-label="מקום למוצרים" tabIndex={layout === 'carousel' ? 0 : undefined}>
       {Array.from({ length: count }, (_, i) => (
         <li key={i} className="card card-placeholder">
           <span className="card-link">

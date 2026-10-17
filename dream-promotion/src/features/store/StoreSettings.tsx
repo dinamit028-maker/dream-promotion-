@@ -6,7 +6,7 @@ import { cx } from '@/lib/utils';
 import { Button, PageHead, Pill, SmallSelect } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { Switch } from '@/features/catalog/PublishSwitch';
-import { bookingUrl, checklist, checkDomains, connectDomain, openStore, operatorReady, previewLink, removeDomain, slugAvailable, updateStore, type KitApplied, type StorePatch } from './data';
+import { a11yReady, bookingUrl, checklist, checkDomains, connectDomain, openStore, operatorReady, previewLink, removeDomain, slugAvailable, updateStore, type KitApplied, type StorePatch } from './data';
 import { kitFor, type Kit } from './kits';
 import { applyFieldKit, KitReady } from './StoreKits';
 import {
@@ -81,10 +81,14 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
     email: store.email, address: store.address, ga4: store.ga4Id, gsc: store.gscCode, showStock: store.showStockCount,
     shipFrom: store.locationId ?? store.businessId,
     opName: store.operator.name, opKind: store.operator.kind, opNumber: store.operator.number, opAddress: store.operator.address, opCountry: store.operator.country,
+    a11y: store.a11yWidget,
   });
   // 2.103: the company that runs the site — only once migration 20261017005500 is in the database
   const [opReady, setOpReady] = useState(false);
   useEffect(() => { void operatorReady().then(setOpReady); }, []);
+  // 2.104: the switch of the accessibility button — only once migration 20261017005600 is in the database (before it: always on)
+  const [a11yOk, setA11yOk] = useState(false);
+  useEffect(() => { void a11yReady().then(setA11yOk); }, []);
   const operator = { name: f.opName, kind: f.opKind, number: f.opNumber, address: f.opAddress, country: f.opCountry };
   // T12ב: with more than one location, the site sells — and ships from — one of them (its stock is what the site has)
   const loc = useLocations((s) => s.state);
@@ -115,12 +119,14 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
       email: f.email.trim(), address: f.address.trim(), ga4_id: ga, gsc_code: gsc, show_stock_count: f.showStock,
       ...(multi && f.shipFrom !== (store.locationId ?? store.businessId) ? { location_id: f.shipFrom } : {}),
       ...(op?.ok ? op.cols : {}),
+      ...(a11yOk ? { a11y_widget: f.a11y } : {}),
     };
     const r = await updateStore(store.id, patch);
     setSaving(false);
     if (!r.ok) { setMsg({ tone: 'error', text: r.error }); return; }
     setStore(r.data); setF((x) => ({ ...x, whatsapp: r.data.whatsapp, ga4: r.data.ga4Id, gsc: r.data.gscCode,
-      opName: r.data.operator.name, opKind: r.data.operator.kind, opNumber: r.data.operator.number, opAddress: r.data.operator.address, opCountry: r.data.operator.country }));
+      opName: r.data.operator.name, opKind: r.data.operator.kind, opNumber: r.data.operator.number, opAddress: r.data.operator.address, opCountry: r.data.operator.country,
+      a11y: r.data.a11yWidget }));
     setMsg({ tone: 'ok', text: 'נשמר.' });
   };
 
@@ -183,6 +189,21 @@ function Settings({ root, storefrontUrl, store, domains, reload, setStore, setDo
           {operatorLine(operator) && <p className="text-sm text-muted">בתחתית האתר: <bdi>{operatorLine(operator)}</bdi></p>}
         </Block>
       )}
+
+      <Block title="נגישות" id="accessibility" sub={'בכל עמוד באתר: כפתור נגישות משמאל למטה, וקישור "נגישות" להצהרת הנגישות בתחתית.'}>
+        {a11yOk && (
+          <label className="mb-2 flex min-h-11 items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-ink-2">כפתור נגישות באתר</span>
+            <Switch on={f.a11y} onClick={() => set('a11y', !f.a11y)} label="כפתור נגישות באתר" />
+          </label>
+        )}
+        <p className="text-sm text-muted">
+          {check && (check.missing.includes('accessibility')
+            ? 'עד שתפרסמו הצהרה משלכם, האתר מציג הצהרת נגישות אוטומטית — עם שם החנות ופרטי הקשר. '
+            : 'באתר מוצגת הצהרת הנגישות שפרסמתם. ')}
+          <Link href="/store/pages?policy=accessibility" className="text-primary underline underline-offset-2">עריכת הצהרת הנגישות</Link>
+        </p>
+      </Block>
 
       {multi && (
         <Block title="המלאי של האתר" id="ship-from" sub="האתר מוכר את מה שיש בסניף אחד, וההזמנות יורדות מהמלאי שלו (ונשלחות ממנו). הזמנה שכבר נפתחה נשארת עם הסניף שהיה כשנפתחה.">

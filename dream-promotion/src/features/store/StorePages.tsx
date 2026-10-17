@@ -33,7 +33,7 @@ type Draft = { id: string | null; kind: 'page' | 'policy'; policy: PolicyKind | 
 const draftOfPage = (p: PageRow): Draft => ({ id: p.id, kind: p.kind, policy: p.policy, title: p.title, slug: p.slug, slugTouched: true, body: p.body,
   seoTitle: p.seoTitle, seoDescription: p.seoDescription, published: p.published });
 const newPolicy = (kind: PolicyKind, store: StoreRow): Draft => {
-  const t = policyDraft(kind, { name: store.name, phone: store.phone, email: store.email, address: store.address });
+  const t = policyDraft(kind, { name: store.name, phone: store.phone, email: store.email, address: store.address, whatsapp: store.whatsapp, widget: store.a11yWidget });
   return { id: null, kind: 'policy', policy: kind, title: t.title, slug: policySlug(kind), slugTouched: true, body: t.body, seoTitle: '', seoDescription: '', published: false };
 };
 const newPage = (): Draft => ({ id: null, kind: 'page', policy: null, title: '', slug: '', slugTouched: false, body: '', seoTitle: '', seoDescription: '', published: false });

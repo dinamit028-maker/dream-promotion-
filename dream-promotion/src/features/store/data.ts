@@ -86,7 +86,8 @@ export async function openStore(name: string): Promise<Result<StoreRow>> {
 export type StorePatch = Partial<{ name: string; description: string; logo_url: string; phone: string; whatsapp: string; email: string; address: string;
   ga4_id: string; gsc_code: string; show_stock_count: boolean; status: 'draft' | 'published' | 'paused' } & CheckoutPatch & { checkout_enabled: boolean }
   & { slug: string; storefront_password: string; password_lock: boolean } & { location_id: string }
-  & { legal_name: string; legal_number: string; legal_number_kind: string; legal_address: string; legal_country: string }>;
+  & { legal_name: string; legal_number: string; legal_number_kind: string; legal_address: string; legal_country: string }
+  & { a11y_widget: boolean }>;
 
 /** is migration 20261017005500 in this database? (a probe of one column: "החברה שמפעילה את האתר" is shown only when it is) */
 let operatorCache: boolean | null = null;
@@ -95,6 +96,14 @@ export async function operatorReady(): Promise<boolean> {
   const { error } = await supabase().from('stores').select('legal_name').limit(1);
   operatorCache = !error;
   return operatorCache;
+}
+/** is migration 20261017005600 in this database? (the switch "כפתור נגישות באתר" is shown only when it is — the button is on before) */
+let a11yCache: boolean | null = null;
+export async function a11yReady(): Promise<boolean> {
+  if (a11yCache !== null) return a11yCache;
+  const { error } = await supabase().from('stores').select('a11y_widget').limit(1);
+  a11yCache = !error;
+  return a11yCache;
 }
 /**
  * 2.74: after a change the shoppers see, the storefront drops what it keeps of this store (its shared cache, at most five
