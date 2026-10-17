@@ -122,3 +122,32 @@ export function planImport(table: string[][], ctx: { takenSkus: Iterable<string>
   });
   return plan;
 }
+
+/** the second try of a picture comes after this pause (a server that said "too many" — 120 a minute — is free again) */
+export const PICTURE_RETRY_MS = 15_000;
+
+/**
+ * The picture of a product the import has just added, with one more try — and never a second copy (2.102.2). The answer of
+ * a try can be lost while the picture itself landed (a phone that locked, a connection that dropped on the way back), so
+ * before trying again the product's pictures are counted: a new product has none of its own, so a picture there is this one.
+ * When they cannot be counted (no connection) there is no second try — the message says to look at the product.
+ * `count` → the product's pictures, or null when the database could not be asked.
+ */
+export async function pictureOnce(
+  upload: () => Promise<{ ok: true } | { ok: false; error: string }>,
+  count: () => Promise<number | null>,
+  wait: (ms: number) => Promise<void>,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const first = await upload();
+  if (first.ok) return { ok: true };
+  await wait(PICTURE_RETRY_MS);
+  const before = await count();
+  if (before === null) return { ok: false, message: `נוסף, ולא ברור אם התמונה נשמרה (${first.error}) — בדקו במוצר.` };
+  if (before > 0) return { ok: true };
+  const second = await upload();
+  if (second.ok) return { ok: true };
+  // the second answer can be lost as well: what is there says
+  const after = await count();
+  if (after === null) return { ok: false, message: `נוסף, ולא ברור אם התמונה נשמרה (${second.error}) — בדקו במוצר.` };
+  return after > 0 ? { ok: true } : { ok: false, message: `נוסף בלי תמונה: ${second.error}` };
+}

@@ -4,8 +4,8 @@ import { useApp } from '@/lib/store';
 import { Button } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { itemColumns, type CatalogItem, type CatalogVariant } from './catalog';
-import { insertItem, quoteReady } from './data';
-import { IMPORT_COLUMNS, fileName, parseCsv, planImport, type ImportPlan } from './import';
+import { insertItem, pictureCount, quoteReady } from './data';
+import { IMPORT_COLUMNS, fileName, parseCsv, pictureOnce, planImport, type ImportPlan } from './import';
 import { uploadPicture } from './upload';
 
 /**
@@ -19,7 +19,26 @@ type Run = { done: number; total: number; current: string; added: number; failed
 
 const MIME: Record<string, string> = { webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
 const PICTURE_PACE_MS = 1300;
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * The screen stays on while the import runs (2.102.2): a phone that locks pauses the page — and the import with it. The
+ * browser lets go of the lock when the page is hidden, so it is taken again when the page is back. No Wake Lock (an old
+ * browser) — only the note on the screen. Returns the release.
+ */
+function keepAwake(): () => void {
+  let lock: WakeLockSentinel | null = null;
+  let done = false;
+  const take = async () => {
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible' || (lock && !lock.released)) return;
+    try { lock = await navigator.wakeLock.request('screen'); } catch { lock = null; }
+    if (done) { void lock?.release().catch(() => {}); lock = null; }
+  };
+  const back = () => { if (!done) void take(); };
+  document.addEventListener('visibilitychange', back);
+  void take();
+  return () => { done = true; document.removeEventListener('visibilitychange', back); void lock?.release().catch(() => {}); lock = null; };
+}
 
 export function ImportProducts({ open, onClose, items, variants, nextSort, onDone }: {
   open: boolean; onClose: () => void; items: CatalogItem[]; variants: CatalogVariant[]; nextSort: number; onDone: () => void;
@@ -68,28 +87,31 @@ export function ImportProducts({ open, onClose, items, variants, nextSort, onDon
     stop.current = false;
     const state: Run = { done: 0, total: rows.length, current: '', added: 0, failed: [] };
     setRun({ ...state });
+    const release = keepAwake();
     let sort = nextSort;
     let lastPicture = 0;
-    for (const row of rows) {
-      if (stop.current) { state.stopped = true; break; }
-      state.current = row.draft.name; setRun({ ...state });
-      const r = await insertItem(userId, itemColumns(row.draft, [], { quote: picked.quoteOk }), sort++);
-      if (!r.ok) { state.failed.push({ name: row.draft.name, message: r.error }); state.done++; setRun({ ...state }); continue; }
-      state.added++;
-      const get = row.image ? picked.pictures.get(row.image) : null;
-      if (get) {
-        const ext = row.image.split('.').pop()!.toLowerCase();
-        const file = new File([await get()], row.image, { type: MIME[ext] ?? 'image/webp' });
-        // one picture takes two calls of the server; it allows 120 a minute — never faster than that
-        const since = Date.now() - lastPicture;
-        if (since < PICTURE_PACE_MS) await wait(PICTURE_PACE_MS - since);
-        let up = await uploadPicture(file, r.data.id, { alt: row.draft.name });
-        if (!up.ok) { await wait(15_000); up = await uploadPicture(file, r.data.id, { alt: row.draft.name }); }
-        lastPicture = Date.now();
-        if (!up.ok) state.failed.push({ name: row.draft.name, message: `נוסף בלי תמונה: ${up.error}` });
+    try {
+      for (const row of rows) {
+        if (stop.current) { state.stopped = true; break; }
+        state.current = row.draft.name; setRun({ ...state });
+        const r = await insertItem(userId, itemColumns(row.draft, [], { quote: picked.quoteOk }), sort++);
+        if (!r.ok) { state.failed.push({ name: row.draft.name, message: r.error }); state.done++; setRun({ ...state }); continue; }
+        state.added++;
+        const get = row.image ? picked.pictures.get(row.image) : null;
+        if (get) {
+          const ext = row.image.split('.').pop()!.toLowerCase();
+          const file = new File([await get()], row.image, { type: MIME[ext] ?? 'image/webp' });
+          // one picture takes two calls of the server; it allows 120 a minute — never faster than that
+          const since = Date.now() - lastPicture;
+          if (since < PICTURE_PACE_MS) await wait(PICTURE_PACE_MS - since);
+          // one more try when it failed — after counting the product's pictures, so a picture that did land is never added twice
+          const up = await pictureOnce(() => uploadPicture(file, r.data.id, { alt: row.draft.name }), () => pictureCount(r.data.id), wait);
+          lastPicture = Date.now();
+          if (!up.ok) state.failed.push({ name: row.draft.name, message: up.message });
+        }
+        state.done++; setRun({ ...state });
       }
-      state.done++; setRun({ ...state });
-    }
+    } finally { release(); }
     state.finished = true; state.current = '';
     setRun({ ...state });
   }
@@ -173,6 +195,7 @@ export function ImportProducts({ open, onClose, items, variants, nextSort, onDon
             {run.finished ? (run.stopped ? 'הייבוא נעצר.' : 'הייבוא הסתיים.') : <><Spinner /> {run.done + 1} מתוך {run.total}: {run.current}</>}
             {' '}{run.added === 1 ? 'נוסף מוצר אחד.' : run.added ? `נוספו ${run.added} מוצרים.` : 'לא נוסף אף מוצר.'}
           </p>
+          {!run.finished && <p className="text-xs text-muted">השאירו את הדף פתוח ואת המסך דלוק עד שהייבוא מסתיים — מסך שננעל עוצר אותו.</p>}
           {run.failed.length > 0 && (
             <ul className="list-disc rounded-xl bg-amber-500/10 p-3 ps-8 text-sm">{run.failed.map((f, i) => <li key={i}>{f.name}: {f.message}</li>)}</ul>
           )}

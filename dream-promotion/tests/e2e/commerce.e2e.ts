@@ -123,6 +123,8 @@ async function main() {
   const errors: string[] = [];
   const aiRequests: any[] = [];
   const frameLoads: string[] = [];
+  /** pictures (by their alt) whose registration lands while its answer is lost on the way back (2.102.2) */
+  const lostAnswers = new Set<string>();
   const picture = png(900, 600, [200, 120, 80]);
 
   async function open(o: { access: 'full' | 'register'; userId: string; viewport?: { width: number; height: number }; path: string }) {
@@ -170,6 +172,7 @@ async function main() {
         list.push(media);
         const item = fake.tables.catalog_items.find((i) => i.id === b.itemId);
         if (item) item.image_url = sizes['400'];   // the database's catalog_media_main
+        if (lostAnswers.delete(b.alt)) return r.abort('connectionclosed');   // saved — and the browser never hears it
         return r.fulfill({ json: { media } });
       }
       return r.fulfill({ status: 400, json: { message: 'unknown' } });
@@ -1228,15 +1231,21 @@ async function main() {
       assert.equal(fake.tables.catalog_items.length, before, 'nothing is written before "ייבוא"');
       await noSideScroll(st, 'the import on a phone');
       await st.screenshot({ path: path.join(SHOTS, 'c16-import-phone.png'), fullPage: true });
+      // 2.102.2: the picture of 902 lands, and its answer is lost (a phone that locked) — the import counts the product's
+      // pictures before a second try, so it is never added twice; the note says to keep the screen on
+      lostAnswers.add('שקית בד – דגם 902');
       await d.getByRole('button', { name: 'ייבוא 2 מוצרים' }).click();
+      await d.getByText('השאירו את הדף פתוח ואת המסך דלוק עד שהייבוא מסתיים — מסך שננעל עוצר אותו.').waitFor();
       await d.getByText(/^הייבוא הסתיים\. נוספו 2 מוצרים\.$/).waitFor({ timeout: 90_000 });
+      assert.equal(lostAnswers.size, 0, 'the answer of 902\'s picture was lost');
+      assert.equal(await d.locator('li').filter({ hasText: 'נוסף' }).count(), 0, 'nothing to report: the picture is there');
       const added = (sku: string) => fake.tables.catalog_items.find((i) => i.sku === sku)!;
       assert.deepEqual([added('bag-901').quote_mode, added('bag-901').quote_from, added('bag-901').quote_currency, added('bag-901').quote_min_qty, added('bag-901').publish_online],
         [true, 4.5, 'USD', null, true]);
       assert.deepEqual([added('bag-901').tags, added('bag-901').description], [['חבל וסרט', 'שקיות'], 'שקית עם ידית חבל, בצבעים שלכם.\nהעיצוב בתמונה להמחשה.']);
       assert.deepEqual([added('bag-902').quote_from, added('bag-902').quote_min_qty, added('bag-902').tags, added('bag-902').publish_online], [5, 300, ['בד'], true]);
       for (const sku of ['bag-901', 'bag-902']) {
-        assert.equal(fake.tables.catalog_media.filter((m) => m.item_id === added(sku).id).length, 1, `${sku}: its picture`);
+        assert.equal(fake.tables.catalog_media.filter((m) => m.item_id === added(sku).id).length, 1, `${sku}: its picture — once`);
         assert.match(added(sku).image_url, /\/400\.webp$/, `${sku}: the main picture`);
       }
       assert.deepEqual(fake.tables.catalog_items.find((i) => i.sku === 'bag-021'), there, 'a product that is there is not changed');
