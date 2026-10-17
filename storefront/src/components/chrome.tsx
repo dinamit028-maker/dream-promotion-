@@ -7,6 +7,7 @@ import { CartBadge } from './CartBadge';
 import { UnlockForm } from './UnlockForm';
 import { CookieConsent, CookieSettings } from './CookieConsent';
 import { EditBridge } from './EditBridge';
+import { A11yMenu } from './A11yMenu';
 import { editLink } from '@/lib/edit';
 
 export const POLICY_TITLE: Record<PolicyKind, string> = {
@@ -43,7 +44,7 @@ export function Header({ site }: { site: Site & { store: Store } }) {
   return (
     <>
       {ann?.enabled && ann.text && (
-        <div className="announce" {...editLink(e, 'announcement')}>{annHref ? <a href={annHref}>{ann.text}</a> : ann.text}</div>
+        <div className="announce" role="region" aria-label="הודעה" {...editLink(e, 'announcement')}>{annHref ? <a href={annHref}>{ann.text}</a> : ann.text}</div>
       )}
       <header className="site-header" {...editLink(e, 'menus:main')}>
         <div className="wrap header-row">
@@ -102,17 +103,16 @@ export function Footer({ site }: { site: Site & { store: Store } }) {
             <ul role="list">{footerLinks.map((l, i) => <NavLink key={i} link={l} store={store} />)}</ul>
           </nav>
         )}
-        {/* no policy published yet, no checkout, no cookies: no empty "מידע" heading */}
-        {(store.policies.length > 0 || store.can_buy || (store.ga4_id && !site.preview)) && (
-          <nav aria-labelledby="f-info">
-            <h2 id="f-info" className="footer-title">מידע</h2>
-            <ul role="list">
-              {store.policies.map((p) => <li key={p.policy} {...editLink(e, `page:policy:${p.policy}`)}><a href={`/policies/${p.policy}`}>{p.title || POLICY_TITLE[p.policy]}</a></li>)}
-              {store.can_buy && <li><a href="/cancel">ביטול עסקה</a></li>}
-              {store.ga4_id && !site.preview && <li><CookieSettings /></li>}
-            </ul>
-          </nav>
-        )}
+        {/* 2.104: always — "נגישות" is on every site (the business's statement, else the automatic one) */}
+        <nav aria-labelledby="f-info">
+          <h2 id="f-info" className="footer-title">מידע</h2>
+          <ul role="list">
+            {store.policies.filter((p) => p.policy !== 'accessibility').map((p) => <li key={p.policy} {...editLink(e, `page:policy:${p.policy}`)}><a href={`/policies/${p.policy}`}>{p.title || POLICY_TITLE[p.policy]}</a></li>)}
+            <li {...editLink(e, 'page:policy:accessibility')}><a href="/policies/accessibility">נגישות</a></li>
+            {store.can_buy && <li><a href="/cancel">ביטול עסקה</a></li>}
+            {store.ga4_id && !site.preview && <li><CookieSettings /></li>}
+          </ul>
+        </nav>
         <section aria-labelledby="f-contact" id="contact-details" {...editLink(e, 'settings')}>
           <h2 id="f-contact" className="footer-title">יצירת קשר</h2>
           <ul role="list" className="contact-list">
@@ -158,11 +158,16 @@ function PreviewBar({ site }: { site: Site }) {
   );
 }
 
+/** the accessibility menu: on, unless the owner turned it off (2.104) — and never inside the dashboard's editor */
+export const a11yMenuOn = (site: Site & { store: Store }) => site.store.a11y_widget !== false && !site.edit;
+
 export function StoreChrome({ site, children }: { site: Site & { store: Store }; children: ReactNode }) {
   const analytics = site.via === 'public' && !site.locked && !site.platform && site.store.status === 'published' ? site.store.ga4_id : '';
   return (
     <>
       <a href="#main" className="skip">דלגו לתוכן</a>
+      {/* 2.104: right after "דלגו לתוכן" — one Tab away on every page; never in the dashboard's editor */}
+      {a11yMenuOn(site) && <A11yMenu statement="/policies/accessibility" />}
       {site.via === 'token' && !site.edit && <PreviewBar site={site} />}
       {site.via === 'password' && <p className="preview-bar" role="status"><strong>האתר עוד לא פתוח לכולם</strong> — נכנסתם עם סיסמה.</p>}
       <Header site={site} />

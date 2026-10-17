@@ -75,7 +75,7 @@ function Hero({ s, site, first, variant }: { s: S; site: Live; first: boolean; v
           {img
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={img} alt="" className="hero-img" loading="eager" fetchPriority="high" decoding="async" />
-            : slides ? <div className="hero-slides" role="group" aria-label="תמונות">{slides.map((p, i) => <KitImg key={p.src} pic={p} className="hero-img" eager={i === 0} />)}</div>
+            : slides ? <div className="hero-slides" role="group" aria-label="תמונות" tabIndex={slides.length > 1 ? 0 : undefined}>{slides.map((p, i) => <KitImg key={p.src} pic={p} className="hero-img" eager={i === 0} />)}</div>
             : kit ? <KitImg pic={kit} className="hero-img" eager mobile={mobile} /> : <Art />}
         </div>
       </div>

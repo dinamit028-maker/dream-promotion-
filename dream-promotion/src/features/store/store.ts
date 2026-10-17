@@ -5,6 +5,7 @@
  */
 import { toCheckout, type CheckoutSettings } from './checkout';
 import { isSlug, slugify, uniqueSlug } from '@/features/catalog/catalog';
+import { a11yStatement } from './a11y-statement';
 
 export type StoreStatus = 'draft' | 'published' | 'paused';
 export type DomainStatus = 'pending' | 'verifying' | 'active' | 'error';
@@ -21,6 +22,8 @@ export interface StoreRow {
   locationId: string | null;
   /** 2.103 (migration 5500): the company that runs the site — no name = the business's details, as before */
   operator: StoreOperator;
+  /** 2.104 (migration 5600): the accessibility button on the site — on unless the owner turned it off (before 5600: on) */
+  a11yWidget: boolean;
 }
 
 /** ח.פ. / ע.מ. / an American company's EIN; '' — no number shown */
@@ -95,6 +98,7 @@ export const toStore = (r: any): StoreRow => ({
     name: r.legal_name ?? '', number: r.legal_number ?? '', address: r.legal_address ?? '', country: r.legal_country ?? '',
     kind: (['company', 'dealer', 'ein'] as const).find((k) => k === r.legal_number_kind) ?? '',
   },
+  a11yWidget: r.a11y_widget !== false,
 });
 export const toDomain = (r: any): DomainRow => ({
   id: r.id, storeId: r.store_id, domain: r.domain, isPrimary: Boolean(r.is_primary), status: r.status ?? 'pending',
@@ -204,7 +208,7 @@ export const REQUIRED_POLICIES: PolicyKind[] = ['returns', 'privacy', 'accessibi
  * A draft to start from — every one of them is NEEDS_LEGAL_VERIFICATION: the business checks it with a lawyer before it
  * goes up (DREAM_COMMERCE_ARCHITECTURE §10). Brackets mark what only the business knows.
  */
-export function policyDraft(kind: PolicyKind, b: { name: string; phone?: string; email?: string; address?: string }): { title: string; body: string } {
+export function policyDraft(kind: PolicyKind, b: { name: string; phone?: string; email?: string; address?: string; whatsapp?: string; widget?: boolean }): { title: string; body: string } {
   const contact = [b.phone && `טלפון: ${b.phone}`, b.email && `מייל: ${b.email}`, b.address && `כתובת: ${b.address}`].filter(Boolean).join('\n') || '[פרטי קשר]';
   switch (kind) {
     case 'returns': return { title: POLICY_LABEL.returns, body: [
@@ -226,12 +230,10 @@ export function policyDraft(kind: PolicyKind, b: { name: string; phone?: string;
       contact,
       '[לבדוק עם עורך דין: חובות היידוע לפי תיקון 13 לחוק הגנת הפרטיות.]',
     ].join('\n\n') };
+    // 2.104: the site's automatic statement (a11y-statement.ts — only what is true of every site), and a note to the owner
     case 'accessibility': return { title: POLICY_LABEL.accessibility, body: [
-      '## נגישות באתר',
-      `אנחנו ב-${b.name} רוצים שכל אחד יוכל להשתמש באתר. האתר נבנה עם מבנה ברור, ניווט במקלדת, טקסט חלופי לתמונות וניגודיות צבעים.`,
-      '## נתקלתם בבעיה?',
-      `ספרו לנו ונטפל בה:\n${contact}`,
-      '[לבדוק עם מומחה נגישות לפני שמצהירים על עמידה בתקן ישראלי 5568. אסור לכתוב "האתר נגיש" בלי בדיקה כזו.]',
+      a11yStatement({ name: b.name, phone: b.phone ?? '', whatsapp: b.whatsapp ?? '', email: b.email ?? '', widget: b.widget ?? true }),
+      '[לפני שמפרסמים: אפשר להוסיף מה עוד נעשה באתר ושם של רכז/ת נגישות. לא לכתוב "האתר נגיש" או שהוא עומד בתקן הישראלי 5568 בלי בדיקה של מומחה נגישות.]',
     ].join('\n\n') };
     case 'terms': return { title: POLICY_LABEL.terms, body: '[תנאי השימוש באתר — לנסח עם עורך דין.]' };
     case 'shipping': return { title: POLICY_LABEL.shipping, body: ['## משלוחים', '[אזורים, זמני אספקה ומחיר.]', '## איסוף עצמי', '[אם יש — מאיפה ומתי.]'].join('\n\n') };

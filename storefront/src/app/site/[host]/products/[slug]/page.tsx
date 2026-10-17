@@ -55,7 +55,8 @@ export default async function ProductPage({ params, searchParams }: Props) {
         <ol>{crumbs.map((c, i) => <li key={c.path}>{i < crumbs.length - 1 ? <a href={c.path}>{c.name}</a> : <span aria-current="page">{c.name}</span>}</li>)}</ol>
       </nav>
       <article className="product" {...editLink(Boolean(site.edit), `product:${p.slug}`)}>
-        <div className="gallery" aria-label="תמונות המוצר">
+        {/* 2.104: more than one picture scrolls sideways on a phone — a labelled region the keyboard reaches (axe: scrollable-region-focusable) */}
+        <div className="gallery" {...(p.images.length > 1 ? { role: 'region', 'aria-label': 'תמונות המוצר', tabIndex: 0 } : {})}>
           {p.images.length ? p.images.map((img, i) => (
             <figure key={img.id ?? img.url} id={img.id ? `img-${img.id}` : undefined}>
               <Picture pic={img} alt={img.alt || (i === 0 ? p.name : `${p.name} — תמונה ${i + 1}`)} sizes="(min-width: 900px) 55vw, 88vw" eager={i === 0} />
