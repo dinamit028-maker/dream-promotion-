@@ -1,4 +1,4 @@
-import type { Card, Product, Quote, Variant } from './types';
+import type { Card, LegalNumberKind, Product, Quote, Variant } from './types';
 
 /** ₪ — whole shekels without ".00", agorot when there are any */
 export function money(n: number | null | undefined, currency = 'ILS', lang = 'he'): string {
@@ -26,6 +26,9 @@ export function stockLabel(inStock: boolean, stock: number | null): string {
 
 /** the variant's options as a label: "M / שחור" */
 export const variantLabel = (v: Pick<Variant, 'options'>) => v.options.filter(Boolean).join(' / ');
+
+/** the label of the number of the company that runs the site (the line at the bottom of every page) */
+export const legalNumberLabel = (kind: LegalNumberKind): string => (kind === 'company' ? 'ח.פ.' : kind === 'ein' ? 'EIN' : 'ע.מ.');
 
 /** a WhatsApp link with a first message (digits only: 9725…) */
 export function whatsappHref(number: string, text: string): string | null {

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { safeHref } from '@/lib/theme';
-import { whatsappHref } from '@/lib/format';
+import { legalNumberLabel, whatsappHref } from '@/lib/format';
 import type { Site } from '@/lib/site';
 import type { Link, PolicyKind, Store } from '@/lib/types';
 import { CartBadge } from './CartBadge';
@@ -126,7 +126,7 @@ export function Footer({ site }: { site: Site & { store: Store } }) {
       <div className="wrap legal" {...editLink(e, 'settings')}>
         <p>
           {store.legal.name}
-          {store.legal.number && <> · {store.legal.number_kind === 'company' ? 'ח.פ.' : 'ע.מ.'} <bdi>{store.legal.number}</bdi></>}
+          {store.legal.number && <> · {legalNumberLabel(store.legal.number_kind)} <bdi>{store.legal.number}</bdi></>}
           {store.legal.address && <> · {store.legal.address}</>}
         </p>
         <p>© {year} {store.name}</p>

@@ -12,12 +12,17 @@ export interface StoreLite {
   slug?: string; access?: StoreAccess;
 }
 
+/** ח.פ. / ע.מ. / an American company's EIN; '' — no number shown */
+export type LegalNumberKind = 'company' | 'dealer' | 'ein' | '';
+
 export interface Store extends StoreLite {
   template: string; currency: string; country: string; description: string;
   contact: { phone: string; whatsapp: string; email: string; address: string };
   ga4_id: string; gsc_code: string; show_stock_count: boolean;
   theme: { version: number | null; settings: unknown };
-  legal: { name: string; number: string; number_kind: 'company' | 'dealer'; address: string };
+  /** who runs the site: the store's own company (2.103, migration 5500), else the business's details for its documents; country —
+   *  the company's (two letters), absent before the migration */
+  legal: { name: string; number: string; number_kind: LegalNumberKind; address: string; country?: string };
   menus: { main: Link[]; footer: Link[] };
   policies: { policy: PolicyKind; title: string }[];
   collections: { slug: string; title: string; image_url: string }[];

@@ -20,7 +20,7 @@ import { STORE_LIMITS } from './store';
 
 export interface PageFacts {
   kind: 'page' | 'policy'; policy: PolicyKind | null; title: string; current: string;
-  store: { name: string; legalName: string; number: string; numberKind: 'company' | 'dealer'; address: string; phone: string; email: string;
+  store: { name: string; legalName: string; number: string; numberKind: 'company' | 'dealer' | 'ein' | ''; address: string; phone: string; email: string;
     whatsapp: string; country: string; description: string };
   selling: { checkout: boolean; delivery: boolean; deliveryPrice: number; freeDeliveryOver: number | null; deliveryNote: string;
     pickup: boolean; pickupNote: string };
@@ -103,7 +103,7 @@ export function factsText(f: PageFacts): string {
   return [
     `שם החנות: ${s.name}`,
     s.legalName && `השם החוקי: ${s.legalName}`,
-    s.number && `${s.numberKind === 'company' ? 'ח.פ.' : 'ע.מ.'}: ${s.number}`,
+    s.number && `${s.numberKind === 'company' ? 'ח.פ.' : s.numberKind === 'ein' ? 'EIN' : 'ע.מ.'}: ${s.number}`,
     s.address && `כתובת: ${s.address}`, s.phone && `טלפון: ${s.phone}`, s.email && `מייל: ${s.email}`, s.whatsapp && 'יש וואטסאפ',
     s.description && `על העסק: ${s.description}`,
     `מכירה באתר: ${sel.checkout ? 'כן — תשלום באתר' : 'עוד לא (הזמנות בפנייה)'}`,
