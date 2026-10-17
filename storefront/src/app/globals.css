@@ -112,7 +112,7 @@ input, select, textarea {
 .step { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); padding: 20px; }
 .step h3 { font-size: 1.1rem; margin-top: 10px; }
 .step p { color: var(--c-muted); margin: 0; }
-.step-n { display: inline-flex; width: 34px; height: 34px; border-radius: 999px; align-items: center; justify-content: center; background: var(--c-accent); color: #ffffff; font-weight: 800; }
+.step-n { display: inline-flex; width: 34px; height: 34px; border-radius: 999px; align-items: center; justify-content: center; background: var(--c-accent); color: var(--c-on-accent, #ffffff); font-weight: 800; }
 .faq details { border-bottom: 1px solid var(--c-border); }
 .faq summary { cursor: pointer; padding: 16px 0; font-weight: 700; }
 .faq p { color: var(--c-muted); }
@@ -135,7 +135,7 @@ input, select, textarea {
 .card-name { font-weight: 600; margin-top: 6px; }
 .card-link:hover .card-name { text-decoration: underline; }
 .badge { position: absolute; top: 8px; inset-inline-start: 8px; background: var(--c-text); color: var(--c-bg); font-size: .8rem; font-weight: 700; padding: 2px 10px; border-radius: 999px; }
-.badge-sale { background: var(--c-accent); color: #ffffff; }
+.badge-sale { background: var(--c-accent); color: var(--c-on-accent, #ffffff); }
 .price { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
 .price-now { font-weight: 700; }
 .price-was { color: var(--c-muted); font-size: .9em; }
@@ -192,8 +192,9 @@ input, select, textarea {
 .chip-on { border-color: var(--c-text); background: var(--c-text); color: var(--c-bg); }
 .chip-off { border-style: dashed; color: var(--c-muted); }
 .stock { font-weight: 700; margin: 0; }
-.stock-in { color: var(--ok); }
-.stock-out { color: var(--bad); }
+/* --c-ok / --c-bad / --c-on-accent: a dark theme's only (themeCss, 2.101); a light one keeps these */
+.stock-in { color: var(--c-ok, var(--ok)); }
+.stock-out { color: var(--c-bad, var(--bad)); }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 20px; }
 .facts > div { display: contents; }
 .facts dt { font-weight: 700; }
@@ -239,7 +240,7 @@ input, select, textarea {
 
 /* stage 3: the cart in the header, adding to the cart, the cart, the checkout, the order */
 .cart-link { position: relative; }
-.cart-count { position: absolute; top: 2px; inset-inline-end: 0; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--c-accent); color: #ffffff; font-size: .75rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+.cart-count { position: absolute; top: 2px; inset-inline-end: 0; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--c-accent); color: var(--c-on-accent, #ffffff); font-size: .75rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
 .add-to-cart { display: grid; gap: 8px; }
 .btn[disabled] { opacity: .55; cursor: not-allowed; }
 .note { border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: .95rem; }
@@ -252,7 +253,7 @@ input, select, textarea {
 @media (min-width: 900px) { .cart-grid { grid-template-columns: 1.6fr 1fr; align-items: start; } }
 .cart-lines { list-style: none; margin: 0; padding: 0; }
 .cart-line { display: grid; grid-template-columns: 72px 1fr; gap: 6px 12px; padding-block: 14px; border-bottom: 1px solid var(--c-border); }
-.cart-line-bad { background: #fdf6f6; }
+.cart-line-bad { background: var(--c-bad-soft, #fdf6f6); }
 .cart-thumb img, .cart-noimg { width: 72px; height: 90px; object-fit: cover; border-radius: 10px; background: var(--c-accent-soft); display: block; }
 .cart-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cart-name { font-weight: 700; text-decoration: none; }
@@ -281,8 +282,8 @@ input, select, textarea {
 .field input, .field textarea { width: 100%; }
 .field textarea { padding: 10px 12px; min-height: 90px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.field-error { color: var(--bad); font-size: .9rem; }
-[aria-invalid="true"] { border-color: var(--bad); border-width: 2px; }
+.field-error { color: var(--c-bad, var(--bad)); font-size: .9rem; }
+[aria-invalid="true"] { border-color: var(--c-bad, var(--bad)); border-width: 2px; }
 .choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; cursor: pointer; }
 .choice input { min-height: 0; width: 22px; height: 22px; margin-top: 2px; flex: none; accent-color: var(--c-primary); }
 .trap { position: absolute; inset-inline-start: -10000px; width: 1px; height: 1px; overflow: hidden; }
@@ -761,4 +762,123 @@ input, select, textarea {
   .sx-lg-w-normal .wrap { max-width: 1200px; }
   .sx-lg-w-wide .wrap { max-width: 1440px; }
   .sx-lg-w-full .wrap { max-width: none; }
+}
+
+/* ---- 2.101 — cards with a picture, a catalog of models (Showcase.tsx), and the floating look (CSS only) ------------------
+   Everything here is under classes only these sections and variants carry, so no other kit changes. */
+.band-sub { max-width: 42em; }
+.cards { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card3 { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); overflow: hidden; }
+.card3-link { position: relative; display: flex; flex-direction: column; flex: 1; text-decoration: none; color: inherit; }
+.card3-media { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; overflow: hidden; background: var(--c-accent-soft); }
+.card3-media img { width: 100%; height: 100%; object-fit: cover; }
+.card3-body { display: flex; flex-direction: column; gap: 4px; flex: 1; padding: 12px 14px 16px; }
+.card3-title { margin: 0; font-size: 1.02rem; line-height: 1.3; }
+.card3-text { margin: 0; color: var(--c-muted); font-size: .9rem; line-height: 1.5; }
+.card3-cta, .card3-more { margin-top: auto; padding-top: 6px; font-weight: 700; }
+.card3-more { color: var(--c-accent); white-space: normal; }
+.card3-btn { margin-top: 14px; align-self: flex-start; }
+.card3-n { position: absolute; top: 10px; inset-inline-start: 10px; z-index: 1; display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 999px; background: var(--c-primary); color: var(--c-on-primary); font-weight: 800; font-size: 1.1rem;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, .3); }
+@media (min-width: 700px) { .cards { gap: 20px; } .card3-title { font-size: 1.12rem; } }
+/* tiles (categories): a tall picture, the name on it */
+.cards--tiles .card3-media { aspect-ratio: 3 / 4; }
+.cards--tiles .card3-link .card3-body { position: absolute; inset: auto 0 0; padding: 48px 12px 12px; color: #ffffff;
+  background: linear-gradient(to top, rgba(0, 0, 0, .78), rgba(0, 0, 0, .35) 60%, transparent); }
+.cards--tiles .card3-link .card3-text { display: none; }
+.cards--tiles .card3-cta { padding-top: 2px; font-size: .85rem; color: #ffffff; text-decoration: underline; text-underline-offset: 4px; }
+@media (min-width: 700px) { .cards--tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .cards--tiles .card3-link .card3-text { display: block; color: rgba(255, 255, 255, .86); } }
+/* features and steps: a picture over the words; steps carry their number */
+@media (min-width: 900px) { .cards--features { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .cards--steps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* banners: one under the other on a phone, two side by side on a computer; the words on the picture */
+.cards--banners { grid-template-columns: 1fr; }
+.cards--banners .card3-media { aspect-ratio: 4 / 5; }
+.cards--banners .card3-body { position: absolute; inset: auto 0 0; padding: 72px 18px 20px; color: #ffffff;
+  background: linear-gradient(to top, rgba(0, 0, 0, .8), rgba(0, 0, 0, .4) 62%, transparent); }
+.cards--banners .card3-title { font-size: 1.45rem; }
+.cards--banners .card3-text { color: rgba(255, 255, 255, .88); font-size: 1rem; }
+@media (min-width: 800px) { .cards--banners { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cards--banners .card3-media { aspect-ratio: 4 / 3; } }
+
+/* the catalog: filters, the models, "עוד דגמים" */
+.sc { margin-top: 18px; }
+.sc-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sc-filters { display: grid; gap: 12px; margin-bottom: 18px; }
+/* position: relative keeps a chip's hidden words (.sr-only, absolute) inside the row that scrolls — else a chip scrolled out
+   of sight widens the whole page on a phone */
+.sc-cats { position: relative; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-inline: -16px; padding: 2px 16px 4px; }
+.sc-cats::-webkit-scrollbar { display: none; }
+.sc-cats .chip { flex: none; white-space: nowrap; }
+.sc-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.sc-select { display: grid; gap: 4px; min-width: 0; font-size: .9rem; font-weight: 700; }
+.sc-select select { width: 100%; min-width: 0; font-weight: 400; }
+.sc-status { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.sc-count { margin: 0; color: var(--c-muted); font-size: .92rem; }
+@media (min-width: 900px) {
+  .sc-cats { flex-wrap: wrap; overflow: visible; margin: 0; padding: 0; }
+  .sc-selects { display: flex; gap: 16px; }
+  .sc-select { width: 260px; }
+}
+.sc-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 700px) { .sc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; } }
+@media (min-width: 1100px) { .sc-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; } }
+.sc-item { display: flex; min-width: 0; border-radius: var(--radius); }
+.sc-card { display: flex; flex-direction: column; width: 100%; min-width: 0; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); overflow: hidden; }
+/* a studio's light behind every model, as in the kit's pictures — the drawing of a model without a picture stands in it too */
+.sc-media { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; overflow: hidden; background: radial-gradient(circle at 50% 36%, #f8f3ec, #e3d8c8 80%); }
+.sc-media img { width: 100%; height: 100%; object-fit: cover; }
+.sc-bag { width: 86%; height: auto; }
+.sc-body { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; padding: 12px 12px 14px; }
+.sc-brand { margin: 0; font-size: .72rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--c-accent); }
+.sc-name { margin: 0; font-size: 1rem; line-height: 1.3; }
+.sc-text { margin: 0; color: var(--c-muted); font-size: .86rem; line-height: 1.5; }
+.sc-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 8px; margin: 2px 0 6px; font-size: .8rem; }
+.sc-facts > div { display: contents; }
+.sc-facts dt { color: var(--c-muted); }
+.sc-facts dd { margin: 0; overflow-wrap: anywhere; }
+.sc-min { margin: 0 0 6px; font-size: .8rem; font-weight: 700; color: var(--c-accent); }
+.sc-quote { margin-top: auto; width: 100%; min-height: 44px; padding: 6px 10px; font-size: .9rem; line-height: 1.25; text-align: center; }
+@media (min-width: 700px) { .sc-body { padding: 14px 16px 16px; } .sc-name { font-size: 1.06rem; } }
+
+/* cards: the other frames (as the product card's) */
+.v-card-flat .fcard { border: 0; }
+.v-card-soft .fcard { border: 0; background: var(--c-accent-soft); }
+.v-card-shadow .fcard { border: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, .08); }
+/* cards that float: over their own shadow, a little higher on hover and as they come into view — never for a visitor who
+   asked for less motion (the rule above turns every animation and transition off for them, and the hover waits for them) */
+.v-card-float .fcard { border-color: color-mix(in srgb, var(--c-accent) 24%, var(--c-border));
+  box-shadow: 0 24px 34px -24px rgba(0, 0, 0, .75), 0 2px 6px rgba(0, 0, 0, .2); transition: transform .35s ease, box-shadow .35s ease; }
+.v-card-float .fcard :is(.card3-media, .sc-media) img { transition: transform .6s ease; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .v-card-float .fcard:hover { transform: translateY(-6px);
+    box-shadow: 0 36px 44px -28px rgba(0, 0, 0, .85), 0 0 0 1px color-mix(in srgb, var(--c-accent) 45%, transparent); }
+  .v-card-float .fcard:hover :is(.card3-media, .sc-media) img { transform: scale(1.04); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .v-card-float .fcard { animation: fcard-rise linear both; animation-timeline: view(); animation-range: entry 0% entry 80%; }
+  }
+}
+@keyframes fcard-rise { from { translate: 0 28px; } to { translate: 0 0; } }
+/* and a product's card, when the store sells */
+.v-card-float .card-media { border: 0; box-shadow: 0 22px 30px -22px rgba(0, 0, 0, .65), 0 2px 6px rgba(0, 0, 0, .15); transition: transform .35s ease, box-shadow .35s ease; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) { .v-card-float .card-link:hover .card-media { transform: translateY(-5px); } }
+
+/* the hero: floating — the picture over a pool of light, up and down a little, turned towards the words on a computer */
+.hero--float { position: relative; overflow: hidden;
+  background: radial-gradient(ellipse 80% 55% at 50% 78%, color-mix(in srgb, var(--c-accent) 20%, transparent), transparent 72%), var(--c-bg); }
+.hero--float .hero-media { position: relative; width: 100%; max-width: 520px; margin-inline: auto; padding-bottom: 34px; perspective: 1400px; }
+.hero--float .hero-img { position: relative; z-index: 1; max-height: none; aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--c-accent) 35%, transparent); box-shadow: 0 44px 60px -36px rgba(0, 0, 0, .9);
+  animation: hero-float 7s ease-in-out infinite alternate; }
+.hero--float .hero-media::after { content: ''; position: absolute; inset-inline: 16%; bottom: 0; height: 26px; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--c-text) 32%, transparent), transparent);
+  animation: hero-float-pool 7s ease-in-out infinite alternate; }
+@keyframes hero-float { from { translate: 0 0; } to { translate: 0 -12px; } }
+@keyframes hero-float-pool { from { scale: 1; opacity: .9; } to { scale: .84; opacity: .55; } }
+@media (min-width: 900px) {
+  .hero--float .hero-media { padding-bottom: 52px; }
+  .hero--float .hero-img { transform: rotateY(-8deg) rotateX(2deg); }
+  [dir="rtl"] .hero--float .hero-img { transform: rotateY(8deg) rotateX(2deg); }
 }

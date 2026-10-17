@@ -10,7 +10,7 @@ import MANIFESTS from './kit-manifests.json';
  * picture there would claim something about the business.
  */
 export interface KitImage {
-  file: string; slot: 'hero' | 'imageText' | 'collection' | 'gallery'; width: number; height: number;
+  file: string; slot: 'hero' | 'imageText' | 'collection' | 'gallery' | 'picture'; width: number; height: number;
   focal: { x: number; y: number }; alt: string; variant?: 'wide' | 'vertical'; textSafe?: 'start' | 'end'; collection?: string; order: number;
 }
 export interface KitManifest { kit: string; version: number; images: KitImage[] }
@@ -56,6 +56,15 @@ export function kitCollectionPictures(kit: string | null): KitPicture[] {
   if (!m) return [];
   return m.images.filter((i) => i.slot === 'collection').sort((a, b) => a.order - b.order).flatMap((i) => picture(m.kit, i) ?? []).slice(0, 4);
 }
+/**
+ * 2.101: one of the kit's pictures by its file — what a section names (cards, a catalog's model: "pic"). Any slot; a
+ * "picture" is one that only a section names. null when the store's kit has no such file (another kit, or none).
+ */
+export function kitPicture(kit: string | null, file: string): KitPicture | null {
+  const m = kit ? KIT_MANIFESTS[kit] : undefined;
+  return m && FILE.test(file) ? picture(m.kit, m.images.find((i) => i.file === file)) : null;
+}
+
 /** the kit's gallery pictures, in order (the owner's preview only — see above) */
 export function kitGallery(kit: string | null): KitPicture[] {
   const m = kit ? KIT_MANIFESTS[kit] : undefined;

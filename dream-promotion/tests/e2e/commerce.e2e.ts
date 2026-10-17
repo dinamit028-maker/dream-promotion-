@@ -1131,6 +1131,46 @@ async function main() {
         await r.screenshot({ path: path.join(SHOTS, 'c13-register-held.png') });
       } finally { await ctx.close(); fake.tables.stock_reservations = []; }
     });
+
+    // 2.101: the kit "שקיות יוקרה 3D" — 60 models, which are not products: in the editor each one is folded under its
+    // name; its brand colour is a colour picker and its minimum a number; a picture's file name is checked before saving
+    await step('2.101 — "שקיות יוקרה 3D": no product; in the editor 60 models folded under their names, a colour, a number, a file name checked', async () => {
+      const items = fake.tables.catalog_items.length;
+      await st.goto(`${BASE}/store/design?kits=1`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('heading', { name: 'ערכות הקמה' }).waitFor({ timeout: 60_000 });
+      await st.locator('li').filter({ hasText: /^שקיות יוקרה 3D/ }).getByRole('button', { name: 'ערכה מלאה' }).click();
+      await st.getByRole('heading', { name: 'ערכת "שקיות יוקרה 3D"' }).waitFor();
+      if (await st.getByText('להחליף את טיוטת העיצוב').count()) await st.getByText('להחליף את טיוטת העיצוב').click();
+      await st.getByRole('button', { name: 'החלת הערכה (כטיוטה)' }).click();
+      await st.getByText('האתר מוכן — עכשיו מוסיפים מוצרים.').waitFor();
+      const draft = () => fake.tables.store_theme_versions.find((v) => v.status === 'draft')!;
+      const catalog = () => draft().settings.sections.find((x: any) => x.id === 'catalog');
+      assert.equal(draft().settings.kit, 'bags-3d');
+      assert.equal(catalog().settings.items.length, 60);
+      assert.equal(fake.tables.catalog_items.length, items, 'no product: a model is not a product');
+      await st.goto(`${BASE}/store/design`, { waitUntil: 'domcontentloaded' });
+      const home = block(st, 'עמוד הבית');
+      await home.getByRole('button', { name: /^קטלוג דגמים \(הצעת מחיר\)/ }).click({ timeout: 60_000 });
+      const models = home.locator('fieldset').filter({ has: st.locator('legend', { hasText: 'מתוך 60' }) });
+      await models.locator('legend').filter({ hasText: /^דגמים \(60 מתוך 60\)$/ }).waitFor();
+      assert.equal(await models.locator('details').count(), 60, 'each model folded');
+      assert.equal(await models.locator('details[open]').count(), 0);
+      const row = models.locator('details').nth(6);
+      await row.locator('summary').click();
+      assert.equal(await row.getByLabel('שם הדגם').inputValue(), 'שקית שמנת עם הבלטה עיוורת');
+      assert.equal(await row.getByLabel('צבע המותג (לציור, כשאין תמונה)').inputValue(), '#dacaba');
+      await noSideScroll(st, 'the catalog\'s models in the editor on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c14-store-showcase-editor-phone.png'), fullPage: true });
+      await row.getByLabel('כמות מינימום').fill('300');
+      await row.getByLabel('תמונה של הערכה (שם הקובץ)').fill('Bag 7.webp');
+      await st.getByRole('button', { name: 'שמירת טיוטה' }).click();
+      await st.getByText(/שם קובץ כמו bag-007\.webp/).first().waitFor();
+      await row.getByLabel('תמונה של הערכה (שם הקובץ)').fill('bag-007.webp');
+      await st.getByRole('button', { name: 'שמירת טיוטה' }).click();
+      await st.getByText(/הטיוטה נשמרה/).waitFor();
+      const saved = catalog().settings.items[6];
+      assert.deepEqual([saved.minQty, saved.pic, saved.color], [300, 'bag-007.webp', '#dacaba'], 'a number, a file name, a colour');
+    });
   } finally { await st.context().close(); current = null; }
 
   await step('a cashier: sells a size / colour, never reaches the store or its editor', async () => {

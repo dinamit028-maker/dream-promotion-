@@ -2,7 +2,7 @@ import { BAGS } from '@/templates/bags';
 import { KIT } from '@/templates/kit';
 import { kitImageCss } from './kit-images';
 import { cleanColumns, cleanResponsive, cleanStyle, type Column, type Responsive, type StyleValues } from './builder-registry';
-import { contrast, tokenVars } from './theme-tokens';
+import { contrast, darkVars, tokenVars } from './theme-tokens';
 import KIT_DESIGNS from './kit-designs.json';
 import { bodyClasses, CHROME, COMMERCE, DESIGN, layered, sectionVariant, type Chrome, type Commerce, type Design } from './variants';
 
@@ -14,7 +14,7 @@ import { bodyClasses, CHROME, COMMERCE, DESIGN, layered, sectionVariant, type Ch
  * 2.58 (starter kits): the template "kit" is open — a kit's own sections come with their type in the settings (each one
  * checked against the schema of its type), so a new kit is data in the dashboard and never code here.
  */
-export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter' | 'custom';
+export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter' | 'custom' | 'cards' | 'showcase';
 export type Radius = 'none' | 'small' | 'medium' | 'large';
 export type Font = 'heebo' | 'rubik' | 'assistant' | 'frank';
 /** the drawing shown where the business has no picture yet: the template's bag, or a plain shape */
@@ -58,6 +58,10 @@ type Field =
   | { kind: 'int'; min: number; max: number }
   | { kind: 'choice'; values: readonly string[] }
   | { kind: 'slug' }
+  // 2.101: one of the kit's pictures, by its file (kit-images.ts — shown only while the business has no picture of its own)
+  | { kind: 'kitfile' }
+  // 2.101: a colour (#rrggbb) — a model's brand colour, for its drawing while it has no picture
+  | { kind: 'hex' }
   | { kind: 'list'; max: number; item: Record<string, Field> };
 
 const T = (max: number): Field => ({ kind: 'text', max });
@@ -77,12 +81,25 @@ export const SCHEMA: Record<SectionType, Record<string, Field>> = {
   newsletter: { title: T(80), text: L(300) },
   // 2.67: a free section — columns and blocks (builder-registry.ts, checked by cleanColumns), no fields of its own
   custom: {},
+  // 2.101: cards with a picture each — categories (a link), finishes, numbered steps, banners (variants.ts); "label" is the
+  // words of a card's link (a banner's button)
+  cards: { title: T(80), subtitle: L(300), items: { kind: 'list', max: 8, item: {
+    title: T(60), text: L(240), image: { kind: 'image' }, pic: { kind: 'kitfile' }, href: { kind: 'href' }, label: T(30),
+  } } },
+  // 2.101: a catalog of models to show — never products (no price, no stock, no cart): each one asks for a quote on
+  // WhatsApp; filtered by category, handle and material in the browser
+  showcase: { title: T(80), subtitle: L(300), buttonLabel: T(30), items: { kind: 'list', max: 60, item: {
+    name: T(60), brand: T(40), color: { kind: 'hex' }, category: T(40), material: T(40), handle: T(40), finish: T(40), shape: T(40),
+    minQty: { kind: 'int', min: 1, max: 1000000 }, text: L(240), image: { kind: 'image' }, pic: { kind: 'kitfile' },
+  } } },
 };
 
 export const TEMPLATES: Record<string, Template> = { bags: BAGS, kit: KIT };
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const SLUG = /^[a-z0-9א-ת]+(-[a-z0-9א-ת]+)*$/;
+/** a kit picture's file name (the same rule as kit-images.ts) */
+const KIT_FILE = /^[a-z0-9-]{1,60}\.webp$/;
 /** a link the storefront may render: a path of the store, an https address, or one of the store's contact actions */
 export function safeHref(v: unknown): string | null {
   if (typeof v !== 'string') return null;
@@ -105,6 +122,8 @@ function clean(field: Field, v: unknown): unknown {
     case 'int': return typeof v === 'number' && Number.isInteger(v) && v >= field.min && v <= field.max ? v : undefined;
     case 'choice': return typeof v === 'string' && field.values.includes(v) ? v : undefined;
     case 'slug': return v === '' || (typeof v === 'string' && SLUG.test(v) && v.length <= 80) ? v : undefined;
+    case 'kitfile': return v === '' || (typeof v === 'string' && KIT_FILE.test(v)) ? v : undefined;
+    case 'hex': return v === '' ? '' : typeof v === 'string' && HEX.test(v) ? v.toLowerCase() : undefined;
     case 'list': {
       if (!Array.isArray(v)) return undefined;
       return v.slice(0, field.max).flatMap((row) => {
@@ -208,6 +227,8 @@ export const themeClasses = (t: Theme) => bodyClasses(t.design, t.chrome, t.comm
 /** the theme as CSS variables (every value checked above: hex colours, fixed sizes, a font from a fixed list) */
 export function themeCss(t: Theme): string {
   const vars = tokenVars(t.colors, t.font, t.radius) ?? [];
-  return `:root{${vars.map(([k, v]) => `${k}:${v}`).join(';')}}`
+  // 2.101: a dark background's own colours (theme-tokens.ts) — nothing for a light one
+  const dark = darkVars(t.colors);
+  return `:root{${vars.map(([k, v]) => `${k}:${v}`).join(';')}}` + (dark ? `:root{${dark.map(([k, v]) => `${k}:${v}`).join(';')}}` : '')
     + (t.art === 'bag' ? '.plain-art{display:none}' : '.bag-art{display:none}') + kitImageCss(t.kit);
 }

@@ -1,0 +1,995 @@
+{
+  "kit": "bags-3d",
+  "version": 1,
+  "images": [
+    {
+      "file": "site-21.webp",
+      "slot": "hero",
+      "width": 1400,
+      "height": 933,
+      "focal": {
+        "x": 0.15,
+        "y": 0.5
+      },
+      "alt": "שקיות נייר שחורות עם לוגו זהב מרחפות על רקע כהה",
+      "variant": "wide",
+      "textSafe": "start",
+      "order": 1
+    },
+    {
+      "file": "site-01.webp",
+      "slot": "hero",
+      "width": 1400,
+      "height": 933,
+      "focal": {
+        "x": 0.45,
+        "y": 0.5
+      },
+      "alt": "שקיות ממותגות בשחור, בירוק, בוורוד, בכחול ובלבן מרחפות על רקע שמנת",
+      "variant": "wide",
+      "textSafe": "start",
+      "order": 2
+    },
+    {
+      "file": "site-02.webp",
+      "slot": "hero",
+      "width": 933,
+      "height": 1400,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיות יוקרה צבעוניות מרחפות זו מעל זו על רקע בהיר",
+      "variant": "vertical",
+      "order": 1
+    },
+    {
+      "file": "site-20.webp",
+      "slot": "imageText",
+      "width": 1400,
+      "height": 933,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "סטודיו מואר עם שקיות, קופסאות ודוגמיות נייר על שולחן שיש",
+      "order": 1
+    },
+    {
+      "file": "site-03.webp",
+      "slot": "picture",
+      "width": 933,
+      "height": 1400,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "שקיות נייר בבורדו ובלבן עם ידיות חבל וסרט",
+      "order": 1
+    },
+    {
+      "file": "site-04.webp",
+      "slot": "picture",
+      "width": 933,
+      "height": 1400,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "שקית שחורה ושקית לבנה עם ידית חתוכה",
+      "order": 2
+    },
+    {
+      "file": "site-05.webp",
+      "slot": "picture",
+      "width": 933,
+      "height": 1400,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "שקיות קרפט חומות בשלושה גדלים עם ענפי זית",
+      "order": 3
+    },
+    {
+      "file": "site-06.webp",
+      "slot": "picture",
+      "width": 933,
+      "height": 1400,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "קופסת מתנה שחורה פתוחה עם נייר משי, ולצידה קופסה בשמנת",
+      "order": 4
+    },
+    {
+      "file": "site-07.webp",
+      "slot": "picture",
+      "width": 933,
+      "height": 1400,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק בד טבעי ושקיק קטיפה סגול תלויים על מתלה עץ",
+      "order": 5
+    },
+    {
+      "file": "site-08.webp",
+      "slot": "picture",
+      "width": 933,
+      "height": 1400,
+      "focal": {
+        "x": 0.5,
+        "y": 0.55
+      },
+      "alt": "תיק PVC שקוף עם שרשרת זהב ושקית הולוגרפית",
+      "order": 6
+    },
+    {
+      "file": "site-09.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית לבנה ודוגמיות נייר בגוונים ובמרקמים שונים",
+      "order": 7
+    },
+    {
+      "file": "site-10.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית כחולה, שרטוטי גזרה ומספריים על שולחן עבודה",
+      "order": 8
+    },
+    {
+      "file": "site-11.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיות שחורות על פס ייצור",
+      "order": 9
+    },
+    {
+      "file": "site-12.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קרטונים פתוחים עם שקיות ארוזות על משטח",
+      "order": 10
+    },
+    {
+      "file": "site-13.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "לוגו בהטבעת זהב על נייר שחור",
+      "order": 11
+    },
+    {
+      "file": "site-14.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "לוגו מובלט בלי צבע על נייר שמנת",
+      "order": 12
+    },
+    {
+      "file": "site-15.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "לוגו בלכה מבריקה על נייר שחור מט",
+      "order": 13
+    },
+    {
+      "file": "site-16.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "לוגו בהטבעה הולוגרפית על נייר לבן",
+      "order": 14
+    },
+    {
+      "file": "site-17.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "לוגו בהטבעת זהב על נייר בורדו",
+      "order": 15
+    },
+    {
+      "file": "site-18.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "ידיות לשקיות: חבל, סרט סאטן, עור, שרשרת ואקריליק",
+      "order": 16
+    },
+    {
+      "file": "site-19.webp",
+      "slot": "picture",
+      "width": 1400,
+      "height": 933,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "מדפים מוארים עם שקיות ממותגות בצבעים רבים",
+      "order": 17
+    },
+    {
+      "file": "site-22.webp",
+      "slot": "picture",
+      "width": 1254,
+      "height": 1254,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית שחורה גדולה עם לוגו זהב ושתי שקיות קטנות מרחפות",
+      "order": 18
+    },
+    {
+      "file": "bag-001.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית נייר שחורה עם חבל שחור ולוגו זהב",
+      "order": 19
+    },
+    {
+      "file": "bag-002.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית ירוקה כהה עם חבל זהב ולוגו מוזהב",
+      "order": 20
+    },
+    {
+      "file": "bag-003.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית ורודה עם סרט סאטן קשור לפפיון",
+      "order": 21
+    },
+    {
+      "file": "bag-004.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בורדו עם ידיות סרט שחורות ולוגו זהב",
+      "order": 22
+    },
+    {
+      "file": "bag-005.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית כחולה כהה עם חבל לבן ולוגו כסוף",
+      "order": 23
+    },
+    {
+      "file": "bag-006.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית לבנה מבריקה עם ידיות סאטן ולוגו כסוף",
+      "order": 24
+    },
+    {
+      "file": "bag-007.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בגוון שמנת עם חבל בהיר ולוגו מובלט",
+      "order": 25
+    },
+    {
+      "file": "bag-008.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בגוון טרקוטה עם חבל בהיר ולוגו לבן",
+      "order": 26
+    },
+    {
+      "file": "bag-009.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בקבוק שחורה וצרה עם ידיות סאטן",
+      "order": 27
+    },
+    {
+      "file": "bag-010.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בגוון שמנת עם חבל חום ולוגו כהה",
+      "order": 28
+    },
+    {
+      "file": "bag-011.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בירוק זית עם ידית חתוכה ולוגו זהב",
+      "order": 29
+    },
+    {
+      "file": "bag-012.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית אדומה עם ידית חתוכה ולוגו שחור",
+      "order": 30
+    },
+    {
+      "file": "bag-013.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית זהב מתכתית עם ידית חתוכה",
+      "order": 31
+    },
+    {
+      "file": "bag-014.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית אפורה כהה עם ידית חתוכה ולוגו שקוע",
+      "order": 32
+    },
+    {
+      "file": "bag-015.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית כחולה בוהקת עם ידית חתוכה ולוגו לבן",
+      "order": 33
+    },
+    {
+      "file": "bag-016.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית סגולה בהירה עם ידית בצורת לב",
+      "order": 34
+    },
+    {
+      "file": "bag-017.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית כסופה מבריקה עם ידית חתוכה ולוגו שחור",
+      "order": 35
+    },
+    {
+      "file": "bag-018.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בפסים שחורים ולבנים עם ידית חתוכה",
+      "order": 36
+    },
+    {
+      "file": "bag-019.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית ירוקה עם דש מתקפל וידית חתוכה",
+      "order": 37
+    },
+    {
+      "file": "bag-020.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בגוון חול עם ידית חתוכה ולוגו תכלת",
+      "order": 38
+    },
+    {
+      "file": "bag-021.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט חומה עם ידית נייר שזורה",
+      "order": 39
+    },
+    {
+      "file": "bag-022.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט לבנה עם ידיות נייר שטוחות",
+      "order": 40
+    },
+    {
+      "file": "bag-023.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט עם חבל יוטה עבה",
+      "order": 41
+    },
+    {
+      "file": "bag-024.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט בגוון טרקוטה עם ידיות נייר",
+      "order": 42
+    },
+    {
+      "file": "bag-025.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט עם רצועות בד כחולות ותווית",
+      "order": 43
+    },
+    {
+      "file": "bag-026.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט עם חלון שקוף",
+      "order": 44
+    },
+    {
+      "file": "bag-027.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט שחורה עם ידיות נייר ולוגו לבן",
+      "order": 45
+    },
+    {
+      "file": "bag-028.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית ירוקה רחבה עם חבל בהיר ולוגו זהב",
+      "order": 46
+    },
+    {
+      "file": "bag-029.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית קרפט עם ידית חתוכה ולוגו אדום",
+      "order": 47
+    },
+    {
+      "file": "bag-030.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית לבנה עם רצועות כותנה ולוגו מובלט",
+      "order": 48
+    },
+    {
+      "file": "bag-031.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסת מתנה שחורה עם ידית סרט ולוגו זהב",
+      "order": 49
+    },
+    {
+      "file": "bag-032.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסת מגירה בורדו עם ידית קלועה בזהב",
+      "order": 50
+    },
+    {
+      "file": "bag-033.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסה עגולה ורודה עם ידיות סאטן",
+      "order": 51
+    },
+    {
+      "file": "bag-034.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסה בצורת תיק עם ידית שרשרת זהב",
+      "order": 52
+    },
+    {
+      "file": "bag-035.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסה אפורה כהה עם ידיות עור שחורות",
+      "order": 53
+    },
+    {
+      "file": "bag-036.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסה ירוקה עם ידית סרט בזהב",
+      "order": 54
+    },
+    {
+      "file": "bag-037.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסת בקבוק שחורה וגבוהה עם לולאת עור",
+      "order": 55
+    },
+    {
+      "file": "bag-038.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסה כחולה עם חבל לבן ולוגו כסוף",
+      "order": 56
+    },
+    {
+      "file": "bag-039.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסה משושה סגולה עם ידיות סאטן לבנות",
+      "order": 57
+    },
+    {
+      "file": "bag-040.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "קופסה כסופה עם חלון שקוף וידית אקריליק",
+      "order": 58
+    },
+    {
+      "file": "bag-041.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק קנבס בהיר עם לוגו תכלת",
+      "order": 59
+    },
+    {
+      "file": "bag-042.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיק קטיפה סגול עם שרוך סאטן",
+      "order": 60
+    },
+    {
+      "file": "bag-043.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק קטיפה שחור עם תווית ארוגה",
+      "order": 61
+    },
+    {
+      "file": "bag-044.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק פשתן בהיר עם ידיות עור חומות",
+      "order": 62
+    },
+    {
+      "file": "bag-045.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק קנבס שחור עם לוגו לבן",
+      "order": 63
+    },
+    {
+      "file": "bag-046.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיק כותנה ירוק עם שרוך זהב",
+      "order": 64
+    },
+    {
+      "file": "bag-047.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקיק סאטן לבן עם סרט קשירה",
+      "order": 65
+    },
+    {
+      "file": "bag-048.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק יוטה טבעי עם לוגו בגוון טרקוטה",
+      "order": 66
+    },
+    {
+      "file": "bag-049.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק כותנה כחול כהה עם חבל לבן",
+      "order": 67
+    },
+    {
+      "file": "bag-050.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק בד אדום עם לוגו לבן",
+      "order": 68
+    },
+    {
+      "file": "bag-051.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "תיק שקוף עם ידית שרשרת זהב",
+      "order": 69
+    },
+    {
+      "file": "bag-052.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית הולוגרפית בצבעי קשת עם ידיות סאטן",
+      "order": 70
+    },
+    {
+      "file": "bag-053.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית ירוקה עם ידיות עץ מעוגלות",
+      "order": 71
+    },
+    {
+      "file": "bag-054.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית אפורה עם ידיות אקריליק שחורות",
+      "order": 72
+    },
+    {
+      "file": "bag-055.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית ורודה בטקסטורת תנין עם ידיות סאטן",
+      "order": 73
+    },
+    {
+      "file": "bag-056.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בורדו גבוהה עם חבל ועיניות זהב",
+      "order": 74
+    },
+    {
+      "file": "bag-057.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית שחורה עם גלים בהטבעת זהב",
+      "order": 75
+    },
+    {
+      "file": "bag-058.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית כחולה עם לוגו בחיתוך לייזר",
+      "order": 76
+    },
+    {
+      "file": "bag-059.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בצורת מעטפה עם חותם שעווה",
+      "order": 77
+    },
+    {
+      "file": "bag-060.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "alt": "שקית בהדפסה מלאה של ענפי זית",
+      "order": 78
+    }
+  ]
+}

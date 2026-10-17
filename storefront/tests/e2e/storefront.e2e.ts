@@ -842,6 +842,7 @@ async function main() {
           ['services', { body: ['v-h-centered-logo', 'v-f-multi-column', 'v-pc-horizontal', 'v-pp-compact', 'v-card-soft'], hero: 'hero--split' }],
           ['retail', { body: ['v-h-search-heavy', 'v-f-dark', 'v-pc-compact', 'v-sp-compact', 'v-card-shadow'], hero: 'hero--slider' }],
           ['general', { body: ['v-h-compact', 'v-f-minimal', 'v-pc-classic'], hero: 'hero--centered' }],
+          ['bags-3d', { body: ['v-h-centered-logo', 'v-f-centered', 'v-pc-editorial', 'v-sp-airy', 'v-hs-display', 'v-card-float'], hero: 'hero--float' }],
         ] as const) {
           psql(`update public.store_theme_versions set template = 'kit', settings = '${sqlq(asWritten(id))}' where id = '${DRAFT}'`);
           for (const open of [phone, desktop]) {
@@ -875,7 +876,7 @@ async function main() {
             await ctx.close();
           }
         }
-        assert.equal(seen.size, 7, 'seven kits, seven different sites');
+        assert.equal(seen.size, 8, 'eight kits, eight different sites');
         // the business's own choice wins over the kit's: a saved header and hero layout, the rest from the kit
         const own = asWritten('fashion');
         own.chrome = { header: 'centered-logo' };
@@ -942,9 +943,11 @@ async function main() {
     // products, prices, collections and menus) in each kit in full: the home page on a computer and on a phone, a product,
     // the collection, the footer. Pictures differ a little from run to run (fonts, image decoding): a picture fails only
     // when more than VISUAL_MAX of its pixels changed clearly. `npm run visual:update` saves new ones after a change meant.
-    await step('visual regression: 7 kits — home (computer, phone), a product, the collection, the footer — against their saved pictures', async () => {
+    await step('visual regression: every kit — home (computer, phone), a product, the collection, the footer — against their saved pictures', async () => {
       const dir = path.join(__dirname, 'visual');
-      const update = Boolean(process.env.VISUAL_UPDATE);
+      // VISUAL_UPDATE=1 saves every picture; VISUAL_UPDATE=<kit> (2.101) saves that kit's only — a new kit — and compares the rest
+      const only = process.env.VISUAL_UPDATE && process.env.VISUAL_UPDATE !== '1' ? `${process.env.VISUAL_UPDATE}-` : '';
+      const update = Boolean(process.env.VISUAL_UPDATE) && !only;
       mkdirSync(dir, { recursive: true });
       const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
       const product = psql(`select slug from public.catalog_items where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a' and publish_online order by name limit 1`);
@@ -963,7 +966,7 @@ async function main() {
       const failed: string[] = [];
       const check = async (name: string, shot: Buffer) => {
         const file = path.join(dir, `${name}.jpg`);
-        if (update) { writeFileSync(file, shot); return; }
+        if (update || (only && name.startsWith(only))) { writeFileSync(file, shot); return; }
         if (!existsSync(file)) { failed.push(`${name}: no saved picture — npm run visual:update`); return; }
         const r = await cmp.evaluate(async ([a, b]: string[]) => {
           const load = (src: string) => new Promise<HTMLImageElement>((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
@@ -1009,6 +1012,105 @@ async function main() {
       assert.deepEqual(failed, [], failed.join('\n'));
     });
 
+    // 2.101: a catalog of models (the kit "שקיות יוקרה 3D") — a model is not a product: filters in the page, 12 at a time, a
+    // quote on WhatsApp with the model's name and brand; a category card opens the catalog on its category; a model without
+    // a picture is drawn in its brand's colour; the floating look stands still for a visitor who asked for less motion
+    await step('2.101 — a catalog of models: a category card, filters, 12 at a time, a quote on WhatsApp, the drawing — no cart, no price', async () => {
+      const { ctx, page } = await phone();
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+      await page.goto(url('followme.test', '/?kit=bags-3d&kitmode=full'));
+      const catalog = page.locator('#catalog');
+      await catalog.getByRole('heading', { level: 2, name: 'קטלוג הדגמים' }).waitFor();
+      const models = catalog.locator('.sc-item');
+      await catalog.getByText('מוצגים 12 מתוך 60 דגמים', { exact: true }).waitFor();
+      assert.equal(await models.count(), 12, 'the first 12 of 60');
+      const quote = models.first().getByRole('link', { name: /בקשת הצעת מחיר/ });
+      assert.equal(await quote.getAttribute('target'), '_blank');
+      assert.equal(decodeURIComponent((await quote.getAttribute('href'))!),
+        'https://wa.me/972501234567?text=היי, אשמח לקבל הצעת מחיר על הדגם "שקית נייר שחורה עם חבל" (Aurelle) מהקטלוג באתר של FollowMe Collection.');
+      assert.equal(await models.first().locator('img').getAttribute('src'), '/kit-images/bags-3d/bag-001.webp', 'the model\'s picture, by its file');
+      assert.equal(await catalog.getByText(/₪|הוספה לסל/).count(), 0, 'no price, no cart');
+      // a category card opens the catalog on its category; then a handle, a material, and "ניקוי הסינון"
+      await page.locator('#categories').getByRole('link', { name: /קופסאות מתנה/ }).click();
+      await catalog.getByRole('button', { name: 'קופסאות מתנה', pressed: true }).waitFor();
+      await catalog.getByText('10 דגמים', { exact: true }).waitFor();
+      assert.ok(await page.evaluate(() => {
+        const row = document.querySelector('#catalog .sc-cats')!, chip = row.querySelector('[aria-pressed="true"]')!;
+        const r = row.getBoundingClientRect(), c = chip.getBoundingClientRect();
+        return c.left >= r.left - 1 && c.right <= r.right + 1;
+      }), 'the chosen category in sight, in its row');
+      await catalog.getByLabel('ידית').selectOption('עור');
+      await catalog.getByText('2 דגמים', { exact: true }).waitFor();
+      assert.deepEqual(await models.locator('h3').allInnerTexts(), ['קופסה אפורה עם ידיות עור', 'קופסת בקבוק שחורה']);
+      assert.equal(await catalog.getByLabel('חומר').locator('option', { hasText: 'נייר קרפט' }).evaluate((o: HTMLOptionElement) => o.disabled), true, 'a choice that leaves nothing is off');
+      // a chip that leaves nothing carries hidden words: out of sight in the row that scrolls, they must not widen the page
+      const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+      assert.ok(sw <= iw, `filtered: nothing sideways (${sw} > ${iw})`);
+      await catalog.getByRole('button', { name: 'ניקוי הסינון' }).first().click();
+      await catalog.getByText('מוצגים 12 מתוך 60 דגמים', { exact: true }).waitFor();
+      await catalog.getByLabel('חומר').selectOption('קטיפה וסאטן');
+      await catalog.getByText('3 דגמים', { exact: true }).waitFor();
+      await catalog.getByRole('button', { name: 'ניקוי הסינון' }).first().click();
+      // 12 more: the first of them takes the focus
+      await catalog.getByRole('button', { name: 'עוד דגמים (48)' }).click();
+      await catalog.getByText('מוצגים 24 מתוך 60 דגמים', { exact: true }).waitFor();
+      assert.equal(await models.count(), 24);
+      assert.equal(await page.evaluate(() => document.activeElement?.querySelector('h3')?.textContent), 'שקית זהב מתכתי');
+      // the floating look: moves for a visitor who did not ask otherwise, stands still for one who asked for less motion
+      const moving = await page.evaluate(() => getComputedStyle(document.querySelector('.hero--float .hero-img')!).animationName);
+      assert.equal(moving, 'hero-float');
+      await ctx.close();
+      const calm = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, locale: 'he-IL', reducedMotion: 'reduce' });
+      const still = await calm.newPage();
+      await still.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+      await still.goto(url('followme.test', '/?kit=bags-3d&kitmode=full'));
+      await still.locator('#catalog .sc-item').first().waitFor();
+      assert.deepEqual(await still.evaluate(() => ['.hero--float .hero-img', '.fcard'].map((s) => getComputedStyle(document.querySelector(s)!).animationName)), ['none', 'none']);
+      await calm.close();
+      for (const width of [375, 430]) {
+        const p = await phone(width);
+        await p.page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        await p.page.goto(url('followme.test', '/?kit=bags-3d&kitmode=full'));
+        await p.page.locator('#catalog .sc-item').first().waitFor();
+        const [sw, iw] = await p.page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+        assert.ok(sw <= iw, `bags-3d at ${width}: nothing sideways (${sw} > ${iw})`);
+        await p.ctx.close();
+      }
+      // the page as the server sends it: no style attribute (the CSP), and the word of the platform nowhere
+      const html = (await raw('followme.test', '/', { cookie: `sf_preview=${token}; sf_kit=bags-3d:full` })).body;
+      assert.match(html, /קטלוג הדגמים/);
+      assert.doesNotMatch(html, /\sstyle="/);
+      assert.ok(!/dream/i.test(html), 'Dream is never named to a shopper');
+      // a model without a picture of its own: the kit's by its file, else a drawing in its brand's colour (the draft store's
+      // draft for a moment — it has no WhatsApp, so the quote goes to its contact section)
+      const rows = psql(`select coalesce(json_agg(json_build_object('id', id, 'template', template, 'settings', settings)), '[]') from public.store_theme_versions where store_id = '${DRAFT_STORE}'`);
+      const settings = { kit: 'bags-3d', sections: [{ id: 'catalog', type: 'showcase', settings: { title: 'דגמים', items: [
+        { name: 'דגם בלי תמונה', brand: 'Halden & Rose', color: '#1F2A40', category: 'א', handle: 'חבל', minQty: 100, pic: '' },
+        { name: 'דגם עם תמונה של הערכה', brand: 'Aurelle', color: '#22201e', category: 'ב', pic: 'bag-001.webp' },
+        { name: 'דגם עם קובץ שאין בערכה', category: 'ב', pic: 'bag-999.webp' },
+      ] } }, { id: 'contact', type: 'contact', settings: { title: 'צרו קשר' } }] };
+      psql(`update public.store_theme_versions set template = 'kit', settings = '${JSON.stringify(settings).replace(/'/g, "''")}' where store_id = '${DRAFT_STORE}'`);
+      try {
+        const d = await phone();
+        await d.page.goto(url('draft.test', `/?preview=${encodeURIComponent(makePreviewToken(DRAFT_STORE, SECRET, Date.now() / 1000 + 3600))}`));
+        const items = d.page.locator('#catalog .sc-item');
+        await items.first().waitFor();
+        assert.equal(await items.count(), 3);
+        assert.equal(await items.nth(0).locator('svg.sc-bag path[fill="#1f2a40"]').count() > 0, true, 'the brand\'s colour');
+        assert.equal(await items.nth(0).locator('svg.sc-bag text').textContent(), 'HALDEN & ROSE');
+        assert.equal(await items.nth(1).locator('img').getAttribute('src'), '/kit-images/bags-3d/bag-001.webp');
+        assert.equal(await items.nth(2).locator('svg.sc-bag').count(), 1, 'a file the kit does not have: the drawing');
+        assert.equal(await items.nth(0).getByRole('link', { name: /בקשת הצעת מחיר/ }).getAttribute('href'), '#contact');
+        await d.page.screenshot({ path: path.join(SHOTS, 'showcase-placeholders-390.png'), fullPage: true });
+        await d.ctx.close();
+      } finally {
+        for (const r of JSON.parse(rows) as { id: string; template: string; settings: unknown }[]) {
+          psql(`update public.store_theme_versions set template = '${r.template}', settings = '${JSON.stringify(r.settings).replace(/'/g, "''")}' where id = '${r.id}'`);
+        }
+      }
+    });
+
     // the kits' gallery pictures (2.66, `npm run kit-shots`): each kit in full, on a store named "החנות שלכם" with no product —
     // the real renderer, the kit's own pictures, where products will be — saved small for the dashboard's gallery
     if (process.env.KIT_SHOTS) await step('the kits\' gallery pictures, from the real renderer', async () => {
@@ -1026,7 +1128,8 @@ async function main() {
         await page.goto(url('draft.test', `/?preview=${encodeURIComponent(token)}`));
         // 2.71: every kit in the dashboard's kits/ — a new kit gets its picture with no change here
         const kitIds = readdirSync(path.resolve(ROOT, '../dream-promotion/kits')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
-        for (const kit of kitIds) {
+        // KIT_SHOTS=1: every kit; KIT_SHOTS=<kit> (2.101): that kit's picture only
+        for (const kit of kitIds.filter((k) => process.env.KIT_SHOTS === '1' || k === process.env.KIT_SHOTS)) {
           // the kit's own menus (a booking link → the contact page, as a kit applied with no booking page)
           const k = JSON.parse(readFileSync(path.resolve(ROOT, `../dream-promotion/kits/${kit}.json`), 'utf8'));
           const fix = (items: { label: string; href: string }[]) => items.map((l) => ({ ...l, href: l.href === 'booking' ? '/pages/contact' : l.href }));
@@ -1045,7 +1148,7 @@ async function main() {
     });
 
     // 2.69: the pictures of "+ הוספה" — one per kind of section, with its starting words, on the neutral kit
-    if (process.env.KIT_SHOTS) await step('the section library\'s pictures, from the real renderer', async () => {
+    if (process.env.KIT_SHOTS === '1') await step('the section library\'s pictures, from the real renderer', async () => {
       const rows = psql(`select coalesce(json_agg(json_build_object('id', id, 'template', template, 'settings', settings)), '[]') from public.store_theme_versions where store_id = '${DRAFT_STORE}'`);
       const out = path.resolve(ROOT, '../dream-promotion/public/section-previews');
       mkdirSync(out, { recursive: true });
