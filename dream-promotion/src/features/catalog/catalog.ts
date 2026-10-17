@@ -32,6 +32,9 @@ export interface CatalogItem {
   trackSerials: boolean;
   /** 2.94 (migration 20261011004900): a service's treatment type — sales by treatment type (a package keeps packageTypeId) */
   treatmentTypeId: string | null;
+  /** 2.102 (migration 20261017005400): sold by a quote on the site — no cart, no payment, "בקשת הצעת מחיר" instead; "החל מ-"
+   *  a price of one unit in its own currency ('' = the store's) and a minimum — shown only, never charged */
+  quoteMode: boolean; quoteFrom: number | null; quoteCurrency: string; quoteMinQty: number | null;
 }
 export interface CatalogOption { id: string; itemId: string; position: number; name: string; choices: string[] }
 export interface CatalogVariant {
@@ -54,6 +57,9 @@ export const LIMITS = { name: 80, description: 5000, seoTitle: 120, seoDescripti
 export const SEO_SHOWN = { title: 60, description: 155 } as const;
 export const MIGRATION_3300 = 'צריך להריץ את מיגרציה 20261005003300 (קטלוג 2.54: וריאנטים, תמונות, אתר) ב-Supabase.';
 export const MIGRATION_4200 = 'צריך להריץ את מיגרציה 20261010004200 (חבילות) ב-Supabase לפני שהחבילות עובדות.';
+/** 2.102: the currencies of a quote's "החל מ-" price — shown only ('' = the store's own) */
+export const QUOTE_CURRENCIES: { id: string; label: string }[] = [{ id: '', label: '₪ (מטבע החנות)' }, { id: 'USD', label: '$ דולר' }, { id: 'EUR', label: '€ אירו' }];
+export const QUOTE_LIMITS = { from: 10_000_000, minQty: 10_000_000 } as const;
 /** a package: up to this many treatments, valid up to this many months (the database checks the same) */
 export const PACKAGE_LIMITS = { sessions: 500, months: 120 } as const;
 
@@ -77,6 +83,7 @@ export function toCatalogItem(r: any): CatalogItem {
     packageSessions: numOrNull(r.package_sessions), packageTypeId: r.package_type_id ? str(r.package_type_id) : null, packageValidMonths: numOrNull(r.package_valid_months),
     trackSerials: Boolean(r.track_serials),
     treatmentTypeId: r.treatment_type_id ? str(r.treatment_type_id) : null,
+    quoteMode: Boolean(r.quote_mode), quoteFrom: numOrNull(r.quote_from), quoteCurrency: str(r.quote_currency), quoteMinQty: numOrNull(r.quote_min_qty),
   };
 }
 export const toOption = (r: any): CatalogOption => ({ id: str(r.id), itemId: str(r.item_id), position: num(r.position, 1), name: str(r.name), choices: Array.isArray(r.choices) ? r.choices.map(str) : [] });
@@ -250,11 +257,14 @@ export interface ItemDraft {
   packageSessions: string; packageTypeId: string; packageValidMonths: string;
   /** a service's treatment type ('' = none) — written only for a service, and only when the database has it (4900) */
   treatmentTypeId: string;
+  /** 2.102: sold by a quote — written only when the database has it (5400) */
+  quoteMode: boolean; quoteFrom: string; quoteCurrency: string; quoteMinQty: string;
 }
 export const emptyDraft = (p: Partial<ItemDraft> = {}): ItemDraft => ({
   name: '', kind: 'product', price: '', active: true, description: '', seoTitle: '', seoDescription: '', slug: '', publishOnline: false,
   onlinePrice: '', compareAtPrice: '', sku: '', barcode: '', tags: '', customFields: {}, manufacturer: '', countryOfOrigin: '',
-  packageSessions: '', packageTypeId: '', packageValidMonths: '', treatmentTypeId: '', ...p,
+  packageSessions: '', packageTypeId: '', packageValidMonths: '', treatmentTypeId: '',
+  quoteMode: false, quoteFrom: '', quoteCurrency: '', quoteMinQty: '', ...p,
 });
 export const draftOf = (i: CatalogItem): ItemDraft => ({
   name: i.name, kind: i.kind, price: String(i.price), active: i.active, description: i.description, seoTitle: i.seoTitle, seoDescription: i.seoDescription,
@@ -264,6 +274,8 @@ export const draftOf = (i: CatalogItem): ItemDraft => ({
   packageSessions: i.packageSessions == null ? '' : String(i.packageSessions), packageTypeId: i.packageTypeId ?? '',
   packageValidMonths: i.packageValidMonths == null ? '' : String(i.packageValidMonths),
   treatmentTypeId: i.treatmentTypeId ?? '',
+  quoteMode: i.quoteMode, quoteFrom: i.quoteFrom == null ? '' : String(i.quoteFrom), quoteCurrency: i.quoteCurrency,
+  quoteMinQty: i.quoteMinQty == null ? '' : String(i.quoteMinQty),
 });
 
 const money = (s: string) => { const t = s.replace(/[₪,\s]/g, ''); return t === '' ? null : Number(t); };
@@ -296,6 +308,13 @@ export function draftError(d: ItemDraft): string | null {
     if (d.packageValidMonths.trim() && !(Number.isInteger(m) && m >= 1 && m <= PACKAGE_LIMITS.months)) return `תוקף החבילה: מספר חודשים שלם בין 1 ל-${PACKAGE_LIMITS.months} — או ריק (בלי הגבלה).`;
     if (!d.packageSessions.trim() && (d.packageTypeId || d.packageValidMonths.trim())) return 'כמה טיפולים בחבילה? בלי מספר טיפולים היא לא נמכרת כחבילה ללקוח.';
   }
+  // a quote (2.102): shown on the site only — the database checks the same
+  if (d.quoteMode && d.kind === 'package') return 'חבילה לא נמכרת בהצעת מחיר.';
+  const from = money(d.quoteFrom);
+  if (!okMoney(from) || (from !== null && from > QUOTE_LIMITS.from)) return '"החל מ-" צריך להיות מספר, 0 או יותר (עד 2 ספרות אחרי הנקודה) — או ריק.';
+  if (!QUOTE_CURRENCIES.some((c) => c.id === d.quoteCurrency)) return 'המטבע של "החל מ-" לא מוכר.';
+  const min = d.quoteMinQty.replace(/[,\s]/g, '');
+  if (min && !(/^\d{1,8}$/.test(min) && Number(min) >= 1 && Number(min) <= QUOTE_LIMITS.minQty)) return 'כמות מינימום: מספר שלם, 1 ומעלה — או ריק.';
   return null;
 }
 
@@ -305,14 +324,20 @@ const packageColumns = (d: ItemDraft) => ({
   package_type_id: d.packageTypeId || null,
   package_valid_months: d.packageValidMonths.trim() ? Number(d.packageValidMonths) : null,
 });
+/** the quote columns of a draft (migration 20261017005400) — written only when the database has them */
+const quoteColumns = (d: ItemDraft) => {
+  const min = d.quoteMinQty.replace(/[,\s]/g, '');
+  return { quote_mode: d.quoteMode && d.kind !== 'package', quote_from: money(d.quoteFrom), quote_currency: d.quoteCurrency, quote_min_qty: min ? Number(min) : null };
+};
 /**
  * the columns of catalog_items a draft writes (only after draftError(d) === null); opts.packages: the database has 4200;
- * opts.types: it has 4900 — a service's treatment type (any other kind has none: the database refuses it)
+ * opts.types: it has 4900 — a service's treatment type (any other kind has none: the database refuses it); opts.quote: it has 5400
  */
-export function itemColumns(d: ItemDraft, defs: Pick<FieldDef, 'key'>[], opts: { packages?: boolean; types?: boolean } = {}) {
+export function itemColumns(d: ItemDraft, defs: Pick<FieldDef, 'key'>[], opts: { packages?: boolean; types?: boolean; quote?: boolean } = {}) {
   return {
     ...(opts.packages && d.kind === 'package' ? packageColumns(d) : {}),
     ...(opts.types ? { treatment_type_id: d.kind === 'service' ? d.treatmentTypeId || null : null } : {}),
+    ...(opts.quote ? quoteColumns(d) : {}),
     name: d.name.trim(), kind: d.kind, price: money(d.price) ?? 0, active: d.active,
     description: d.description.trim(), seo_title: d.seoTitle.trim(), seo_description: d.seoDescription.trim(),
     slug: d.slug.trim() || null, publish_online: d.publishOnline, online_price: money(d.onlinePrice), compare_at_price: money(d.compareAtPrice),
@@ -330,10 +355,11 @@ export function changedColumns<T extends Record<string, unknown>>(next: T, befor
 const stable = (v: unknown): string => JSON.stringify(v ?? null, (_k, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x);
 /** the columns of an item as they are in the database, in the shape itemColumns() returns — to compare */
-export function itemColumnsOf(i: CatalogItem, opts: { packages?: boolean; types?: boolean } = {}) {
+export function itemColumnsOf(i: CatalogItem, opts: { packages?: boolean; types?: boolean; quote?: boolean } = {}) {
   return {
     ...(opts.packages ? { package_sessions: i.packageSessions, package_type_id: i.packageTypeId, package_valid_months: i.packageValidMonths } : {}),
     ...(opts.types ? { treatment_type_id: i.treatmentTypeId } : {}),
+    ...(opts.quote ? { quote_mode: i.quoteMode, quote_from: i.quoteFrom, quote_currency: i.quoteCurrency, quote_min_qty: i.quoteMinQty } : {}),
     name: i.name, kind: i.kind, price: i.price, active: i.active, description: i.description, seo_title: i.seoTitle, seo_description: i.seoDescription,
     slug: i.slug, publish_online: i.publishOnline, online_price: i.onlinePrice, compare_at_price: i.compareAtPrice, sku: i.sku, barcode: i.barcode,
     tags: i.tags, custom_fields: i.customFields, manufacturer: i.manufacturer, country_of_origin: i.countryOfOrigin,

@@ -38,6 +38,8 @@ test('every field the editor offers is one the storefront accepts — same kind,
     collection: (f) => f.kind === 'slug', kitpick: (f) => f.kind === 'int' && f.min === 1 && f.max === 2,
     // 2.101: a kit picture's file, a colour, a minimum order
     kitfile: (f) => f.kind === 'kitfile', color: (f) => f.kind === 'hex', qty: (f) => f.kind === 'int' && f.min === 1 && f.max === 1_000_000,
+    // 2.102: a switch
+    toggle: (f) => f.kind === 'choice' && f.values.join() === 'on',
   };
   assert.deepEqual(Object.keys(SECTION_DEFS).sort(), Object.keys(schema).sort(), 'the same kinds of sections');
   for (const [type, def] of Object.entries(SECTION_DEFS)) {

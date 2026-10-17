@@ -11,6 +11,7 @@ import { editBlock, editColumn, editField as F, editImage as I } from '@/lib/edi
 import { kitCollectionImage, kitCollectionPictures, kitGallery, kitHero, kitImage, kitPicture, type KitPicture } from '@/lib/kit-images';
 import { showcaseItems } from '@/lib/showcase-items';
 import { Showcase } from '../Showcase';
+import { LeadForm } from '../LeadForm';
 
 type S = Record<string, unknown>;
 const str = (s: S, k: string) => (typeof s[k] === 'string' ? (s[k] as string) : '');
@@ -218,21 +219,26 @@ function Faq({ s, id, e }: { s: S; id: string; e: boolean }) {
   );
 }
 
+/** the store's WhatsApp, phone and email — and (2.102, form 'on') a request form into the business's leads */
 function Contact({ s, site, id, variant }: { s: S; site: Live; id: string; variant: string }) {
   const c = site.store.contact;
   const wa = whatsappHref(c.whatsapp, `היי, הגעתי מהאתר של ${site.store.name}`);
-  if (!wa && !c.phone && !c.email) return null;
+  const form = s.form === 'on';
+  if (!wa && !c.phone && !c.email && !form) return null;
   const light = variant === 'centered';
   return (
     <section className={`band contact--${variant || 'dark'} ${variant === 'centered' ? 'band-soft' : 'band-ink'}`} id="contact" aria-labelledby={`${id}-t`}>
       <div className="wrap narrow center">
         <h2 id={`${id}-t`} className="band-title" {...F(Boolean(site.edit), 'title')}>{str(s, 'title') || 'יצירת קשר'}</h2>
         {str(s, 'text') && <p {...F(Boolean(site.edit), 'text')}>{str(s, 'text')}</p>}
-        <div className="actions center">
-          {wa && <a className={`btn ${light ? 'btn-primary' : 'btn-light'}`} href={wa} target="_blank" rel="noopener noreferrer">וואטסאפ</a>}
-          {c.phone && <a className={`btn ${light ? 'btn-ghost' : 'btn-outline-light'}`} href={`tel:${c.phone.replace(/[^\d+]/g, '')}`}><bdi>{c.phone}</bdi></a>}
-          {c.email && <a className={`btn ${light ? 'btn-ghost' : 'btn-outline-light'}`} href={`mailto:${c.email}`}><bdi>{c.email}</bdi></a>}
-        </div>
+        {form && <div className="contact-form"><LeadForm kind="contact" topics={str(s, 'topics')} tone={light ? 'light' : 'dark'} /></div>}
+        {(wa || c.phone || c.email) && (
+          <div className="actions center">
+            {wa && <a className={`btn ${light ? (form ? 'btn-ghost' : 'btn-primary') : (form ? 'btn-outline-light' : 'btn-light')}`} href={wa} target="_blank" rel="noopener noreferrer">וואטסאפ</a>}
+            {c.phone && <a className={`btn ${light ? 'btn-ghost' : 'btn-outline-light'}`} href={`tel:${c.phone.replace(/[^\d+]/g, '')}`}><bdi>{c.phone}</bdi></a>}
+            {c.email && <a className={`btn ${light ? 'btn-ghost' : 'btn-outline-light'}`} href={`mailto:${c.email}`}><bdi>{c.email}</bdi></a>}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -241,7 +247,7 @@ function Contact({ s, site, id, variant }: { s: S; site: Live; id: string; varia
 function TextSection({ s, id, e }: { s: S; id: string; e: boolean }) {
   if (!str(s, 'title') && !str(s, 'text')) return null;
   return (
-    <section className="band" aria-labelledby={`${id}-t`}>
+    <section className="band" id={id} aria-labelledby={`${id}-t`}>
       <div className="wrap narrow">
         {str(s, 'title') && <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>}
         <div {...F(e, 'text', false)}>{str(s, 'text').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}</div>

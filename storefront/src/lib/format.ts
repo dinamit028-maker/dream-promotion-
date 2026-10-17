@@ -1,4 +1,4 @@
-import type { Card, Product, Variant } from './types';
+import type { Card, Product, Quote, Variant } from './types';
 
 /** ₪ — whole shekels without ".00", agorot when there are any */
 export function money(n: number | null | undefined, currency = 'ILS', lang = 'he'): string {
@@ -13,6 +13,9 @@ export function money(n: number | null | undefined, currency = 'ILS', lang = 'he
 export function priceLabel(p: Pick<Card, 'price' | 'price_max'>, currency = 'ILS'): { from: boolean; text: string } {
   return { from: p.price_max != null && p.price_max > p.price, text: money(p.price, currency) };
 }
+
+/** a product sold by a quote: its "from" price in its own currency (else the store's) — '' when the business gave none */
+export const quotePrice = (q: Pick<Quote, 'from' | 'currency'>, storeCurrency = 'ILS') => (q.from != null ? money(q.from, q.currency || storeCurrency) : '');
 
 /** what the shopper reads about availability; a count only when the store chose to show it */
 export function stockLabel(inStock: boolean, stock: number | null): string {

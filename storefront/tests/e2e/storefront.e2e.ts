@@ -141,9 +141,14 @@ async function main() {
   // (commerce_record_sale, VAT 18% of the total), and a document's PDF by its share token
   const finalized: string[] = [];
   const paylinksTold: string[] = [];   // 2.88: "a payment link was paid" (the dashboard's /api/finance/paylinks/finalize)
+  const leadsTold: string[] = [];      // 2.102: "a request of the site was recorded" (the dashboard's /api/leads/site)
   const dashboard = http.createServer((req, res) => {
     let body = ''; req.on('data', (c) => { body += c; });
     req.on('end', () => {
+      if (req.method === 'POST' && req.url === '/api/leads/site' && req.headers['x-commerce-secret'] === COMMERCE) {
+        leadsTold.push(String(JSON.parse(body || '{}').requestId ?? ''));
+        res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return;
+      }
       if (req.method === 'POST' && req.url === '/api/finance/paylinks/finalize' && req.headers['x-commerce-secret'] === COMMERCE) {
         paylinksTold.push(String(JSON.parse(body || '{}').requestId ?? ''));
         res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return;
@@ -1108,6 +1113,92 @@ async function main() {
         for (const r of JSON.parse(rows) as { id: string; template: string; settings: unknown }[]) {
           psql(`update public.store_theme_versions set template = '${r.template}', settings = '${JSON.stringify(r.settings).replace(/'/g, "''")}' where id = '${r.id}'`);
         }
+      }
+    });
+
+    // 2.102: a product sold by a quote — "החל מ-" in its own currency, the minimum, a short form into the leads; never a cart.
+    // And the contact form of a kit that has it ("עסק משולב"). The product and the requests are this step's own (removed after).
+    await step('2.102 — a product sold by a quote: "החל מ-$3.50 ליחידה", a request into the leads, no cart; the contact form of "עסק משולב"', async () => {
+      const BIZ = 'aaaaaaaa-0000-4000-8000-00000000000a', ITEM = 'aaaaaaaa-0000-4000-8000-000000000199';
+      psql(`insert into public.catalog_items (id, user_id, business_id, name, price, kind, slug, publish_online, active, sku, description, tags,
+                                              quote_mode, quote_from, quote_currency, quote_min_qty)
+            values ('${ITEM}', 'aaaaaaaa-0000-4000-8000-0000000000f1', '${BIZ}', 'שקית נייר עם ידית חבל – דגם 001', 0, 'product', 'bag-001', true, true,
+                    'bag-001', 'נייר שחור מט וחבל שזור.\n\nהעיצוב בתמונה להמחשה. השקית מיוצרת עם הלוגו והצבעים שלכם.', '{חבל וסרט}', true, 3.5, 'USD', 500)`);
+      await refreshAll();
+      try {
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', '/products/bag-001'));
+        const buy = page.locator('.buy-quote');
+        await buy.waitFor();
+        // the words as a shopper reads them (the direction marks of the number aside)
+        const plain = (t: string) => t.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, ' ').trim();
+        assert.match(plain(await buy.locator('.buy-price').innerText()), /^החל מ- ?(\$ ?3\.50|3\.50 ?\$) ליחידה$/);
+        assert.equal((await buy.locator('.quote-min').innerText()).trim(), 'מינימום 500 יח׳');
+        assert.equal(await page.getByRole('button', { name: 'הוספה לסל' }).count(), 0, 'no cart');
+        const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
+        assert.ok(ld && !ld.includes('"offers"'), 'no offer to search engines (no price a shopper pays)');
+        // the form: what to fix comes back from the server, field by field
+        await buy.getByRole('button', { name: 'בקשת הצעת מחיר' }).click();
+        const form = buy.locator('form.lead-form');
+        await form.waitFor();
+        assert.equal(plain(await form.locator('.lead-model').innerText()), 'קוד דגם: bag-001');
+        await form.getByRole('button', { name: 'שליחת הבקשה' }).click();
+        await form.getByText('נא לכתוב שם (2–80 תווים).').waitFor();
+        await form.getByText('נא לכתוב מספר טלפון תקין.').waitFor();
+        await form.getByLabel('שם').fill('דנה בדיקה');
+        await form.getByText('נא לכתוב שם (2–80 תווים).').waitFor({ state: 'detached' });   // a field being fixed loses its message
+        await form.getByText('נא לכתוב מספר טלפון תקין.').waitFor();
+        await form.getByLabel('טלפון').fill('050-765 4321');
+        await form.getByLabel(/כמות משוערת/).fill('1,000');
+        await form.getByLabel(/מה חשוב לדעת/).fill('לוגו בהטבעת זהב');
+        await form.getByRole('button', { name: 'שליחת הבקשה' }).click();
+        await buy.getByText('הבקשה התקבלה. נחזור אליכם עם הצעת מחיר בהקדם.').waitFor();
+        await page.screenshot({ path: path.join(SHOTS, 'quote-product-390.png'), fullPage: true });
+        const lead = JSON.parse(psql(`select row_to_json(l) from (select name, phone, source, status, tags, notes from public.leads
+                                        where business_id = '${BIZ}' and external_source = 'site') l`));
+        assert.deepEqual([lead.name, lead.phone, lead.source, lead.status], ['דנה בדיקה', '0507654321', 'אתר', 'חדש']);
+        assert.ok(lead.tags.includes('הצעת מחיר'));
+        assert.match(lead.notes, /דגם: bag-001 — שקית נייר עם ידית חבל – דגם 001/);
+        assert.match(lead.notes, /כמות משוערת: 1000/);
+        const req = psql(`select id from public.site_requests where store_id = '${FOLLOWME_STORE}'`);
+        for (let i = 0; i < 50 && !leadsTold.includes(req); i++) await new Promise((r) => setTimeout(r, 100));
+        assert.ok(leadsTold.includes(req), 'the dashboard was told (it routes the request to its person on WhatsApp)');
+        // the card in the list: "החל מ-" in dollars, no stock badge; the cart refuses it even when asked directly
+        await page.goto(url('followme.test', '/collections/all'));
+        const card = page.locator('.card', { hasText: 'דגם 001' });
+        assert.match(plain(await card.locator('.price').innerText()), /^החל מ- ?(\$ ?3\.50|3\.50 ?\$) ליחידה$/);
+        const cart = await page.evaluate(async (item: string) => (await fetch('/api/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'add', item, variant: null, qty: 1 }) })).json(), ITEM);
+        assert.equal(cart.ok, false, 'never into a cart');
+        // a form of another site is refused
+        const forged = await rawPost('followme.test', '/api/lead', JSON.stringify({ kind: 'contact', request: '6f1d2c3b-4a59-4e7f-8a1b-2c3d4e5f6a7b', name: 'x', phone: '0501234567' }),
+          { origin: 'https://evil.test' });
+        assert.equal(forged.status, 403);
+        await ctx.close();
+        // "עסק משולב": the contact part has the request form — a contact request, with the model from the address
+        const c = await phone();
+        const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+        await c.page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        await c.page.goto(url('followme.test', '/?kit=combined-business&kitmode=full&model=bag-032'));
+        const contact = c.page.locator('#contact');
+        await contact.locator('form.lead-form').waitFor();
+        assert.match(plain(await contact.locator('.lead-model').innerText()), /^קוד דגם: bag-032 ?×$/);
+        await contact.getByLabel('שם').fill('רינה בדיקה');
+        await contact.getByLabel('טלפון').fill('+972 52 111 2233');
+        await contact.getByLabel('נושא').selectOption('שקיות ואריזות');
+        await contact.getByLabel('במה נוכל לעזור?').fill('קופסאות למארזי מתנה');
+        await contact.getByRole('button', { name: 'שליחה' }).click();
+        await contact.getByText('הפנייה התקבלה. נחזור אליכם בהקדם.').waitFor();
+        const notes = psql(`select notes from public.leads where business_id = '${BIZ}' and phone = '0521112233'`);
+        assert.match(notes, /^פנייה מהאתר/);
+        assert.match(notes, /דגם: bag-032/);
+        assert.match(notes, /נושא: שקיות ואריזות/);
+        await c.page.screenshot({ path: path.join(SHOTS, 'combined-business-contact-390.png'), fullPage: true });
+        await c.ctx.close();
+      } finally {
+        psql(`delete from public.site_requests where store_id = '${FOLLOWME_STORE}'; delete from public.leads where business_id = '${BIZ}' and external_source = 'site';
+              delete from public.catalog_items where id = '${ITEM}'`);
+        await refreshAll();
       }
     });
 

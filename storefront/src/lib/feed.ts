@@ -5,7 +5,8 @@
  *   - a product with variants: one item per variant, grouped by item_group_id, linked to ?variant=<id>
  *   - a sale (compare-at above the price): price = the compare-at, sale_price = the price
  *   - a barcode that is a GTIN (8/12/13/14 digits, valid check digit) goes as gtin; none → identifier_exists=no
- *   - left out: services (Merchant takes products only), and anything without a picture (Merchant requires one)
+ *   - left out: services (Merchant takes products only), anything without a picture (Merchant requires one), and a product sold
+ *     by a quote (2.102 — no price a shopper pays)
  */
 import type { Product, Variant } from './types';
 
@@ -31,7 +32,7 @@ export function isGtin(code: string): boolean {
 const plain = (s: string, max: number) => s.replace(/<[^>]*>/g, ' ').replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').trim().slice(0, max);
 
 export function feedItems(p: Product, o: { origin: string; currency: string; storeName: string }): FeedItem[] {
-  if (p.kind === 'service') return [];
+  if (p.kind === 'service' || p.quote) return [];
   const link = `${o.origin}/products/${encodeURIComponent(p.slug)}`;
   const pictures = p.images.map((i) => https(i.url)).filter(Boolean);
   const description = plain(p.description || p.seo_description || p.name, 5000);

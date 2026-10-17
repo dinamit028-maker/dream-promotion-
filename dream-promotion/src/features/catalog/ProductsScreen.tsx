@@ -11,6 +11,7 @@ import { KIND_HE, MIGRATION_3300, findByCode, level, variantsOf, type CatalogIte
 import { loadCatalog, type CatalogData } from './data';
 import { PublishSwitch, SITE_LIVE, SITE_NOT_LIVE, useSiteLive, type EditorFocus } from './PublishSwitch';
 import { ProductEditorDialog } from './ProductEditor';
+import { ImportProducts } from './ImportProducts';
 
 /**
  * The products — one list for the store (/store/products) and finance (/finance/products), the same rows as the
@@ -35,6 +36,8 @@ function Products({ title = 'מוצרים', sub, editHref }: { title?: string; s
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [edit, setEdit] = useState<{ id: string | null; focus?: EditorFocus } | null>(null);
+  // 2.102: "ייבוא מקובץ" — a table of products (and their pictures) added at once; never changes one that is there
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     const r = await loadCatalog();
@@ -65,7 +68,12 @@ function Products({ title = 'מוצרים', sub, editHref }: { title?: string; s
   return (
     <div>
       <PageHead title={title} sub={sub ?? 'מוצרים ושירותים — אותה רשימה של הקופה והכספים.'}
-        action={<Button variant="primary" onClick={() => open(null)}>+ מוצר חדש</Button>} />
+        action={(
+          <div className="flex flex-wrap gap-2">
+            {data?.ready && <Button variant="ghost" onClick={() => setImporting(true)}>ייבוא מקובץ</Button>}
+            <Button variant="primary" onClick={() => open(null)}>+ מוצר חדש</Button>
+          </div>
+        )} />
       {data && !data.ready && <p role="status" className="mb-4 rounded-2xl bg-amber-500/15 p-3 text-sm font-semibold text-amber-800 dark:text-amber-200">{MIGRATION_3300}</p>}
       {data?.ready && <p className="mb-4 rounded-2xl bg-surface-2 p-3 text-xs text-ink-2">{live ? SITE_LIVE : SITE_NOT_LIVE}</p>}
       {error && <p role="alert" className="mb-4 rounded-2xl bg-red-500/10 p-3 text-sm font-semibold text-red-700 dark:text-red-300">{error}</p>}
@@ -95,7 +103,7 @@ function Products({ title = 'מוצרים', sub, editHref }: { title?: string; s
                       ? <Link href={editHref(i.id)} className={cx('block truncate font-bold hover:text-primary', !i.active && 'text-muted line-through')}>{i.name}</Link>
                       : <button type="button" onClick={() => open(i.id)} className={cx('block max-w-full truncate text-start font-bold hover:text-primary', !i.active && 'text-muted line-through')}>{i.name}</button>}
                     <span className="block text-xs text-muted">
-                      {KIND_HE[i.kind]} · {ils(i.price)}{i.onlinePrice != null && i.onlinePrice !== i.price ? ` · באתר ${ils(i.onlinePrice)}` : ''}
+                      {KIND_HE[i.kind]} · {ils(i.price)}{i.quoteMode ? ' · באתר: הצעת מחיר' : i.onlinePrice != null && i.onlinePrice !== i.price ? ` · באתר ${ils(i.onlinePrice)}` : ''}
                       {vs.length ? ` · ${vs.length} וריאנטים` : ''}{stock ? ' · ' : ''}
                       {stock && <span className={cx(lvl === 'out' ? 'text-red-600 dark:text-red-300' : lvl === 'low' ? 'text-amber-700 dark:text-amber-300' : '')}>{stock}</span>}
                       {!i.active ? ' · מוסתר בקופה' : ''}
@@ -111,6 +119,10 @@ function Products({ title = 'מוצרים', sub, editHref }: { title?: string; s
           </ul>
         )}
 
+      {data?.ready && (
+        <ImportProducts open={importing} onClose={() => setImporting(false)} items={data.items} variants={data.variants} nextSort={data.items.length}
+          onDone={() => void load()} />
+      )}
       <ProductEditorDialog open={Boolean(edit)} itemId={edit?.id ?? null} focus={edit?.focus} nextSort={data?.items.length ?? 9999}
         onClose={() => setEdit(null)} onSaved={put} onDeleted={() => { setEdit(null); void load(); }} />
     </div>

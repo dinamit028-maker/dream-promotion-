@@ -34,4 +34,7 @@ bash tests/sql/stock-compare.sh "$DB" 4900 || failed=1
 bash tests/sql/stock-compare.sh "$DB" 5000 || failed=1
 # … and without and with migration 5100 (manual journal entries — the money summary and the reports rewritten: no entry, the same answers)
 bash tests/sql/stock-compare.sh "$DB" 5100 || failed=1
+# … and without and with migration 5400 (a product sold by a quote — the site's line price, card, product and list rewritten:
+# a store that sells as before, the same prices, product and lists)
+bash tests/sql/stock-compare.sh "$DB" 5400 || failed=1
 exit $failed

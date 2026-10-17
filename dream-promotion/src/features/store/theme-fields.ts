@@ -10,7 +10,8 @@
 /** kitpick (2.66): which of the kit's two wide hero pictures shows while there is no picture of the business — 1 or 2 */
 /** 2.101: kitfile — one of the kit's pictures by its file (bag-007.webp), shown while the row has no picture of its own;
  *  color — #rrggbb (a model's brand colour, for its drawing); qty — a whole number from 1 (a minimum order), or empty */
-export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection' | 'kitpick' | 'kitfile' | 'color' | 'qty';
+/** toggle (2.102): a switch — 'on' or '' (the contact section's request form) */
+export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection' | 'kitpick' | 'kitfile' | 'color' | 'qty' | 'toggle';
 export interface FieldDef { key: string; label: string; kind: FieldKind; max?: number; hint?: string }
 /** fold (2.101): a long list — each row closed under its "fold" field (a catalog's 60 models), opened one at a time */
 export interface ListDef { key: 'items'; label: string; max: number; fields: FieldDef[]; add: string; fold?: string }
@@ -87,6 +88,9 @@ export const SECTION_DEFS: Record<SectionType, SectionDef> = {
   contact: { type: 'contact', label: 'יצירת קשר', fields: [
     { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
     { key: 'text', label: 'טקסט', kind: 'longtext', max: 400 },
+    // 2.102: a request form — every request becomes a contact in "לידים" and goes to its department on WhatsApp
+    { key: 'form', label: 'טופס פנייה באתר (כל פנייה נכנסת ללידים)', kind: 'toggle' },
+    { key: 'topics', label: 'נושאים לבחירה בטופס (מופרדים בפסיק, לא חובה)', kind: 'text', max: 200 },
   ] },
   text: { type: 'text', label: 'טקסט', fields: [{ key: 'title', label: 'כותרת', kind: 'text', max: 90 }, { key: 'text', label: 'טקסט', kind: 'longtext', max: 2000 }] },
   gallery: { type: 'gallery', label: 'גלריה (לפני ואחרי, אינסטגרם)', fields: [
@@ -313,6 +317,7 @@ export function fieldError(f: FieldDef, v: unknown): string | null {
   if (f.kind === 'kitfile') return v === undefined || v === '' || (typeof v === 'string' && KIT_FILE.test(v)) ? null : `"${f.label}": שם קובץ כמו bag-007.webp (אותיות באנגלית קטנות, ספרות ומקפים).`;
   if (f.kind === 'color') return v === undefined || v === '' || (typeof v === 'string' && HEX.test(v)) ? null : `"${f.label}": צבע כמו #1f2a40.`;
   if (f.kind === 'qty') return v === undefined || v === '' || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 1_000_000) ? null : `"${f.label}": מספר שלם מ-1 עד 1,000,000.`;
+  if (f.kind === 'toggle') return v === undefined || v === '' || v === 'on' ? null : `"${f.label}": מופעל או כבוי.`;
   if ((f.kind === 'text' || f.kind === 'longtext') && f.max && String(v ?? '').length > f.max) return `"${f.label}": עד ${f.max} תווים.`;
   return null;
 }

@@ -273,6 +273,15 @@ export function FieldInput({ f, value, onChange, collections, kitPicture }: { f:
       </div>
     );
   }
+  // 2.102: a switch — 'on' or '' (the contact section's request form)
+  if (f.kind === 'toggle') {
+    return (
+      <label className="mb-4 flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-line px-3">
+        <input type="checkbox" checked={value === 'on'} onChange={(e) => onChange(e.target.checked ? 'on' : '')} className="h-5 w-5 shrink-0" />
+        <span className="text-sm font-semibold text-ink-2">{f.label}</span>
+      </label>
+    );
+  }
   // 2.101: a minimum order — a whole number, kept as a number (empty = none)
   if (f.kind === 'qty') {
     return <TextRow label={f.label} value={v} type="number" dir="ltr" onChange={(x) => onChange(/^\d{1,7}$/.test(x.trim()) ? Number(x.trim()) : x.trim() === '' ? '' : x)} />;

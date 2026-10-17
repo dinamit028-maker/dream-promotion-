@@ -248,6 +248,26 @@ test('2.101: a card\'s link leads to something the kit creates; a catalog\'s fie
   for (const bad of [0, 2.5, 1_000_001, '100', -3]) assert.ok(fieldError(qty, bad), String(bad));
 });
 
+test('2.102: "עסק משולב" — the home page of the template, six packaging collections by tag, and the request form on', () => {
+  const kit = kitById('combined-business')!;
+  assert.ok(kit, 'the kit is valid');
+  assert.deepEqual(kit.theme.sections.map((s) => s.id), ['hero', 'paths', 'story', 'packaging', 'directions', 'sourcing', 'collection', 'ventures', 'contact'],
+    'the eight parts of the blueprint, in its order (the packaging part with its three directions)');
+  assert.deepEqual(kit.collections.map((c) => [c.slug, c.tags[0]]), [
+    ['handles', 'חבל וסרט'], ['diecut', 'ידית חתוכה'], ['kraft', 'קראפט'], ['boxes', 'קופסאות'], ['fabric', 'בד'], ['special', 'עיצובים מיוחדים']]);
+  const contact = kit.theme.sections.find((s) => s.type === 'contact')!;
+  assert.equal(contact.settings.form, 'on', 'the contact part has the request form (into the leads)');
+  // the home page's links lead to its own parts
+  for (const l of [...kit.menus.main, ...kit.menus.footer]) {
+    const m = /^\/#(.+)$/.exec(l.href);
+    if (m) assert.ok(kit.theme.sections.some((s) => s.id === m[1]), `${l.label}: ${l.href}`);
+  }
+  assert.ok(!/dream|דרים|tasimla|follow ?me/i.test(JSON.stringify(kit)), 'a template for any business: no platform, no FollowMe in its texts');
+  assert.equal(kitFor('סורסינג וייצור בסין ליבוא מוצרים').id, 'combined-business');
+  assert.equal(kitFor('שקיות ממותגות לעסקים').id, 'bags', 'the branded bags keep their own kit');
+  assert.equal(kitFor('מכירת אי סים במחירם בלי תחורת').id, 'general', 'FollowMe\'s profile in the database stays as it was');
+});
+
 test('the editor names the kit\'s picture only where the storefront shows it (2.62)', () => {
   assert.equal(kitPictureShown('beauty', 'hero', 'image'), true);
   assert.equal(kitPictureShown('beauty', 'imageText', 'image'), true);

@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { editLink } from '@/lib/edit';
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { QuoteBuy } from '@/components/QuoteBuy';
 import { VariantPicker } from '@/components/VariantPicker';
 import { JsonLd, Picture, ProductGrid, RichText } from '@/components/ui';
 import { data } from '@/lib/data';
@@ -63,8 +64,10 @@ export default async function ProductPage({ params, searchParams }: Props) {
         </div>
         <div className="product-info">
           <h1 className="product-title">{p.name}</h1>
-          <VariantPicker product={p} currency={site.store.currency} whatsapp={whatsapp} pageUrl={`${site.origin}${path}`}
-            initialVariant={typeof sp.variant === 'string' ? sp.variant : undefined} />
+          {p.quote
+            ? <QuoteBuy product={p} quote={p.quote} currency={site.store.currency} whatsapp={whatsapp} pageUrl={`${site.origin}${path}`} />
+            : <VariantPicker product={p} currency={site.store.currency} whatsapp={whatsapp} pageUrl={`${site.origin}${path}`}
+                initialVariant={typeof sp.variant === 'string' ? sp.variant : undefined} />}
           {details.length > 0 && (
             <dl className="facts">{details.map((d) => <div key={d.label}><dt>{d.label}</dt><dd>{d.value}</dd></div>)}</dl>
           )}
