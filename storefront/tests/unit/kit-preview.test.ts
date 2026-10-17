@@ -27,7 +27,7 @@ test('the proxy: ?kit= becomes a cookie of this address (an hour), the address l
 test('the cookie is read only for a kit that exists and one of the two modes', () => {
   assert.deepEqual(readKitChoice('fashion:full'), { kit: 'fashion', mode: 'full', name: 'אופנה' });
   for (const v of ['', 'fashion', 'fashion:edit', 'nope:design', '__proto__:design', 'constructor:full', undefined, null]) assert.equal(readKitChoice(v as string), null, String(v));
-  assert.deepEqual([...KIT_IDS].sort(), ['bags', 'bags-3d', 'beauty', 'fashion', 'furniture', 'general', 'retail', 'services']);
+  assert.deepEqual([...KIT_IDS].sort(), ['bags', 'bags-3d', 'beauty', 'combined-business', 'fashion', 'furniture', 'general', 'retail', 'services']);
 });
 
 test('"full": the kit\'s own home page and look, the store\'s name in it, a booking link → WhatsApp', () => {

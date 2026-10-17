@@ -37,6 +37,9 @@
 #  22. lead departments (5300), as the server (service_role): the same Meta lead queued for one person from 8 connections at once →
 #      one message; a message that failed with 132001 (new_lead not approved yet) sent again from 8 connections at once → taken by
 #      one (the conditional update of `claim`), 7 find nothing; once it went out, 8 more → none
+#  23. the site's requests (5400), as the storefront's server (service_role): the same request from 8 connections at once → one
+#      request, one new contact; 8 requests of one new person at once (the phone in 8 spellings) → 5 recorded (the guard: 5 in 10
+#      minutes), one contact and 4 notes on its card
 # Called by tests/sql/run.sh after the checks (same database). Usage: bash tests/sql/concurrency.sh <db>
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -626,3 +629,22 @@ run_parallel was
 r=$(q "select status || ' ' || attempts from public.lead_notifications where id = '$LN'")
 [ "$r" = "sent 3" ] || fail "a message that went out, sent again from 8 connections: none (expected sent 3, got: $r)"
 echo "ok: once it went out, 8 more \"לשלוח שוב\" at once → none taken"
+
+# ---- 23. the site's requests into the leads (5400), as the storefront's server ---------------------------------------------------
+RQ=00000000-0000-0000-0000-0000000cc6a1
+ASK="select public.sf_lead_request('$ST', '%s', 'contact', null, '{\"name\": \"פונה עומס\", \"phone\": \"%s\"}', '{\"topic\": \"סורסינג\"}', true);"
+for w in $(seq 8); do server_script "$TMP/srq-$w.sql" "$(printf "$ASK" "$RQ" '050-7777001')"; done
+run_parallel srq
+r=$(q "select (select count(*) from public.site_requests where id = '$RQ') || ' ' ||
+              (select count(*) from public.leads where business_id = '$B' and public.phone_key(phone) = public.phone_key('0507777001'))")
+[ "$r" = "1 1" ] || fail "the same request of the site from 8 connections at once: one request, one contact (expected 1 1, got: $r)"
+echo "ok: the same request of the site from 8 connections at once → one request, one new contact"
+PHONES=('050-7777002' '0507777002' '+972507777002' '+972 50 777 7002' '050 777 7002' '972507777002' '(050) 7777002' '050.7777002')
+for w in $(seq 8); do server_script "$TMP/srm-$w.sql" "$(printf "$ASK" "00000000-0000-0000-0000-0000000cc6b$w" "${PHONES[$((w - 1))]}")"; done
+run_parallel srm
+r=$(q "select (select count(*) from public.site_requests where business_id = '$B' and public.phone_key(phone) = public.phone_key('0507777002')) || ' ' ||
+              (select count(*) from public.leads where business_id = '$B' and public.phone_key(phone) = public.phone_key('0507777002')) || ' ' ||
+              (select count(*) from public.lead_activities a join public.leads l on l.id = a.lead_id
+                where l.business_id = '$B' and public.phone_key(l.phone) = public.phone_key('0507777002') and a.kind = 'note')")
+[ "$r" = "5 1 4" ] || fail "8 requests of one new person at once: 5 recorded, one contact, 4 notes (expected 5 1 4, got: $r)"
+echo "ok: 8 requests of one new person at once (the phone in 8 spellings) → 5 recorded (the guard), one contact and 4 notes on it"

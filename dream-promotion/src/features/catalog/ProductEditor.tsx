@@ -10,14 +10,14 @@ import { cx } from '@/lib/utils';
 import { AIService } from '@/lib/services';
 import { ils } from '@/features/register/money';
 import {
-  KIND_HE, LIMITS, MAX_OPTIONS, MAX_PICTURES, MIGRATION_3300, MIGRATION_4200, SEO_SHOWN, changedColumns, cleanProductCopy, copyBrief, draftError, draftOf, emptyDraft,
+  KIND_HE, LIMITS, MAX_OPTIONS, MAX_PICTURES, MIGRATION_3300, MIGRATION_4200, QUOTE_CURRENCIES, SEO_SHOWN, changedColumns, cleanProductCopy, copyBrief, draftError, draftOf, emptyDraft,
   itemColumns, itemColumnsOf, newFieldKey, onlinePriceOf, planVariants, posPrice, promoteBrief, promoteUrl, publishGaps, slugify, splitList, unassignedUnits, uniqueSlug,
   variantColumns, variantLabel, variantLevel, type CatalogItem, type CatalogMedia, type CatalogOption, type CatalogVariant, type FieldDef,
   type ItemDraft, type ItemKind, type ProductCopy,
 } from './catalog';
 import {
   addFieldDef, adjustItemStock, adjustVariantStock, createVariants, deleteItem, deleteVariant, insertItem, loadFieldDefs, loadProduct, mediaApi,
-  reconcileVariantStock, saveOptions, setLowStock, takenSlugs, updateItem, updateMedia, updateVariant,
+  quoteReady, reconcileVariantStock, saveOptions, setLowStock, takenSlugs, updateItem, updateMedia, updateVariant,
 } from './data';
 import { uploadPicture } from './upload';
 import { pickSize } from './images';
@@ -101,6 +101,9 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const [types, setTypes] = useState<TreatmentType[]>([]);
   // 2.94 (migration 20261011004900): a service's treatment type — sales by treatment type in the reports
   const typesOk = useReportsReady();
+  // 2.102 (migration 20261017005400): sold by a quote on the site — shown and written only when the database has it
+  const [quoteOk, setQuoteOk] = useState(false);
+  useEffect(() => { let alive = true; void quoteReady().then((v) => { if (alive) setQuoteOk(v); }); return () => { alive = false; }; }, []);
   const [newType, setNewType] = useState<{ name: string; busy: boolean; error: string | null } | null>(null);
   const [ai, setAi] = useState<{ busy: boolean; proposal: ProductCopy | null; error: string | null }>({ busy: false, proposal: null, error: null });
   const sections = useRef<Record<string, HTMLElement | null>>({});
@@ -227,7 +230,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
         d = { ...d, slug: uniqueSlug(slugify(d.name), await takenSlugs(item?.id)) };
         setDraft(d);
       }
-      const all = itemColumns(d, fields, { packages: pkReady, types: typesOk });
+      const all = itemColumns(d, fields, { packages: pkReady, types: typesOk, quote: quoteOk });
       // before migration 3300 only the register's columns exist
       const cols: Record<string, unknown> = ready ? all : { name: all.name, kind: all.kind, price: all.price, active: all.active };
       let saved: CatalogItem;
@@ -236,7 +239,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
         if (!r.ok) { fail(r.error); return null; }
         saved = r.data;
       } else {
-        const r = await updateItem(item.id, changedColumns(cols, itemColumnsOf(item, { packages: pkReady, types: typesOk }) as Record<string, unknown>));
+        const r = await updateItem(item.id, changedColumns(cols, itemColumnsOf(item, { packages: pkReady, types: typesOk, quote: quoteOk }) as Record<string, unknown>));
         if (!r.ok) { fail(r.error); return null; }
         saved = r.data;
         // the variants' own fields
@@ -318,7 +321,7 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
   const router = useRouter();
   const [promoting, setPromoting] = useState(false);
   async function promote() {
-    const dirty = Boolean(item) && Object.keys(changedColumns(itemColumns(draft, fields, { packages: pkReady, types: typesOk }), itemColumnsOf(item!, { packages: pkReady, types: typesOk }) as Record<string, unknown>)).length > 0;
+    const dirty = Boolean(item) && Object.keys(changedColumns(itemColumns(draft, fields, { packages: pkReady, types: typesOk, quote: quoteOk }), itemColumnsOf(item!, { packages: pkReady, types: typesOk, quote: quoteOk }) as Record<string, unknown>)).length > 0;
     if (dirty && !window.confirm('יש שינויים שלא נשמרו. לעבור לאולפן היצירה בלי לשמור?')) return;
     setPromoting(true);
     const main = [...media].sort((a, b) => a.position - b.position)[0];
@@ -561,10 +564,35 @@ export function ProductEditor({ itemId, initial, focus, nextSort = 9999, onSaved
             <Switch on={draft.publishOnline} onClick={() => set('publishOnline', !draft.publishOnline)} label="פרסם באתר" disabled={serial && !draft.publishOnline} />
           </div>
           {serial && <p className="-mt-2 mb-4 text-xs text-muted">מוצר עם מספר סידורי לכל יחידה לא נמכר באתר (עדיין) — בקופה בוחרים את המספר שנמכר.</p>}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="מחיר באתר ₪ (לא חובה)"><Input inputMode="decimal" value={draft.onlinePrice} onChange={(e) => set('onlinePrice', e.target.value)} placeholder={`ריק = מחיר הקופה (${ils(price)})`} /></Field>
-            <Field label="מחיר לפני הנחה ₪ (לא חובה)"><Input inputMode="decimal" value={draft.compareAtPrice} onChange={(e) => set('compareAtPrice', e.target.value)} placeholder="מוצג מחוק, ליד המחיר" /></Field>
-          </div>
+          {quoteOk && !isPackage && (
+            <div className="mb-4 rounded-xl border border-line p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span>
+                  <strong className="block">מכירה בהצעת מחיר</strong>
+                  <span className="text-xs text-muted">{draft.quoteMode ? 'באתר: "החל מ-" וכפתור "בקשת הצעת מחיר" — בלי סל ובלי תשלום. כל בקשה נכנסת ללידים.' : 'כבוי — המוצר נמכר באתר כרגיל, עם סל.'}</span>
+                </span>
+                <Switch on={draft.quoteMode} onClick={() => set('quoteMode', !draft.quoteMode)} label="מכירה בהצעת מחיר" />
+              </div>
+              {draft.quoteMode && (
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <Field label="החל מ- (ליחידה, לא חובה)"><Input inputMode="decimal" dir="ltr" value={draft.quoteFrom} onChange={(e) => set('quoteFrom', e.target.value)} placeholder="3.50" /></Field>
+                  <Field label="מטבע">
+                    <Select value={draft.quoteCurrency} onChange={(e) => set('quoteCurrency', e.target.value)}>
+                      {QUOTE_CURRENCIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </Select>
+                  </Field>
+                  <Field label="כמות מינימום (לא חובה)"><Input inputMode="numeric" dir="ltr" value={draft.quoteMinQty} onChange={(e) => set('quoteMinQty', e.target.value)} placeholder="500" /></Field>
+                  <p className="text-xs text-muted sm:col-span-3">המחיר מוצג בלבד — לא מומר ולא נגבה. מחיר הקופה למעלה נשאר בשקלים.</p>
+                </div>
+              )}
+            </div>
+          )}
+          {!(quoteOk && draft.quoteMode) && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="מחיר באתר ₪ (לא חובה)"><Input inputMode="decimal" value={draft.onlinePrice} onChange={(e) => set('onlinePrice', e.target.value)} placeholder={`ריק = מחיר הקופה (${ils(price)})`} /></Field>
+              <Field label="מחיר לפני הנחה ₪ (לא חובה)"><Input inputMode="decimal" value={draft.compareAtPrice} onChange={(e) => set('compareAtPrice', e.target.value)} placeholder="מוצג מחוק, ליד המחיר" /></Field>
+            </div>
+          )}
           <Field label="כתובת המוצר באתר">
             <div className="flex gap-2">
               <Input dir="auto" value={draft.slug} maxLength={LIMITS.slug} onChange={(e) => set('slug', e.target.value.trim().toLowerCase())} placeholder={slugify(draft.name) || 'נוצרת מהשם בשמירה'} />

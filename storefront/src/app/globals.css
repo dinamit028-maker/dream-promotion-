@@ -184,6 +184,21 @@ input, select, textarea {
 .product-title { font-size: clamp(1.6rem, 5vw, 2.3rem); font-weight: 800; letter-spacing: -.01em; }
 .buy { display: grid; gap: 14px; margin-block: 8px 20px; }
 .buy-price { font-size: 1.6rem; font-weight: 800; margin: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+/* 2.102: a product sold by a quote — its "from" price of one unit, the minimum, and the request form (lib/leads.ts) */
+.price-unit { color: var(--c-muted); font-size: .85em; font-weight: 600; }
+.quote-min { margin: 0; font-weight: 700; }
+.quote-panel { border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); padding: 16px; }
+.quote-panel[hidden] { display: none; }
+.lead-form { display: grid; gap: 12px; text-align: start; }
+.lead-form select { width: 100%; }
+.lead-model { margin: 0; display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.lead-model-x { min-width: 44px; min-height: 44px; border: 0; background: none; cursor: pointer; font-size: 1.3rem; color: var(--c-muted); }
+.contact-form { max-width: 34rem; margin: 20px auto 0; text-align: start; }
+.lead-done { text-align: start; }
+.lead-dark label, .lead-dark .lead-model, .lead-dark .lead-model-x { color: var(--c-bg); }
+.lead-dark input, .lead-dark select, .lead-dark textarea { background: #ffffff; color: #1f1b16; border-color: #ffffff; }
+.lead-dark .field-error { color: #ffd6d6; }
+.lead-dark .btn-primary { background: #ffffff; border-color: #ffffff; color: #1f1b16; }
 .option { border: 0; margin: 0; padding: 0; }
 .option legend { font-weight: 700; margin-bottom: 8px; }
 .option-value { font-weight: 400; color: var(--c-muted); }

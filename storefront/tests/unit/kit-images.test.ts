@@ -13,8 +13,8 @@ import { normalize, webpSize } from '../../scripts/kit-images.mjs';
 
 const PUBLIC = fileURLToPath(new URL('../../public/kit-images/', import.meta.url));
 
-test('the eight kits each have a manifest, and every picture is a WebP file of the size it says', () => {
-  assert.deepEqual(Object.keys(KIT_MANIFESTS).sort(), ['bags', 'bags-3d', 'beauty', 'fashion', 'furniture', 'general', 'retail', 'services']);
+test('the nine kits each have a manifest, and every picture is a WebP file of the size it says', () => {
+  assert.deepEqual(Object.keys(KIT_MANIFESTS).sort(), ['bags', 'bags-3d', 'beauty', 'combined-business', 'fashion', 'furniture', 'general', 'retail', 'services']);
   for (const m of Object.values(KIT_MANIFESTS)) {
     assert.ok(m.images.some((i) => i.slot === 'hero' && i.variant === 'wide' && i.order === 1), `${m.kit}: a wide hero first`);
     for (const i of m.images) {

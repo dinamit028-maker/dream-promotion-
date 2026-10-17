@@ -1,4 +1,4 @@
-import type { Cart, CartResult, CheckoutStart, CollectionCard, HostInfo, OrderRequestResult, OrderView, Page, PaylinkAccount, PaylinkStatus, PaylinkView, PaymentAccount, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
+import type { Cart, CartResult, CheckoutStart, CollectionCard, HostInfo, LeadRequestResult, OrderRequestResult, OrderView, Page, PaylinkAccount, PaylinkStatus, PaylinkView, PaymentAccount, Product, ProductList, ProductQuery, Sitemap, StoreAny } from './types';
 
 /**
  * The storefront's only door to the database: the sf_* functions (migrations 20261005003400 and 20261006003500), from the
@@ -16,7 +16,8 @@ type SfFunction = 'sf_resolve_host' | 'sf_domain_seen' | 'sf_store' | 'sf_produc
   | 'sf_order_request' | 'sf_order_request_by_id' | 'sf_order_request_by_number'
   | 'sf_resolve_slug' | 'sf_slug_seen' | 'sf_store_unlock'
   | 'sf_paylink' | 'sf_paylink_page' | 'sf_paylink_event' | 'sf_paylink_paid' | 'sf_paylink_failed' | 'sf_paylinks_unconfirmed'
-  | 'sf_paylink_account' | 'sf_paylink_verified';
+  | 'sf_paylink_account' | 'sf_paylink_verified'
+  | 'sf_lead_request';
 
 export class DataError extends Error {}
 
@@ -41,7 +42,7 @@ const CASTS: Record<string, string> = {
   p_customer: 'jsonb', p_ip_hash: 'text', p_order: 'uuid', p_page: 'text', p_provider: 'text', p_key: 'text',
   p_signature_ok: 'boolean', p_payload: 'jsonb', p_txn: 'text', p_amount: 'numeric', p_currency: 'text', p_reason: 'text',
   p_limit: 'int', p_window: 'int', p_max: 'int', p_number: 'int', p_email: 'text', p_note: 'text',
-  p_request: 'uuid', p_url: 'text', p_business: 'uuid', p_sealed: 'text',
+  p_request: 'uuid', p_url: 'text', p_business: 'uuid', p_sealed: 'text', p_details: 'jsonb',
 };
 /** the functions that return text (the rest return JSON) */
 const TEXT_RESULT = new Set<SfFunction>(['sf_redirect', 'sf_store_unlock', 'sf_paylink_page']);
@@ -138,6 +139,10 @@ export const data = {
   paylinksUnconfirmed: (limit = 50) => call<string[]>('sf_paylinks_unconfirmed', { p_limit: limit }),
   paylinkAccount: (business: string) => call<PaylinkAccount>('sf_paylink_account', { p_business: business }),
   paylinkVerified: (business: string, sealed: string) => call<boolean>('sf_paylink_verified', { p_business: business, p_sealed: sealed }),
+  // 2.102 (migration 20261017005400): a request of the site — a quote of a product, or the contact form — into the leads
+  leadRequest: (store: string, request: string, kind: 'quote' | 'contact', item: string | null, customer: Record<string, string>,
+                details: Record<string, string>, preview: boolean) =>
+    call<LeadRequestResult>('sf_lead_request', { p_store: store, p_request: request, p_kind: kind, p_item: item, p_customer: customer, p_details: details, p_preview: preview }),
 };
 
 /** the query of a list, as sf_products reads it (strings for numbers: the function parses them itself) */

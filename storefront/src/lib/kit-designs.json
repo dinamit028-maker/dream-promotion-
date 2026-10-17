@@ -82,6 +82,35 @@
       "contact": "centered"
     }
   },
+  "combined-business": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "large",
+      "buttonStyle": "solid",
+      "container": "normal",
+      "cardStyle": "flat"
+    },
+    "chrome": {
+      "header": "classic",
+      "footer": "multi-column"
+    },
+    "commerce": {
+      "productCard": "minimal",
+      "collectionCard": "grid",
+      "productPage": "classic"
+    },
+    "sections": {
+      "hero": "full-image",
+      "paths": "tiles",
+      "story": "plain",
+      "packaging": "split",
+      "directions": "tiles",
+      "sourcing": "features",
+      "collection": "banners",
+      "ventures": "features",
+      "contact": "centered"
+    }
+  },
   "fashion": {
     "design": {
       "spacing": "airy",

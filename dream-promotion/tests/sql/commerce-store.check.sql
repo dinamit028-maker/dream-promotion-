@@ -282,10 +282,10 @@ select pg_temp.check((public.sf_product('00000000-0000-0000-0000-000000345001', 
   'only the fields that are shown on the site');
 select pg_temp.check(position('סוד-מסחרי' in (public.sf_product('00000000-0000-0000-0000-000000345001', 'tote-bag'))::text) = 0, 'a hidden field''s value never leaves');
 select pg_temp.check((select array_agg(k order by k collate "C") from jsonb_object_keys(public.sf_product('00000000-0000-0000-0000-000000345001', 'tote-bag')) k)
-  = '{barcode,can_buy,collection,compare_at,country_of_origin,description,fields,id,images,in_stock,kind,manufacturer,name,options,price,price_max,related,seo_description,seo_title,sku,slug,stock,tags,updated_at,variants}',
+  = '{barcode,can_buy,collection,compare_at,country_of_origin,description,fields,id,images,in_stock,kind,manufacturer,name,options,price,price_max,quote,related,seo_description,seo_title,sku,slug,stock,tags,updated_at,variants}',
   'sf_product returns its allow-list only');
 select pg_temp.check((select array_agg(k order by k collate "C") from jsonb_object_keys((public.sf_products('00000000-0000-0000-0000-000000345001'))->'items'->0) k)
-  = '{compare_at,image,in_stock,name,price,price_max,slug,stock}', 'a card returns its allow-list only');
+  = '{compare_at,image,in_stock,name,price,price_max,quote,slug,stock}', 'a card returns its allow-list only');
 select pg_temp.check((public.sf_product('00000000-0000-0000-0000-000000345001', 'tote-bag'))#>>'{images,0,url}' = 'https://cdn.test/t1-800.webp'
   and jsonb_array_length((public.sf_product('00000000-0000-0000-0000-000000345001', 'tote-bag'))->'images') = 2, 'the pictures, the first one first');
 select pg_temp.check((public.sf_product('00000000-0000-0000-0000-000000345001', 'tote-bag'))#>>'{collection,slug}' = 'eco', 'its collection (breadcrumbs)');

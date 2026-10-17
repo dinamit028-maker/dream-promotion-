@@ -265,6 +265,8 @@ export type RoutingView = {
   me: string[];
   staff: StaffView[]; departments: DeptView[];
   defaultStaffId: string | null;
+  /** 2.102 (migration 20261017005400): the department that gets the site's requests — absent before the migration */
+  siteDepartmentId?: string | null;
 };
 /** a message about a lead, as the card and the screen show it */
 export type NoticeView = {

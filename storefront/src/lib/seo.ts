@@ -45,7 +45,8 @@ export function productJsonLd(site: Live, p: Product) {
   const url = `${site.origin}/products/${enc(p.slug)}`;
   const images = p.images.map((i) => i.sizes?.['1600'] || i.sizes?.['800'] || i.url).filter(Boolean);
   const currency = site.store.currency;
-  const offers = p.variants.length
+  // 2.102: a product sold by a quote has no price to pay — no offer (its "from" price is shown on the page only)
+  const offers = p.quote ? undefined : p.variants.length
     ? p.variants.map((v) => ({
         '@type': 'Offer', url: `${url}?variant=${v.id}`, name: variantLabel(v) || undefined, sku: v.sku || undefined, gtin: gtin(v.barcode),
         price: v.price, priceCurrency: currency, availability: availability(v.in_stock), itemCondition: 'https://schema.org/NewCondition',

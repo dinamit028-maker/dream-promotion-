@@ -11,6 +11,9 @@
  * Stage 3 (2.56, test only): a PayPlus test terminal is connected (its keys never come back), pickup and delivery are set,
  * selling is switched on; a coupon; an order from the site with its lines and timeline; the register shows the units held
  * for an order on the site and does not sell them.
+ * 2.102: a product sold by a quote is made in the same editor ("החל מ-" in dollars, a minimum, no price on the site), and
+ * "ייבוא מקובץ" adds products from a ZIP (products.csv and pictures): what is added, what is there (never changed), a row with
+ * a problem — then one by one, each with its picture.
  *
  * Run: npm run test:e2e   (starts `next dev` on port 3219; needs the preinstalled Chromium)
  * Screenshots go to tests/e2e/shots/ (not committed).
@@ -1170,6 +1173,76 @@ async function main() {
       await st.getByText(/הטיוטה נשמרה/).waitFor();
       const saved = catalog().settings.items[6];
       assert.deepEqual([saved.minQty, saved.pic, saved.color], [300, 'bag-007.webp', '#dacaba'], 'a number, a file name, a colour');
+    });
+
+    await step('2.102 — a product sold by a quote: the switch in the one editor, "החל מ-" in dollars, a minimum — and no price on the site', async () => {
+      await st.goto(`${BASE}/store/products/new`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('heading', { name: 'מוצר חדש' }).waitFor({ timeout: 60_000 });
+      await st.getByLabel('שם (בקופה, במסמכים ובאתר)').fill('שקית קראפט – דגם 021');
+      await st.getByLabel('סוג').selectOption('product');
+      await st.getByLabel('מחיר בקופה ₪ (כולל מע״מ)').fill('0');
+      await st.getByLabel('מק״ט (SKU)').fill('bag-021');
+      const quote = st.getByRole('switch', { name: 'מכירה בהצעת מחיר' });
+      assert.equal(await quote.getAttribute('aria-checked'), 'false', 'off by default');
+      await st.getByLabel('מחיר באתר ₪ (לא חובה)').waitFor();
+      await quote.click();
+      assert.equal(await st.getByLabel('מחיר באתר ₪ (לא חובה)').count(), 0, 'a quote has no price on the site');
+      await st.getByLabel('החל מ- (ליחידה, לא חובה)').fill('3.5');
+      await st.getByLabel('מטבע').selectOption('USD');
+      await st.getByLabel('כמות מינימום (לא חובה)').fill('500');
+      await noSideScroll(st, 'the editor of a quote on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c15-quote-editor-phone.png'), fullPage: true });
+      await st.getByRole('button', { name: 'יצירת המוצר' }).click();
+      await st.waitForURL(/\/store\/products\/[0-9a-f-]{36}$/);
+      const bag = () => fake.tables.catalog_items.find((i) => i.sku === 'bag-021')!;
+      assert.deepEqual([bag().quote_mode, bag().quote_from, bag().quote_currency, bag().quote_min_qty, bag().online_price ?? null], [true, 3.5, 'USD', 500, null]);
+      // a wrong "החל מ-" is refused before anything is written
+      await st.getByLabel('החל מ- (ליחידה, לא חובה)').fill('3.5.0');
+      await st.getByRole('button', { name: 'שמירה', exact: true }).click();
+      await st.getByText(/"החל מ-" צריך להיות מספר/).first().waitFor();
+      assert.equal(bag().quote_from, 3.5);
+    });
+
+    await step('2.102 — "ייבוא מקובץ": a ZIP of products.csv and pictures — what is added, what is there (never changed), a row with a problem; then one by one, each with its picture', async () => {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      zip.file('products.csv', '﻿sku,name,description,tags,publish,quote,quote_from,quote_currency,quote_min_qty,price,image\r\n'
+        + 'bag-901,שקית חבל – דגם 901,"שקית עם ידית חבל, בצבעים שלכם.\nהעיצוב בתמונה להמחשה.",חבל וסרט|שקיות,yes,yes,4.50,USD,,0,bag-901.png\r\n'
+        + 'bag-902,שקית בד – דגם 902,שקית בד ממותגת.,בד,כן,כן,$5,USD,300,0,images/bag-902.png\r\n'
+        + 'BAG-021,שם אחר לגמרי,,,,yes,9,USD,,0,\r\n'
+        + 'bag-903,שקית שגויה,,,yes,yes,abc,USD,,0,\r\n');
+      zip.file('bag-901.png', png(900, 900, [40, 40, 40]));
+      zip.file('images/bag-902.png', png(900, 900, [120, 90, 60]));
+      const before = fake.tables.catalog_items.length;
+      const there = structuredClone(fake.tables.catalog_items.find((i) => i.sku === 'bag-021'));
+      await st.goto(`${BASE}/store/products`, { waitUntil: 'domcontentloaded' });
+      await st.getByRole('link', { name: 'שקית קראפט – דגם 021', exact: true }).waitFor({ timeout: 60_000 });
+      await st.getByText('באתר: הצעת מחיר', { exact: false }).first().waitFor();
+      await st.getByRole('button', { name: 'ייבוא מקובץ' }).click();
+      const d = dialog(st);
+      await d.getByRole('heading', { name: 'ייבוא מוצרים מקובץ' }).waitFor();
+      await d.locator('input[type=file]').setInputFiles({ name: 'bags.zip', mimeType: 'application/zip', buffer: await zip.generateAsync({ type: 'nodebuffer' }) });
+      await d.getByText('2 מוצרים ייכנסו', { exact: true }).waitFor({ timeout: 30_000 });
+      await d.locator('p').filter({ hasText: '· 2 עם תמונה · מוצר אחד כבר קיים (לא משתנה) · שורה אחת עם בעיה (לא תיכנס)' }).waitFor();
+      await d.getByText(/^שורה 5: "החל מ-" צריך להיות מספר/).waitFor();
+      assert.equal(fake.tables.catalog_items.length, before, 'nothing is written before "ייבוא"');
+      await noSideScroll(st, 'the import on a phone');
+      await st.screenshot({ path: path.join(SHOTS, 'c16-import-phone.png'), fullPage: true });
+      await d.getByRole('button', { name: 'ייבוא 2 מוצרים' }).click();
+      await d.getByText(/^הייבוא הסתיים\. נוספו 2 מוצרים\.$/).waitFor({ timeout: 90_000 });
+      const added = (sku: string) => fake.tables.catalog_items.find((i) => i.sku === sku)!;
+      assert.deepEqual([added('bag-901').quote_mode, added('bag-901').quote_from, added('bag-901').quote_currency, added('bag-901').quote_min_qty, added('bag-901').publish_online],
+        [true, 4.5, 'USD', null, true]);
+      assert.deepEqual([added('bag-901').tags, added('bag-901').description], [['חבל וסרט', 'שקיות'], 'שקית עם ידית חבל, בצבעים שלכם.\nהעיצוב בתמונה להמחשה.']);
+      assert.deepEqual([added('bag-902').quote_from, added('bag-902').quote_min_qty, added('bag-902').tags, added('bag-902').publish_online], [5, 300, ['בד'], true]);
+      for (const sku of ['bag-901', 'bag-902']) {
+        assert.equal(fake.tables.catalog_media.filter((m) => m.item_id === added(sku).id).length, 1, `${sku}: its picture`);
+        assert.match(added(sku).image_url, /\/400\.webp$/, `${sku}: the main picture`);
+      }
+      assert.deepEqual(fake.tables.catalog_items.find((i) => i.sku === 'bag-021'), there, 'a product that is there is not changed');
+      assert.equal(fake.tables.catalog_items.length, before + 2);
+      await d.getByRole('button', { name: 'חזרה למוצרים' }).click();
+      await st.getByRole('link', { name: 'שקית בד – דגם 902', exact: true }).waitFor();
     });
   } finally { await st.context().close(); current = null; }
 

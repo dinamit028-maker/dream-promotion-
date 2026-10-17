@@ -11,7 +11,9 @@
 # way into the stock and the cancellations: the same day — a business that turns nothing on — gives the same everything.
 # 20261011005100 (manual journal entries, T13א) rewrote finance_summary and the reports' functions: the same day, no entry — the same
 # summary (5100 only adds "manual", all 0) and the same reports.
-# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default), 4800, 4900, 5000 or 5100]
+# 20261017005400 (a product sold by a quote, 2.102) rewrote the site's line price, card, product and list: a store that sells as
+# before gives the same prices, the same product and the same lists — sorted and filtered by price (5400 only adds "quote": null).
+# Called by tests/sql/run.sh. Usage: bash tests/sql/stock-compare.sh [db] [the migration: 4700 (default), 4800, 4900, 5000, 5100 or 5400]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 BASE=${1:-${DP_TEST_DB:-dp_test}}
@@ -25,7 +27,8 @@ case "${2:-4700}" in
   4900) STOCK=supabase/migrations/20261011004900_reports.sql ;;
   5000) STOCK=supabase/migrations/20261011005000_cash_bank_goods.sql ;;
   5100) STOCK=supabase/migrations/20261011005100_journal_entries.sql ;;
-  *) fail "the migration to compare: 4700, 4800, 4900, 5000 or 5100" ;;
+  5400) STOCK=supabase/migrations/20261017005400_quote_mode.sql ;;
+  *) fail "the migration to compare: 4700, 4800, 4900, 5000, 5100 or 5400" ;;
 esac
 TAG=${2:-4700}
 TMPF=$(mktemp); trap 'rm -f "$TMPF" "$TMPF.before" "$TMPF.after"' EXIT
@@ -106,7 +109,7 @@ day() { # the same day of the business, on database $1 — prints every answer o
   "${q[@]}" -c "select 'items ' || string_agg(i.name || ':' || i.stock_qty || ':' || i.track_stock || ':' || public.sf_prices(i)::text, ' | ' order by i.id)
                   from public.catalog_items i where i.business_id = '$B';
                 select 'variants ' || string_agg(v.option1 || ':' || v.stock_qty, ' | ' order by v.id) from public.catalog_variants v where v.business_id = '$B';
-                select 'product ' || (public.sf_product('00000000-0000-0000-0000-000000e48801', 'shirt', true) - 'updated_at' - 'related')::text;
+                select 'product ' || (public.sf_product('00000000-0000-0000-0000-000000e48801', 'shirt', true) - 'updated_at' - 'related' - 'quote')::text;
                 select 'moves ' || md5(string_agg(concat_ws('/', m.item_id, m.variant_id, m.delta, m.qty_after, m.reason, m.sale_id, m.refund_id, m.document_id,
                                                            m.expense_id, m.note, m.user_id), '|' order by concat_ws('/', m.item_id, m.variant_id, m.delta, m.qty_after,
                                                            m.reason, m.sale_id, m.refund_id, m.document_id, m.expense_id, m.note, m.user_id)))
@@ -131,6 +134,21 @@ day() { # the same day of the business, on database $1 — prints every answer o
       select 'cmp ' || public.location_compare(public.il_today() - 30, public.il_today())::text;
       commit;" | sed -E 's/,? ?\"manual\": 0(\.00)?//g' || return 1
   fi
+  # 5400 rewrote the site's line price, card, product and list: a store with no product sold by a quote — the same answers
+  # (only the "quote": null it adds to a card, which is taken out here)
+  if [ "$TAG" = 5400 ]; then
+    local st=00000000-0000-0000-0000-000000e48801
+    "${q[@]}" -c "select 'line ' || string_agg(i.name || ':' || coalesce(v.option1, '-') || ':' || coalesce(public.sf_line_price(i, v)::text, 'null'), ' | '
+                                                order by i.id, v.id)
+                    from public.catalog_items i left join public.catalog_variants v on v.item_id = i.id where i.business_id = '$B';
+                  select 'cards ' || string_agg(public.sf_card(i, s)::text, ' | ' order by i.id, x.s)
+                    from public.catalog_items i, (values (true), (false)) as x(s) where i.business_id = '$B';
+                  select 'list ' || public.sf_products('$st', '{}', true)::text;
+                  select 'cheap ' || public.sf_products('$st', '{\"sort\": \"price_asc\", \"min_price\": \"15\", \"max_price\": \"150\"}', true)::text;
+                  select 'dear ' || public.sf_products('$st', '{\"sort\": \"price_desc\", \"in_stock\": \"1\"}', true)::text;
+                  select 'found ' || public.sf_products('$st', '{\"q\": \"חולצה\", \"options\": {\"מידה\": [\"S\"]}}', true)::text;" \
+      | sed -E 's/, "quote": null//g; s/"quote": null, //g' || return 1
+  fi
 }
 build "${BASE}_stk_before" no
 build "${BASE}_stk_after" yes
@@ -147,6 +165,9 @@ if [ "$TAG" = 4700 ]; then
 elif [ "$TAG" = 4900 ]; then
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.payments where method = 'withholding'")
   [ "$r" = "0" ] || fail "one location: no tax withheld at source appeared (got $r)"
+elif [ "$TAG" = 5400 ]; then
+  r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select (select count(*) from public.catalog_items where quote_mode) + (select count(*) from public.site_requests)")
+  [ "$r" = "0" ] || fail "one location: no product sold by a quote and no request of the site appeared (got $r)"
 elif [ "$TAG" = 5100 ]; then
   r=$(as_pg "${PSQL[@]}" -t -A -d "${BASE}_stk_after" -c "select count(*) from public.journal_entries")
   [ "$r" = "0" ] || fail "one location: no journal entry appeared (got $r)"

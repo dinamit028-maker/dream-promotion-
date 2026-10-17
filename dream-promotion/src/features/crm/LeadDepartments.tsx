@@ -310,6 +310,24 @@ export function LeadDepartments() {
         ) : <p className="text-sm">{view.defaultStaffId ? `נשלח אל ${nameOf(view.defaultStaffId)}` : 'לא נשלח לאף אחד.'}</p>}
       </section>
 
+      {/* 2.102: the site's requests — "בקשת הצעת מחיר" and the contact form (after migration 20261017005400) */}
+      {view.siteDepartmentId !== undefined && (
+        <section aria-labelledby={`${ids}-site`} className="mb-6">
+          <h2 id={`${ids}-site`} className="mb-1 font-display text-lg font-extrabold">פניות מהאתר</h2>
+          <p className="mb-2 text-sm text-ink-2">בקשת הצעת מחיר על מוצר, וטופס הפנייה באתר, נכנסות ללידים ונשלחות בוואטסאפ לאחראי של המחלקה שתבחרו. כלל &quot;שאלה ותשובה&quot; (למשל מקור ← אתר, נושא ← סורסינג) קודם לבחירה הזו.</p>
+          {owner ? (
+            <div className="grid max-w-sm gap-1">
+              <label htmlFor={`${ids}-site-d`} className="text-sm font-semibold text-ink-2">איזו מחלקה מקבלת פניות מהאתר</label>
+              <Select id={`${ids}-site-d`} value={depts.some((d) => d.id === view.siteDepartmentId) ? view.siteDepartmentId ?? '' : ''} disabled={busy === 'site'}
+                onChange={(e) => post('site', { action: 'site.set', departmentId: e.target.value || null })}>
+                <option value="">כמו ליד בלי מחלקה</option>
+                {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </Select>
+            </div>
+          ) : <p className="text-sm">{depts.find((d) => d.id === view.siteDepartmentId)?.name ?? 'כמו ליד בלי מחלקה'}</p>}
+        </section>
+      )}
+
       {/* the last messages */}
       {owner && setup && setup.recent.length > 0 && (
         <section aria-labelledby={`${ids}-recent`} className="mb-6">

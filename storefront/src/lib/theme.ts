@@ -74,7 +74,8 @@ export const SCHEMA: Record<SectionType, Record<string, Field>> = {
   imageText: { title: T(90), text: L(800), image: { kind: 'image' }, buttonLabel: T(30), buttonHref: { kind: 'href' }, imageSide: { kind: 'choice', values: ['start', 'end'] } },
   steps: { title: T(80), items: { kind: 'list', max: 6, item: { title: T(60), text: L(240) } } },
   faq: { title: T(80), items: { kind: 'list', max: 12, item: { q: T(160), a: L(1200) } } },
-  contact: { title: T(80), text: L(400) },
+  // 2.102: form 'on' — a request form into the business's leads (lib/leads.ts), with the topics it offers ("א, ב, ג")
+  contact: { title: T(80), text: L(400), form: { kind: 'choice', values: ['on'] }, topics: T(200) },
   text: { title: T(90), text: L(2000) },
   // 2.58: pictures with a caption (before / after, Instagram, a lookbook) and a button; the newsletter only shows from stage 5
   gallery: { title: T(80), text: L(300), items: { kind: 'list', max: 8, item: { image: { kind: 'image' }, caption: T(80) } }, buttonLabel: T(30), buttonHref: { kind: 'href' } },

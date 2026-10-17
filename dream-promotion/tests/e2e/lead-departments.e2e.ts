@@ -11,6 +11,7 @@
  *   the departments screen: "וואטסאפ לא מחובר" (no test possible), a person added (a wrong number refused), a department with a
  *   form and a question + answer, the default recipient; connected: the number and the template's state, "שליחת הודעת בדיקה" shows
  *   Meta's answer — and its error code; a member (not the owner) sees, never changes; before the migration: one clear line;
+ *   2.102: "פניות מהאתר" — not before migration 5400, the owner picks the department of the site's requests, a member only sees it;
  *   a phone: the screen and the card fit.
  *
  * Run: npx -y tsx tests/e2e/lead-departments.e2e.ts   (starts `next dev` on port 3236; needs the preinstalled Chromium)
@@ -84,6 +85,8 @@ class Server {
     { id: 'micro', name: 'מיקרובליידינג', staffId: 'michal', position: 1, active: true, rules: [rule({ kind: 'answer', question: 'איזה טיפול?', answer: 'מיקרובליידינג' })] },
   ];
   defaultStaffId: string | null = null;
+  /** 2.102: the department of the site's requests — undefined: before migration 5400 (the view has no such key) */
+  site: string | null | undefined = undefined;
   connected = false;
   ready = true;
   posts: any[] = [];
@@ -101,6 +104,7 @@ class Server {
       staff: this.staff.map((s) => ({ id: s.id, name: s.name, active: s.active, memberUserId: s.memberUserId, ...(owner ? { phone: s.phone, phoneShown: shown(s.phone) } : {}) })),
       departments: this.depts.map((d) => ({ id: d.id, name: d.name, staffId: d.staffId, position: d.position, active: d.active, ...(owner ? { rules: d.rules } : {}) })),
       defaultStaffId: this.defaultStaffId,
+      ...(this.site !== undefined ? { siteDepartmentId: this.site } : {}),
     };
   }
 }
@@ -182,6 +186,9 @@ async function main() {
         server.depts.push({ id: `d${server.depts.length + 1}`, name: b.name, staffId: b.staffId, position: server.depts.length, active: true, rules: b.rules });
       } else if (b.action === 'default.set') {
         server.defaultStaffId = b.staffId;
+      } else if (b.action === 'site.set') {
+        if (b.departmentId && !server.depts.some((d) => d.id === b.departmentId)) return r.fulfill({ status: 400, json: { code: 'invalid', message: 'צריך לבחור מחלקה מהרשימה.' } });
+        server.site = b.departmentId ?? null;
       } else if (b.action === 'test') {
         if (!server.connected) return r.fulfill({ status: 409, json: { code: 'not_connected', message: 'וואטסאפ לא מחובר' } });
         if (b.staffId === 'dana') {
@@ -404,6 +411,29 @@ async function main() {
       const recent = page.getByRole('region', { name: 'הודעות אחרונות' });
       await recent.getByText(/רותם כהן/).waitFor();
       await shot('ld-5-connected.png');
+    });
+
+    await step('2.102 — "פניות מהאתר": not before migration 5400; the owner picks the department; a member sees it, never changes it', async () => {
+      await goto('/leads/departments');
+      await page.getByRole('region', { name: 'מחלקות', exact: true }).getByText('לייזר', { exact: true }).waitFor({ timeout: 60_000 });
+      assert.equal(await page.getByRole('region', { name: 'פניות מהאתר' }).count(), 0, 'before the migration: not shown');
+      server.site = null;
+      await goto('/leads/departments');
+      const site = page.getByRole('region', { name: 'פניות מהאתר' });
+      await site.waitFor({ timeout: 60_000 });
+      const pick = site.getByLabel('איזו מחלקה מקבלת פניות מהאתר');
+      assert.equal(await pick.inputValue(), '', 'nothing picked: as a lead without a department');
+      await pick.selectOption({ label: 'לייזר' });
+      await page.getByText('נשמר ✓').waitFor();
+      assert.deepEqual(server.posts.at(-1), { action: 'site.set', departmentId: 'laser' });
+      assert.equal(await pick.inputValue(), 'laser');
+      await shot('ld-8-site.png');
+      const { page: ed, ctx } = await context(DESK, 'editor');
+      await goto('/leads/departments', ed);
+      const theirs = ed.getByRole('region', { name: 'פניות מהאתר' });
+      await theirs.getByText('לייזר', { exact: true }).waitFor({ timeout: 60_000 });
+      assert.equal(await theirs.getByRole('combobox').count(), 0, 'only the owner changes it');
+      await ctx.close();
     });
 
     await step('a member (not the owner): sees the departments and the person, never changes them', async () => {
