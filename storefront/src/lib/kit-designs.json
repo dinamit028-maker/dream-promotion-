@@ -1,4 +1,33 @@
 {
+  "bags-3d": {
+    "design": {
+      "spacing": "airy",
+      "headingScale": "display",
+      "buttonStyle": "solid",
+      "container": "normal",
+      "cardStyle": "float"
+    },
+    "chrome": {
+      "header": "centered-logo",
+      "footer": "centered"
+    },
+    "commerce": {
+      "productCard": "editorial",
+      "collectionCard": "grid",
+      "productPage": "classic"
+    },
+    "sections": {
+      "hero": "float",
+      "categories": "tiles",
+      "catalog": "grid",
+      "how": "steps",
+      "finishes": "features",
+      "banners": "banners",
+      "about": "overlap",
+      "faq": "accordion",
+      "contact": "centered"
+    }
+  },
   "bags": {
     "design": {
       "spacing": "normal",

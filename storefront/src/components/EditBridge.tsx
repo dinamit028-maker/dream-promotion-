@@ -2,7 +2,7 @@
 import { useEffect } from 'react';
 import { STYLE_CLASS } from '@/lib/builder-registry';
 import type { EditMessage } from '@/lib/edit';
-import { tokenVars } from '@/lib/theme-tokens';
+import { darkVars, LIGHT_VARS, tokenVars } from '@/lib/theme-tokens';
 
 /**
  * "לחץ לעריכה" (2.61): inside the dashboard's visual editor only (site.edit). Every click is the owner choosing what to
@@ -97,7 +97,8 @@ export function EditBridge({ dashboard }: { dashboard: string }) {
     const CLASS = /^v-(sp|hs|btn|ct|card|h|f|pc|cc|pp)-[a-z][a-z-]{1,30}$/;
     const applyStyle = (m: Record<string, unknown>) => {
       const vars = m.colors && typeof m.colors === 'object' ? tokenVars(m.colors, m.font, m.radius) : null;
-      if (vars) for (const [k, v] of vars) document.documentElement.style.setProperty(k, v);
+      // 2.101: and a dark background's own colours, or the light ones back
+      if (vars) for (const [k, v] of [...vars, ...(darkVars(m.colors as object) ?? LIGHT_VARS)]) document.documentElement.style.setProperty(k, v);
       const classes = typeof m.classes === 'string' ? m.classes.split(' ') : [];
       if (classes.length === 10 && classes.every((c) => CLASS.test(c))) {
         const keep = Array.from(document.body.classList).filter((c) => !CLASS.test(c));

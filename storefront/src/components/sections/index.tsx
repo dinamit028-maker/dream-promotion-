@@ -8,7 +8,9 @@ import type { Store } from '@/lib/types';
 import { resolveHref } from '../chrome';
 import { Art, PlaceholderGrid, ProductGrid } from '../ui';
 import { editBlock, editColumn, editField as F, editImage as I } from '@/lib/edit';
-import { kitCollectionImage, kitCollectionPictures, kitGallery, kitHero, kitImage, type KitPicture } from '@/lib/kit-images';
+import { kitCollectionImage, kitCollectionPictures, kitGallery, kitHero, kitImage, kitPicture, type KitPicture } from '@/lib/kit-images';
+import { showcaseItems } from '@/lib/showcase-items';
+import { Showcase } from '../Showcase';
 
 type S = Record<string, unknown>;
 const str = (s: S, k: string) => (typeof s[k] === 'string' ? (s[k] as string) : '');
@@ -52,7 +54,8 @@ function Hero({ s, site, first, variant }: { s: S; site: Live; first: boolean; v
   const Title = first ? 'h1' : 'h2';
   const v = img || kit ? variant || 'split' : 'split';
   const side = hero?.textSafe || 'start';
-  const mobile = v !== 'split' && v !== 'slider' ? hero?.mobile : null;
+  // float (2.101) keeps the wide picture on a phone too, under the text, as split does
+  const mobile = v !== 'split' && v !== 'slider' && v !== 'float' ? hero?.mobile : null;
   // a slider (2.63): the kit's two wide pictures, side by side in one row that scrolls (no script); the business's picture is one
   const slides = v === 'slider' && kit && hero?.second ? [kit, hero.second] : null;
   return (
@@ -333,6 +336,89 @@ function Custom({ columns, site, id }: { columns: Column[]; site: Live; id: stri
   );
 }
 
+/**
+ * 2.101: cards with a picture each — "tiles" (categories: the picture with the name on it, the whole card a link), "features"
+ * (finishes: a picture, a title and a line), "steps" (the same, numbered) and "banners" (a wide picture with a button). The
+ * business's picture, else the kit's (pic), else the drawing. A card's link to a section of this page carries its title
+ * (data-cat), so a category card opens the catalog (Showcase) on that category.
+ */
+function CardsSection({ s, site, id, variant }: { s: S; site: Live; id: string; variant: string }) {
+  const v = variant || 'tiles';
+  const e = Boolean(site.edit);
+  const cards = ((Array.isArray(s.items) ? s.items : []) as S[]).map((r) => {
+    const own = safeImage(r.image);
+    const href = str(r, 'href') ? resolveHref(str(r, 'href'), site.store) : null;
+    return {
+      title: str(r, 'title'), text: str(r, 'text'), label: str(r, 'label'), href, own,
+      kit: own ? null : kitPicture(kitOf(site), str(r, 'pic')),
+      inPage: Boolean(href && /^\/?#/.test(href)), ext: Boolean(href && /^https:\/\//.test(href)),
+    };
+  }).filter((c) => c.title || c.text || c.own || c.kit);
+  if (!cards.length) return null;
+  const List = v === 'steps' ? 'ol' : 'ul';
+  return (
+    <section className={`band cards-band cards-band--${v}`} id={id} aria-labelledby={`${id}-t`}>
+      <div className="wrap">
+        <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title')}</h2>
+        {str(s, 'subtitle') && <p className="muted band-sub" {...F(e, 'subtitle')}>{str(s, 'subtitle')}</p>}
+        <List className={`cards cards--${v}`} role="list" {...F(e, 'items', false)}>
+          {cards.map((c, i) => {
+            const link = c.href ? { href: c.href, ...(c.inPage ? { 'data-cat': c.title } : {}), ...(c.ext ? { target: '_blank', rel: 'noopener noreferrer' } : {}) } : null;
+            const media = (
+              <div className="card3-media">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {c.own ? <img src={c.own} alt="" loading="lazy" decoding="async" /> : c.kit ? <KitImg pic={{ ...c.kit, alt: '' }} /> : <Art className="tile-art" />}
+                {v === 'steps' && <span className="card3-n" aria-hidden="true">{i + 1}</span>}
+              </div>
+            );
+            const body = (
+              <>
+                {c.title && <h3 className="card3-title">{c.title}</h3>}
+                {c.text && <p className="card3-text">{c.text}</p>}
+              </>
+            );
+            // a category: the whole card is the link; anything else: its words, and the link as a button under them
+            if (v === 'tiles' && link) {
+              return <li key={i} className="card3 fcard"><a className="card3-link" {...link}>{media}<div className="card3-body">{body}{c.label && <span className="card3-cta">{c.label}</span>}</div></a></li>;
+            }
+            return (
+              <li key={i} className="card3 fcard">
+                {media}
+                <div className="card3-body">
+                  {body}
+                  {link && (c.label || v === 'banners') && <a className={v === 'banners' ? 'btn btn-primary card3-btn' : 'more card3-more'} {...link}>{c.label || 'לפרטים'}</a>}
+                </div>
+              </li>
+            );
+          })}
+        </List>
+      </div>
+    </section>
+  );
+}
+
+/** 2.101: a catalog of models (lib/showcase.ts) — the filters, the pages and the quote buttons are components/Showcase.tsx */
+function ShowcaseSection({ s, site, id }: { s: S; site: Live; id: string }) {
+  const items = showcaseItems(s.items, kitOf(site));
+  const e = Boolean(site.edit);
+  // no models: the owner's preview shows where they will be; a shopper sees nothing
+  if (!items.length && !site.preview) return null;
+  const c = site.store.contact;
+  return (
+    <section className="band sc-band" id={id} aria-labelledby={`${id}-t`}>
+      <div className="wrap">
+        <h2 id={`${id}-t`} className="band-title" {...F(e, 'title')}>{str(s, 'title') || 'קטלוג'}</h2>
+        {str(s, 'subtitle') && <p className="muted band-sub" {...F(e, 'subtitle')}>{str(s, 'subtitle')}</p>}
+        {items.length ? (
+          <div {...F(e, 'items', false)}>
+            <Showcase id={id} items={items} store={site.store.name} whatsapp={c.whatsapp} contact={Boolean(c.phone || c.email)} buttonLabel={str(s, 'buttonLabel')} />
+          </div>
+        ) : <PlaceholderGrid count={4} label="כאן יופיע דגם" />}
+      </div>
+    </section>
+  );
+}
+
 /** one section of the template, by its type */
 export function SectionView({ section, site, first }: { section: Section; site: Live; first: boolean }) {
   const { settings: s, id } = section;
@@ -350,6 +436,8 @@ export function SectionView({ section, site, first }: { section: Section; site: 
     // the newsletter collects e-mail addresses only with consent to marketing — that is stage 5; until then it shows nothing
     case 'newsletter': return null;
     case 'custom': return <Custom columns={section.columns ?? []} site={site} id={id} />;
+    case 'cards': return <CardsSection s={s} site={site} id={id} variant={variant} />;
+    case 'showcase': return <ShowcaseSection s={s} site={site} id={id} />;
     default: return null;
   }
 }

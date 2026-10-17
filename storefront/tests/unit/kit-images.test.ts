@@ -6,15 +6,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { KIT_MANIFESTS, kitCollectionImage, kitGallery, kitImage, kitImageCss } from '../../src/lib/kit-images';
+import { KIT_MANIFESTS, kitCollectionImage, kitGallery, kitImage, kitImageCss, kitPicture } from '../../src/lib/kit-images';
 import { resolveTheme, themeCss } from '../../src/lib/theme';
 // @ts-expect-error — a plain .mjs script, no types
 import { normalize, webpSize } from '../../scripts/kit-images.mjs';
 
 const PUBLIC = fileURLToPath(new URL('../../public/kit-images/', import.meta.url));
 
-test('the seven kits each have a manifest, and every picture is a WebP file of the size it says', () => {
-  assert.deepEqual(Object.keys(KIT_MANIFESTS).sort(), ['bags', 'beauty', 'fashion', 'furniture', 'general', 'retail', 'services']);
+test('the eight kits each have a manifest, and every picture is a WebP file of the size it says', () => {
+  assert.deepEqual(Object.keys(KIT_MANIFESTS).sort(), ['bags', 'bags-3d', 'beauty', 'fashion', 'furniture', 'general', 'retail', 'services']);
   for (const m of Object.values(KIT_MANIFESTS)) {
     assert.ok(m.images.some((i) => i.slot === 'hero' && i.variant === 'wide' && i.order === 1), `${m.kit}: a wide hero first`);
     for (const i of m.images) {
@@ -67,4 +67,17 @@ test('the importer: one shape for every delivered JSON — order within a slot, 
   assert.equal(manifest.images[2].focal.x, 0.5, 'a focal point out of range → the middle');
   assert.equal(manifest.version, 2);
   assert.equal(notes.length, 4, notes.join('\n'));
+});
+
+test('2.101: a picture a section names by its file — the store\'s kit only, a real file only', () => {
+  assert.deepEqual(kitPicture('bags-3d', 'bag-007.webp'), { src: '/kit-images/bags-3d/bag-007.webp', width: 720, height: 720,
+    alt: 'שקית בגוון שמנת עם חבל בהיר ולוגו מובלט', className: 'kimg-bag-007' });
+  assert.equal(kitPicture('bags-3d', 'site-21.webp')?.src, '/kit-images/bags-3d/site-21.webp', 'any slot (the hero\'s too)');
+  assert.equal(kitPicture('bags', 'bag-007.webp'), null, 'another kit\'s file: none');
+  assert.equal(kitPicture(null, 'bag-007.webp'), null, 'a store with no kit: none');
+  for (const bad of ['bag-999.webp', '../bags/bag-007.webp', 'bag-007.png', '', 'BAG-007.webp']) assert.equal(kitPicture('bags-3d', bad), null, bad);
+  const pictures = KIT_MANIFESTS['bags-3d'].images.filter((i) => i.slot === 'picture');
+  assert.equal(pictures.length, 78, '60 models and 18 for the cards');
+  const { manifest, notes } = normalize({ images: [{ file: 'p.webp', slot: 'picture', width: 4, height: 4, alt: 'תמונה', order: 7 }] }, 'p', { 'p.webp': { width: 4, height: 4 } });
+  assert.deepEqual([manifest.images.length, manifest.images[0].slot, manifest.images[0].order, notes.length], [1, 'picture', 1, 0], 'the importer knows the slot');
 });

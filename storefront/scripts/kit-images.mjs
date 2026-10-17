@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const KIT = /^[a-z][a-z0-9-]{1,30}$/;
-const SLOTS = ['hero', 'imageText', 'collection', 'gallery'];
+// 2.101: picture — one that a section names by its file (cards, a catalog's models: kitPicture in kit-images.ts)
+const SLOTS = ['hero', 'imageText', 'collection', 'gallery', 'picture'];
 
 /** the width and height a WebP file declares (VP8, VP8L or VP8X) */
 export function webpSize(buf) {

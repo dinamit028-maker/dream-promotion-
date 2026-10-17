@@ -36,6 +36,8 @@ test('every field the editor offers is one the storefront accepts — same kind,
     text: (f) => f.kind === 'text', longtext: (f) => f.kind === 'longtext', link: (f) => f.kind === 'href', image: (f) => f.kind === 'image',
     number: (f) => f.kind === 'int' && f.min === 2 && f.max === 12, side: (f) => f.kind === 'choice' && f.values.join() === 'start,end',
     collection: (f) => f.kind === 'slug', kitpick: (f) => f.kind === 'int' && f.min === 1 && f.max === 2,
+    // 2.101: a kit picture's file, a colour, a minimum order
+    kitfile: (f) => f.kind === 'kitfile', color: (f) => f.kind === 'hex', qty: (f) => f.kind === 'int' && f.min === 1 && f.max === 1_000_000,
   };
   assert.deepEqual(Object.keys(SECTION_DEFS).sort(), Object.keys(schema).sort(), 'the same kinds of sections');
   for (const [type, def] of Object.entries(SECTION_DEFS)) {
@@ -50,7 +52,10 @@ test('every field the editor offers is one the storefront accepts — same kind,
       const l = theirs[def.list.key];
       assert.equal(l.kind, 'list'); assert.equal(def.list.max, l.max, `${type}: as many rows`);
       assert.deepEqual(def.list.fields.map((f) => f.key).sort(), Object.keys(l.item).sort());
-      for (const f of def.list.fields) assert.equal(f.max, l.item[f.key].max, `${type}.items.${f.key}`);
+      for (const f of def.list.fields) {
+        assert.ok(kindOf[f.kind](l.item[f.key]), `${type}.items.${f.key}: ${f.kind} vs ${JSON.stringify(l.item[f.key])}`);
+        if (f.kind === 'text' || f.kind === 'longtext') assert.equal(f.max, l.item[f.key].max, `${type}.items.${f.key}: the same length`);
+      }
     }
   }
 });

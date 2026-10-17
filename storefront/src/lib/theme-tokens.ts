@@ -38,3 +38,17 @@ export function tokenVars(colors: object, font: unknown, radius: unknown): [stri
     ['--radius', card], ['--radius-btn', button], ['--font', `${FAMILY[font as Font]},system-ui,-apple-system,'Segoe UI',Arial,sans-serif`],
   ];
 }
+
+/**
+ * 2.101: a dark background (the first dark kit) — what globals.css draws for a light one, in colours that read on it: the
+ * stock and form colours, a problem row of the cart, and the words on the accent colour (a sale badge, the cart's count).
+ * null on a light background: themeCss adds nothing, so every light site stays exactly as it was. The visual editor's live
+ * change sets these, or LIGHT_VARS, with the colours.
+ */
+export function darkVars(colors: object): [string, string][] | null {
+  const src = colors as Record<string, unknown>;
+  const [bg, accent] = [src.background, src.accent].map((v) => (typeof v === 'string' ? v.toLowerCase() : ''));
+  if (!HEX.test(bg) || !HEX.test(accent) || onColor(bg) !== '#ffffff') return null;
+  return [['--c-ok', '#7dd3a0'], ['--c-bad', '#ff9b8f'], ['--c-bad-soft', 'rgba(255,155,143,.12)'], ['--c-on-accent', onColor(accent)]];
+}
+export const LIGHT_VARS: [string, string][] = [['--c-ok', 'var(--ok)'], ['--c-bad', 'var(--bad)'], ['--c-bad-soft', '#fdf6f6'], ['--c-on-accent', '#ffffff']];

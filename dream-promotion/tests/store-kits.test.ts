@@ -16,7 +16,7 @@ import {
   type Kit, type KitContext, type KitState,
 } from '../src/features/store/kits';
 import { linkOk, menuProblem, pageProblem, policyAckProblem, type PageRow, type ThemeVersion } from '../src/features/store/store';
-import { draftErrors, draftOf, settingsOf } from '../src/features/store/theme-fields';
+import { draftErrors, draftOf, fieldError, settingsOf } from '../src/features/store/theme-fields';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const STOREFRONT = fileURLToPath(new URL('../../storefront/', import.meta.url));
@@ -192,6 +192,60 @@ test('every kit has its default pictures in the storefront, and each collection 
     assert.ok(m.images.some((i: any) => i.slot === 'hero' && i.variant === 'wide'), `${kit.id}: a hero picture`);
     assert.ok(m.images.some((i: any) => i.slot === 'imageText'), `${kit.id}: an image-and-text picture`);
   }
+});
+
+test('2.101: every picture a kit\'s section names by its file is one of that kit\'s pictures', () => {
+  const dir = `${STOREFRONT}src/lib/kit-images/`;
+  for (const kit of KITS) {
+    const files = new Set(JSON.parse(readFileSync(`${dir}${kit.id}.json`, 'utf8')).images.map((i: any) => i.file));
+    for (const s of kit.theme.sections) {
+      for (const row of (Array.isArray(s.settings.items) ? s.settings.items : []) as Record<string, unknown>[]) {
+        if (typeof row.pic === 'string' && row.pic) assert.ok(files.has(row.pic), `${kit.id}/${s.id}: ${row.pic} is not a picture of the kit`);
+      }
+    }
+  }
+});
+
+test('2.101: "שקיות יוקרה 3D" — 60 models with a picture each, and the catalog\'s categories are its category cards', () => {
+  const kit = kitById('bags-3d')!;
+  assert.ok(kit, 'the kit is valid');
+  const catalog = kit.theme.sections.find((s) => s.type === 'showcase')!;
+  const models = catalog.settings.items as Record<string, unknown>[];
+  assert.equal(models.length, 60);
+  assert.equal(new Set(models.map((m) => m.pic)).size, 60, 'a picture of its own for each model');
+  for (const m of models) {
+    for (const k of ['name', 'brand', 'category', 'material', 'handle', 'finish', 'shape', 'text']) assert.ok(String(m[k] ?? '').trim(), `${m.name}: ${k}`);
+    assert.match(String(m.color), /^#[0-9a-f]{6}$/, `${m.name}: the brand's colour`);
+    assert.ok(Number.isInteger(m.minQty) && (m.minQty as number) >= 1, `${m.name}: a minimum order`);
+  }
+  const tiles = kit.theme.sections.find((s) => s.type === 'cards' && kit.variants.sections[s.id] === 'tiles')!;
+  const cards = tiles.settings.items as Record<string, unknown>[];
+  assert.deepEqual([...new Set(models.map((m) => m.category))], cards.map((c) => c.title), 'the same categories, in the same order');
+  assert.ok(cards.every((c) => c.href === `/#${catalog.id}`), 'each category card opens the catalog');
+  assert.equal(new Set(kit.theme.sections.map((s) => s.id)).size, kit.theme.sections.length);
+  assert.deepEqual(kit.collections, [], 'a catalog of models, not products: no collection');
+  assert.equal(kit.variants.sections.hero, 'float');
+  assert.equal(kit.variants.design.cardStyle, 'float');
+  assert.equal(kitFor('קופסאות מתנה ואריזות יוקרה').id, 'bags-3d');
+  assert.equal(kitFor('שקיות ממותגות לעסקים').id, 'bags', 'the branded bags keep their own kit');
+  assert.equal(kitFor('בוטיק יוקרה לבגדים').id, 'fashion', 'luxury alone is not packaging');
+});
+
+test('2.101: a card\'s link leads to something the kit creates; a catalog\'s fields are checked like the storefront does', () => {
+  const k = raw('bags-3d');
+  k.theme.sections.find((s: any) => s.id === 'categories').settings.items[0].href = '/#nowhere';
+  const v = validateKit(k);
+  assert.equal(v.ok, false);
+  assert.ok(!v.ok && v.errors.some((e) => /items\.href: the link leads nowhere in this kit \(\/#nowhere\)/.test(e)), !v.ok ? v.errors.join('; ') : '');
+  const pic = { key: 'pic', label: 'קובץ', kind: 'kitfile' as const };
+  for (const ok of ['', 'bag-007.webp', 'site-21.webp']) assert.equal(fieldError(pic, ok), null, ok);
+  for (const bad of ['../x.webp', 'Bag.webp', 'bag-007.png', 'https://x.co/a.webp']) assert.ok(fieldError(pic, bad), bad);
+  const color = { key: 'color', label: 'צבע', kind: 'color' as const };
+  for (const ok of ['', '#1f2a40', '#ABCDEF']) assert.equal(fieldError(color, ok), null, ok);
+  for (const bad of ['red', '#12345', '1f2a40']) assert.ok(fieldError(color, bad), bad);
+  const qty = { key: 'minQty', label: 'כמות', kind: 'qty' as const };
+  for (const ok of ['', 1, 250, 1_000_000]) assert.equal(fieldError(qty, ok), null, String(ok));
+  for (const bad of [0, 2.5, 1_000_001, '100', -3]) assert.ok(fieldError(qty, bad), String(bad));
 });
 
 test('the editor names the kit\'s picture only where the storefront shows it (2.62)', () => {

@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenVars } from '../../src/lib/theme-tokens';
+import { darkVars, LIGHT_VARS, tokenVars } from '../../src/lib/theme-tokens';
 import { hiddenOnOf, resolveTheme, themeCss } from '../../src/lib/theme';
 
 const colors = { background: '#FFFFFF', surface: '#ffffff', text: '#111111', muted: '#5c5c5c', primary: '#111111', accent: '#b0413e', accentSoft: '#f6eeee', border: '#e6e6e6' };
@@ -30,4 +30,16 @@ test('hidden on some screens: known ones, in order, once; all three is not this'
   assert.deepEqual(hiddenOnOf(['lg', 'base', 'base', 'tv']), ['base', 'lg']);
   assert.deepEqual(hiddenOnOf(['base', 'md', 'lg']), []);
   assert.deepEqual(hiddenOnOf(null), []);
+});
+
+test('2.101: a dark background gets colours that read on it — the stock, the form errors, the words on the accent; a light one nothing', () => {
+  assert.equal(darkVars(colors), null, 'a light background');
+  const light = themeCss(resolveTheme('kit', { colors }));
+  assert.ok(!/--c-ok|--c-on-accent/.test(light), 'a light site: not one more byte');
+  const dark = { ...colors, background: '#0F0D0B', text: '#f3ecdf', accent: '#d4b06a' };
+  assert.deepEqual(Object.fromEntries(darkVars(dark)!), { '--c-ok': '#7dd3a0', '--c-bad': '#ff9b8f', '--c-bad-soft': 'rgba(255,155,143,.12)', '--c-on-accent': '#14110e' });
+  assert.equal(Object.fromEntries(darkVars({ ...dark, accent: '#2f5d8a' })!)['--c-on-accent'], '#ffffff', 'a dark accent: white words');
+  assert.match(themeCss(resolveTheme('kit', { colors: dark })), /\}:root\{--c-ok:#7dd3a0;--c-bad:#ff9b8f;--c-bad-soft:rgba\(255,155,143,\.12\);--c-on-accent:#14110e\}/);
+  assert.equal(darkVars({ ...dark, accent: 'gold' }), null, 'only checked colours');
+  assert.deepEqual(LIGHT_VARS.map(([k]) => k), ['--c-ok', '--c-bad', '--c-bad-soft', '--c-on-accent'], 'the editor sets the same four back');
 });

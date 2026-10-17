@@ -11,7 +11,7 @@ export const DESIGN_OPTIONS: Record<'spacing' | 'headingScale' | 'buttonStyle' |
   headingScale: { label: 'גודל הכותרות', options: [{ id: 'normal', label: 'רגיל' }, { id: 'large', label: 'גדול' }, { id: 'display', label: 'גדול מאוד' }] },
   buttonStyle: { label: 'צורת הכפתור', options: [{ id: 'solid', label: 'מלאים' }, { id: 'outline', label: 'מסגרת' }, { id: 'soft', label: 'רכים' }, { id: 'underline', label: 'קו תחתון' }] },
   container: { label: 'רוחב העמוד', options: [{ id: 'normal', label: 'רגיל' }, { id: 'narrow', label: 'צר' }, { id: 'wide', label: 'רחב' }] },
-  cardStyle: { label: 'מסגרת לכרטיסים', options: [{ id: 'border', label: 'קו דק' }, { id: 'flat', label: 'בלי מסגרת' }, { id: 'soft', label: 'רקע רך' }, { id: 'shadow', label: 'צל' }] },
+  cardStyle: { label: 'מסגרת לכרטיסים', options: [{ id: 'border', label: 'קו דק' }, { id: 'flat', label: 'בלי מסגרת' }, { id: 'soft', label: 'רקע רך' }, { id: 'shadow', label: 'צל' }, { id: 'float', label: 'מרחפים, תלת-ממד' }] },
 };
 export const CHROME_OPTIONS: Record<'header' | 'footer', { label: string; options: Opt[] }> = {
   header: { label: 'ראש האתר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'centered-logo', label: 'לוגו באמצע' }, { id: 'transparent-overlay', label: 'שקוף מעל התמונה' }, { id: 'minimal', label: 'מינימלי (תפריט נפתח)' }, { id: 'commerce-wide', label: 'חנות — תפריט בשורה נפרדת' }, { id: 'search-heavy', label: 'חיפוש גדול' }, { id: 'compact', label: 'צר' }] },
@@ -23,7 +23,7 @@ export const COMMERCE_OPTIONS: Record<'productCard' | 'collectionCard' | 'produc
   productPage: { label: 'עמוד מוצר', options: [{ id: 'classic', label: 'קלאסי' }, { id: 'gallery-left', label: 'תמונות משמאל' }, { id: 'gallery-right', label: 'תמונות מימין' }, { id: 'wide', label: 'תמונות רחבות למעלה' }, { id: 'compact', label: 'קומפקטי' }] },
 };
 export const SECTION_VARIANT_OPTIONS: Record<string, Opt[]> = {
-  hero: [{ id: 'split', label: 'טקסט ותמונה זה לצד זה' }, { id: 'full-image', label: 'תמונה על כל הרוחב' }, { id: 'editorial', label: 'כותרת גדולה, תמונה רחבה מתחת' }, { id: 'centered', label: 'טקסט באמצע, על התמונה' }, { id: 'slider', label: 'כמה תמונות בגלילה' }],
+  hero: [{ id: 'split', label: 'טקסט ותמונה זה לצד זה' }, { id: 'full-image', label: 'תמונה על כל הרוחב' }, { id: 'editorial', label: 'כותרת גדולה, תמונה רחבה מתחת' }, { id: 'centered', label: 'טקסט באמצע, על התמונה' }, { id: 'slider', label: 'כמה תמונות בגלילה' }, { id: 'float', label: 'תמונה מרחפת, תלת-ממד' }],
   collections: [{ id: 'grid', label: 'ריבועים' }, { id: 'editorial', label: 'תמונות גדולות' }, { id: 'circles', label: 'עיגולים' }, { id: 'carousel', label: 'שורה נגללת' }],
   products: [{ id: 'grid', label: 'רשת' }, { id: 'carousel', label: 'שורה נגללת' }],
   imageText: [{ id: 'split', label: 'חצי-חצי' }, { id: 'full-bleed', label: 'תמונה עד הקצה' }, { id: 'overlap', label: 'טקסט בכרטיס על התמונה' }],
@@ -33,6 +33,8 @@ export const SECTION_VARIANT_OPTIONS: Record<string, Opt[]> = {
   text: [{ id: 'plain', label: 'רגיל' }],
   gallery: [{ id: 'grid', label: 'רשת' }, { id: 'masonry', label: 'גבהים שונים' }, { id: 'editorial', label: 'תמונה גדולה ראשונה' }],
   newsletter: [{ id: 'minimal', label: 'רגיל' }],
+  cards: [{ id: 'tiles', label: 'קטגוריות — תמונה גבוהה עם השם' }, { id: 'features', label: 'תמונה וטקסט' }, { id: 'steps', label: 'שלבים ממוספרים' }, { id: 'banners', label: 'באנרים עם כפתור' }],
+  showcase: [{ id: 'grid', label: 'רשת עם סינון' }],
 };
 
 export type DesignKey = keyof typeof DESIGN_OPTIONS;
