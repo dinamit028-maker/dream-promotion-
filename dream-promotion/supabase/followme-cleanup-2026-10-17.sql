@@ -1,15 +1,13 @@
--- FollowMe — שלב א: ניקוי היומן ו-4 הפריטים (הוכן 17.10.2026, לפי docs/FOLLOWME_STAGE_A_HE.md).
+-- FollowMe — שלב א: ניקוי התוכן ש"לא עלה" ו-4 הפריטים (הוכן 17.10.2026, לפי docs/FOLLOWME_STAGE_A_HE.md).
 -- רץ רק ב-SQL Editor של Supabase, ורק אחרי "מאשר" (יש בו DELETE, ולכן לא דרך ה-MCP). מדביקים הכול ולוחצים Run — פעם אחת.
 -- טרנזקציה אחת: אם משהו לא כמו בדוח — שום דבר לא משתנה, ומופיעה שגיאה שאומרת מה. בסוף — טבלה של לפני / אחרי.
 --
--- מה משתנה — רק ב-FollowMe:
---   1. יומן התוכן: 33 פריטים שתוזמנו ולא עלו (32 בעבר, 1 בעתיד) יוצאים מהיומן — בדיוק כמו "הוצאה מהיומן" באפליקציה:
---      התאריך והשעה נמחקים והסטטוס חוזר לטיוטה. התוכן עצמו (הרילס, הסרטון, הכיתוב) נשאר בספרייה.
---      2 הפריטים שעלו נשארים ביומן כמו שהם.
---   2. תור הפרסום: התזמון היחיד שנכשל ולא עלה (1.10) נמחק. שני התזמונים שעלו (3.10, 8.10) נשארים.
---   3. 4 הפריטים שהוקמו בקטלוג נמחקים (עם 3 הוריאנטים, 2 התמונות והאפשרות שלהם).
--- כל השאר לא משתנה: מדיה, סרטונים, רילסים, טיוטות, הפוסטים לטיקטוק, קבלות, חשבוניות, תשלומים, מכירות, הוצאות,
--- עובדים, משמרות, לידים, קטגוריות, האתר, החיבורים, ההגדרות — ואף עסק אחר.
+-- מה נמחק — רק ב-FollowMe:
+--   1. תוכן שלא עלה: 45 פריטים — 33 שתוזמנו ולא עלו (32 בעבר, 1 בעתיד) ו-12 טיוטות. עם הפריט שנכשל נמחק גם
+--      התזמון שלו בתור הפרסום (1.10). 2 הפריטים שעלו נשארים ביומן כמו שהם, עם שני התזמונים שלהם.
+--   2. 4 הפריטים שהוקמו בקטלוג (עם 3 הוריאנטים, 2 התמונות והאפשרות שלהם).
+-- כל השאר לא משתנה: ספריית המדיה (כל הסרטונים והתמונות), קבלות, חשבוניות, תשלומים, מכירות, הוצאות, עובדים, משמרות,
+-- לידים, קטגוריות, האתר, החיבורים, ההגדרות, יומן עלויות ה-AI — ואף עסק אחר.
 
 begin isolation level repeatable read;
 
@@ -27,12 +25,12 @@ where c.table_schema = 'public' and c.column_name = 'business_id';
 do $$
 declare
   fm constant uuid := 'bdb5d123-5c67-4c3b-a819-d76904429ce9';
-  -- הטבלאות שמשתנות, ומה צריך להיות בהן אחרי
-  changed constant text[] := array['scheduled_posts', 'catalog_items', 'catalog_variants', 'catalog_media', 'catalog_options'];
+  -- הטבלאות שמשתנות. בכל שאר הטבלאות של FollowMe המספר נשאר בדיוק כמו לפני
+  changed constant text[] := array['content', 'scheduled_posts', 'catalog_items', 'catalog_variants', 'catalog_media', 'catalog_options'];
   -- טבלאות שהפקודות כאן נוגעות בהן (גם דרך מפתחות) — בהן בודקים שאף עסק אחר לא השתנה
-  touched constant text[] := changed || array['content', 'catalog_collection_items', 'stock_movements', 'stock_levels',
+  touched constant text[] := changed || array['ai_generations', 'catalog_collection_items', 'stock_movements', 'stock_levels',
     'stock_reservations', 'price_list_items', 'order_lines', 'client_packages'];
-  published_before jsonb; r record; n bigint; m bigint;
+  kept_before jsonb; r record; n bigint; m bigint;
 begin
   if not exists (select 1 from public.businesses where id = fm and name = 'FollowMe') then
     raise exception 'העסק FollowMe לא נמצא. לא השתנה כלום.';
@@ -56,25 +54,23 @@ begin
       raise exception '%: יש % שורות של FollowMe, ובדוח היו %. לא השתנה כלום.', r.tbl, n, r.expected;
     end if;
   end loop;
-  if exists (select 1 from public.content where business_id = fm and status = 'draft' and date is not null) then
-    raise exception 'יש טיוטה עם תאריך ביומן — לא כמו בדוח. לא השתנה כלום.';
+  -- התזמונים שעלו שייכים לפריטים שעלו, ונשארים איתם
+  if exists (select 1 from public.scheduled_posts s left join public.content c on c.id = s.content_id
+              where s.business_id = fm and s.status in ('partial', 'done') and coalesce(c.status, '') <> 'published') then
+    raise exception 'תזמון שעלה שייך לפריט שלא מסומן כפורסם — לא כמו בדוח. לא השתנה כלום.';
   end if;
-  select jsonb_agg(jsonb_build_object('id', id, 'date', date, 'time', time) order by id) into published_before
-    from public.content where business_id = fm and status = 'published';
+  select jsonb_agg(jsonb_build_object('id', c.id, 'date', c.date, 'time', c.time, 'updated', c.updated_at) order by c.id) into kept_before
+    from public.content c where c.business_id = fm and c.status = 'published';
 
-  -- 2) השינוי — רק שורות של FollowMe
-  update public.content set date = null, time = null, status = 'draft'   -- "הוצאה מהיומן", כמו באפליקציה
-   where business_id = fm and status = 'scheduled';
-  delete from public.scheduled_posts where business_id = fm and status = 'failed';
+  -- 2) המחיקה — רק שורות של FollowMe
+  delete from public.content where business_id = fm and status <> 'published';  -- יומן ה-AI נשאר; הקישור שלו לפריט מתאפס
+  delete from public.scheduled_posts where business_id = fm and status = 'failed'; -- בדרך כלל כבר נמחק עם הפריט שלו
   delete from public.catalog_items where business_id = fm;  -- הוריאנטים, התמונות והאפשרויות שלהם נמחקים איתם
 
-  -- 3) אחרי: אין יותר תזמונים שלא עלו; מה שעלה — בדיוק כמו קודם; 47 פריטי התוכן כולם נשארו
-  if exists (select 1 from public.content where business_id = fm and status <> 'published' and (date is not null or status = 'scheduled')) then
-    raise exception 'נשאר ביומן פריט שלא עלה. בוטל — לא השתנה כלום.';
-  end if;
-  if published_before is distinct from (select jsonb_agg(jsonb_build_object('id', id, 'date', date, 'time', time) order by id)
-      from public.content where business_id = fm and status = 'published') then
-    raise exception 'הפריטים שעלו השתנו. בוטל — לא השתנה כלום.';
+  -- 3) אחרי: נשארו בדיוק 2 הפריטים שעלו, כמו שהיו, עם 2 התזמונים שלהם; 0 פריטים בקטלוג; כל השאר כמו לפני
+  if kept_before is distinct from (select jsonb_agg(jsonb_build_object('id', c.id, 'date', c.date, 'time', c.time, 'updated', c.updated_at) order by c.id)
+      from public.content c where c.business_id = fm) then
+    raise exception 'אחרי המחיקה התוכן שנשאר הוא לא בדיוק 2 הפריטים שעלו. בוטל — לא השתנה כלום.';
   end if;
   if (select count(*) from public.scheduled_posts where business_id = fm) <> 2
      or exists (select 1 from public.scheduled_posts where business_id = fm and status not in ('partial', 'done')) then
@@ -97,16 +93,10 @@ end $$;
 
 commit;
 
--- הדוח: לפני / אחרי, לכל טבלה שהיו בה נתונים של FollowMe; ומצב היומן אחרי
+-- הדוח: לפני / אחרי, לכל טבלה שהיו בה נתונים של FollowMe
 select tbl as "טבלה",
   followme_before as "FollowMe לפני", followme_after as "FollowMe אחרי",
   others_before as "עסקים אחרים לפני", others_after as "עסקים אחרים אחרי"
 from fm_report
 where followme_before > 0 or followme_after > 0
-union all
-select 'content — ביומן (עם תאריך)', null, count(*), null, null
-from public.content where business_id = 'bdb5d123-5c67-4c3b-a819-d76904429ce9' and date is not null
-union all
-select 'content — טיוטות בלי תאריך', null, count(*), null, null
-from public.content where business_id = 'bdb5d123-5c67-4c3b-a819-d76904429ce9' and date is null and status = 'draft'
-order by 1;
+order by (followme_before - followme_after) desc, tbl;
