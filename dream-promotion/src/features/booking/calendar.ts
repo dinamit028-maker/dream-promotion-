@@ -17,23 +17,34 @@ export const CALENDAR_COLORS = [
 ] as const;
 export type CalendarColor = (typeof CALENDAR_COLORS)[number]['key'];
 export const isCalendarColor = (c: unknown): c is CalendarColor => CALENDAR_COLORS.some((x) => x.key === c);
+/**
+ * 2.106: the colours of the days — Friday, Saturday and a holiday — are the calendar's own, never a practitioner's (the owner's
+ * decision, 18.10.2026). They stay in the list above (the database's check is the same list); a practitioner picks from the
+ * others, and one who had one of them before is shown in a free colour of her own until another is picked.
+ */
+export const DAY_COLORS = { fri: 'orange', sat: 'blue', chag: 'violet' } as const satisfies Record<string, CalendarColor>;
+const dayColors = new Set<string>(Object.values(DAY_COLORS));
+export const PRACTITIONER_COLORS = CALENDAR_COLORS.filter((c) => !dayColors.has(c.key));
+export const isPractitionerColor = (c: unknown): c is CalendarColor => isCalendarColor(c) && !dayColors.has(c);
 
 /** a person of the team as the calendar knows her (appointment_staff() — never a number) */
 export type CalStaff = { id: string; name: string; color: string; practitioner: boolean; memberUserId: string | null; active: boolean };
 
 /**
- * A practitioner's colour: her own; else one no practitioner has, by her place among those with none (so two never share one
- * while there are enough). 'none': no practitioner — the grey of an appointment waiting for one.
+ * A practitioner's colour: her own (a practitioner's colour — 2.106: never a day's); else one no practitioner has, by her place
+ * among those with none (so two never share one while there are enough). 'none': no practitioner — the grey of an appointment
+ * waiting for one.
  */
 export function staffColor(staff: CalStaff[], id: string | null | undefined): CalendarColor | 'none' {
   if (!id) return 'none';
   const own = staff.find((x) => x.id === id)?.color;
-  if (isCalendarColor(own)) return own;
+  if (isPractitionerColor(own)) return own;
   const pract = staff.filter((x) => x.practitioner || x.id === id);
-  const taken = new Set(pract.map((x) => x.color).filter(isCalendarColor));
-  const free = CALENDAR_COLORS.map((c) => c.key).filter((k) => !taken.has(k));
-  const i = Math.max(0, pract.filter((x) => !isCalendarColor(x.color)).findIndex((x) => x.id === id));
-  const pool = free.length ? free : CALENDAR_COLORS.map((c) => c.key);
+  const taken = new Set(pract.map((x) => x.color).filter(isPractitionerColor));
+  const all = PRACTITIONER_COLORS.map((c) => c.key);
+  const free = all.filter((k) => !taken.has(k));
+  const i = Math.max(0, pract.filter((x) => !isPractitionerColor(x.color)).findIndex((x) => x.id === id));
+  const pool = free.length ? free : all;
   return pool[i % pool.length];
 }
 
@@ -111,6 +122,32 @@ export function shiftDate(view: CalView, date: string, dir: 1 | -1): string {
 
 const noon = (date: string) => israelToIso(date, '12:00');
 export const WEEKDAY_LETTERS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+/** 2.106: Friday and Saturday have a colour each, the same in every view (globals.css .cal-fri / .cal-sat); a date or a weekday */
+export const weekendTone = (day: string | number) => {
+  const w = typeof day === 'number' ? day : weekdayOf(day);
+  return w === 5 ? 'cal-fri' : w === 6 ? 'cal-sat' : '';
+};
+/** a day's colour on the calendar: a holiday's (chag: holidays.ts chagDay — .cal-chag) over Friday's or Saturday's */
+export const dayTone = (date: string, chag = false) => (chag ? 'cal-chag' : weekendTone(date));
+/**
+ * A day the calendar shows closed (striped, "סגור"): Sunday to Thursday, not a holiday, with no hours on its weekday or one of
+ * the business's closed days. Friday, Saturday and the holidays are open for appointments like any day — their colour marks
+ * them (the owner's decision, 18.10.2026); closed to customers is the booking page's business (slots.ts), not the calendar's.
+ */
+export const closedDay = (hours: Hours, closedDates: string[], date: string, chag = false) =>
+  !chag && weekdayOf(date) < 5 && (closedDates.includes(date) || !(hours[String(weekdayOf(date))] ?? []).length);
+/**
+ * The hours a new appointment of the calendar is offered on a day: the day's own; on a Friday, a Saturday or a holiday that has
+ * none — the business's usual day (its earliest opening to its latest closing; with no hours at all, 09:00–19:00). The booking
+ * page keeps its own rules: no hours, no booking.
+ */
+export function calendarHours(hours: Hours, date: string, chag = false): Hours {
+  const w = weekdayOf(date);
+  if ((hours[String(w)] ?? []).length || (!chag && w < 5)) return hours;
+  const all = Object.values(hours).flat();
+  const usual: [string, string] = all.length ? [all.map((r) => r[0]).sort()[0], all.map((r) => r[1]).sort()[all.length - 1]] : ['09:00', '19:00'];
+  return { ...hours, [String(w)]: [usual] };
+}
 /** "אין תורים" / "תור אחד" / "5 תורים" */
 export const apptCount = (n: number) => (n === 0 ? 'אין תורים' : n === 1 ? 'תור אחד' : `${n} תורים`);
 /** "א׳ 18.10" */

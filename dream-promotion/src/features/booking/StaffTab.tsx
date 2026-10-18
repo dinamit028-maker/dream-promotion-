@@ -5,7 +5,7 @@ import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { authHeaders } from '@/lib/services/http';
 import type { RoutingView, StaffView } from '@/features/crm/lead-routing';
-import { CALENDAR_COLORS, staffColor, type CalStaff } from './calendar';
+import { PRACTITIONER_COLORS, staffColor, type CalStaff } from './calendar';
 
 /**
  * "מטפלות" (2.105): who of the team is a column of the calendar, and her colour. The team is the same list the leads go to
@@ -18,7 +18,7 @@ const asCal = (s: StaffView): CalStaff => ({ id: s.id, name: s.name, color: s.co
 function Swatches({ value, onPick, disabled, label }: { value: string; onPick: (c: string) => void; disabled?: boolean; label: string }) {
   return (
     <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={label}>
-      {CALENDAR_COLORS.map((c) => (
+      {PRACTITIONER_COLORS.map((c) => (
         <button key={c.key} type="button" role="radio" aria-checked={value === c.key} aria-label={c.label} title={c.label} disabled={disabled}
           onClick={() => onPick(c.key)}
           className={cx('cal-dot h-7 w-7 rounded-full border-2', `cal-${c.key}`, value === c.key ? 'border-ink' : 'border-transparent', disabled && 'opacity-50')} />
@@ -82,7 +82,7 @@ export function StaffTab({ ready, onChanged }: { ready: boolean; onChanged: () =
       )}
       <Card className="p-4">
         <h3 className="font-bold">המטפלות ביומן</h3>
-        <p className="mb-3 text-sm text-muted">מי שמסומן/ת כאן מופיע/ה ביומן כעמודה, בצבע שלו/ה. זו אותה רשימת צוות שהלידים מגיעים אליה.</p>
+        <p className="mb-3 text-sm text-muted">מי שמסומן/ת כאן מופיע/ה ביומן כעמודה, בצבע שלו/ה. זו אותה רשימת צוות שהלידים מגיעים אליה. כתום, כחול וסגול שמורים ליומן — לשישי, לשבת ולחגים.</p>
         {!team.length && <p className="text-sm text-muted">עוד אין אף אחד ברשימת הצוות.</p>}
         <ul className="grid gap-2">
           {team.map((s) => {

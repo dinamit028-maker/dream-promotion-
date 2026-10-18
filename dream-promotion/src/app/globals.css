@@ -169,4 +169,19 @@ button:disabled { cursor: not-allowed; }
 .cal-appt { background: var(--cal-bg); color: var(--cal-ink); border-inline-start: 4px solid var(--cal-bar); }
 .cal-appt.cal-none { border: 1.5px dashed var(--cal-bar); border-inline-start-width: 4px; }
 .cal-dot { background: var(--cal-bar); }
-.cal-closed { background: repeating-linear-gradient(-45deg, var(--surface-2) 0 6px, transparent 6px 12px); }
+/* 2.106: the days' colours — Friday (orange), Saturday (blue) and a holiday (violet) — are the calendar's own: never a
+   practitioner's (DAY_COLORS, calendar.ts). The same in every view (a day's column and title, the month's cells, the list's day);
+   a closed weekday's stripes go over its cell. The text on them clears 4.5:1, night and light. A holiday's name: holidayTone */
+.cal-fri { background-color: rgba(251,146,60,.14); }
+.cal-sat { background-color: rgba(96,165,250,.16); }
+.cal-chag { background-color: rgba(167,139,250,.18); }
+:root[data-theme='light'] .cal-fri { background-color: #FFEFDD; }
+:root[data-theme='light'] .cal-sat { background-color: #E3EEFF; }
+:root[data-theme='light'] .cal-chag { background-color: #EFE8FF; }
+.cal-closed { background-image: repeating-linear-gradient(-45deg, var(--surface-2) 0 6px, transparent 6px 12px); }
+.cal-hol { color: #C4B0FF; }
+:root[data-theme='light'] .cal-hol { color: #5B2EE0; }
+/* today's date and a month's "+N": the app's colour; on the days' colours at night a lighter one, so it still reads (4.5:1) */
+.cal-accent { color: var(--primary); }
+:root:not([data-theme='light']) :is(.cal-fri, .cal-sat, .cal-chag) .cal-accent,
+:root:not([data-theme='light']) .cal-accent:is(.cal-fri, .cal-sat, .cal-chag) { color: #B59BFF; }
