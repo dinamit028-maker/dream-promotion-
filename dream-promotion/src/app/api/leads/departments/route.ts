@@ -17,7 +17,7 @@ export const maxDuration = 30;
  *  GET ?view=setup    → + the members (who is this person in Dream), WhatsApp's state (the number, the template), the last messages
  *  GET ?view=forms    → the lead forms of the business's Facebook Pages, with their questions and choices
  *  POST { action }    → the owner only: staff.save / staff.remove / department.save / department.remove / default.set / site.set / test
- * The test sends new_lead with test values to that person only and answers with Meta's own answer, or its error in full.
+ * The test sends the team's template with test values to that person only and answers with Meta's own answer, or its error in full.
  */
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const bad = (message: string, code = 'invalid', status = 400) => json({ code, message }, status);
@@ -208,7 +208,7 @@ export async function POST(req: Request) {
   return bad('פעולה לא מוכרת.');
 }
 
-/** "שליחת הודעת בדיקה": new_lead with test values to that person — Meta's answer as it is, or its error in full */
+/** "שליחת הודעת בדיקה": the template with test values to that person — Meta's answer as it is, or its error in full */
 async function testMessage(req: Request, c: LeadsCaller, body: Record<string, any>, staffOf: (id: unknown) => Promise<{ id: string; name: string; phone: string; active: boolean } | null>) {
   const limited = rateLimited(req, 'lead-wa-test', 10, MINUTE);
   if (limited) return limited;

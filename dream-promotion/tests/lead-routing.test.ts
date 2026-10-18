@@ -1,6 +1,6 @@
 /**
  * Lead departments and WhatsApp to the team (2.99).
- * Pure rules (lead-routing.ts): which department, the five values of new_lead (one line, {{4}} at most 900), the team's
+ * Pure rules (lead-routing.ts): which department, the five values of the template (one line, {{4}} at most 900), the team's
  * numbers, Meta's errors, the card's lines. Then the server end to end with an in-memory database, a fake Meta (Graph) and a
  * fake WhatsApp Cloud API: every new lead of a form gets its department and person and one message to that person only —
  * never to a customer, never twice (a second sync, two at once); a failure is tried once more, kept with Meta's whole error,
@@ -11,8 +11,8 @@ import assert from 'node:assert/strict';
 import webpush from 'web-push';
 import { fakeDb } from './fakedb';
 import {
-  DETAILS_MAX, NO_DEPARTMENT, detailsLine, isFresh, leadTemplateParams, noticeLine, norm, oneLine, parseWaError, routeLead,
-  staffPhone, staffPhoneShow, testTemplateParams, waErrorCode, waErrorHint, type LeadFacts, type RoutingDept,
+  DETAILS_MAX, NEW_LEAD_TEMPLATE, NO_DEPARTMENT, detailsLine, isFresh, leadTemplateParams, noticeLine, norm, oneLine, parseWaError, routeLead,
+  staffPhone, staffPhoneShow, templateCategoryWarning, testTemplateParams, waErrorCode, waErrorHint, type LeadFacts, type RoutingDept,
 } from '../src/features/crm/lead-routing';
 
 process.env.TOKEN_ENCRYPTION_KEY = 'test-key-for-lead-routing';
@@ -105,9 +105,19 @@ test('Meta\'s errors: the whole code, and what it means in Hebrew', () => {
   assert.equal(waErrorCode(parseWaError({ error: { code: 100, error_subcode: 33, message: 'x' } }, 400)), '100/33');
   assert.match(waErrorHint('100/33'), /WHATSAPP_PHONE_NUMBER_ID/);
   assert.match(waErrorHint('100/2494010'), /ערך לא תקין/, 'an unknown subcode: its code\'s hint');
-  assert.match(waErrorHint('132001'), /new_lead/);
+  assert.match(waErrorHint('132001'), /lead_assigned/);
   assert.equal(waErrorHint('999999'), '');
   assert.equal(parseWaError(null, 502).code, 'http_502');
+});
+
+test('the template is lead_assigned; a warning on the screen while Meta keeps it as MARKETING ("שיווק")', () => {
+  // 12.10.2026: new_lead, which Meta made MARKETING, was accepted (HTTP 200) and never reached a person who had not written to the number
+  assert.deepEqual(NEW_LEAD_TEMPLATE, { name: 'lead_assigned', language: 'he', params: 5 });
+  assert.match(templateCategoryWarning('MARKETING'), /שיווק/);
+  assert.match(templateCategoryWarning('marketing'), /24 השעות האחרונות/);
+  assert.match(templateCategoryWarning('MARKETING'), /שירות ציבורי/, 'and what it should be');
+  assert.equal(templateCategoryWarning('UTILITY'), '');
+  assert.equal(templateCategoryWarning(''), '');
 });
 
 test('the card\'s line for each message', () => {
@@ -203,7 +213,7 @@ before(async () => {
       const b = JSON.parse(init.body);
       const params = b.template.components[0].parameters.map((x: any) => x.text);
       wa.push({ to: b.to, params, auth: String(init.headers?.Authorization ?? '') });
-      assert.equal(b.template.name, 'new_lead'); assert.deepEqual(b.template.language, { code: 'he' });
+      assert.equal(b.template.name, 'lead_assigned'); assert.deepEqual(b.template.language, { code: 'he' });
       const r = waAnswer(b.to, wa.filter((x) => x.to === b.to).length);
       return new Response(JSON.stringify(r.body), { status: r.status });
     }
@@ -423,9 +433,9 @@ test('the test message: Meta\'s answer, or its error in full; "וואטסאפ ל
   assert.deepEqual([sent.body.ok, sent.body.messageId, sent.body.status, sent.body.response.contacts[0].wa_id], [true, 'wamid.15550100123.1', 'accepted', '15550100123']);
   assert.deepEqual(wa.map((m) => m.to), ['15550100123'], 'to that person only');
   assert.equal(wa[0].params[0], 'מיקרובליידינג', 'with the person\'s department');
-  waAnswer = () => ({ status: 400, body: { error: { message: 'Template name does not exist in the translation', type: 'OAuthException', code: 132001, error_data: { details: 'template name (new_lead) does not exist in he' }, fbtrace_id: 'Z9' } } });
+  waAnswer = () => ({ status: 400, body: { error: { message: 'Template name does not exist in the translation', type: 'OAuthException', code: 132001, error_data: { details: 'template name (lead_assigned) does not exist in he' }, fbtrace_id: 'Z9' } } });
   const failed = await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'test', staffId: 'dana' });
-  assert.deepEqual([failed.body.ok, failed.body.code, failed.body.error.fbtrace, failed.body.error.details], [false, '132001', 'Z9', 'template name (new_lead) does not exist in he']);
+  assert.deepEqual([failed.body.ok, failed.body.code, failed.body.error.fbtrace, failed.body.error.details], [false, '132001', 'Z9', 'template name (lead_assigned) does not exist in he']);
   assert.match(failed.body.hint, /עוד לא אושרה/);
   assert.equal(wa.length, 2, 'a test is never tried again by itself');
   assert.equal((await call(route, 'POST', '/api/leads/departments', 'u-dana', { action: 'test', staffId: 'dana' })).status, 403);
@@ -470,12 +480,12 @@ test('the card: the owner moves a lead and sends it to the new person once; send
   assert.equal(other.status, 404, 'another business\'s contact: not found');
 });
 
-test('new_lead waits for Meta\'s approval (132001): the lead is kept "failed"; after the approval "לשלוח שוב" sends it once — two at once, still once', async () => {
+test('the template waits for Meta\'s approval (132001): the lead is kept "failed"; after the approval "לשלוח שוב" sends it once — two at once, still once', async () => {
   const { syncLeads } = await import('../src/lib/server/meta-leads');
   const route = await import('../src/app/api/leads/assignment/route');
   // what Meta answers for a template that is not approved yet
   waAnswer = () => ({ status: 400, body: { error: { message: '(#132001) Template name does not exist in the translation', type: 'OAuthException', code: 132001,
-    error_data: { messaging_product: 'whatsapp', details: 'template name (new_lead) does not exist in he' }, fbtrace_id: 'Tpl1' } } });
+    error_data: { messaging_product: 'whatsapp', details: 'template name (lead_assigned) does not exist in he' }, fbtrace_id: 'Tpl1' } } });
   meta['/111/leads'].data.push({ id: 'L-T', created_time: ago(0.1), field_data: [field('full_name', 'טל'), field('phone_number', '0521010101')] });
   tables.meta_lead_sync.length = 0;
   const r = await syncLeads({ deadline: Date.now() + 40_000 });
@@ -484,7 +494,7 @@ test('new_lead waits for Meta\'s approval (132001): the lead is kept "failed"; a
   assert.equal(t.assigned_staff_id, 'dana', 'assigned all the same');
   const [n] = notes(t.id);
   assert.deepEqual([n.status, n.attempts, n.error_code, n.error.code, n.error.fbtrace], ['failed', 2, '132001', '132001', 'Tpl1']);
-  assert.equal(n.error.details, 'template name (new_lead) does not exist in he', 'Meta\'s whole error is kept');
+  assert.equal(n.error.details, 'template name (lead_assigned) does not exist in he', 'Meta\'s whole error is kept');
   assert.equal(wa.length, 2, 'the first try and one more — then it waits');
   assert.deepEqual(pushes.map((p) => [p.endpoint, p.body]), [['https://push.test/owner', 'טל · לייזר → דנה · קוד 132001']]);
 
@@ -493,7 +503,7 @@ test('new_lead waits for Meta\'s approval (132001): the lead is kept "failed"; a
   assert.equal(wa.length, 2);
   assert.equal(notes(t.id).length, 1, 'one message for the lead');
 
-  // Meta approves new_lead; the owner presses "לשלוח שוב" on two devices at the same moment — one message goes out
+  // Meta approves the template; the owner presses "לשלוח שוב" on two devices at the same moment — one message goes out
   waAnswer = ok;
   const resend = { action: 'resend', id: n.id };
   const both = await Promise.all([call(route, 'POST', '/api/leads/assignment', 'owner', resend), call(route, 'POST', '/api/leads/assignment', 'owner', resend)]);

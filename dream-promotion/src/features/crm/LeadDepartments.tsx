@@ -6,7 +6,7 @@ import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { cx } from '@/lib/utils';
 import {
-  FRESH_HOURS, NO_DEPARTMENT, WA_NOT_CONNECTED, noticeLine,
+  FRESH_HOURS, NEW_LEAD_TEMPLATE, NO_DEPARTMENT, WA_NOT_CONNECTED, noticeLine, templateCategoryWarning,
   type DeptView, type NoticeView, type RuleKind, type RuleView, type StaffView,
 } from './lead-routing';
 import { keepView, loadForms, loadSetup, postDepartments, useLeadRouting } from './lead-routing-data';
@@ -36,6 +36,7 @@ const KIND_LABEL: Record<RuleKind, string> = { form: 'טופס של Meta', campa
 const TEMPLATE_STATE: Record<string, string> = {
   APPROVED: 'מאושרת ✓', PENDING: 'ממתינה לאישור של Meta', REJECTED: 'נדחתה', PAUSED: 'מושהית', DISABLED: 'מושבתת', IN_APPEAL: 'בערעור',
 };
+const TEMPLATE_CATEGORY: Record<string, string> = { UTILITY: 'שירות ציבורי', MARKETING: 'שיווק', AUTHENTICATION: 'אימות' };
 let ruleSeq = 0;
 const emptyRule = (kind: RuleKind = 'form'): RuleDraft => ({ key: `r${++ruleSeq}`, kind, formId: '', formName: '', campaign: '', question: '', answer: '' });
 const ruleText = (r: RuleView) =>
@@ -367,10 +368,13 @@ function HealthLines({ h }: { h: Health }) {
         ? <p className="text-warn">המספר השולח: לא נבדק — קוד {n.error.code}{n.error.message ? ` (${n.error.message})` : ''}</p>
         : <p>שולח מ: <bdi dir="ltr">{n.display}</bdi>{n.name ? ` · ${n.name}` : ''}</p>)}
       {t && ('error' in t
-        ? <p className="text-warn">התבנית new_lead: לא נבדקה — קוד {t.error.code}</p>
+        ? <p className="text-warn">התבנית {NEW_LEAD_TEMPLATE.name}: לא נבדקה — קוד {t.error.code}</p>
         : 'missing' in t
-          ? <p className="text-warn">התבנית new_lead בעברית לא נמצאה בחשבון.</p>
-          : <p>התבנית new_lead (עברית): {TEMPLATE_STATE[t.status] ?? t.status}{t.status !== 'APPROVED' ? ' — עד שהיא מאושרת, השליחה נכשלת (קוד 132001).' : ''}</p>)}
+          ? <p className="text-warn">התבנית {NEW_LEAD_TEMPLATE.name} בעברית לא נמצאה בחשבון.</p>
+          : <>
+            <p>התבנית {NEW_LEAD_TEMPLATE.name} (עברית{TEMPLATE_CATEGORY[t.category] ? `, ${TEMPLATE_CATEGORY[t.category]}` : ''}): {TEMPLATE_STATE[t.status] ?? t.status}{t.status !== 'APPROVED' ? ' — עד שהיא מאושרת, השליחה נכשלת (קוד 132001).' : ''}</p>
+            {templateCategoryWarning(t.category) && <p role="alert" className="font-semibold text-warn">⚠️ {templateCategoryWarning(t.category)}</p>}
+          </>)}
     </div>
   );
 }
