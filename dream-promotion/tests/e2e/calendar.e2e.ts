@@ -15,7 +15,11 @@
  *   or "רק שלי"; the list as before, with the practitioner;
  *   a member who is not the owner (Gal): sees everyone, moves Karin's appointment — the history says Gal; "מטפלות" read only;
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
- *   same views, no practitioner, no history, and "מטפלות" says what is missing.
+ *   same views, no practitioner, no history, and "מטפלות" says what is missing;
+ *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed by the business — Simchat Torah), the
+ *   month of September (Rosh Hashana, Yom Kippur, the eves, the fast of Gedaliah), a day of Chol HaMoed and a closed holiday on
+ *   the phone, the list (Hanukkah); Friday and Saturday in a colour each in every view; "סגירה בחגים" adds the coming year's
+ *   festival days to the closed days (the ones there stay), saved with the hours, and the month shows them closed.
  * The names of the customers are invented; the practitioners are the business's own (docs/STATUS.md, "4תה").
  *
  * Run: npx -y tsx tests/e2e/calendar.e2e.ts   (starts `next dev` on port 3237; needs the preinstalled Chromium)
@@ -525,6 +529,125 @@ async function main() {
       await shot(w.page, 'cal-9-week-light-desktop.png');
     });
     await w.ctx.close();
+
+    // ------------------------------------------------------------------------ the holidays, Friday and Saturday (2.106) --
+    /** the week of Sukkot (27.9–3.10.2026, three weeks back): appointments on Chol HaMoed; the business closes Hoshana Raba; one at Hanukkah */
+    const SUKKOT: Appt[] = [
+      [-21, KARIN, '10:00', 'micro', 'דנה ל.', 'done'], [-21, GAL, '12:00', 'face', 'רוני ש.', 'done'], [-20, SAGIT, '11:00', 'firm', 'גלית ד.', 'done'],
+      [-19, GAL, '09:30', 'body', 'ליאת ג.', 'done'], [-18, KARIN, '13:00', 'micro', 'שירה מ.', 'done'], [-17, SAGIT, '10:00', 'carbon', 'מאיה פ.', 'done'],
+      [49, KARIN, '10:00', 'micro', 'נגה ת.'],
+    ];
+    const holidayTables = seed(TEAM(), [...WEEK, ...SUKKOT]);
+    const settingsOf = (fake: FakeSupabase) => (fake.tables.booking_settings as Row[])[0];
+    (holidayTables.booking_settings as Row[])[0].closed_dates = ['2026-10-02'];
+    /** the colour of each title of the week (or the day's practitioners) and of each column — Friday, Saturday, closed */
+    const tones = (p: any): Promise<string[]> => p.evaluate(`Array.from(document.querySelectorAll('main .flex.border-b > div.flex-1')).map(function (e) { return (e.className.match(/cal-(fri|sat)/) || [''])[0]; })`);
+    const cols = (p: any): Promise<string[]> => p.evaluate(`Array.from(document.querySelectorAll('main div.cursor-copy')).map(function (e) { return (e.className.match(/cal-(fri|sat|closed)/g) || []).join(' '); })`);
+    const looks = async (l: any) => String(await l.getAttribute('class'));
+    const hw = await open(DESK, holidayTables, owner);
+    current = hw.page;
+    await step('the holidays on the computer: Friday and Saturday in their colours; the week of Sukkot (Hoshana Raba closed); September', async () => {
+      await goto(hw.page, '/appointments');
+      await hw.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor({ timeout: 120_000 });
+      await block(hw.page, /^18:00–18:45 רינת ס\./).waitFor();
+      // a week with no holiday: no line for one — the titles as before; Friday and Saturday in their colours, Saturday closed
+      await expectHeads(hw.page, ['א׳ 18.10 15 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 סגור']);
+      assert.deepEqual(await tones(hw.page), ['', '', '', '', '', 'cal-fri', 'cal-sat']);
+      assert.deepEqual(await cols(hw.page), ['', '', '', '', '', 'cal-fri', 'cal-sat cal-closed']);
+      for (let i = 0; i < 3; i++) await hw.page.getByRole('button', { name: 'הקודם' }).click();
+      await hw.page.getByText('27 בספטמבר – 3 באוקטובר 2026').waitFor();
+      await expectHeads(hw.page, ['א׳ 27.9 חול המועד סוכות 2 תורים', 'ב׳ 28.9 חול המועד סוכות תור אחד', 'ג׳ 29.9 חול המועד סוכות תור אחד',
+        'ד׳ 30.9 חול המועד סוכות תור אחד', 'ה׳ 1.10 חול המועד סוכות תור אחד', 'ו׳ 2.10 הושענא רבה סגור', 'ש׳ 3.10 שמחת תורה סגור']);
+      assert.deepEqual(await cols(hw.page), ['', '', '', '', '', 'cal-fri cal-closed', 'cal-sat cal-closed'], 'Hoshana Raba: one of the business\'s closed days');
+      assert.match(await looks(hw.page.getByText('שמחת תורה', { exact: true })), /\bcal-hol\b/, 'a festival stands out');
+      await block(hw.page, /^10:00–11:00 דנה ל\./).waitFor();
+      await shot(hw.page, 'cal-10-sukkot-week-desktop.png', false);
+      // the month of September: the holidays in their days, a day picked says its holiday
+      await hw.page.getByRole('tab', { name: 'חודש' }).click();
+      await hw.page.getByText('ספטמבר 2026').waitFor();
+      for (const [day, name] of [['יום שישי, 11 בספטמבר', 'ערב ראש השנה'], ['יום שבת, 12 בספטמבר', 'ראש השנה'], ['יום ראשון, 13 בספטמבר', 'ראש השנה'],
+        ['יום שני, 14 בספטמבר', 'צום גדליה'], ['יום ראשון, 20 בספטמבר', 'ערב יום כיפור'], ['יום שני, 21 בספטמבר', 'יום כיפור'], ['יום שישי, 25 בספטמבר', 'ערב סוכות'],
+        ['יום שבת, 26 בספטמבר', 'סוכות'], ['יום ראשון, 27 בספטמבר', 'חול המועד סוכות'], ['יום שבת, 3 באוקטובר', 'שמחת תורה']]) {
+        assert.equal(await hw.page.getByRole('button', { name: new RegExp(`^${day} · ${name}: `) }).count(), 1, `${day} · ${name}`);
+      }
+      assert.equal(await hw.page.getByRole('button', { name: /^יום רביעי, 16 בספטמבר: אין תורים$/ }).count(), 1, 'a day with none: as before');
+      const letters: string[] = await hw.page.evaluate(`Array.from(document.querySelectorAll('main .grid-cols-7.border-b > span')).map(function (e) { return (e.className.match(/cal-(fri|sat)/) || [''])[0]; })`);
+      assert.deepEqual(letters, ['', '', '', '', '', 'cal-fri', 'cal-sat'], 'the letters of Friday and Saturday');
+      assert.match(await looks(hw.page.getByRole('button', { name: /^יום שישי, 18 בספטמבר: / })), /\bcal-fri\b/);
+      assert.match(await looks(hw.page.getByRole('button', { name: /^יום שבת, 19 בספטמבר: / })), /\bcal-sat\b/);
+      await hw.page.getByRole('button', { name: /^יום שבת, 12 בספטמבר · ראש השנה: / }).click();
+      await hw.page.getByText('יום שבת, 12 בספטמבר · ראש השנה · אין תורים').waitFor();
+      await shot(hw.page, 'cal-11-september-month-desktop.png', false);
+      // the list: Friday's day in its colour, Hanukkah by its day
+      await hw.page.getByRole('tab', { name: 'רשימה' }).click();
+      await hw.page.locator('main h3', { hasText: 'יום ראשון, 6 בדצמבר · חנוכה' }).waitFor();
+      assert.match(await looks(hw.page.locator('main h3', { hasText: 'יום שישי, 23 באוקטובר' })), /\bcal-fri\b/);
+      assert.doesNotMatch(await looks(hw.page.locator('main h3', { hasText: 'יום חמישי, 22 באוקטובר' })), /\bcal-(fri|sat)\b/);
+      // the light look: the same colours, readable on white
+      await hw.page.evaluate("localStorage.setItem('dp-theme', 'light')");
+      await goto(hw.page, '/appointments');
+      await hw.page.getByRole('tab', { name: 'שבוע' }).click({ timeout: 120_000 });
+      await block(hw.page, /^18:00–18:45 רינת ס\./).waitFor();
+      for (let i = 0; i < 3; i++) await hw.page.getByRole('button', { name: 'הקודם' }).click();
+      await block(hw.page, /^10:00–11:00 דנה ל\./).waitFor();
+      await shot(hw.page, 'cal-12-sukkot-week-light-desktop.png', false);
+      await hw.page.evaluate("localStorage.setItem('dp-theme', 'dark')");
+    });
+    await hw.ctx.close();
+
+    const hp = await open(PHONE, holidayTables, owner);
+    current = hp.page;
+    await step('the holidays on the phone: September; a day of Chol HaMoed; Hoshana Raba closed; "סגירה בחגים" in the opening hours', async () => {
+      await goto(hp.page, '/appointments');
+      await block(hp.page, /^18:00–18:45 רינת ס\./).waitFor({ timeout: 120_000 });
+      await hp.page.getByRole('tab', { name: 'חודש' }).click();
+      await hp.page.getByText('אוקטובר 2026').waitFor();
+      await hp.page.getByRole('button', { name: 'הקודם' }).click();
+      await hp.page.getByText('ספטמבר 2026').waitFor();
+      await fits(hp.page, 'the month with its holidays');
+      await screen(hp.page, 'cal-13-september-month-phone.png', '[role=tablist]');
+      await hp.page.getByRole('button', { name: /^יום שני, 28 בספטמבר · חול המועד סוכות: תור אחד$/ }).click();
+      await hp.page.getByText('יום שני, 28 בספטמבר · חול המועד סוכות · תור אחד').waitFor();
+      await hp.page.getByRole('tab', { name: 'יום' }).click();
+      await hp.page.locator('main p', { hasText: /^חול המועד סוכות$/ }).waitFor();
+      await expectHeads(hp.page, ['שגית תור אחד', 'קרין אין תורים', 'גל אין תורים']);
+      assert.deepEqual(await cols(hp.page), ['', '', ''], 'a Monday: no colour, open');
+      await fits(hp.page, 'a day of Chol HaMoed');
+      await screen(hp.page, 'cal-14-chol-hamoed-day-phone.png', '[role=tablist]');
+      for (let i = 0; i < 4; i++) await hp.page.getByRole('button', { name: 'הבא' }).click();
+      await hp.page.getByText('יום שישי, 2 באוקטובר', { exact: true }).waitFor();
+      await hp.page.locator('main p', { hasText: /^הושענא רבה · סגור$/ }).waitFor();
+      assert.equal(await hp.page.locator('main .flex.border-b.cal-fri').count(), 1, 'Friday: the practitioners\' titles in its colour');
+      assert.deepEqual(await cols(hp.page), ['cal-closed', 'cal-closed', 'cal-closed'], 'closed: striped (over Friday\'s colour)');
+      assert.equal(await hp.page.locator('main div.relative.flex.cal-fri').count(), 1);
+      // the opening hours: "סגירה בחגים" — the coming year's festival days join the closed days; saved only with "שמירת שעות"
+      await hp.page.getByRole('button', { name: 'שעות פעילות', exact: true }).click();
+      const chips = (): Promise<string[]> => hp.page.evaluate(`Array.from(document.querySelectorAll('main button[aria-label$="— הסרה"]')).map(function (e) { return e.getAttribute('aria-label'); })`);
+      await hp.page.getByRole('button', { name: '2.10.2026 הושענא רבה — הסרה' }).waitFor();
+      await hp.page.getByRole('button', { name: 'סגירה בחגים', exact: true }).click();
+      await hp.page.getByText('נוספו 7 ימי חג — כדי שיישמרו, לחצו "שמירת שעות".').waitFor();
+      assert.deepEqual(await chips(), ['2.10.2026 הושענא רבה — הסרה', '22.4.2027 פסח — הסרה', '28.4.2027 שביעי של פסח — הסרה', '11.6.2027 שבועות — הסרה',
+        '2.10.2027 ראש השנה — הסרה', '3.10.2027 ראש השנה — הסרה', '11.10.2027 יום כיפור — הסרה', '16.10.2027 סוכות — הסרה']);
+      assert.deepEqual(settingsOf(hp.fake).closed_dates, ['2026-10-02'], 'nothing saved before "שמירת שעות"');
+      await fits(hp.page, 'the opening hours');
+      await hp.page.evaluate(`(() => { const e = Array.from(document.querySelectorAll('main label')).find(function (l) { return l.textContent.trim() === 'ימים סגורים (חג, חופשה)'; }); if (e) window.scrollTo(0, e.getBoundingClientRect().top + window.scrollY - 160); })()`);
+      await shot(hp.page, 'cal-15-close-holidays-phone.png', false);
+      await hp.page.getByRole('button', { name: 'שמירת שעות' }).click();
+      await hp.page.getByText('✓ נשמר').waitFor();
+      assert.deepEqual(settingsOf(hp.fake).closed_dates, ['2026-10-02', '2027-04-22', '2027-04-28', '2027-06-11', '2027-10-02', '2027-10-03', '2027-10-11', '2027-10-16']);
+      await hp.page.getByRole('button', { name: 'סגירה בחגים', exact: true }).click();
+      await hp.page.getByText('כל ימי החג של השנה הקרובה כבר בימים הסגורים.').waitFor();
+      // the calendar shows them closed: Pesach striped, its eve open
+      await hp.page.getByRole('button', { name: 'יומן תורים', exact: true }).click();
+      await hp.page.getByRole('tab', { name: 'חודש' }).click();
+      await hp.page.getByText('אוקטובר 2026').waitFor();
+      for (let i = 0; i < 6; i++) await hp.page.getByRole('button', { name: 'הבא' }).click();
+      await hp.page.getByText('אפריל 2027').waitFor();
+      assert.match(await looks(hp.page.getByRole('button', { name: /^יום חמישי, 22 באפריל · פסח: אין תורים$/ })), /\bcal-closed\b/);
+      assert.doesNotMatch(await looks(hp.page.getByRole('button', { name: /^יום רביעי, 21 באפריל · ערב פסח: אין תורים$/ })), /\bcal-closed\b/);
+      await hp.page.getByRole('tab', { name: 'יום' }).click();
+    });
+    await hp.ctx.close();
 
     // ---------------------------------------------------------------------------------- Gal: not the owner, sees everyone --
     const g = await open(PHONE, tables, gal);

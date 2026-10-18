@@ -111,6 +111,13 @@ export function shiftDate(view: CalView, date: string, dir: 1 | -1): string {
 
 const noon = (date: string) => israelToIso(date, '12:00');
 export const WEEKDAY_LETTERS = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+/** 2.106: Friday and Saturday have a colour each, the same in every view (globals.css .cal-fri / .cal-sat); a date or a weekday */
+export const weekendTone = (day: string | number) => {
+  const w = typeof day === 'number' ? day : weekdayOf(day);
+  return w === 5 ? 'cal-fri' : w === 6 ? 'cal-sat' : '';
+};
+/** a day the business does not work: no hours on its weekday, or one of its closed days (a holiday, a vacation) */
+export const closedDay = (hours: Hours, closedDates: string[], date: string) => closedDates.includes(date) || !(hours[String(weekdayOf(date))] ?? []).length;
 /** "אין תורים" / "תור אחד" / "5 תורים" */
 export const apptCount = (n: number) => (n === 0 ? 'אין תורים' : n === 1 ? 'תור אחד' : `${n} תורים`);
 /** "א׳ 18.10" */

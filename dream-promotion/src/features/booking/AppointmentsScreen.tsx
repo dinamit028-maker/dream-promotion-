@@ -19,8 +19,9 @@ import { ils } from '@/features/register/money';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { atLocation, locationTag } from '@/features/locations/locations';
 import { useLocations } from '@/features/locations/store';
-import { CAL_VIEWS, addDays, apptCount, dayOf, minuteOfDay, practitioners, shiftDate, staffColor, viewRange, viewTitle, type CalStaff, type CalView } from './calendar';
-import { DayView, MonthView, WeekView } from './CalendarViews';
+import { CAL_VIEWS, addDays, apptCount, dayOf, minuteOfDay, practitioners, shiftDate, staffColor, viewRange, viewTitle, weekendTone, type CalStaff, type CalView } from './calendar';
+import { DayView, HolidayLine, MonthView, WeekView } from './CalendarViews';
+import { festivalDays, holidaysIn, type Holiday } from './holidays';
 import { AppointmentSheet } from './AppointmentSheet';
 import { StaffTab } from './StaffTab';
 
@@ -41,6 +42,8 @@ const hm = (iso: string) => israelParts(new Date(iso)).time;
  * 2.105 (migration 5700): a calendar like Outlook's — a day (a column for each practitioner), a week, a month and the list; a
  * practitioner and her colour for every appointment ("מטפלות"), anyone of the business moves any appointment, and every change
  * is in its history. Before the migration: the same views, every appointment without a practitioner.
+ * 2.106: the holidays of Israel in every view, Friday and Saturday in a colour each, and "סגירה בחגים" in the opening hours —
+ * the coming year's festival days added to the closed days (only when pressed, and saved with the hours).
  */
 export function AppointmentsScreen() {
   const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
@@ -147,6 +150,9 @@ export function AppointmentsScreen() {
   const byDay = active.reduce<Record<string, Appointment[]>>((acc, a) => { const d = israelParts(new Date(a.start)).date; (acc[d] ||= []).push(a); return acc; }, {});
   const todayIL = israelParts(now).date;
   const first = loading && !loaded;
+  // the list's days (2.106): their holidays, read once for all of them
+  const listDays = Object.keys(byDay).sort();
+  const listHolidays = view === 'list' && listDays.length ? holidaysIn(listDays[0], listDays[listDays.length - 1]) : new Map<string, Holiday[]>();
   const pageUrl = settings.slug && typeof window !== 'undefined' ? `${window.location.origin}/book/${settings.slug}` : '';
   // the calendar (2.105): its columns, whose appointments are shown, "רק שלי" (a practitioner linked to this account)
   const pract = practitioners(staff);
@@ -277,11 +283,11 @@ export function AppointmentsScreen() {
                 {mine.length > 0 && <Chip on={filter === 'mine'} onClick={() => setFilter('mine')} className="shrink-0 whitespace-nowrap">רק שלי</Chip>}
               </div>
             )}
-            {view === 'day' && <DayView date={date} columns={shownStaff} appts={shownAppts} staff={staff} hours={settings.hours} today={todayIL}
+            {view === 'day' && <DayView date={date} columns={shownStaff} appts={shownAppts} staff={staff} hours={settings.hours} closedDates={settings.closedDates} today={todayIL}
               nowMinute={minuteOfDay(new Date(now).toISOString())} onOpen={(a) => setOpenId(a.id)} onSlot={book} />}
-            {view === 'week' && <WeekView date={date} appts={shownAppts} staff={staff} hours={settings.hours} today={todayIL}
+            {view === 'week' && <WeekView date={date} appts={shownAppts} staff={staff} hours={settings.hours} closedDates={settings.closedDates} today={todayIL}
               nowMinute={minuteOfDay(new Date(now).toISOString())} onOpen={(a) => setOpenId(a.id)} onSlot={book} />}
-            {view === 'month' && <MonthView date={date} onPick={setDate} appts={shownAppts} staff={staff} hours={settings.hours} today={todayIL}
+            {view === 'month' && <MonthView date={date} onPick={setDate} appts={shownAppts} staff={staff} hours={settings.hours} closedDates={settings.closedDates} today={todayIL}
               nowMinute={minuteOfDay(new Date(now).toISOString())} onOpen={(a) => setOpenId(a.id)} onSlot={book} />}
             {view === 'list' && <>
               {!settings.enabled && (
@@ -296,8 +302,9 @@ export function AppointmentsScreen() {
               <div className="grid gap-5">
                 {Object.entries(byDay).map(([d, list]) => (
                   <section key={d}>
-                    <h3 className={cx('mb-2 text-sm font-bold', d === todayIL ? 'text-primary' : 'text-ink-2')}>
+                    <h3 className={cx('mb-2 rounded-lg px-2 py-1 text-sm font-bold', weekendTone(d), d === todayIL ? 'cal-today' : 'text-ink-2')}>
                       {d === todayIL ? 'היום · ' : ''}{formatIL(israelToIso(d, '12:00'), { weekday: 'long', day: 'numeric', month: 'long' })}
+                      {listHolidays.has(d) && <> · <HolidayLine list={listHolidays.get(d)!} inline /></>}
                     </h3>
                     <div className="grid grid-cols-1 gap-2">
                       {list.filter((a) => filter === 'all' || shownAppts.includes(a)).map((a) => (
@@ -465,8 +472,20 @@ function ServicesTab({ userId, services, onChange, onError }: { userId: string; 
   );
 }
 
+/** "22.4.2027" */
+const dateLabel = (d: string) => `${Number(d.slice(8, 10))}.${Number(d.slice(5, 7))}.${d.slice(0, 4)}`;
+
 function HoursTab({ settings, onChange, onSave }: { settings: BookingSettings; onChange: (s: BookingSettings) => void; onSave: () => void }) {
   const [closed, setClosed] = useState('');
+  // 2.106: "סגירה בחגים" — the festival days of the coming year (holidays.ts) added to the closed days; the ones there stay
+  const [holidayNote, setHolidayNote] = useState<string | null>(null);
+  const closeHolidays = () => {
+    const today = israelParts(Date.now()).date;
+    const added = festivalDays(today, addDays(today, 365)).filter((d) => !settings.closedDates.includes(d));
+    if (added.length) onChange({ ...settings, closedDates: [...settings.closedDates, ...added].sort() });
+    setHolidayNote(added.length ? `נוספו ${added.length === 1 ? 'יום חג אחד' : `${added.length} ימי חג`} — כדי שיישמרו, לחצו "שמירת שעות".` : 'כל ימי החג של השנה הקרובה כבר בימים הסגורים.');
+  };
+  const holidayOf = (d: string) => (holidaysIn(d, d).get(d) ?? []).map((h) => h.name).join(' · ');
   const setDay = (d: number, ranges: [string, string][]) => {
     const hours: Hours = { ...settings.hours };
     if (ranges.length) hours[String(d)] = ranges; else delete hours[String(d)];
@@ -517,8 +536,16 @@ function HoursTab({ settings, onChange, onSave }: { settings: BookingSettings; o
         <div className="flex flex-wrap items-center gap-2">
           <Input type="date" value={closed} onChange={(e) => setClosed(e.target.value)} className="h-9 w-auto py-1" />
           <Button size="sm" variant="ghost" onClick={() => { if (closed && !settings.closedDates.includes(closed)) onChange({ ...settings, closedDates: [...settings.closedDates, closed].sort() }); setClosed(''); }}>הוספה</Button>
-          {settings.closedDates.map((d) => <Chip key={d} on onClick={() => onChange({ ...settings, closedDates: settings.closedDates.filter((x) => x !== d) })}>{d} ✕</Chip>)}
+          <Button size="sm" variant="ghost" onClick={closeHolidays}>סגירה בחגים</Button>
+          {settings.closedDates.map((d) => (
+            <Chip key={d} on onClick={() => onChange({ ...settings, closedDates: settings.closedDates.filter((x) => x !== d) })}
+              aria-label={`${dateLabel(d)}${holidayOf(d) ? ` ${holidayOf(d)}` : ''} — הסרה`}>
+              <span dir="ltr">{dateLabel(d)}</span>{holidayOf(d) ? ` · ${holidayOf(d)}` : ''} ✕
+            </Chip>
+          ))}
         </div>
+        <p className="mt-2 text-xs text-muted">"סגירה בחגים" מוסיף את ימי החג של השנה הקרובה: ראש השנה, יום כיפור, סוכות, שמחת תורה, פסח, שביעי של פסח ושבועות. בימים הסגורים אי אפשר לקבוע תור בדף ההזמנה. לחיצה על יום מורידה אותו.</p>
+        {holidayNote && <p className="mt-1 text-sm font-semibold text-primary" role="status">{holidayNote}</p>}
       </Field>
       <Button variant="primary" onClick={onSave}>שמירת שעות</Button>
     </Card>

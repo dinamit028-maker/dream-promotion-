@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  CALENDAR_COLORS, addDays, apptColor, apptCount, dayOf, eventLine, eventWhen, eventWho, hourSpan, minuteOfDay, monthCells, place, placeLanes, practitioners,
-  shiftDate, shortDay, staffColor, viewDays, viewRange, viewTitle, weekStart, type CalStaff,
+  CALENDAR_COLORS, addDays, apptColor, apptCount, closedDay, dayOf, eventLine, eventWhen, eventWho, hourSpan, minuteOfDay, monthCells, place, placeLanes,
+  practitioners, shiftDate, shortDay, staffColor, viewDays, viewRange, viewTitle, weekStart, weekendTone, type CalStaff,
 } from '../src/features/booking/calendar';
 
 test('the colours: the same list as the database\'s check (migration 5700)', () => {
@@ -133,4 +133,14 @@ test('the history: each line about the appointment — the same whoever did it',
   assert.equal(eventWho({ actorName: '', kind: 'created', after: { source: 'public' } }), 'דף ההזמנות');
   assert.equal(eventWho({ actorName: '', kind: 'status', after: {} }), 'המערכת');
   assert.equal(eventWhen('2026-10-18T05:52:00Z'), '18.10, 08:52');
+});
+
+test('2.106: Friday and Saturday a colour each (a date or a weekday); a closed day — no hours on its weekday, or one of the closed days', () => {
+  assert.deepEqual(['2026-10-18', '2026-10-22', '2026-10-23', '2026-10-24'].map(weekendTone), ['', '', 'cal-fri', 'cal-sat']);
+  assert.deepEqual([0, 4, 5, 6].map(weekendTone), ['', '', 'cal-fri', 'cal-sat']);
+  const hours = { 0: [['09:00', '17:00']], 5: [['09:00', '13:00']] } as Record<string, [string, string][]>;
+  assert.equal(closedDay(hours, [], '2026-10-18'), false, 'a Sunday with hours');
+  assert.equal(closedDay(hours, [], '2026-10-24'), true, 'a Saturday with none');
+  assert.equal(closedDay(hours, ['2026-10-23'], '2026-10-23'), true, 'a Friday with hours, closed that day');
+  assert.equal(closedDay(hours, ['2026-10-23'], '2026-10-30'), false, 'the next Friday is open');
 });
