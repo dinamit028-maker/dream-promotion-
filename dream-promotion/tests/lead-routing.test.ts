@@ -92,6 +92,9 @@ test('the team\'s numbers: international digits, as Meta wants them', () => {
   assert.equal(staffPhone('123'), null);
   assert.equal(staffPhoneShow('972501234567'), '050-1234567');
   assert.equal(staffPhoneShow('15550100123'), '+15550100123');
+  // 2.105: a practitioner of the calendar may have no number
+  assert.equal(staffPhoneShow(null), '');
+  assert.equal(staffPhoneShow(''), '');
 });
 
 test('Meta\'s errors: the whole code, and what it means in Hebrew', () => {
@@ -128,6 +131,9 @@ test('the card\'s line for each message', () => {
   assert.match(failed.hint, /API Setup/);
   assert.equal(noticeLine({ ...base, status: 'skipped', reason: 'not_connected' }).text, '⏸️ לא נשלח לדנה — וואטסאפ לא מחובר');
   assert.equal(noticeLine({ ...base, status: 'skipped', reason: 'staff_removed' }).resend, false);
+  // 2.105: a person with no WhatsApp number — not sent, and sent once a number is added
+  const noPhone = noticeLine({ ...base, status: 'skipped', reason: 'no_phone' });
+  assert.deepEqual([noPhone.text, noPhone.resend], ['⏸️ לא נשלח לדנה — אין מספר וואטסאפ ברשימת הצוות', true]);
   const now = Date.parse('2026-10-12T12:00:00Z');
   assert.match(noticeLine({ ...base, status: 'sending', claimedAt: '2026-10-12T11:59:00Z' }, now).text, /נשלח עכשיו/);
   const stale = noticeLine({ ...base, status: 'sending', claimedAt: '2026-10-12T11:00:00Z' }, now);
@@ -188,7 +194,7 @@ const unique = (t: string, r: any, all: any[]) => {
     return { code: '23505', message: 'duplicate key value violates unique constraint "leads_external_uq"' };
   if (t === 'lead_notifications' && all.some((x) => x.business_id === r.business_id && x.dedupe_key === r.dedupe_key))
     return { code: '23505', message: 'duplicate key value violates unique constraint "lead_notifications_once"' };
-  if (t === 'lead_staff' && r.active !== false && all.some((x) => x.business_id === r.business_id && (x.active ?? true) && x.phone === r.phone))
+  if (t === 'lead_staff' && r.active !== false && r.phone && all.some((x) => x.business_id === r.business_id && (x.active ?? true) && x.phone === r.phone))
     return { code: '23505', message: 'duplicate key value violates unique constraint "lead_staff_phone_uq"' };
   return null;
 };
@@ -518,4 +524,45 @@ test('the template waits for Meta\'s approval (132001): the lead is kept "failed
   tables.meta_lead_sync.length = 0;
   await syncLeads({ deadline: Date.now() + 40_000 });
   assert.equal(wa.length, 3);
+});
+
+test('2.105: a practitioner of the calendar on the team — her colour, and no WhatsApp number: assigned, never sent', async () => {
+  const route = await import('../src/app/api/leads/departments/route');
+  const karin = await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'staff.save', name: 'קרין בן ניזרי', phone: '', practitioner: true, color: 'pink' });
+  assert.equal(karin.status, 200);
+  const k = tables.lead_staff.find((s) => s.name === 'קרין בן ניזרי');
+  assert.deepEqual([k.phone, k.practitioner, k.color, k.business_id], [null, true, 'pink', BIZ], 'no number: a person who gets no messages');
+  // a second one with no number is not "the same number"
+  assert.equal((await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'staff.save', name: 'גל שחר', practitioner: true, color: 'turquoise' })).status, 200);
+  // a person of the team becomes a practitioner, with a colour — her name and number untouched
+  const dana = tables.lead_staff.find((s) => s.id === 'dana');
+  const set = await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'staff.calendar', id: 'dana', practitioner: true, color: 'yellow' });
+  assert.equal(set.status, 200);
+  assert.deepEqual([dana.practitioner, dana.color, dana.phone, dana.name], [true, 'yellow', '972501111111', 'דנה']);
+  assert.equal((await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'staff.calendar', id: 'dana', color: 'purple' })).status, 400, 'a colour from the list only');
+  assert.equal((await call(route, 'POST', '/api/leads/departments', 'u-dana', { action: 'staff.calendar', id: 'dana', color: 'pink' })).status, 403, 'the owner only');
+  // a member sees who is a practitioner and her colour — never a number
+  const seen = await call(route, 'GET', '/api/leads/departments', 'u-dana');
+  const kv = seen.body.staff.find((s: any) => s.id === k.id);
+  assert.deepEqual([kv.practitioner, kv.color, kv.phone], [true, 'pink', undefined]);
+  assert.equal((await call(route, 'GET', '/api/leads/departments', 'owner')).body.staff.find((s: any) => s.id === k.id).phoneShown, '', 'the owner: no number to show');
+  // the test message: there is no number to send it to
+  const test1 = await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'test', staffId: k.id });
+  assert.deepEqual([test1.status, test1.body.code], [409, 'no_phone']);
+  assert.equal(wa.length, 0);
+
+  // a lead moved to her: assigned, and the line says no message went (sent once a number is added)
+  const assignment = await import('../src/app/api/leads/assignment/route');
+  tables.leads.push({ id: 'lead-k', business_id: BIZ, name: 'מירב', phone: '0500000001', notes: '', department_id: null, assigned_staff_id: null, routed_at: null });
+  const moved = await call(assignment, 'POST', '/api/leads/assignment', 'owner', { action: 'assign', leadId: 'lead-k', staffId: k.id, send: true });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.sent.status, 'skipped');
+  assert.match(moved.body.sent.message, /אין מספר וואטסאפ ברשימת הצוות — הליד הועבר בלי הודעה/);
+  assert.deepEqual(notes('lead-k').map((n) => [n.status, n.reason, n.to_phone]), [['skipped', 'no_phone', '']]);
+  assert.equal(tables.leads.find((l) => l.id === 'lead-k').assigned_staff_id, k.id);
+  assert.equal(wa.length, 0, 'nothing went to WhatsApp');
+  // "לשלוח שוב" with no number yet: still skipped, not sent
+  const again = await call(assignment, 'POST', '/api/leads/assignment', 'owner', { action: 'resend', id: notes('lead-k')[0].id });
+  assert.equal(again.body.sent?.status ?? again.body.code, 'skipped');
+  assert.equal(wa.length, 0);
 });

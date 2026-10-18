@@ -28,7 +28,8 @@ export async function leadsCaller(req: Request, write: boolean): Promise<LeadsCa
 export async function routingView(c: LeadsCaller): Promise<RoutingView | null> {
   const db = adminDb();
   const [staff, depts, rules, setting, site] = await Promise.all([
-    db.from('lead_staff').select('id, name, phone, active, member_user_id, created_at').eq('business_id', c.biz).order('created_at', { ascending: true }),
+    // '*': 2.105's practitioner and color come with migration 20261018005700 — before it, the same as before
+    db.from('lead_staff').select('*').eq('business_id', c.biz).order('created_at', { ascending: true }),
     db.from('lead_departments').select('id, name, staff_id, position, active').eq('business_id', c.biz).order('position', { ascending: true }),
     c.owner ? db.from('lead_department_rules').select('department_id, kind, form_id, form_name, campaign, question, answer, created_at').eq('business_id', c.biz).order('created_at', { ascending: true })
       : Promise.resolve({ data: [], error: null }),
@@ -43,13 +44,15 @@ export async function routingView(c: LeadsCaller): Promise<RoutingView | null> {
     list.push({ kind: r.kind, formId: r.form_id ?? '', formName: r.form_name ?? '', campaign: r.campaign ?? '', question: r.question ?? '', answer: r.answer ?? '' });
     byDept.set(r.department_id, list);
   }
-  const team = (staff.data ?? []) as { id: string; name: string; phone: string; active: boolean; member_user_id: string | null }[];
+  const team = (staff.data ?? []) as { id: string; name: string; phone: string | null; active: boolean; member_user_id: string | null;
+    practitioner?: boolean; color?: string }[];
   return {
     ready: true, connected: whatsappConfigured(), owner: c.owner,
     me: team.filter((s) => s.active && s.member_user_id === c.userId).map((s) => s.id),
     staff: team.map((s) => ({
       id: s.id, name: s.name, active: s.active, memberUserId: s.member_user_id,
-      ...(c.owner ? { phone: s.phone, phoneShown: staffPhoneShow(s.phone) } : {}),
+      ...('practitioner' in s ? { practitioner: Boolean(s.practitioner), color: s.color ?? '' } : {}),
+      ...(c.owner ? { phone: s.phone ?? '', phoneShown: staffPhoneShow(s.phone) } : {}),
     })),
     departments: ((depts.data ?? []) as any[]).map((d) => ({
       id: d.id, name: d.name, staffId: d.staff_id, position: d.position ?? 0, active: Boolean(d.active),

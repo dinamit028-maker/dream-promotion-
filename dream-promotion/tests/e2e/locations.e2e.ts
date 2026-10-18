@@ -192,6 +192,8 @@ async function main() {
       assert.equal(await theSwitch().count(), 0, 'no switch');
       assert.equal(await picker().count(), 0, 'no register picker');
       await goto('/appointments');
+      // 2.105: the calendar opens on the week (a computer) — the list says where each appointment is; the device remembers it
+      await page.getByRole('tab', { name: 'רשימה' }).click({ timeout: 60_000 });
       await page.getByText('מיכל לוי').first().waitFor({ timeout: 60_000 });
       await page.getByRole('button', { name: '+ תור' }).click();
       await dialog().getByRole('heading', { name: 'תור חדש' }).waitFor();

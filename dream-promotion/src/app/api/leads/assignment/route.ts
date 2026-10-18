@@ -3,7 +3,7 @@ import { adminDb } from '@/lib/server/admin';
 import { claim, deliver, queueMessage } from '@/lib/server/lead-routing';
 import { whatsappConfigured } from '@/lib/server/whatsapp';
 import { NOTICE_COLUMNS, NOT_READY, leadsCaller, noticeView } from '@/lib/server/lead-departments';
-import { NO_DEPARTMENT, WA_NOT_CONNECTED, leadTemplateParams, waErrorHint } from '@/features/crm/lead-routing';
+import { NO_DEPARTMENT, NO_STAFF_PHONE, WA_NOT_CONNECTED, leadTemplateParams, waErrorHint } from '@/features/crm/lead-routing';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     if (error) return json(NOT_READY, 409);
     if (!lead) return bad('איש הקשר לא נמצא.', 'not_found', 404);
     const l = lead as any;
-    let to: { id: string; name: string; phone: string } | null = null;
+    let to: { id: string; name: string; phone: string | null } | null = null;
     if (body.staffId) {
       const { data: s } = await db.from('lead_staff').select('id, name, phone, active').eq('id', String(body.staffId)).eq('business_id', c.biz).maybeSingle();
       if (!(s as any)?.active) return bad('צריך לבחור אדם מהצוות.');
@@ -87,6 +87,7 @@ export async function POST(req: Request) {
         status: connected ? 'queued' : 'skipped', reason: connected ? '' : 'not_connected',
       });
       if (!id) sent = { status: 'already', message: `כבר נשלחה ל${to.name} הודעה על הליד הזה — היא לא נשלחת שוב.` };
+      else if (!to.phone) sent = { status: 'skipped', message: `ל${to.name} ${NO_STAFF_PHONE} — הליד הועבר בלי הודעה.` };
       else if (!connected) sent = { status: 'skipped', message: WA_NOT_CONNECTED };
       else {
         const row = await claim(id, ['queued']);

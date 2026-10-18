@@ -1,6 +1,7 @@
 'use client';
 import { supabase } from '@/lib/supabase/client';
 import type { Hours } from './slots';
+import type { ApptEvent, CalStaff } from './calendar';
 
 /** Owner side of booking. Runs with the user's own session, so RLS keeps every business separate. */
 export interface BookingSettings {
@@ -16,6 +17,8 @@ export interface Appointment {
   note: string; start: string; end: string; status: ApptStatus; source: 'public' | 'manual';
   /** 2.91 (locations, migration 4600): where it is; none = the main location (a row from before it, or a business with one) */
   locationId?: string | null;
+  /** 2.105 (migration 5700): the practitioner (a person of the team, lead_staff); none = waiting for one, or before the migration */
+  staffId?: string | null;
 }
 
 export const DEFAULT_SETTINGS: BookingSettings = {
@@ -27,11 +30,15 @@ export const DEFAULT_SETTINGS: BookingSettings = {
 const fromRow = (r: any): Appointment => ({
   id: r.id, serviceId: r.service_id, serviceName: r.service_name ?? '', leadId: r.lead_id, name: r.name, phone: r.phone ?? '', email: r.email ?? '',
   note: r.note ?? '', start: r.start_at, end: r.end_at, status: r.status, source: r.source, locationId: r.location_id ?? null,
+  staffId: r.staff_id ?? null,
 });
 
 /** clear message for the errors a user can act on */
 export const bookingError = (e: any): string => {
   const m = String(e?.message ?? e ?? '');
+  // 2.105: one practitioner, one appointment at a time
+  if (/appointments_staff_no_overlap/.test(m)) return 'כבר יש תור אצל המטפל/ת הזה/זו בשעה הזו. בחרו שעה אחרת או מטפל/ת אחר/ת.';
+  if (/not an active practitioner/.test(m)) return 'המטפל/ת שנבחר/ה כבר לא ביומן. בחרו מטפל/ת אחר/ת.';
   if (e?.code === '23P01' || /no_overlap|exclusion/i.test(m)) return 'כבר יש תור בשעה הזו. בחרו שעה אחרת.';
   if (e?.code === '23505' || /duplicate key.*slug/i.test(m)) return 'הכתובת הזו כבר תפוסה. בחרו כתובת אחרת.';
   if (/slug_check|check constraint.*slug/i.test(m)) return 'כתובת הדף: אותיות באנגלית קטנות, ספרות ומקף, 3–40 תווים.';
@@ -41,6 +48,8 @@ export const bookingError = (e: any): string => {
   if (/relation .* does not exist|schema cache/i.test(m)) return 'צריך להריץ את מיגרציית זימון התורים ב-Supabase (20261003001000).';
   return 'משהו השתבש. נסו שוב.';
 };
+
+let calendarProbe: Promise<boolean> | null = null;
 
 export const BookingAPI = {
   async settings(userId: string): Promise<BookingSettings> {
@@ -84,12 +93,44 @@ export const BookingAPI = {
     if (error) throw error;
     return (data ?? []).map(fromRow);
   },
+  /** 2.105: is migration 5700 there (a practitioner for an appointment, its history)? Asked once a session */
+  async calendarReady(): Promise<boolean> {
+    calendarProbe ??= (async () => {
+      const { error } = await supabase().from('appointments').select('staff_id').limit(1);
+      return !error;
+    })();
+    return calendarProbe;
+  },
+  /** 2.105: the team for the calendar — names, colours, who is a practitioner (appointment_staff(): never a number) */
+  async staff(): Promise<CalStaff[]> {
+    const { data, error } = await supabase().rpc('appointment_staff');
+    if (error) return [];
+    return ((data ?? []) as any[]).map((r) => ({ id: r.id, name: r.name, color: r.color ?? '', practitioner: Boolean(r.practitioner),
+      memberUserId: r.member_user_id ?? null, active: Boolean(r.active) }));
+  },
+  /** 2.105: another day, hour or practitioner — the same length; the database refuses a practitioner twice at once */
+  async move(id: string, to: { start: string; end: string; staffId?: string | null }): Promise<Appointment> {
+    const patch: Record<string, unknown> = { start_at: to.start, end_at: to.end };
+    if (to.staffId !== undefined) patch.staff_id = to.staffId;
+    const { data, error } = await supabase().from('appointments').update(patch).eq('id', id).select('*').single();
+    if (error) throw error;
+    return fromRow(data);
+  },
+  /** 2.105: what happened to an appointment — written by the database only (appointment_events), oldest first */
+  async history(id: string): Promise<ApptEvent[]> {
+    const { data, error } = await supabase().from('appointment_events').select('id, at, actor_name, kind, before, after')
+      .eq('appointment_id', id).order('at');
+    if (error) return [];
+    return ((data ?? []) as any[]).map((r) => ({ id: r.id, at: r.at, actorName: r.actor_name ?? '', kind: r.kind, before: r.before ?? {}, after: r.after ?? {} }));
+  },
   async create(userId: string, a: Omit<Appointment, 'id' | 'source'>) {
     const { data, error } = await supabase().from('appointments').insert({
       user_id: userId, service_id: a.serviceId, service_name: a.serviceName, lead_id: a.leadId, name: a.name, phone: a.phone, email: a.email,
       note: a.note, start_at: a.start, end_at: a.end, status: a.status, source: 'manual',
       // a location chosen in the form (several locations, "כל הסניפים" picked); else the database puts it where the user works
       ...(a.locationId ? { location_id: a.locationId } : {}),
+      // 2.105: the practitioner — sent only when there is one (before migration 5700 there is no such column)
+      ...(a.staffId ? { staff_id: a.staffId } : {}),
     }).select('*').single();
     if (error) throw error;
     return fromRow(data);

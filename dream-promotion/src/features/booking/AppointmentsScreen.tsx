@@ -19,6 +19,10 @@ import { ils } from '@/features/register/money';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { atLocation, locationTag } from '@/features/locations/locations';
 import { useLocations } from '@/features/locations/store';
+import { CAL_VIEWS, addDays, apptCount, dayOf, minuteOfDay, practitioners, shiftDate, staffColor, viewRange, viewTitle, type CalStaff, type CalView } from './calendar';
+import { DayView, MonthView, WeekView } from './CalendarViews';
+import { AppointmentSheet } from './AppointmentSheet';
+import { StaffTab } from './StaffTab';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
@@ -34,17 +38,40 @@ const hm = (iso: string) => israelParts(new Date(iso)).time;
  * Appointments: the agenda, services, opening hours and the public booking page (toolbox stage 2). 2.88: a service may ask a
  * deposit (paid by link — sent from the appointment, or from the public booking page itself); the agenda shows its status,
  * and "💳 חיוב" offsets a deposit that was really paid (appointment_deposits — never a test one) from the final payment.
+ * 2.105 (migration 5700): a calendar like Outlook's — a day (a column for each practitioner), a week, a month and the list; a
+ * practitioner and her colour for every appointment ("מטפלות"), anyone of the business moves any appointment, and every change
+ * is in its history. Before the migration: the same views, every appointment without a practitioner.
  */
 export function AppointmentsScreen() {
   const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
   // T12א: with several locations and "כל הסניפים" picked, every appointment says where it is
   const locState = useLocations((x) => x.state);
   const where = (a: Appointment) => (locState.businessId ? locationTag(locState, a, locState.businessId) : '');
-  const [tab, setTab] = useState<'agenda' | 'services' | 'hours' | 'page'>('agenda');
+  const [tab, setTab] = useState<'agenda' | 'staff' | 'services' | 'hours' | 'page'>('agenda');
+  // the calendar (2.105): the view this device used last (a phone opens on the day, a computer on the week), its day, whose
+  const [view, setView] = useState<CalView>('day');
+  const [date, setDate] = useState(() => israelParts(Date.now()).date);
+  const [filter, setFilter] = useState<string>('all');
+  const [staff, setStaff] = useState<CalStaff[]>([]);
+  const [ready, setReady] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  const [prefill, setPrefill] = useState<{ date: string; time: string; staffId: string } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem('dp-cal-view'); } catch { /* a private window */ }
+    setView(CAL_VIEWS.some((v) => v.key === saved) ? (saved as CalView) : window.matchMedia('(min-width: 1024px)').matches ? 'week' : 'day');
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const pickView = (v: CalView) => { setView(v); try { localStorage.setItem('dp-cal-view', v); } catch { /* a private window */ } };
   const [settings, setSettings] = useState<BookingSettings>(DEFAULT_SETTINGS);
   const [services, setServices] = useState<BookingServiceRow[]>([]);
   const [appts, setAppts] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  // 2.105: the spinner only until the first answer — moving between days, weeks and views keeps the calendar on the screen
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -61,9 +88,10 @@ export function AppointmentsScreen() {
     if (!userId) return;
     setLoading(true); setError(null);
     try {
-      const from = israelToIso(israelParts(Date.now() - (showPast ? 30 : 0) * 864e5).date, '00:00');
-      const to = new Date(Date.now() + 120 * 864e5).toISOString();
-      const [s, sv, ap] = await Promise.all([BookingAPI.settings(userId), BookingAPI.services(userId), BookingAPI.appointments(userId, from, to)]);
+      const { from, to } = viewRange(view, date, israelParts(Date.now()).date, showPast);
+      const [s, sv, ap, ok] = await Promise.all([BookingAPI.settings(userId), BookingAPI.services(userId), BookingAPI.appointments(userId, from, to), BookingAPI.calendarReady()]);
+      setReady(ok);
+      setStaff(ok ? await BookingAPI.staff() : []);
       setSettings(s.slug ? s : { ...s, title: s.title || brand.name, address: s.address || brand.city || '' });
       setServices(sv); setAppts(ap);
       const ids = ap.filter((a) => (sv.find((x) => x.id === a.serviceId)?.deposit ?? 0) > 0).map((a) => a.id);
@@ -71,9 +99,10 @@ export function AppointmentsScreen() {
       setDeposits(Object.fromEntries([...d].map(([id, x]) => [id, x.amount])));
       setDepositDocs(Object.fromEntries([...d].map(([id, x]) => [id, x.docs])));
     } catch (e) { setError(bookingError(e)); }
-    finally { setLoading(false); }
-  }, [userId, showPast, brand.name, brand.city]);
+    finally { setLoading(false); setLoaded(true); }
+  }, [userId, showPast, brand.name, brand.city, view, date]);
   useEffect(() => { void load(); }, [load]);
+  const reloadStaff = useCallback(async () => { if (ready) setStaff(await BookingAPI.staff()); }, [ready]);
 
   // the client file (2.86): an upcoming appointment of a customer with no valid health declaration for its treatment is
   // marked, with "שלח עכשיו". Asked again when a card closes (a declaration may have been sent or signed). Shown only to the
@@ -116,13 +145,31 @@ export function AppointmentsScreen() {
 
   const active = appts.filter((a) => a.status !== 'cancelled');
   const byDay = active.reduce<Record<string, Appointment[]>>((acc, a) => { const d = israelParts(new Date(a.start)).date; (acc[d] ||= []).push(a); return acc; }, {});
-  const todayIL = israelParts(Date.now()).date;
+  const todayIL = israelParts(now).date;
+  const first = loading && !loaded;
   const pageUrl = settings.slug && typeof window !== 'undefined' ? `${window.location.origin}/book/${settings.slug}` : '';
+  // the calendar (2.105): its columns, whose appointments are shown, "רק שלי" (a practitioner linked to this account)
+  const pract = practitioners(staff);
+  const mine = pract.filter((x) => x.memberUserId === userId).map((x) => x.id);
+  const shownStaff = filter === 'all' ? pract : filter === 'mine' ? pract.filter((x) => mine.includes(x.id)) : pract.filter((x) => x.id === filter);
+  const shownAppts = filter === 'all' ? appts : appts.filter((a) => a.staffId && shownStaff.some((x) => x.id === a.staffId));
+  const openAppt = openId ? appts.find((a) => a.id === openId) ?? null : null;
+  const staffName = (id: string | null | undefined) => (id ? staff.find((x) => x.id === id)?.name ?? '' : '');
+  /** a new appointment: on a day and an hour of the calendar, with its column's practitioner (or the one filtered on) */
+  const book = (d: string, time: string, staffId: string | null) => {
+    if (!services.length) return;
+    setPrefill({ date: d, time, staffId: staffId ?? (filter !== 'all' && filter !== 'mine' ? filter : mine.length === 1 && filter === 'mine' ? mine[0] : '') });
+    setAdding(true);
+  };
+  const viewSub = view === 'list'
+    ? `${active.filter((a) => a.start >= new Date().toISOString()).length} תורים קרובים`
+    : `${apptCount(shownAppts.filter((a) => a.status !== 'cancelled' && (view !== 'day' || dayOf(a.start) === date)).length)} ${view === 'day' ? 'ביום הזה' : view === 'week' ? 'בשבוע הזה' : 'בחודש הזה'}`;
 
   async function setStatus(a: Appointment, status: ApptStatus) {
     try {
       await BookingAPI.setStatus(a.id, status);
       setAppts((all) => all.map((x) => (x.id === a.id ? { ...x, status } : x)));
+      setVersion((v) => v + 1);
       if (a.leadId && (status === 'done' || status === 'no_show' || status === 'cancelled')) {
         addActivity(a.leadId, status === 'done' ? 'meeting' : 'note', `${STATUS[status].label}: ${a.serviceName} · ${formatIL(a.start)}`);
         if (status === 'done') updateLead(a.leadId, { status: 'נסגר' });
@@ -135,107 +182,160 @@ export function AppointmentsScreen() {
     if (url) { window.open(url, '_blank', 'noopener'); if (a.leadId) addActivity(a.leadId, 'whatsapp', 'נשלחה תזכורת לתור'); }
   }
 
+  /** what an appointment offers — the same on the list's card and in the calendar's sheet */
+  const extras = (a: Appointment) => (
+    <>
+      {gaps[a.id] && a.leadId && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-amber-500/15 px-2.5 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200">
+          <span>⚠️ אין הצהרת בריאות בתוקף{gaps[a.id].type ? ` ל${gaps[a.id].type}` : ''}</span>
+          <button type="button" className="underline" onClick={() => setContactId(a.leadId!)}>שלח עכשיו</button>
+        </div>
+      )}
+      {depositOf(a) > 0 && depLinks.ready && (() => {
+        const ls = linksOf(a.id), last = ls[0];
+        const pill = last ? paylinkPill(last) : null;
+        const canSend = (a.status === 'booked' || a.status === 'confirmed') && a.end > new Date().toISOString()
+          && !ls.some((l) => paylinkOpen(l) || l.status === 'paid');
+        return (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="font-semibold">מקדמה {ils(depositOf(a))}:</span>
+            {pill ? <button type="button" onClick={() => setDepOpen(depOpen === a.id ? null : a.id)}
+              className={cx('rounded-full px-2 py-0.5 font-bold', pill.tone === 'ok' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : pill.tone === 'bad' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : pill.tone === 'warn' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : pill.tone === 'info' ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-muted')}>
+              {pill.text} {depOpen === a.id ? '▲' : '▼'}</button> : <span className="text-muted">לא נשלח לינק</span>}
+            {canSend && <Button size="sm" variant="ghost" onClick={() => setDepositFor(a)}>💳 לינק למקדמה</Button>}
+          </div>
+        );
+      })()}
+      {depOpen === a.id && <PaylinkList links={linksOf(a.id)} title="לינקים למקדמה" showLabel={false} onChanged={() => { void depLinks.reload(); void load(); }} />}
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {waLink(a.phone) && a.status !== 'done' && <Button size="sm" variant="ghost" onClick={() => remind(a)}>💬 תזכורת</Button>}
+        {a.phone && <a href={telLink(a.phone)} className="rounded-full border border-line px-3 py-1 text-sm">📞</a>}
+        {a.status !== 'cancelled' && a.status !== 'no_show' && (() => {
+          const price = services.find((x) => x.id === a.serviceId)?.price;
+          // a deposit that was really paid comes off the final payment (its own document is issued already)
+          const line = afterDeposit(a.serviceName || 'טיפול', price ?? 0, deposits[a.id] ?? 0, depositDocs[a.id] ?? []);
+          const q = new URLSearchParams({ name: a.name, phone: a.phone, appt: a.id, item: line.name, price: String(line.price), ...(a.leadId ? { lead: a.leadId } : {}) });
+          return <a href={`/register?${q}`} className="rounded-full border border-line px-3 py-1 text-sm">💳 חיוב{deposits[a.id] ? ` (אחרי מקדמה ${ils(deposits[a.id])})` : ''}</a>;
+        })()}
+        {a.status === 'booked' && <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'confirmed')}>אישור</Button>}
+        {(a.status === 'booked' || a.status === 'confirmed') && <>
+          <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'done')}>הגיע/ה</Button>
+          <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'no_show')}>לא הגיע/ה</Button>
+          <Button size="sm" variant="ghost" onClick={() => { if (window.confirm('לבטל את התור? השעה תתפנה.')) void setStatus(a, 'cancelled'); }}>ביטול</Button>
+        </>}
+      </div>
+    </>
+  );
+
   return (
     <>
-      <PageHead title="תורים" sub={`${active.filter((a) => a.start >= new Date().toISOString()).length} תורים קרובים`}
-        action={<Button variant="primary" onClick={() => setAdding(true)} disabled={!services.length}>+ תור</Button>} />
+      <PageHead title="תורים" sub={tab === 'agenda' ? viewSub : undefined}
+        action={<Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>} />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
-        {([['agenda', 'יומן תורים'], ['services', 'שירותים'], ['hours', 'שעות פעילות'], ['page', 'דף הזמנה']] as const).map(([k, l]) => (
-          <Chip key={k} on={tab === k} onClick={() => setTab(k)}>{l}</Chip>
+        {([['agenda', 'יומן תורים'], ['staff', 'מטפלות'], ['services', 'שירותים'], ['hours', 'שעות פעילות'], ['page', 'דף הזמנה']] as const).map(([k, l]) => (
+          <Chip key={k} on={tab === k} onClick={() => setTab(k)} className="shrink-0 whitespace-nowrap">{l}</Chip>
         ))}
       </div>
       {error && <p className="mb-4 rounded-2xl bg-warn/10 p-3 text-sm text-warn">{error}</p>}
       {saved && <p className="mb-4 text-sm font-semibold text-emerald-600">✓ {saved}</p>}
-      {loading && <div className="py-8 text-center"><Spinner /></div>}
+      {first && <div className="py-8 text-center"><Spinner /></div>}
 
-      {!loading && tab === 'agenda' && (
+      {!first && tab === 'agenda' && (
         !services.length ? (
           <EmptyState icon={<CalendarPlus />} title="מתחילים בשירותים" body="הוסיפו את מה שאפשר לקבוע (למשל: טיפול לייזר · 45 דקות), ואז קבעו שעות פעילות."
             action={<Button variant="primary" onClick={() => setTab('services')}>הוספת שירות</Button>} />
         ) : (
           <>
-            {!settings.enabled && (
-              <button type="button" onClick={() => setTab('page')} className="mb-4 w-full rounded-2xl bg-primary-soft px-4 py-3 text-start text-sm">
-                <strong>דף ההזמנות עוד לא פעיל.</strong> הפעילו אותו כדי שלקוחות יקבעו לבד ←
-              </button>
-            )}
-            <label className="mb-3 flex items-center gap-2 text-sm text-ink-2">
-              <input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} /> הצגת 30 הימים האחרונים
-            </label>
-            {Object.keys(byDay).length === 0 && <p className="py-6 text-center text-sm text-muted">אין תורים בתקופה הזו.</p>}
-            <div className="grid gap-5">
-              {Object.entries(byDay).map(([d, list]) => (
-                <section key={d}>
-                  <h3 className={cx('mb-2 text-sm font-bold', d === todayIL ? 'text-primary' : 'text-ink-2')}>
-                    {d === todayIL ? 'היום · ' : ''}{formatIL(israelToIso(d, '12:00'), { weekday: 'long', day: 'numeric', month: 'long' })}
-                  </h3>
-                  <div className="grid grid-cols-1 gap-2">
-                    {list.map((a) => (
-                      <Card key={a.id} className="min-w-0 p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <button type="button" className="min-w-0 text-start" onClick={() => a.leadId && setContactId(a.leadId)}>
-                            <span className="block font-bold tabular-nums">{hm(a.start)}–{hm(a.end)} · <span className="font-semibold">{a.name}</span></span>
-                            <span className="block truncate text-xs text-muted">{a.serviceName}{where(a) ? ` · ${where(a)}` : ''}{a.source === 'public' ? ' · הוזמן אונליין' : ''}{a.note ? ` · "${a.note}"` : ''}</span>
-                          </button>
-                          <span className={cx('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', STATUS[a.status].tone)}>{STATUS[a.status].label}</span>
-                        </div>
-                        {gaps[a.id] && a.leadId && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-amber-500/15 px-2.5 py-1.5 text-xs font-semibold text-amber-800 dark:text-amber-200">
-                            <span>⚠️ אין הצהרת בריאות בתוקף{gaps[a.id].type ? ` ל${gaps[a.id].type}` : ''}</span>
-                            <button type="button" className="underline" onClick={() => setContactId(a.leadId!)}>שלח עכשיו</button>
-                          </div>
-                        )}
-                        {depositOf(a) > 0 && depLinks.ready && (() => {
-                          const ls = linksOf(a.id), last = ls[0];
-                          const pill = last ? paylinkPill(last) : null;
-                          const canSend = (a.status === 'booked' || a.status === 'confirmed') && a.end > new Date().toISOString()
-                            && !ls.some((l) => paylinkOpen(l) || l.status === 'paid');
-                          return (
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                              <span className="font-semibold">מקדמה {ils(depositOf(a))}:</span>
-                              {pill ? <button type="button" onClick={() => setDepOpen(depOpen === a.id ? null : a.id)}
-                                className={cx('rounded-full px-2 py-0.5 font-bold', pill.tone === 'ok' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : pill.tone === 'bad' ? 'bg-red-500/15 text-red-700 dark:text-red-300' : pill.tone === 'warn' ? 'bg-amber-500/15 text-amber-800 dark:text-amber-200' : pill.tone === 'info' ? 'bg-primary-soft text-primary' : 'bg-surface-2 text-muted')}>
-                                {pill.text} {depOpen === a.id ? '▲' : '▼'}</button> : <span className="text-muted">לא נשלח לינק</span>}
-                              {canSend && <Button size="sm" variant="ghost" onClick={() => setDepositFor(a)}>💳 לינק למקדמה</Button>}
-                            </div>
-                          );
-                        })()}
-                        {depOpen === a.id && <PaylinkList links={linksOf(a.id)} title="לינקים למקדמה" showLabel={false} onChanged={() => { void depLinks.reload(); void load(); }} />}
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {waLink(a.phone) && a.status !== 'done' && <Button size="sm" variant="ghost" onClick={() => remind(a)}>💬 תזכורת</Button>}
-                          {a.phone && <a href={telLink(a.phone)} className="rounded-full border border-line px-3 py-1 text-sm">📞</a>}
-                          {a.status !== 'cancelled' && a.status !== 'no_show' && (() => {
-                            const price = services.find((x) => x.id === a.serviceId)?.price;
-                            // a deposit that was really paid comes off the final payment (its own document is issued already)
-                            const line = afterDeposit(a.serviceName || 'טיפול', price ?? 0, deposits[a.id] ?? 0, depositDocs[a.id] ?? []);
-                            const q = new URLSearchParams({ name: a.name, phone: a.phone, appt: a.id, item: line.name, price: String(line.price), ...(a.leadId ? { lead: a.leadId } : {}) });
-                            return <a href={`/register?${q}`} className="rounded-full border border-line px-3 py-1 text-sm">💳 חיוב{deposits[a.id] ? ` (אחרי מקדמה ${ils(deposits[a.id])})` : ''}</a>;
-                          })()}
-                          {a.status === 'booked' && <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'confirmed')}>אישור</Button>}
-                          {(a.status === 'booked' || a.status === 'confirmed') && <>
-                            <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'done')}>הגיע/ה</Button>
-                            <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'no_show')}>לא הגיע/ה</Button>
-                            <Button size="sm" variant="ghost" onClick={() => { if (window.confirm('לבטל את התור? השעה תתפנה.')) void setStatus(a, 'cancelled'); }}>ביטול</Button>
-                          </>}
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                </section>
-              ))}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-xl bg-bg-2 p-1" role="tablist" aria-label="תצוגת היומן">
+                {CAL_VIEWS.map((v) => (
+                  <button key={v.key} type="button" role="tab" aria-selected={view === v.key} onClick={() => pickView(v.key)}
+                    className={cx('rounded-lg px-3.5 py-1.5 text-sm font-semibold', view === v.key ? 'bg-surface text-ink shadow-sm' : 'text-ink-2')}>{v.label}</button>
+                ))}
+              </div>
+              {view !== 'list' && (
+                <div className="flex items-center gap-1.5">
+                  <button type="button" aria-label="הקודם" onClick={() => setDate(shiftDate(view, date, -1))}
+                    className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-surface text-lg">›</button>
+                  <strong className="px-1 font-display text-base">{viewTitle(view, date)}</strong>
+                  {loading && <Spinner />}
+                  <button type="button" aria-label="הבא" onClick={() => setDate(shiftDate(view, date, 1))}
+                    className="grid h-9 w-9 place-items-center rounded-xl border border-line bg-surface text-lg">‹</button>
+                  {date !== todayIL && <Button size="sm" variant="ghost" onClick={() => setDate(todayIL)}>היום</Button>}
+                </div>
+              )}
             </div>
+            {pract.length > 0 && (
+              <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="סינון לפי מטפל/ת">
+                <Chip on={filter === 'all'} onClick={() => setFilter('all')} className="shrink-0 whitespace-nowrap">הכול</Chip>
+                {pract.map((x) => (
+                  <Chip key={x.id} on={filter === x.id} onClick={() => setFilter(x.id)} className="shrink-0 whitespace-nowrap">
+                    <span className={cx('cal-dot me-1.5 inline-block h-2.5 w-2.5 rounded-full', `cal-${staffColor(staff, x.id)}`)} aria-hidden="true" />{x.name}
+                  </Chip>
+                ))}
+                {mine.length > 0 && <Chip on={filter === 'mine'} onClick={() => setFilter('mine')} className="shrink-0 whitespace-nowrap">רק שלי</Chip>}
+              </div>
+            )}
+            {view === 'day' && <DayView date={date} columns={shownStaff} appts={shownAppts} staff={staff} hours={settings.hours} today={todayIL}
+              nowMinute={minuteOfDay(new Date(now).toISOString())} onOpen={(a) => setOpenId(a.id)} onSlot={book} />}
+            {view === 'week' && <WeekView date={date} appts={shownAppts} staff={staff} hours={settings.hours} today={todayIL}
+              nowMinute={minuteOfDay(new Date(now).toISOString())} onOpen={(a) => setOpenId(a.id)} onSlot={book} />}
+            {view === 'month' && <MonthView date={date} onPick={setDate} appts={shownAppts} staff={staff} hours={settings.hours} today={todayIL}
+              nowMinute={minuteOfDay(new Date(now).toISOString())} onOpen={(a) => setOpenId(a.id)} onSlot={book} />}
+            {view === 'list' && <>
+              {!settings.enabled && (
+                <button type="button" onClick={() => setTab('page')} className="mb-4 w-full rounded-2xl bg-primary-soft px-4 py-3 text-start text-sm">
+                  <strong>דף ההזמנות עוד לא פעיל.</strong> הפעילו אותו כדי שלקוחות יקבעו לבד ←
+                </button>
+              )}
+              <label className="mb-3 flex items-center gap-2 text-sm text-ink-2">
+                <input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} /> הצגת 30 הימים האחרונים
+              </label>
+              {Object.keys(byDay).length === 0 && <p className="py-6 text-center text-sm text-muted">אין תורים בתקופה הזו.</p>}
+              <div className="grid gap-5">
+                {Object.entries(byDay).map(([d, list]) => (
+                  <section key={d}>
+                    <h3 className={cx('mb-2 text-sm font-bold', d === todayIL ? 'text-primary' : 'text-ink-2')}>
+                      {d === todayIL ? 'היום · ' : ''}{formatIL(israelToIso(d, '12:00'), { weekday: 'long', day: 'numeric', month: 'long' })}
+                    </h3>
+                    <div className="grid grid-cols-1 gap-2">
+                      {list.filter((a) => filter === 'all' || shownAppts.includes(a)).map((a) => (
+                        <Card key={a.id} className={cx('min-w-0 p-3', pract.length > 0 && `cal-${staffColor(staff, a.staffId)} border-s-4 border-s-[var(--cal-bar)]`)}>
+                          <div className="flex items-start justify-between gap-2">
+                            <button type="button" className="min-w-0 text-start" onClick={() => a.leadId && setContactId(a.leadId)}>
+                              <span className="block font-bold tabular-nums">{hm(a.start)}–{hm(a.end)} · <span className="font-semibold">{a.name}</span></span>
+                              <span className="block truncate text-xs text-muted">{a.serviceName}{where(a) ? ` · ${where(a)}` : ''}{a.source === 'public' ? ' · הוזמן אונליין' : ''}{a.note ? ` · "${a.note}"` : ''}</span>
+                            </button>
+                            <span className={cx('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold', STATUS[a.status].tone)}>{STATUS[a.status].label}</span>
+                          </div>
+                          {pract.length > 0 && (
+                            <button type="button" onClick={() => setOpenId(a.id)} className="mt-1.5 text-xs font-semibold text-ink-2">
+                              {a.staffId ? `מטפל/ת: ${staffName(a.staffId)}` : 'בלי מטפל/ת — לשיבוץ'} · <span className="text-primary">שינוי והיסטוריה ›</span>
+                            </button>
+                          )}
+                          {!pract.length && <button type="button" onClick={() => setOpenId(a.id)} className="mt-1.5 text-xs font-semibold text-primary">{ready ? 'הזזה והיסטוריה ›' : 'הזזה ›'}</button>}
+                          {extras(a)}
+                        </Card>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </>}
           </>
         )
       )}
 
-      {!loading && tab === 'services' && <ServicesTab userId={userId} services={services} onChange={load} onError={(e) => setError(bookingError(e))} />}
+      {!first && tab === 'staff' && <StaffTab ready={ready} onChanged={() => void reloadStaff()} />}
 
-      {!loading && tab === 'hours' && (
+      {!first && tab === 'services' && <ServicesTab userId={userId} services={services} onChange={load} onError={(e) => setError(bookingError(e))} />}
+
+      {!first && tab === 'hours' && (
         <HoursTab settings={settings} onChange={setSettings} onSave={() => saveSettings()} />
       )}
 
-      {!loading && tab === 'page' && (
+      {!first && tab === 'page' && (
         <Card className="p-4">
           <label className="mb-4 flex items-center justify-between gap-3 rounded-2xl bg-surface-2 p-3">
             <span><strong className="block">דף הזמנות פעיל</strong><span className="text-xs text-muted">לקוחות קובעים לבד, והתור מופיע כאן ובלקוחות</span></span>
@@ -264,7 +364,8 @@ export function AppointmentsScreen() {
         </Card>
       )}
 
-      <NewAppointment open={adding} onClose={() => setAdding(false)} services={services.filter((s) => s.active)} settings={settings} busy={active}
+      <NewAppointment open={adding} onClose={() => { setAdding(false); setPrefill(null); }} services={services.filter((s) => s.active)} settings={settings} busy={active}
+        staff={staff} ready={ready} prefill={prefill}
         onCreate={async (a, customer) => {
           if (!userId) return 'אין חיבור';
           let leadId = leads.find((l) => customer.phone && phoneDigits(l.phone) === phoneDigits(customer.phone))?.id
@@ -283,6 +384,9 @@ export function AppointmentsScreen() {
         }} />
 
       <ContactSheet leadId={contactId} onClose={() => setContactId(null)} />
+      <AppointmentSheet appt={openAppt} staff={staff} ready={ready} version={version} extras={extras} where={where}
+        onClose={() => setOpenId(null)} onContact={(id) => { setOpenId(null); setContactId(id); }}
+        onSaved={(a) => { setAppts((all) => all.map((x) => (x.id === a.id ? a : x)).sort((x, y) => x.start.localeCompare(y.start))); setVersion((v) => v + 1); flash('נשמר'); }} />
       {depositFor && (
         <SendPaylinkDialog kind="deposit" target={depositFor.id} left={depositOf(depositFor)} maxDays={depositDays(depositFor.start)}
           what={`מקדמה לתור: ${depositFor.serviceName} · ${formatIL(depositFor.start)} · ${depositFor.name}`}
@@ -421,18 +525,39 @@ function HoursTab({ settings, onChange, onSave }: { settings: BookingSettings; o
   );
 }
 
-function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
+function NewAppointment({ open, onClose, services, settings, busy, staff, ready, prefill, onCreate }: {
   open: boolean; onClose: () => void; services: BookingServiceRow[]; settings: BookingSettings; busy: Appointment[];
-  onCreate: (a: { serviceId: string; serviceName: string; start: string; end: string; locationId?: string }, customer: { name: string; phone: string; note: string }) => Promise<string | null>;
+  /** 2.105: the team for the calendar, whether migration 5700 is there, and the day / hour / practitioner tapped on the calendar */
+  staff: CalStaff[]; ready: boolean; prefill: { date: string; time: string; staffId: string } | null;
+  onCreate: (a: { serviceId: string; serviceName: string; start: string; end: string; locationId?: string; staffId?: string | null }, customer: { name: string; phone: string; note: string }) => Promise<string | null>;
 }) {
-  const { leads } = useApp();
-  // T12א: appointments overlap only within a location — the free hours are the chosen location's (one location: as before)
+  const { userId, leads } = useApp();
+  const pract = practitioners(staff);
+  const [staffId, setStaffId] = useState('');
+  const [staffTouched, setStaffTouched] = useState(false);
+  const [serviceId, setServiceId] = useState('');
+  const [date, setDate] = useState(israelParts(Date.now()).date);
+  // the hours taken on the day chosen, read for that day (2.105: a view of the calendar loads only its own days); until then — the view's
+  const [dayBusy, setDayBusy] = useState<Appointment[] | null>(null);
+  useEffect(() => {
+    if (!open || !userId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    let live = true;
+    setDayBusy(null);
+    BookingAPI.appointments(userId, israelToIso(date, '00:00'), israelToIso(addDays(date, 1), '00:00'))
+      .then((list) => { if (live) setDayBusy(list.filter((a) => a.status !== 'cancelled')); }, () => { if (live) setDayBusy(null); });
+    return () => { live = false; };
+  }, [open, date, userId]);
+  const taken = dayBusy ?? busy;
+  // T12א: appointments overlap only within a location — the free hours are the chosen location's (one location: as before);
+  // 2.105: with a practitioner — hers, wherever they are; without one — the location's appointments that have none
   const locState = useLocations((x) => x.state);
   const [locationId, setLocationId] = useState<string | null>(null);
   const at = locationColumn(locState, locationId).location_id;
-  const here = useMemo(() => (locState.businessId ? atLocation(busy, at, locState.businessId) : busy), [busy, at, locState.businessId]);
-  const [serviceId, setServiceId] = useState('');
-  const [date, setDate] = useState(israelParts(Date.now()).date);
+  const here = useMemo(() => {
+    if (ready && staffId) return taken.filter((b) => b.staffId === staffId);
+    const atHere = locState.businessId ? atLocation(taken, at, locState.businessId) : taken;
+    return ready ? atHere.filter((b) => !b.staffId) : atHere;
+  }, [taken, at, locState.businessId, ready, staffId]);
   const [time, setTime] = useState('');
   const [customer, setCustomer] = useState({ name: '', phone: '', note: '' });
   const [err, setErr] = useState<string | null>(null);
@@ -440,14 +565,21 @@ function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
   const service = services.find((s) => s.id === serviceId) ?? services[0];
   // the owner may book outside the public rules (no notice, any open day); overlaps are still blocked
   const slots = useMemo(() => service ? freeSlots(date, service.minutes, { ...settings, minNoticeMinutes: 0, maxDaysAhead: 365, closedDates: [] }, here.map((b) => ({ start: b.start, end: b.end }))) : [], [service, date, settings, here]);
-  useEffect(() => { if (open) { setErr(null); setTime(''); } }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    setErr(null);
+    setDate(prefill?.date || israelParts(Date.now()).date);
+    setTime(prefill?.time ?? '');
+    setStaffId(prefill?.staffId ?? '');
+    setStaffTouched(Boolean(prefill?.staffId));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function create() {
     if (!service || !time || !customer.name.trim()) return;
     setSaving(true);
     const start = israelToIso(date, time);
     const end = new Date(new Date(start).getTime() + service.minutes * 60_000).toISOString();
-    const e = await onCreate({ serviceId: service.id, serviceName: service.name, start, end, ...(at ? { locationId: at } : {}) }, { ...customer, name: customer.name.trim() });
+    const e = await onCreate({ serviceId: service.id, serviceName: service.name, start, end, ...(at ? { locationId: at } : {}), ...(ready && staffId ? { staffId } : {}) }, { ...customer, name: customer.name.trim() });
     setSaving(false);
     if (e) setErr(e); else { setCustomer({ name: '', phone: '', note: '' }); onClose(); }
   }
@@ -460,6 +592,14 @@ function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
         </Select>
       </Field>
       <LocationField value={locationId} onChange={(id) => { setLocationId(id); setTime(''); }} />
+      {ready && pract.length > 0 && (
+        <Field label="מטפל/ת">
+          <Select value={staffId} onChange={(e) => { setStaffId(e.target.value); setStaffTouched(true); setTime(''); }}>
+            <option value="">בלי מטפל/ת (לשיבוץ אחר כך)</option>
+            {pract.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </Select>
+        </Field>
+      )}
       <Field label="תאריך"><Input type="date" value={date} onChange={(e) => { setDate(e.target.value); setTime(''); }} /></Field>
       <p className="mb-1.5 text-sm font-semibold">שעה</p>
       <div className="mb-2 flex flex-wrap gap-1.5">
@@ -471,6 +611,7 @@ function NewAppointment({ open, onClose, services, settings, busy, onCreate }: {
         <Input list="crm-names" value={customer.name} onChange={(e) => {
           const name = e.target.value; const l = leads.find((x) => x.name === name);
           setCustomer({ ...customer, name, phone: l?.phone ?? customer.phone });
+          if (!staffTouched && l?.assignedStaffId && pract.some((x) => x.id === l.assignedStaffId)) setStaffId(l.assignedStaffId);
         }} />
         <datalist id="crm-names">{leads.slice(0, 300).map((l) => <option key={l.id} value={l.name} />)}</datalist>
       </Field>

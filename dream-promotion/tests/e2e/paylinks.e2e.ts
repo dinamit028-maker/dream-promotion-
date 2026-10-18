@@ -358,6 +358,8 @@ async function main() {
 
     await step('a deposit: set on the service, its link from the appointment; "💳 חיוב" is the price less the deposit really paid', async () => {
       await goto('/appointments');
+      // 2.105: the calendar opens on the day (a phone) — the deposit is on the list's card; the device remembers the view
+      await page.getByRole('tab', { name: 'רשימה' }).click();
       await page.getByText(/מקדמה ₪100:/).waitFor();
       await page.getByText('לא נשלח לינק').waitFor();
       await page.getByRole('button', { name: '💳 לינק למקדמה' }).click();

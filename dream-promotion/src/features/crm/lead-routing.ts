@@ -22,6 +22,8 @@ export const DETAILS_MAX = 900;
 export const FRESH_HOURS = 24;
 export const NO_DEPARTMENT = 'ללא מחלקה';
 export const WA_NOT_CONNECTED = 'וואטסאפ לא מחובר';
+/** 2.105 (migration 5700): a person of the team with no WhatsApp number — a practitioner of the calendar who gets no messages */
+export const NO_STAFF_PHONE = 'אין מספר וואטסאפ ברשימת הצוות';
 
 export type RuleKind = 'form' | 'campaign' | 'answer';
 export type DeptRule = { kind: RuleKind; formId?: string; formName?: string; campaign?: string; question?: string; answer?: string };
@@ -150,8 +152,8 @@ export function staffPhone(raw: string): string | null {
   if (/^5\d{8}$/.test(d)) d = `972${d}`;
   return /^[1-9]\d{7,14}$/.test(d) ? d : null;
 }
-/** 972501234567 → 050-1234567; 15550100123 → +15550100123 */
-export const staffPhoneShow = (d: string) => (d.startsWith('972') ? ilPhone(d) : `+${d}`);
+/** 972501234567 → 050-1234567; 15550100123 → +15550100123; no number (2.105) → '' */
+export const staffPhoneShow = (d: string | null | undefined) => (!d ? '' : d.startsWith('972') ? ilPhone(d) : `+${d}`);
 
 // ---------------------------------------------------------------------------------------------------- Meta's answers --
 
@@ -183,6 +185,7 @@ const HINTS: Record<string, string> = {
   invalid_recipient: 'מספר הוואטסאפ ברשימת הצוות לא תקין.',
   no_message_id: 'Meta ענתה בלי מזהה הודעה. ייתכן שההודעה בכל זאת הגיעה.',
   staff_removed: 'מי שהיה אמור לקבל את ההודעה כבר לא ברשימת הצוות.',
+  no_phone: 'לאדם הזה אין מספר וואטסאפ ברשימת הצוות. אחרי שמוסיפים מספר, אפשר לשלוח שוב.',
   '0': 'המפתח של וואטסאפ לא תקף. צריך מפתח קבוע חדש ב-Vercel.',
   '190': 'המפתח של וואטסאפ לא תקף (פג או בוטל). צריך מפתח קבוע חדש ב-Vercel.',
   '10': 'למפתח אין הרשאה לשלוח מהמספר הזה (whatsapp_business_messaging).',
@@ -260,6 +263,7 @@ export function noticeLine(n: Notice, now = Date.now()): { tone: 'ok' | 'wait' |
       if (n.reason === 'not_connected') return { tone: 'off', text: `⏸️ לא נשלח ל${to} — ${WA_NOT_CONNECTED}`, hint: '', resend: true };
       if (n.reason === 'old_lead') return { tone: 'off', text: `⏸️ לא נשלח ל${to} — הליד נוצר לפני יותר מ-${FRESH_HOURS} שעות`, hint: '', resend: true };
       if (n.reason === 'staff_removed') return { tone: 'off', text: `⏸️ לא נשלח — ${to} כבר לא ברשימת הצוות`, hint: '', resend: false };
+      if (n.reason === 'no_phone') return { tone: 'off', text: `⏸️ לא נשלח ל${to} — ${NO_STAFF_PHONE}`, hint: '', resend: true };
       return { tone: 'off', text: `⏸️ לא נשלח ל${to}`, hint: '', resend: true };
     }
   }
@@ -267,7 +271,11 @@ export function noticeLine(n: Notice, now = Date.now()): { tone: 'ok' | 'wait' |
 
 // --------------------------------------------------------------------------------------- what the screens get (the API) --
 
-export type StaffView = { id: string; name: string; active: boolean; memberUserId: string | null; phone?: string; phoneShown?: string };
+export type StaffView = {
+  id: string; name: string; active: boolean; memberUserId: string | null; phone?: string; phoneShown?: string;
+  /** 2.105 (migration 5700): a practitioner of the calendar, and her colour (absent before the migration) */
+  practitioner?: boolean; color?: string;
+};
 export type RuleView = { kind: RuleKind; formId: string; formName: string; campaign: string; question: string; answer: string };
 export type DeptView = { id: string; name: string; staffId: string; position: number; active: boolean; rules?: RuleView[] };
 /** GET /api/leads/departments — names for every member; the numbers and the rules for the owner only */

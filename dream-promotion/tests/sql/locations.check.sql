@@ -266,7 +266,7 @@ insert into public.appointments (id, user_id, business_id, name, start_at, end_a
 select pg_temp.refused_with($$insert into public.appointments (user_id, business_id, name, start_at, end_at)
   values ('00000000-0000-0000-0000-000000e46a01', '00000000-0000-0000-0000-000000e46b01', 'חופף',
           date_trunc('hour', now()) + interval '2 days 30 minutes', date_trunc('hour', now()) + interval '2 days 90 minutes')$$,
-  'appointments_location_no_overlap', 'two appointments of one location at one hour');
+  'appointments_unassigned_no_overlap', 'two appointments of one location at one hour (5700: the rule of an appointment with no practitioner)');
 begin;
 set local role authenticated;
 -- the cashier of the main location: its appointments, its locations and registers — nothing of the branch
