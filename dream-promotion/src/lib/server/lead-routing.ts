@@ -20,7 +20,8 @@ import type { MappedLead } from '@/features/crm/meta-leads';
  * Before the migration, or in a business with no departments and no default recipient, nothing here runs: the import is as before.
  */
 
-export type StaffRow = { id: string; name: string; phone: string; active: boolean; member_user_id: string | null };
+/** phone: null — no WhatsApp number (2.105, migration 5700): a message to them is 'skipped' (no_phone), never sent */
+export type StaffRow = { id: string; name: string; phone: string | null; active: boolean; member_user_id: string | null };
 export type RoutingConfig = { depts: RoutingDept[]; staff: Map<string, StaffRow>; defaultStaffId: string | null };
 
 const RETRY_WAIT_MS = 1_500;
@@ -92,9 +93,12 @@ export async function queueMessage(m: {
   businessId: string; leadId: string; staff: Pick<StaffRow, 'id' | 'name' | 'phone'>; kind: 'lead' | 'move'; dedupeKey: string;
   externalId?: string; params: string[]; status: 'queued' | 'skipped'; reason: string;
 }): Promise<string | null> {
+  // no number: kept as a line that says so (the owner sends it once the person has one)
+  const noPhone = !m.staff.phone && m.status === 'queued';
   const { data, error } = await adminDb().from('lead_notifications').insert({
     business_id: m.businessId, lead_id: m.leadId, staff_id: m.staff.id, kind: m.kind, dedupe_key: m.dedupeKey.slice(0, 200),
-    external_id: m.externalId ?? '', staff_name: m.staff.name, to_phone: m.staff.phone, params: m.params, status: m.status, reason: m.reason,
+    external_id: m.externalId ?? '', staff_name: m.staff.name, to_phone: m.staff.phone ?? '', params: m.params,
+    status: noPhone ? 'skipped' : m.status, reason: noPhone ? 'no_phone' : m.reason,
   }).select('id').single();
   if (error) {
     if ((error as any).code === '23505') return null;
@@ -133,7 +137,11 @@ export async function deliver(row: NoteRow, opts: { waitMs?: number } = {}): Pro
     await done({ status: 'skipped', reason: 'staff_removed', claimed_at: null });
     return { status: 'skipped', code: 'staff_removed' };
   }
-  const to = String((person as any).phone);
+  const to = String((person as any).phone ?? '');
+  if (!to) {
+    await done({ status: 'skipped', reason: 'no_phone', claimed_at: null });
+    return { status: 'skipped', code: 'no_phone' };
+  }
   const params = Array.isArray(row.params) ? row.params.map(String) : [];
   let attempts = row.attempts ?? 0;
   let res: WaSend = await sendNewLead(to, params); attempts++;

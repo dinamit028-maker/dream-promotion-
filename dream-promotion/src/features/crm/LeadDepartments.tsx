@@ -136,14 +136,18 @@ export function LeadDepartments() {
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <strong>{s.name}</strong>
                   {s.phoneShown && <bdi dir="ltr" className="text-sm tabular-nums text-ink-2">{s.phoneShown}</bdi>}
+                  {owner && s.phone === '' && <span className="text-xs text-muted">בלי וואטסאפ — לא מקבל/ת הודעות</span>}
+                  {s.practitioner && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-bold text-ink-2">מטפל/ת ביומן</span>}
                   {s.memberUserId && <span className="text-xs text-muted">ב-Dream: {memberName(s.memberUserId) || 'חשבון בעסק'}</span>}
                   {view.defaultStaffId === s.id && <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-bold">ברירת מחדל</span>}
                 </div>
                 {owner && (
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <Button size="sm" variant="primary" onClick={() => test(s)} disabled={!view.connected || Boolean(t?.busy)}>
-                      {t?.busy ? <><Spinner />בשליחה…</> : 'שליחת הודעת בדיקה'}
-                    </Button>
+                    {s.phone !== '' && (
+                      <Button size="sm" variant="primary" onClick={() => test(s)} disabled={!view.connected || Boolean(t?.busy)}>
+                        {t?.busy ? <><Spinner />בשליחה…</> : 'שליחת הודעת בדיקה'}
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" onClick={() => editStaff(s)}>עריכה</Button>
                     <Button size="sm" variant="ghost" disabled={busy === `rm-${s.id}`}
                       onClick={() => { if (window.confirm(`להסיר את ${s.name} מהצוות?`)) void post(`rm-${s.id}`, { action: 'staff.remove', id: s.id }); }}>הסרה</Button>
@@ -158,7 +162,7 @@ export function LeadDepartments() {
           <Card className="mt-3 p-4">
             <h3 className="mb-3 font-bold">{staffEdit.id ? `עריכה: ${staffEdit.name}` : 'אדם חדש בצוות'}</h3>
             <Field label="שם"><Input value={staffEdit.name} onChange={(e) => setStaffEdit({ ...staffEdit, name: e.target.value })} maxLength={60} /></Field>
-            <Field label="מספר וואטסאפ">
+            <Field label="מספר וואטסאפ (רק למי שמקבל/ת לידים בהודעה)">
               <Input value={staffEdit.phone} onChange={(e) => setStaffEdit({ ...staffEdit, phone: e.target.value })} inputMode="tel" dir="ltr" placeholder="050-1234567" />
             </Field>
             <Field label="החשבון ב-Dream (לא חובה — בשביל &quot;הלידים שלי&quot;)">
@@ -169,7 +173,7 @@ export function LeadDepartments() {
             </Field>
             <p className="mb-3 text-xs text-muted">מספר בישראל: 050-1234567. מספר בחו״ל: עם הקידומת, למשל ‎+1 555 010 0123.</p>
             <div className="flex gap-2">
-              <Button variant="primary" disabled={busy === 'staff' || !staffEdit.name.trim() || !staffEdit.phone.trim()}
+              <Button variant="primary" disabled={busy === 'staff' || !staffEdit.name.trim()}
                 onClick={() => post('staff', { action: 'staff.save', id: staffEdit.id, name: staffEdit.name, phone: staffEdit.phone, memberUserId: staffEdit.memberUserId || null }, () => setStaffEdit(null))}>
                 {busy === 'staff' ? <><Spinner />בשמירה…</> : 'שמירה'}
               </Button>

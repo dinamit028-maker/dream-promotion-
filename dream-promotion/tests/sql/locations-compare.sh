@@ -70,7 +70,7 @@ q "insert into public.stores (id, user_id, business_id, name, slug) values ('000
 # every row of the tables 4600 touches, without the columns it adds (and the empty ones a later migration adds: 5500, the
 # company that runs the site — stores.legal_*)
 TABLES="sales register_shifts sale_refunds documents document_drafts payments expenses appointments orders stores"
-LATER="- 'legal_name' - 'legal_number' - 'legal_number_kind' - 'legal_address' - 'legal_country' - 'a11y_widget'"
+LATER="- 'legal_name' - 'legal_number' - 'legal_number_kind' - 'legal_address' - 'legal_country' - 'a11y_widget' - 'staff_id'"
 rows() {
   local out=""
   for t in $TABLES; do

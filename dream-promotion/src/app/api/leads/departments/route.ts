@@ -5,7 +5,8 @@ import { leadFormsDetailed } from '@/lib/server/meta';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
 import { sendNewLead, whatsappConfigured, whatsappHealth } from '@/lib/server/whatsapp';
 import { NOTICE_COLUMNS, NOT_READY, leadsCaller, memberChoices, noticeView, routingView, type LeadsCaller } from '@/lib/server/lead-departments';
-import { WA_NOT_CONNECTED, oneLine, staffPhone, testTemplateParams, waErrorCode, waErrorHint, type RuleKind } from '@/features/crm/lead-routing';
+import { NO_STAFF_PHONE, WA_NOT_CONNECTED, oneLine, staffPhone, testTemplateParams, waErrorCode, waErrorHint, type RuleKind } from '@/features/crm/lead-routing';
+import { isCalendarColor } from '@/features/booking/calendar';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,7 @@ export const maxDuration = 30;
  *  GET ?view=setup    → + the members (who is this person in Dream), WhatsApp's state (the number, the template), the last messages
  *  GET ?view=forms    → the lead forms of the business's Facebook Pages, with their questions and choices
  *  POST { action }    → the owner only: staff.save / staff.remove / department.save / department.remove / default.set / site.set / test
+ *                       / staff.calendar (2.105: a practitioner of the calendar and her colour — migration 20261018005700)
  * The test sends the team's template with test values to that person only and answers with Meta's own answer, or its error in full.
  */
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -98,6 +100,10 @@ const uniqueMessage = (m: string) =>
   /lead_staff_phone_uq/.test(m) ? 'המספר הזה כבר ברשימת הצוות.'
     : /lead_staff_member_uq/.test(m) ? 'החשבון הזה ב-Dream כבר משויך לאדם אחר בצוות.'
       : /lead_departments_name_uq/.test(m) ? 'כבר יש מחלקה בשם הזה.' : 'הפרטים כבר קיימים.';
+/** 2.105: the calendar's columns (practitioner, color) and a person with no number — before migration 20261018005700 */
+const CALENDAR_NOT_READY = 'צריך קודם להריץ את מיגרציה 20261018005700 (יומן התורים והמטפלות).';
+const calendarMissing = (e: { code?: string; message: string }) =>
+  e.code === '23502' || e.code === 'PGRST204' || /practitioner|color|null value in column "phone"/.test(e.message);
 
 export async function POST(req: Request) {
   const c = await leadsCaller(req, true);
@@ -108,7 +114,7 @@ export async function POST(req: Request) {
   const staffOf = async (id: unknown) => {
     if (typeof id !== 'string' || !id) return null;
     const { data } = await db.from('lead_staff').select('id, name, phone, active').eq('id', id).eq('business_id', c.biz).maybeSingle();
-    return (data as { id: string; name: string; phone: string; active: boolean } | null);
+    return (data as { id: string; name: string; phone: string | null; active: boolean } | null);
   };
   const done = async () => json(await routingView(c));
 
@@ -116,20 +122,46 @@ export async function POST(req: Request) {
     case 'staff.save': {
       const name = oneLine(body.name, 60);
       if (!name) return bad('צריך שם.');
-      const phone = staffPhone(String(body.phone ?? ''));
-      if (!phone) return bad('מספר וואטסאפ לא תקין. למשל 050-1234567, או מספר בחו״ל עם קידומת: ‎+1 555 010 0123');
+      // 2.105: no number — a person who gets no WhatsApp (a practitioner of the calendar); a number that is typed must be one
+      const typed = String(body.phone ?? '').trim();
+      const phone = typed ? staffPhone(typed) : null;
+      if (typed && !phone) return bad('מספר וואטסאפ לא תקין. למשל 050-1234567, או מספר בחו״ל עם קידומת: ‎+1 555 010 0123');
       let member: string | null = null;
       if (body.memberUserId) {
         const { data } = await db.from('business_members').select('user_id').eq('business_id', c.biz).eq('user_id', String(body.memberUserId)).maybeSingle();
         if (!data) return bad('החשבון שנבחר הוא לא חבר בעסק.');
         member = String(body.memberUserId);
       }
-      const row = { name, phone, member_user_id: member };
+      const row: Record<string, unknown> = { name, phone, member_user_id: member };
+      // the calendar's columns only when sent: an edit from this screen never touches a practitioner's colour
+      if (body.practitioner !== undefined) row.practitioner = Boolean(body.practitioner);
+      if (body.color !== undefined) {
+        if (body.color !== '' && !isCalendarColor(body.color)) return bad('צבע לא מוכר.');
+        row.color = body.color;
+      }
       const res = body.id
         ? await db.from('lead_staff').update(row).eq('id', String(body.id)).eq('business_id', c.biz).eq('active', true).select('id')
         : await db.from('lead_staff').insert({ ...row, business_id: c.biz, active: true }).select('id');
-      if (res.error) return (res.error as any).code === '23505' ? bad(uniqueMessage(res.error.message), 'duplicate', 409) : bad(res.error.message, 'db', 500);
+      if (res.error) {
+        if ((res.error as any).code === '23505') return bad(uniqueMessage(res.error.message), 'duplicate', 409);
+        return calendarMissing(res.error as any) ? bad(CALENDAR_NOT_READY, 'not_ready', 409) : bad(res.error.message, 'db', 500);
+      }
       if (body.id && !(res.data ?? []).length) return bad('האדם הזה לא נמצא ברשימת הצוות.', 'not_found', 404);
+      return done();
+    }
+    // 2.105: who is a practitioner of the calendar, and her colour — nothing else of the person changes
+    case 'staff.calendar': {
+      const s = await staffOf(body.id);
+      if (!s?.active) return bad('האדם הזה לא נמצא ברשימת הצוות.', 'not_found', 404);
+      const patch: Record<string, unknown> = {};
+      if (body.practitioner !== undefined) patch.practitioner = Boolean(body.practitioner);
+      if (body.color !== undefined) {
+        if (body.color !== '' && !isCalendarColor(body.color)) return bad('צבע לא מוכר.');
+        patch.color = body.color;
+      }
+      if (!Object.keys(patch).length) return bad('אין מה לשמור.');
+      const res = await db.from('lead_staff').update(patch).eq('id', s.id).eq('business_id', c.biz).eq('active', true).select('id');
+      if (res.error) return calendarMissing(res.error as any) ? bad(CALENDAR_NOT_READY, 'not_ready', 409) : bad(res.error.message, 'db', 500);
       return done();
     }
     case 'staff.remove': {
@@ -209,14 +241,15 @@ export async function POST(req: Request) {
 }
 
 /** "שליחת הודעת בדיקה": the template with test values to that person — Meta's answer as it is, or its error in full */
-async function testMessage(req: Request, c: LeadsCaller, body: Record<string, any>, staffOf: (id: unknown) => Promise<{ id: string; name: string; phone: string; active: boolean } | null>) {
+async function testMessage(req: Request, c: LeadsCaller, body: Record<string, any>, staffOf: (id: unknown) => Promise<{ id: string; name: string; phone: string | null; active: boolean } | null>) {
   const limited = rateLimited(req, 'lead-wa-test', 10, MINUTE);
   if (limited) return limited;
   const s = await staffOf(body.staffId);
   if (!s?.active) return bad('האדם הזה לא נמצא ברשימת הצוות.', 'not_found', 404);
+  if (!s.phone) return bad(`ל${s.name}: ${NO_STAFF_PHONE}.`, 'no_phone', 409);
   if (!whatsappConfigured()) return json({ code: 'not_connected', message: WA_NOT_CONNECTED }, 409);
   const { data: dept } = await adminDb().from('lead_departments').select('name').eq('business_id', c.biz).eq('staff_id', s.id).eq('active', true).order('position', { ascending: true }).limit(1);
-  const r = await sendNewLead(s.phone, testTemplateParams(s, ((dept ?? [])[0] as any)?.name ?? ''));
+  const r = await sendNewLead(s.phone, testTemplateParams({ phone: s.phone }, ((dept ?? [])[0] as any)?.name ?? ''));
   if (r.ok) return json({ ok: true, http: r.http, messageId: r.messageId, waId: r.waId, status: r.status, response: r.body });
   const code = waErrorCode(r.error);
   return json({ ok: false, http: r.http, code, hint: waErrorHint(code), error: r.error, response: r.body });

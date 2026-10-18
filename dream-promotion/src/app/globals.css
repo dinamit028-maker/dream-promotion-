@@ -140,3 +140,33 @@ button:disabled { cursor: not-allowed; }
 .kb-pan_right { animation-name: kb-pan_right; }
 .kb-pan_left  { animation-name: kb-pan_left; }
 @media (prefers-reduced-motion: reduce) { .kb { animation: none; } }
+
+/* ---- the appointments calendar (2.105): a practitioner's colour — a soft background, a bar, and a text that reads on it.
+   Night (the default) and light; the keys are CALENDAR_COLORS (features/booking/calendar.ts). "none": waiting for one;
+   "plain": a business with no practitioners (apptColor). ---- */
+.cal-pink      { --cal-bg:rgba(236,72,153,.2);  --cal-bar:#F472B6; --cal-ink:#FBCFE8; }
+.cal-turquoise { --cal-bg:rgba(20,184,166,.2);  --cal-bar:#2DD4BF; --cal-ink:#99F6E4; }
+.cal-yellow    { --cal-bg:rgba(234,179,8,.2);   --cal-bar:#FACC15; --cal-ink:#FEF08A; }
+.cal-violet    { --cal-bg:rgba(139,92,246,.24); --cal-bar:#A78BFA; --cal-ink:#DDD6FE; }
+.cal-orange    { --cal-bg:rgba(249,115,22,.2);  --cal-bar:#FB923C; --cal-ink:#FED7AA; }
+.cal-blue      { --cal-bg:rgba(59,130,246,.24); --cal-bar:#60A5FA; --cal-ink:#BFDBFE; }
+.cal-green     { --cal-bg:rgba(34,197,94,.2);   --cal-bar:#4ADE80; --cal-ink:#BBF7D0; }
+.cal-red       { --cal-bg:rgba(239,68,68,.22);  --cal-bar:#F87171; --cal-ink:#FECACA; }
+.cal-gray      { --cal-bg:rgba(148,163,184,.2); --cal-bar:#94A3B8; --cal-ink:#E2E8F0; }
+.cal-none      { --cal-bg:rgba(154,147,178,.1); --cal-bar:#9A93B2; --cal-ink:var(--ink-2); }
+/* a business with no practitioners: its appointments in the app's own colour (both themes — the variables change with them) */
+.cal-plain     { --cal-bg:var(--primary-soft); --cal-bar:var(--primary); --cal-ink:var(--ink); }
+:root[data-theme='light'] .cal-pink      { --cal-bg:#FCE7F3; --cal-bar:#EC4899; --cal-ink:#831843; }
+:root[data-theme='light'] .cal-turquoise { --cal-bg:#CCFBF1; --cal-bar:#14B8A6; --cal-ink:#115E59; }
+:root[data-theme='light'] .cal-yellow    { --cal-bg:#FEF9C3; --cal-bar:#EAB308; --cal-ink:#713F12; }
+:root[data-theme='light'] .cal-violet    { --cal-bg:#EDE9FE; --cal-bar:#8B5CF6; --cal-ink:#4C1D95; }
+:root[data-theme='light'] .cal-orange    { --cal-bg:#FFEDD5; --cal-bar:#F97316; --cal-ink:#7C2D12; }
+:root[data-theme='light'] .cal-blue      { --cal-bg:#DBEAFE; --cal-bar:#3B82F6; --cal-ink:#1E3A8A; }
+:root[data-theme='light'] .cal-green     { --cal-bg:#DCFCE7; --cal-bar:#22C55E; --cal-ink:#14532D; }
+:root[data-theme='light'] .cal-red       { --cal-bg:#FEE2E2; --cal-bar:#EF4444; --cal-ink:#7F1D1D; }
+:root[data-theme='light'] .cal-gray      { --cal-bg:#F1F5F9; --cal-bar:#94A3B8; --cal-ink:#334155; }
+:root[data-theme='light'] .cal-none      { --cal-bg:#F1F0F5; --cal-bar:#A8A3B8; --cal-ink:#463F5A; }
+.cal-appt { background: var(--cal-bg); color: var(--cal-ink); border-inline-start: 4px solid var(--cal-bar); }
+.cal-appt.cal-none { border: 1.5px dashed var(--cal-bar); border-inline-start-width: 4px; }
+.cal-dot { background: var(--cal-bar); }
+.cal-closed { background: repeating-linear-gradient(-45deg, var(--surface-2) 0 6px, transparent 6px 12px); }

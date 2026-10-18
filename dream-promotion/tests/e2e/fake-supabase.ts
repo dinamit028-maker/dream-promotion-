@@ -17,6 +17,9 @@
  * 2.96 (5100): manual journal entries (journal_writer, journal_entry_create / _reverse — their checks, the number, the audit log;
  * the table read through its location policy, never written), their share of finance_summary ("manual"), of the reports and of
  * location_compare; and the person's own data (auth user_metadata — the favorites of the menu, PUT /auth/v1/user).
+ * 2.105 (5700): the calendar — an appointment's practitioner (an active one of the team, b_appointment_staff), no two appointments
+ * at once (per practitioner; without one — per location), every change in appointment_events (z_appointment_log — read only) and
+ * appointment_staff(); before the migration: none of it, and its column is missing.
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
@@ -105,10 +108,17 @@ export class FakeSupabase {
   userMeta: Row = {};
   /** 2.97: migration 5200 is in the database (appointment_deposit_receipts; the thresholds confirmed) — false: as before it */
   depositDocsFn = true;
+  /** 2.105: migration 5700 is in the database (appointments.staff_id, the team's practitioners and colours, appointment_events,
+   *  appointment_staff()) — false: as before it */
+  calendarTables = true;
+  /** the moments of the history: one after another, also within the same millisecond (clock_timestamp() in the database) */
+  private eventClock = 0;
   static CASH = ['bank_deposits', 'bank_deposit_cheques', 'bank_statements', 'bank_lines', 'bank_matches', 'cheque_reminders'];
   private serialEventId = 0;
   static ITEMS = ['catalog_serials', 'catalog_serial_events', 'price_lists', 'price_list_items', 'sku_series'];
-  constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string; today?: string }) {}
+  constructor(public tables: Tables, public opts: { businessId: string; userId: string; email: string; today?: string;
+    /** now (ms) — the browser's fixed clock in a test: the moments of the history (appointment_events) */
+    clock?: () => number }) {}
   /** today in Israel — or a fixed day (opts.today), for screens compared picture by picture */
   private today() { return this.opts.today ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(new Date()); }
   private log(action: string, entityId: string, details: Row) {
@@ -335,6 +345,7 @@ export class FakeSupabase {
     if (!['businesses', 'business_members', 'profiles'].includes(table)) r.business_id ??= this.opts.businessId;
     const placed = this.fillLocation(table, r);
     if (placed) return placed;
+    if (table === 'appointments') { const e = this.appointmentCheck(r, null); if (e) return e; }
     if (table === 'documents') {
       if (r.idempotency_key && this.t('documents').some((d) => d.idempotency_key === r.idempotency_key)) return 'duplicate key value violates unique constraint "documents_idempotency_uq"';
       if (r.doc_type === 330) {
@@ -480,6 +491,7 @@ export class FakeSupabase {
     return out;
   }
   private afterInsert(table: string, r: Row) {
+    if (table === 'appointments') this.appointmentLog(null, r);
     if (table === 'documents') {
       if (r.doc_type === 320 || r.doc_type === 400) for (const p of r.payments ?? []) {
         this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'in', amount: Number(p.amount), method: p.m ?? ({ 1: 'cash', 2: 'cheque', 3: 'card', 4: 'transfer' } as Row)[p.method] ?? 'other',
@@ -526,6 +538,7 @@ export class FakeSupabase {
     if (this.locationTables && FakeSupabase.LOCATED.includes(table) && 'location_id' in patch && (patch.location_id ?? null) !== (old.location_id ?? null)) {
       return 'location_fixed: a row keeps its location';
     }
+    if (table === 'appointments') { const e = this.appointmentCheck({ ...old, ...patch }, old); if (e) return e; }
     if (table === 'expenses') {
       if (old.file_sha256) delete patch.file_sha256;
       if (patch.duplicate_ack) patch.duplicate_ack = { of: patch.duplicate_ack.of, reasons: patch.duplicate_ack.reasons, by: this.opts.userId, at: now() };
@@ -590,6 +603,7 @@ export class FakeSupabase {
     return null;
   }
   private afterUpdate(table: string, old: Row, r: Row) {
+    if (table === 'appointments') this.appointmentLog(old, r);
     if (table === 'client_sessions' && r.cancelled_at && !old.cancelled_at) {
       for (const u of this.t('client_package_uses').filter((x) => x.session_id === r.id && !x.returned_at)) {
         Object.assign(u, { returned_at: now(), returned_by: this.opts.userId, return_reason: `הטיפול בוטל${r.cancel_reason ? `: ${r.cancel_reason}` : ''}` });
@@ -599,6 +613,58 @@ export class FakeSupabase {
       if (this.itemsTables) this.salesSerialsBack(r);
       for (const l of this.lines(r.items)) this.stock(l.id, l.qty, 'cancel', { sale: r.id, variant: l.variant, location: this.rowLocation(r), serial: true });
     }
+  }
+
+  // ---- 2.105: the calendar (migration 5700) -----------------------------------------------------------------------------------
+  /**
+   * b_appointment_staff and the overlap rules: a practitioner set or changed is an active one of the business's team; no two
+   * active appointments at once — of one practitioner, and (without one) in one location. Before 5700: 4600's rule — one
+   * appointment at a time in a location, practitioners or not.
+   */
+  private appointmentCheck(next: Row, old: Row | null): string | null {
+    if (this.calendarTables && next.staff_id && (!old || next.staff_id !== old.staff_id)) {
+      const s = this.t('lead_staff').find((x) => x.id === next.staff_id && x.business_id === next.business_id);
+      if (!s?.active || !s.practitioner) return 'appointment_staff: not an active practitioner of this business';
+    }
+    const open = (x: Row) => ['booked', 'confirmed'].includes(x.status ?? 'booked');
+    if (!open(next)) return null;
+    const from = Date.parse(next.start_at), to = Date.parse(next.end_at);
+    const meets = (x: Row) => x.id !== next.id && x.business_id === next.business_id && open(x) && Date.parse(x.start_at) < to && from < Date.parse(x.end_at);
+    const here = (x: Row) => this.rowLocation(x) === this.rowLocation(next);
+    const others = this.t('appointments').filter(meets);
+    if (!this.calendarTables) {
+      return others.some(here) ? 'conflicting key value violates exclusion constraint "appointments_location_no_overlap"' : null;
+    }
+    if (next.staff_id) {
+      return others.some((x) => x.staff_id === next.staff_id) ? 'conflicting key value violates exclusion constraint "appointments_staff_no_overlap"' : null;
+    }
+    return others.some((x) => !x.staff_id && here(x)) ? 'conflicting key value violates exclusion constraint "appointments_unassigned_no_overlap"' : null;
+  }
+  /** z_appointment_log: what changed, who (her name on the team, else the account's) and when — the database writes it, nobody else */
+  private appointmentLog(old: Row | null, r: Row) {
+    if (!this.calendarTables) return;
+    const staffName = (id: unknown) => (id ? this.t('lead_staff').find((x) => x.id === id)?.name ?? null : null);
+    const who = this.opts.userId;
+    const profile = this.t('profiles').find((p) => p.id === who);
+    const name = this.t('lead_staff').find((x) => x.business_id === r.business_id && x.member_user_id === who && x.active)?.name
+      || String(profile?.full_name ?? '').trim() || String(profile?.email ?? this.opts.email ?? '').trim();
+    const add = (kind: string, before: Row, after: Row) => this.t('appointment_events').push({ id: randomUUID(), business_id: r.business_id, appointment_id: r.id,
+      at: new Date((this.opts.clock?.() ?? Date.now()) + ++this.eventClock).toISOString(), actor: who, actor_name: name, kind, before, after });
+    if (!old) {
+      add('created', {}, { start: r.start_at, end: r.end_at, status: r.status ?? 'booked', source: r.source ?? 'manual', staff_id: r.staff_id ?? null, staff: staffName(r.staff_id) });
+      return;
+    }
+    const at = (v: unknown) => (v ? Date.parse(String(v)) : NaN);
+    if (at(old.start_at) !== at(r.start_at) || at(old.end_at) !== at(r.end_at)) add('moved', { start: old.start_at, end: old.end_at }, { start: r.start_at, end: r.end_at });
+    if ((old.staff_id ?? null) !== (r.staff_id ?? null)) {
+      add('staff', { staff_id: old.staff_id ?? null, staff: staffName(old.staff_id) }, { staff_id: r.staff_id ?? null, staff: staffName(r.staff_id) });
+    }
+    if (old.status !== r.status) add('status', { status: old.status }, { status: r.status });
+    const b: Row = {}, a: Row = {};
+    for (const f of ['name', 'phone', 'email', 'note', 'service_id', 'service_name', 'lead_id', 'location_id']) {
+      if ((old[f] ?? null) !== (r[f] ?? null)) { b[f] = old[f] ?? null; a[f] = r[f] ?? null; }
+    }
+    if (Object.keys(a).length) add('edited', b, a);
   }
 
   // ---- 2.91: locations (migration 4600) ---------------------------------------------------------------------------------------
@@ -1831,6 +1897,13 @@ export class FakeSupabase {
     if (cashed) return cashed;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
+    // 2.105 (migration 5700): the team for the calendar — names, colours, who is a practitioner; never a number
+    if (fn === 'appointment_staff') {
+      if (!this.calendarTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} without parameters in the schema cache` } };
+      const rows = this.t('lead_staff').filter((s) => s.business_id === this.opts.businessId)
+        .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)) || String(x.id).localeCompare(String(y.id)));
+      return { status: 200, body: rows.map((s) => ({ id: s.id, name: s.name, color: s.color ?? '', practitioner: Boolean(s.practitioner), member_user_id: s.member_user_id ?? null, active: s.active !== false })) };
+    }
     // 2.88 (migration 4300): what was really paid as a deposit for these appointments — never a test link
     if (fn === 'appointment_deposits') {
       const ids: string[] = args.p_ids ?? [];
@@ -2295,18 +2368,36 @@ export class FakeSupabase {
       if (!this.journalTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
     }
+    // 2.105 (5700): before the migration there is no such table, and no staff_id — asked for, or written; after it the history
+    // is read through the appointment, and written by the database only
+    if (table === 'appointment_events') {
+      if (!this.calendarTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+      if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
+    }
+    if (table === 'appointments' && !this.calendarTables) {
+      if ((url.searchParams.get('select') ?? '').split(',').map((c) => c.trim()).includes('staff_id')) return json(400, { code: '42703', message: 'column appointments.staff_id does not exist' });
+      if (body && (Array.isArray(body) ? body : [body]).some((b: Row) => b && 'staff_id' in b)) {
+        return json(400, { code: 'PGRST204', message: "Could not find the 'staff_id' column of 'appointments' in the schema cache" });
+      }
+    }
     // 2.91: the *_location_gate policies — a signed-in user reads and changes only the rows of the locations they see now
     const seen = FakeSupabase.LOCATED.includes(table) || table === 'journal_entries' ? this.locationFilter() : null;
     const all = this.t(table);
     const gate = this.stockGate(table);
-    const rows = seen ? all.filter((r) => seen.includes(this.rowLocation(r))) : gate ? all.filter(gate) : all;
+    let rows = seen ? all.filter((r) => seen.includes(this.rowLocation(r))) : gate ? all.filter(gate) : all;
+    if (table === 'appointment_events') {
+      const where = this.locationFilter();
+      const mine = new Set(this.t('appointments').filter((a) => !where || where.includes(this.rowLocation(a))).map((a) => a.id));
+      rows = rows.filter((e) => mine.has(e.appointment_id));
+    }
     const wantsObject = (headers.accept ?? '').includes('vnd.pgrst.object');
     const prefer = headers.prefer ?? '';
     const ret = (list: Row[], status = 200, extra: Record<string, string> = {}) => {
       if (wantsObject) return list.length === 1 ? json(status, list[0], extra) : json(406, { code: 'PGRST116', message: `JSON object requested, multiple (or no) rows returned (${list.length})` });
       return json(status, list, extra);
     };
-    const err = (message: string) => json(400, { code: message.includes('duplicate key') ? '23505' : 'P0001', message, details: null, hint: null });
+    const err = (message: string) => json(400, { code: message.includes('duplicate key') ? '23505' : message.includes('exclusion constraint') ? '23P01'
+      : message.startsWith('appointment_staff:') ? '23514' : 'P0001', message, details: null, hint: null });
 
     if (method === 'GET' || method === 'HEAD') {
       let list = rows.filter((r) => filtersOf(url).every((f) => f(r)));
