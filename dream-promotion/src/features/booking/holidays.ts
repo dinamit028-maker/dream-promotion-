@@ -113,6 +113,12 @@ export function holidaysIn(from: string, to: string): Map<string, Holiday[]> {
   return new Map([...out].sort(([a], [b]) => (a < b ? -1 : 1)));
 }
 
+/**
+ * a holiday's day (2.106 — the calendar's holiday colour, .cal-chag): a festival and its intermediate days, the state's days and
+ * the minor holidays; an eve, a fast or a memorial day has its name only
+ */
+export const chagDay = (list: Holiday[]) => list.some((h) => h.kind === 'chag' || h.kind === 'chol' || h.kind === 'national' || h.kind === 'minor');
+
 /** the festival days — no work — from one day to another: the ones "סגירה בחגים" closes */
 export const festivalDays = (from: string, to: string): string[] =>
   [...holidaysIn(from, to)].filter(([, list]) => list.some((h) => h.kind === 'chag')).map(([date]) => date).sort();

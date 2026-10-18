@@ -6,7 +6,7 @@ import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
 import { sendNewLead, whatsappConfigured, whatsappHealth } from '@/lib/server/whatsapp';
 import { NOTICE_COLUMNS, NOT_READY, leadsCaller, memberChoices, noticeView, routingView, type LeadsCaller } from '@/lib/server/lead-departments';
 import { NO_STAFF_PHONE, WA_NOT_CONNECTED, oneLine, staffPhone, testTemplateParams, waErrorCode, waErrorHint, type RuleKind } from '@/features/crm/lead-routing';
-import { isCalendarColor } from '@/features/booking/calendar';
+import { isCalendarColor, isPractitionerColor } from '@/features/booking/calendar';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -102,6 +102,8 @@ const uniqueMessage = (m: string) =>
       : /lead_departments_name_uq/.test(m) ? 'כבר יש מחלקה בשם הזה.' : 'הפרטים כבר קיימים.';
 /** 2.105: the calendar's columns (practitioner, color) and a person with no number — before migration 20261018005700 */
 const CALENDAR_NOT_READY = 'צריך קודם להריץ את מיגרציה 20261018005700 (יומן התורים והמטפלות).';
+// 2.106: the colours of Friday, Saturday and the holidays are the calendar's own (DAY_COLORS) — never a practitioner's
+const DAY_COLOR_TAKEN = 'הצבע הזה שמור ליומן (כתום — שישי, כחול — שבת, סגול — חגים). בחרו צבע אחר.';
 const calendarMissing = (e: { code?: string; message: string }) =>
   e.code === '23502' || e.code === 'PGRST204' || /practitioner|color|null value in column "phone"/.test(e.message);
 
@@ -137,6 +139,7 @@ export async function POST(req: Request) {
       if (body.practitioner !== undefined) row.practitioner = Boolean(body.practitioner);
       if (body.color !== undefined) {
         if (body.color !== '' && !isCalendarColor(body.color)) return bad('צבע לא מוכר.');
+        if (body.color !== '' && !isPractitionerColor(body.color)) return bad(DAY_COLOR_TAKEN);
         row.color = body.color;
       }
       const res = body.id
@@ -157,6 +160,7 @@ export async function POST(req: Request) {
       if (body.practitioner !== undefined) patch.practitioner = Boolean(body.practitioner);
       if (body.color !== undefined) {
         if (body.color !== '' && !isCalendarColor(body.color)) return bad('צבע לא מוכר.');
+        if (body.color !== '' && !isPractitionerColor(body.color)) return bad(DAY_COLOR_TAKEN);
         patch.color = body.color;
       }
       if (!Object.keys(patch).length) return bad('אין מה לשמור.');

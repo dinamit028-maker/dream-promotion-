@@ -4,18 +4,18 @@ import { cx } from '@/lib/utils';
 import { formatIL } from '@/lib/il-time';
 import { weekdayOf, type Hours } from './slots';
 import {
-  WEEKDAY_LETTERS, apptColor, apptCount, closedDay, dayOf, hourSpan, minuteOfDay, monthCells, place, placeLanes, practitioners, staffColor, viewDays,
-  weekendTone, type CalStaff,
+  WEEKDAY_LETTERS, apptColor, apptCount, closedDay, dayOf, dayTone, hourSpan, minuteOfDay, monthCells, place, placeLanes, practitioners, staffColor,
+  viewDays, weekendTone, type CalStaff,
 } from './calendar';
-import { holidaysIn, holidayTone, type Holiday } from './holidays';
+import { chagDay, holidaysIn, holidayTone, type Holiday } from './holidays';
 import type { Appointment } from './booking.service';
 
 /**
  * The calendar's views (2.105): a day — a column for each practitioner (or one column with lanes, when there are none); a week —
  * appointments at the same hour side by side, like Outlook; a month — up to three names a day and "+N", the chosen day's list
  * under it. Each appointment in its practitioner's colour (calendar.ts); a tap opens it, a tap on an empty hour books there.
- * 2.106: the holidays of Israel on every day they fall on (holidays.ts), Friday and Saturday in a colour each, and the business's
- * closed days (a holiday it closes, a vacation) striped like a day it has no hours.
+ * 2.106: the holidays of Israel on every day they fall on (holidays.ts); Friday, Saturday and a holiday in a colour each — open
+ * for appointments like any day; a weekday the business is closed (no hours, a vacation) striped.
  */
 
 type Base = {
@@ -103,8 +103,8 @@ export function DayView({ date, columns, ...p }: Base & { date: string; columns:
   const height = (span.to - span.from) * perMin;
   const unassigned = columns.length ? shown.filter((a) => !a.staffId) : [];
   const holidays = holidaysIn(date, date).get(date) ?? [];
-  const closed = closedDay(p.hours, p.closedDates, date) && !shown.length;
-  const tone = weekendTone(date);
+  const closed = closedDay(p.hours, p.closedDates, date, chagDay(holidays)) && !shown.length;
+  const tone = dayTone(date, chagDay(holidays));
   const cols: { id: string | null; title: ReactNode; list: Appointment[] }[] = columns.length
     ? columns.map((s) => ({
       id: s.id, list: shown.filter((a) => a.staffId === s.id),
@@ -181,10 +181,11 @@ export function WeekView({ date, ...p }: Base & { date: string }) {
           <div className="w-11 shrink-0" />
           {days.map((d) => {
             const n = shown.filter((a) => dayOf(a.start) === d).length;
-            const closed = closedDay(p.hours, p.closedDates, d) && !n;
+            const chag = chagDay(holidays.get(d) ?? []);
+            const closed = closedDay(p.hours, p.closedDates, d, chag) && !n;
             return (
-              <div key={d} className={cx('min-w-0 flex-1 border-s border-line px-1 py-2 text-center', weekendTone(d))}>
-                <b className={cx('block text-sm', d === p.today && 'cal-today')}>{WEEKDAY_LETTERS[weekdayOf(d)]} {Number(d.slice(8))}.{Number(d.slice(5, 7))}</b>
+              <div key={d} className={cx('min-w-0 flex-1 border-s border-line px-1 py-2 text-center', dayTone(d, chag))}>
+                <b className={cx('block text-sm', d === p.today && 'cal-accent')}>{WEEKDAY_LETTERS[weekdayOf(d)]} {Number(d.slice(8))}.{Number(d.slice(5, 7))}</b>
                 {holidays.size > 0 && (holidays.get(d)
                   ? <HolidayLine list={holidays.get(d)!} className="text-[11px] leading-4" />
                   : <span className="block h-4" aria-hidden="true" />)}
@@ -197,9 +198,10 @@ export function WeekView({ date, ...p }: Base & { date: string }) {
           <TimeColumn from={span.from} to={span.to} perMin={perMin} />
           {days.map((d) => {
             const list = shown.filter((a) => dayOf(a.start) === d);
-            const closed = closedDay(p.hours, p.closedDates, d) && !list.length;
+            const chag = chagDay(holidays.get(d) ?? []);
+            const closed = closedDay(p.hours, p.closedDates, d, chag) && !list.length;
             return (
-              <div key={d} className={cx('relative min-w-0 flex-1 cursor-copy border-s border-line', weekendTone(d), closed && 'cal-closed')} style={{ height }}
+              <div key={d} className={cx('relative min-w-0 flex-1 cursor-copy border-s border-line', dayTone(d, chag), closed && 'cal-closed')} style={{ height }}
                 onClick={(e) => p.onSlot(d, slotAt(e, span.from, perMin), null)}>
                 <HourGrid from={span.from} to={span.to} perMin={perMin} />
                 {placeLanes(list).map(({ item, lane, lanes: n }) => {
@@ -238,21 +240,22 @@ export function MonthView({ date, onPick, ...p }: Base & { date: string; onPick:
         <div className="grid grid-cols-7">
           {cells.map((c, i) => {
             const list = of(c.date);
-            const closed = c.inMonth && closedDay(p.hours, p.closedDates, c.date) && !list.length;
+            const chag = chagDay(holidays.get(c.date) ?? []);
+            const closed = c.inMonth && closedDay(p.hours, p.closedDates, c.date, chag) && !list.length;
             return (
               <button key={c.date} type="button" onClick={() => onPick(c.date)}
                 className={cx('flex min-h-[92px] min-w-0 flex-col justify-start overflow-hidden border-t border-line p-0.5 text-start sm:min-h-[110px] sm:p-1', i % 7 !== 0 && 'border-s',
-                  weekendTone(c.date), !c.inMonth && 'bg-surface-2 opacity-60', closed && 'cal-closed')}
+                  dayTone(c.date, chag), !c.inMonth && 'bg-surface-2 opacity-60', closed && 'cal-closed')}
                 aria-label={`${formatIL(`${c.date}T12:00:00Z`, { weekday: 'long', day: 'numeric', month: 'long' })}${names(c.date) ? ` · ${names(c.date)}` : ''}: ${apptCount(list.length)}`}>
                 <span className={cx('mb-0.5 inline-block min-w-6 self-start rounded-full px-1 text-center text-xs font-bold',
-                  c.date === date ? 'bg-primary text-white' : c.date === p.today ? 'cal-today' : 'text-ink-2')}>{Number(c.date.slice(8))}</span>
+                  c.date === date ? 'bg-primary text-white' : c.date === p.today ? 'cal-accent' : 'text-ink-2')}>{Number(c.date.slice(8))}</span>
                 <HolidayLine list={holidays.get(c.date) ?? []} wrap className="mb-0.5 px-0.5 text-[10px] leading-3 sm:text-[11px] sm:leading-4" />
                 {list.slice(0, 3).map((a) => (
                   <span key={a.id} className={cx('cal-appt mb-0.5 block truncate rounded px-1 text-[10.5px] font-bold sm:text-xs', `cal-${apptColor(p.staff, a.staffId)}`)}>
                     {a.name.split(' ')[0]}
                   </span>
                 ))}
-                {list.length > 3 && <span className="block px-0.5 text-[10.5px] font-bold text-primary" dir="ltr">+{list.length - 3}</span>}
+                {list.length > 3 && <span className="cal-accent block px-0.5 text-[10.5px] font-bold" dir="ltr">+{list.length - 3}</span>}
               </button>
             );
           })}

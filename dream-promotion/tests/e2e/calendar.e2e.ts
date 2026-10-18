@@ -11,15 +11,17 @@
  *   a day on the phone: a column per practitioner in her colour; an appointment given a practitioner, moved, moved to another
  *   practitioner — one practitioner twice at once is refused (the message says so, nothing changes); its history (who, what,
  *   when); a tap on an empty hour books there, with that column's practitioner and her free hours;
- *   a week and a month on the computer: the title, the days, Saturday closed, the next / previous / "היום", one practitioner
+ *   a week and a month on the computer: the title, the days, Saturday open (2.106), the next / previous / "היום", one practitioner
  *   or "רק שלי"; the list as before, with the practitioner;
  *   a member who is not the owner (Gal): sees everyone, moves Karin's appointment — the history says Gal; "מטפלות" read only;
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
  *   same views, no practitioner, no history, and "מטפלות" says what is missing;
- *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed by the business — Simchat Torah), the
- *   month of September (Rosh Hashana, Yom Kippur, the eves, the fast of Gedaliah), a day of Chol HaMoed and a closed holiday on
- *   the phone, the list (Hanukkah); Friday and Saturday in a colour each in every view; "סגירה בחגים" adds the coming year's
- *   festival days to the closed days (the ones there stay), saved with the hours, and the month shows them closed.
+ *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed to customers by the business —
+ *   Simchat Torah), the month of September (Rosh Hashana, Yom Kippur, the eves, the fast of Gedaliah), a day of Chol HaMoed and
+ *   Hoshana Raba on the phone, the list (Hanukkah); Friday, Saturday and a holiday in a colour each in every view — open for
+ *   appointments like any day (one booked on a Saturday with no hours, in the usual hours); the three colours are not offered to
+ *   a practitioner (and refused); "סגירה בחגים" adds the coming year's festival days to the closed days (the ones there stay),
+ *   saved with the hours — the calendar still books them.
  * The names of the customers are invented; the practitioners are the business's own (docs/STATUS.md, "4תה").
  *
  * Run: npx -y tsx tests/e2e/calendar.e2e.ts   (starts `next dev` on port 3237; needs the preinstalled Chromium)
@@ -32,7 +34,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { FakeSupabase, session, type Tables } from './fake-supabase';
 import { staffPhone, staffPhoneShow } from '../../src/features/crm/lead-routing';
-import { addDays, isCalendarColor } from '../../src/features/booking/calendar';
+import { addDays, isCalendarColor, isPractitionerColor } from '../../src/features/booking/calendar';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.E2E_CALENDAR_PORT ?? 3237);
@@ -161,6 +163,7 @@ function teamRoute(fake: FakeSupabase, owner: boolean, userId: string, posts: Ro
       // before 5700: no such columns, and the number may not be empty
       if (!ready && (!phone || b.practitioner !== undefined || b.color !== undefined)) return bad(CALENDAR_NOT_READY, 'not_ready', 409);
       if (b.color !== undefined && b.color !== '' && !isCalendarColor(b.color)) return bad('צבע לא מוכר.');
+      if (b.color !== undefined && b.color !== '' && !isPractitionerColor(b.color)) return bad('הצבע הזה שמור ליומן (כתום — שישי, כחול — שבת, סגול — חגים). בחרו צבע אחר.');
       if (b.memberUserId && team().some((s) => s.member_user_id === b.memberUserId)) return bad('החשבון הזה ב-Dream כבר משויך לאדם אחר בצוות.', 'duplicate', 409);
       team().push({ id: randomUUID(), business_id: BIZ, name: String(b.name).trim(), phone, active: true, member_user_id: b.memberUserId ?? null,
         created_at: clock.toISOString(), ...(ready ? { practitioner: Boolean(b.practitioner), color: b.color ?? '' } : {}) });
@@ -169,6 +172,7 @@ function teamRoute(fake: FakeSupabase, owner: boolean, userId: string, posts: Ro
       const s = team().find((x) => x.id === b.id && x.active);
       if (!s) return bad('האדם הזה לא נמצא ברשימת הצוות.', 'not_found', 404);
       if (b.color !== undefined && b.color !== '' && !isCalendarColor(b.color)) return bad('צבע לא מוכר.');
+      if (b.color !== undefined && b.color !== '' && !isPractitionerColor(b.color)) return bad('הצבע הזה שמור ליומן (כתום — שישי, כחול — שבת, סגול — חגים). בחרו צבע אחר.');
       if (b.practitioner !== undefined) s.practitioner = Boolean(b.practitioner);
       if (b.color !== undefined) s.color = b.color;
     } else return bad('פעולה לא מוכרת.');
@@ -318,6 +322,11 @@ async function main() {
       assert.equal(await mark.isChecked(), false);
       await mark.check();                                       // at once on the screen; the server's answer after
       await sagit.getByText('(בינתיים צבע אוטומטי)').waitFor();
+      // 2.106: orange, blue and violet are Friday's, Saturday's and the holidays' — never offered to a practitioner
+      const offered: string[] = [];
+      for (const r of await sagit.getByRole('radio').all()) offered.push(String(await r.getAttribute('aria-label')));
+      assert.deepEqual(offered, ['ורוד', 'טורקיז', 'צהוב', 'ירוק', 'אדום', 'אפור']);
+      await s.page.getByText('כתום, כחול וסגול שמורים ליומן — לשישי, לשבת ולחגים.', { exact: false }).waitFor();
       await sagit.getByRole('radio', { name: 'צהוב' }).click();
       await s.page.waitForFunction(() => document.querySelector('[aria-label="צהוב"][aria-checked="true"]'));
       assert.deepEqual(setupTables.lead_staff.map((x) => [x.name, x.practitioner, x.color]), [['שגית פרץ', true, 'yellow']]);
@@ -491,15 +500,15 @@ async function main() {
     // ------------------------------------------------------------------------------------------------- a computer --
     const w = await open(DESK, tables, owner);
     current = w.page;
-    await step('a week on the computer: Sunday to Saturday, Saturday closed; the next week and back', async () => {
+    await step('a week on the computer: Sunday to Saturday (Saturday open, in its colour); the next week and back', async () => {
       await goto(w.page, '/appointments');
       await w.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor({ timeout: 120_000 });
       await w.page.getByText('18–24 באוקטובר 2026').waitFor();
       await block(w.page, /^17:00–18:00 נגה ת\./).waitFor();
-      await expectHeads(w.page, ['א׳ 18.10 16 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 סגור']);
+      await expectHeads(w.page, ['א׳ 18.10 16 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 אין תורים']);
       const days = await heads(w.page);
       assert.deepEqual(days.map((x) => x.split(' ').slice(0, 2).join(' ')), ['א׳ 18.10', 'ב׳ 19.10', 'ג׳ 20.10', 'ד׳ 21.10', 'ה׳ 22.10', 'ו׳ 23.10', 'ש׳ 24.10']);
-      assert.equal(days[6], 'ש׳ 24.10 סגור');
+      assert.equal(days[6], 'ש׳ 24.10 אין תורים', 'a Saturday with no hours: open for appointments (2.106)');
       assert.equal(days[0], 'א׳ 18.10 16 תורים');
       await w.page.getByText('59 תורים בשבוע הזה').waitFor();
       // Sunday 09:00: Karin with דנה ל., Gal with ליאת ג. — side by side in the day's column
@@ -541,24 +550,40 @@ async function main() {
     const settingsOf = (fake: FakeSupabase) => (fake.tables.booking_settings as Row[])[0];
     (holidayTables.booking_settings as Row[])[0].closed_dates = ['2026-10-02'];
     /** the colour of each title of the week (or the day's practitioners) and of each column — Friday, Saturday, closed */
-    const tones = (p: any): Promise<string[]> => p.evaluate(`Array.from(document.querySelectorAll('main .flex.border-b > div.flex-1')).map(function (e) { return (e.className.match(/cal-(fri|sat)/) || [''])[0]; })`);
-    const cols = (p: any): Promise<string[]> => p.evaluate(`Array.from(document.querySelectorAll('main div.cursor-copy')).map(function (e) { return (e.className.match(/cal-(fri|sat|closed)/g) || []).join(' '); })`);
+    const tones = (p: any): Promise<string[]> => p.evaluate(`Array.from(document.querySelectorAll('main .flex.border-b > div.flex-1')).map(function (e) { return (e.className.match(/cal-(fri|sat|chag)/) || [''])[0]; })`);
+    const cols = (p: any): Promise<string[]> => p.evaluate(`Array.from(document.querySelectorAll('main div.cursor-copy')).map(function (e) { return (e.className.match(/cal-(fri|sat|chag|closed)/g) || []).join(' '); })`);
     const looks = async (l: any) => String(await l.getAttribute('class'));
     const hw = await open(DESK, holidayTables, owner);
     current = hw.page;
-    await step('the holidays on the computer: Friday and Saturday in their colours; the week of Sukkot (Hoshana Raba closed); September', async () => {
+    await step('the holidays on the computer: Friday, Saturday and a holiday in their colours; one booked on Saturday; the week of Sukkot; September', async () => {
       await goto(hw.page, '/appointments');
       await hw.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor({ timeout: 120_000 });
       await block(hw.page, /^18:00–18:45 רינת ס\./).waitFor();
-      // a week with no holiday: no line for one — the titles as before; Friday and Saturday in their colours, Saturday closed
-      await expectHeads(hw.page, ['א׳ 18.10 15 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 סגור']);
+      // a week with no holiday: no line for one — the titles as before; Friday and Saturday in their colours, Saturday open
+      await expectHeads(hw.page, ['א׳ 18.10 15 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 אין תורים']);
       assert.deepEqual(await tones(hw.page), ['', '', '', '', '', 'cal-fri', 'cal-sat']);
-      assert.deepEqual(await cols(hw.page), ['', '', '', '', '', 'cal-fri', 'cal-sat cal-closed']);
+      assert.deepEqual(await cols(hw.page), ['', '', '', '', '', 'cal-fri', 'cal-sat']);
+      // Saturday has no hours (the booking page's): the calendar books it in the business's usual hours (08:00–20:00 here)
+      const sat = hw.page.locator('main div.cursor-copy').nth(6);
+      const satBox = await sat.boundingBox();
+      await sat.click({ position: { x: satBox.width / 2, y: (10 * 60 - 8 * 60) * (48 / 60) + 6 } });
+      const nd = dialog(hw.page);
+      await nd.getByRole('button', { name: '10:00', exact: true, pressed: true }).waitFor();
+      assert.equal(await nd.getByRole('button', { name: '08:00', exact: true }).count(), 1, 'the usual hours, from the earliest opening');
+      assert.equal(await nd.getByText('אין שעות פנויות לפי שעות הפעילות.').count(), 0);
+      await nd.locator('input[list="crm-names"]').fill('טל א.');   // the name (with the contacts' list)
+      await nd.getByLabel('טלפון').fill('0521230011');
+      await nd.getByRole('button', { name: 'קביעת התור' }).click();
+      await block(hw.page, /^10:00–11:00 טל א\./).waitFor();
+      assert.equal(israelTime(appt(hw.fake, 'טל א.', '2026-10-24').start_at), '10:00');
+      await expectHeads(hw.page, ['א׳ 18.10 15 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 תור אחד']);
       for (let i = 0; i < 3; i++) await hw.page.getByRole('button', { name: 'הקודם' }).click();
       await hw.page.getByText('27 בספטמבר – 3 באוקטובר 2026').waitFor();
       await expectHeads(hw.page, ['א׳ 27.9 חול המועד סוכות 2 תורים', 'ב׳ 28.9 חול המועד סוכות תור אחד', 'ג׳ 29.9 חול המועד סוכות תור אחד',
-        'ד׳ 30.9 חול המועד סוכות תור אחד', 'ה׳ 1.10 חול המועד סוכות תור אחד', 'ו׳ 2.10 הושענא רבה סגור', 'ש׳ 3.10 שמחת תורה סגור']);
-      assert.deepEqual(await cols(hw.page), ['', '', '', '', '', 'cal-fri cal-closed', 'cal-sat cal-closed'], 'Hoshana Raba: one of the business\'s closed days');
+        'ד׳ 30.9 חול המועד סוכות תור אחד', 'ה׳ 1.10 חול המועד סוכות תור אחד', 'ו׳ 2.10 הושענא רבה אין תורים', 'ש׳ 3.10 שמחת תורה אין תורים']);
+      // every day of it a holiday: the holiday's colour over Friday's and Saturday's; Hoshana Raba, closed to customers, open here
+      assert.deepEqual(await tones(hw.page), Array(7).fill('cal-chag'));
+      assert.deepEqual(await cols(hw.page), Array(7).fill('cal-chag'), 'never striped: open for appointments');
       assert.match(await looks(hw.page.getByText('שמחת תורה', { exact: true })), /\bcal-hol\b/, 'a festival stands out');
       await block(hw.page, /^10:00–11:00 דנה ל\./).waitFor();
       await shot(hw.page, 'cal-10-sukkot-week-desktop.png', false);
@@ -575,6 +600,10 @@ async function main() {
       assert.deepEqual(letters, ['', '', '', '', '', 'cal-fri', 'cal-sat'], 'the letters of Friday and Saturday');
       assert.match(await looks(hw.page.getByRole('button', { name: /^יום שישי, 18 בספטמבר: / })), /\bcal-fri\b/);
       assert.match(await looks(hw.page.getByRole('button', { name: /^יום שבת, 19 בספטמבר: / })), /\bcal-sat\b/);
+      assert.match(await looks(hw.page.getByRole('button', { name: /^יום שבת, 12 בספטמבר · ראש השנה: / })), /\bcal-chag\b/, 'a holiday on a Saturday: the holiday\'s colour');
+      assert.match(await looks(hw.page.getByRole('button', { name: /^יום שני, 21 בספטמבר · יום כיפור: / })), /\bcal-chag\b/);
+      assert.doesNotMatch(await looks(hw.page.getByRole('button', { name: /^יום שני, 14 בספטמבר · צום גדליה: / })), /\bcal-(chag|fri|sat|closed)\b/, 'a fast: its name only');
+      assert.doesNotMatch(await looks(hw.page.getByRole('button', { name: /^יום שישי, 25 בספטמבר · ערב סוכות: / })), /\bcal-chag\b/, 'an eve: Friday\'s colour');
       await hw.page.getByRole('button', { name: /^יום שבת, 12 בספטמבר · ראש השנה: / }).click();
       await hw.page.getByText('יום שבת, 12 בספטמבר · ראש השנה · אין תורים').waitFor();
       await shot(hw.page, 'cal-11-september-month-desktop.png', false);
@@ -597,7 +626,7 @@ async function main() {
 
     const hp = await open(PHONE, holidayTables, owner);
     current = hp.page;
-    await step('the holidays on the phone: September; a day of Chol HaMoed; Hoshana Raba closed; "סגירה בחגים" in the opening hours', async () => {
+    await step('the holidays on the phone: September; a day of Chol HaMoed; Hoshana Raba open; "סגירה בחגים" in the opening hours', async () => {
       await goto(hp.page, '/appointments');
       await block(hp.page, /^18:00–18:45 רינת ס\./).waitFor({ timeout: 120_000 });
       await hp.page.getByRole('tab', { name: 'חודש' }).click();
@@ -611,15 +640,16 @@ async function main() {
       await hp.page.getByRole('tab', { name: 'יום' }).click();
       await hp.page.locator('main p', { hasText: /^חול המועד סוכות$/ }).waitFor();
       await expectHeads(hp.page, ['שגית תור אחד', 'קרין אין תורים', 'גל אין תורים']);
-      assert.deepEqual(await cols(hp.page), ['', '', ''], 'a Monday: no colour, open');
+      assert.deepEqual(await cols(hp.page), ['', '', ''], 'the colour on the day\'s grid, not on each column; open');
+      assert.equal(await hp.page.locator('main div.relative.flex.cal-chag').count(), 1, 'Chol HaMoed: the holiday\'s colour');
       await fits(hp.page, 'a day of Chol HaMoed');
       await screen(hp.page, 'cal-14-chol-hamoed-day-phone.png', '[role=tablist]');
       for (let i = 0; i < 4; i++) await hp.page.getByRole('button', { name: 'הבא' }).click();
       await hp.page.getByText('יום שישי, 2 באוקטובר', { exact: true }).waitFor();
-      await hp.page.locator('main p', { hasText: /^הושענא רבה · סגור$/ }).waitFor();
-      assert.equal(await hp.page.locator('main .flex.border-b.cal-fri').count(), 1, 'Friday: the practitioners\' titles in its colour');
-      assert.deepEqual(await cols(hp.page), ['cal-closed', 'cal-closed', 'cal-closed'], 'closed: striped (over Friday\'s colour)');
-      assert.equal(await hp.page.locator('main div.relative.flex.cal-fri').count(), 1);
+      await hp.page.locator('main p', { hasText: /^הושענא רבה$/ }).waitFor();
+      assert.equal(await hp.page.locator('main .flex.border-b.cal-chag').count(), 1, 'a holiday on a Friday: the holiday\'s colour on the titles');
+      assert.deepEqual(await cols(hp.page), ['', '', ''], 'closed to customers (one of the closed days), open on the calendar: not striped');
+      assert.equal(await hp.page.locator('main div.relative.flex.cal-chag').count(), 1);
       // the opening hours: "סגירה בחגים" — the coming year's festival days join the closed days; saved only with "שמירת שעות"
       await hp.page.getByRole('button', { name: 'שעות פעילות', exact: true }).click();
       const chips = (): Promise<string[]> => hp.page.evaluate(`Array.from(document.querySelectorAll('main button[aria-label$="— הסרה"]')).map(function (e) { return e.getAttribute('aria-label'); })`);
@@ -643,8 +673,11 @@ async function main() {
       await hp.page.getByText('אוקטובר 2026').waitFor();
       for (let i = 0; i < 6; i++) await hp.page.getByRole('button', { name: 'הבא' }).click();
       await hp.page.getByText('אפריל 2027').waitFor();
-      assert.match(await looks(hp.page.getByRole('button', { name: /^יום חמישי, 22 באפריל · פסח: אין תורים$/ })), /\bcal-closed\b/);
-      assert.doesNotMatch(await looks(hp.page.getByRole('button', { name: /^יום רביעי, 21 באפריל · ערב פסח: אין תורים$/ })), /\bcal-closed\b/);
+      // closed to customers only: on the calendar Pesach is open, in the holiday's colour; its eve as any Wednesday
+      const pesach = await looks(hp.page.getByRole('button', { name: /^יום חמישי, 22 באפריל · פסח: אין תורים$/ }));
+      assert.match(pesach, /\bcal-chag\b/);
+      assert.doesNotMatch(pesach, /\bcal-closed\b/);
+      assert.doesNotMatch(await looks(hp.page.getByRole('button', { name: /^יום רביעי, 21 באפריל · ערב פסח: אין תורים$/ })), /\bcal-(closed|chag)\b/);
       await hp.page.getByRole('tab', { name: 'יום' }).click();
     });
     await hp.ctx.close();

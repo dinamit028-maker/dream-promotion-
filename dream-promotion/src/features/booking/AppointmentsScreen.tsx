@@ -19,9 +19,11 @@ import { ils } from '@/features/register/money';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { atLocation, locationTag } from '@/features/locations/locations';
 import { useLocations } from '@/features/locations/store';
-import { CAL_VIEWS, addDays, apptCount, dayOf, minuteOfDay, practitioners, shiftDate, staffColor, viewRange, viewTitle, weekendTone, type CalStaff, type CalView } from './calendar';
+import {
+  CAL_VIEWS, addDays, apptCount, calendarHours, dayOf, dayTone, minuteOfDay, practitioners, shiftDate, staffColor, viewRange, viewTitle, type CalStaff, type CalView,
+} from './calendar';
 import { DayView, HolidayLine, MonthView, WeekView } from './CalendarViews';
-import { festivalDays, holidaysIn, type Holiday } from './holidays';
+import { chagDay, festivalDays, holidaysIn, type Holiday } from './holidays';
 import { AppointmentSheet } from './AppointmentSheet';
 import { StaffTab } from './StaffTab';
 
@@ -42,8 +44,9 @@ const hm = (iso: string) => israelParts(new Date(iso)).time;
  * 2.105 (migration 5700): a calendar like Outlook's — a day (a column for each practitioner), a week, a month and the list; a
  * practitioner and her colour for every appointment ("מטפלות"), anyone of the business moves any appointment, and every change
  * is in its history. Before the migration: the same views, every appointment without a practitioner.
- * 2.106: the holidays of Israel in every view, Friday and Saturday in a colour each, and "סגירה בחגים" in the opening hours —
- * the coming year's festival days added to the closed days (only when pressed, and saved with the hours).
+ * 2.106: the holidays of Israel in every view; Friday, Saturday and the holidays in a colour each, open for appointments like any
+ * day; and "סגירה בחגים" in the opening hours — the coming year's festival days closed on the booking page (only when pressed,
+ * saved with the hours; the calendar books them as before).
  */
 export function AppointmentsScreen() {
   const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
@@ -302,7 +305,7 @@ export function AppointmentsScreen() {
               <div className="grid gap-5">
                 {Object.entries(byDay).map(([d, list]) => (
                   <section key={d}>
-                    <h3 className={cx('mb-2 rounded-lg px-2 py-1 text-sm font-bold', weekendTone(d), d === todayIL ? 'cal-today' : 'text-ink-2')}>
+                    <h3 className={cx('mb-2 rounded-lg px-2 py-1 text-sm font-bold', dayTone(d, chagDay(listHolidays.get(d) ?? [])), d === todayIL ? 'cal-accent' : 'text-ink-2')}>
                       {d === todayIL ? 'היום · ' : ''}{formatIL(israelToIso(d, '12:00'), { weekday: 'long', day: 'numeric', month: 'long' })}
                       {listHolidays.has(d) && <> · <HolidayLine list={listHolidays.get(d)!} inline /></>}
                     </h3>
@@ -544,7 +547,7 @@ function HoursTab({ settings, onChange, onSave }: { settings: BookingSettings; o
             </Chip>
           ))}
         </div>
-        <p className="mt-2 text-xs text-muted">"סגירה בחגים" מוסיף את ימי החג של השנה הקרובה: ראש השנה, יום כיפור, סוכות, שמחת תורה, פסח, שביעי של פסח ושבועות. בימים הסגורים אי אפשר לקבוע תור בדף ההזמנה. לחיצה על יום מורידה אותו.</p>
+        <p className="mt-2 text-xs text-muted">"סגירה בחגים" סוגר לקביעה בדף ההזמנה (ללקוחות) את ימי החג של השנה הקרובה: ראש השנה, יום כיפור, סוכות, שמחת תורה, פסח, שביעי של פסח ושבועות. ביומן עצמו קובעים בהם תורים כרגיל. לחיצה על יום מורידה אותו.</p>
         {holidayNote && <p className="mt-1 text-sm font-semibold text-primary" role="status">{holidayNote}</p>}
       </Field>
       <Button variant="primary" onClick={onSave}>שמירת שעות</Button>
@@ -590,8 +593,11 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const service = services.find((s) => s.id === serviceId) ?? services[0];
-  // the owner may book outside the public rules (no notice, any open day); overlaps are still blocked
-  const slots = useMemo(() => service ? freeSlots(date, service.minutes, { ...settings, minNoticeMinutes: 0, maxDaysAhead: 365, closedDates: [] }, here.map((b) => ({ start: b.start, end: b.end }))) : [], [service, date, settings, here]);
+  // the business books outside the public rules (no notice, any day — 2.106: Friday, Saturday and the holidays too, in the usual
+  // hours when they have none); overlaps are still blocked
+  const slots = useMemo(() => service ? freeSlots(date, service.minutes, {
+    ...settings, hours: calendarHours(settings.hours, date, chagDay(holidaysIn(date, date).get(date) ?? [])), minNoticeMinutes: 0, maxDaysAhead: 365, closedDates: [],
+  }, here.map((b) => ({ start: b.start, end: b.end }))) : [], [service, date, settings, here]);
   useEffect(() => {
     if (!open) return;
     setErr(null);

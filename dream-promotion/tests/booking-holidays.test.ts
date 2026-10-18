@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { festivalDays, hebrewDate, holidaysIn, holidayTone, leapYear, type HolidayKind } from '../src/features/booking/holidays';
+import { chagDay, festivalDays, hebrewDate, holidaysIn, holidayTone, leapYear, type HolidayKind } from '../src/features/booking/holidays';
 import { addDays } from '../src/features/booking/calendar';
 import { weekdayOf } from '../src/features/booking/slots';
 
@@ -161,6 +161,15 @@ test('a range of any size reads the same days — a week, one day, a day moved f
   assert.equal(holidaysIn('', '2026-01-01').size, 0);
   assert.equal(holidaysIn('2026-13-01', '2027-01-01').size, 0);
   assert.equal(holidaysIn('2027-01-01', '2026-01-01').size, 0, 'backwards: nothing');
+});
+
+test('a holiday\'s day — the calendar\'s holiday colour: the festivals and their intermediate days, the state\'s days, the minor holidays', () => {
+  const day = (date: string) => chagDay(holidaysIn(date, date).get(date) ?? []);
+  for (const date of ['2026-09-12', '2026-09-21', '2026-09-28', '2026-10-02', '2026-10-03', '2026-12-06', '2027-03-23', '2027-05-12', '2027-05-25', '2027-06-04'])
+    assert.equal(day(date), true, date);
+  // an eve, a fast, a memorial day: the name only
+  for (const date of ['2026-09-11', '2026-09-14', '2026-09-20', '2026-12-20', '2027-03-22', '2027-05-04', '2027-05-11', '2027-08-12', '2026-10-18'])
+    assert.equal(day(date), false, date);
 });
 
 test('"סגירה בחגים": the festival days of the coming year, nothing else', () => {

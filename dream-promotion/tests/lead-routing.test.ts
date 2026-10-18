@@ -540,6 +540,15 @@ test('2.105: a practitioner of the calendar on the team — her colour, and no W
   assert.equal(set.status, 200);
   assert.deepEqual([dana.practitioner, dana.color, dana.phone, dana.name], [true, 'yellow', '972501111111', 'דנה']);
   assert.equal((await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'staff.calendar', id: 'dana', color: 'purple' })).status, 400, 'a colour from the list only');
+  // 2.106: the colours of Friday, Saturday and the holidays are the calendar's own — refused, and nothing changes
+  for (const color of ['orange', 'blue', 'violet']) {
+    const r = await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'staff.calendar', id: 'dana', color });
+    assert.equal(r.status, 400, color);
+    assert.match(String(r.body.message), /שמור ליומן/);
+  }
+  assert.equal(dana.color, 'yellow');
+  assert.equal((await call(route, 'POST', '/api/leads/departments', 'owner', { action: 'staff.save', name: 'נועה', practitioner: true, color: 'violet' })).status, 400, 'a new one too');
+  assert.equal(tables.lead_staff.some((s) => s.name === 'נועה'), false);
   assert.equal((await call(route, 'POST', '/api/leads/departments', 'u-dana', { action: 'staff.calendar', id: 'dana', color: 'pink' })).status, 403, 'the owner only');
   // a member sees who is a practitioner and her colour — never a number
   const seen = await call(route, 'GET', '/api/leads/departments', 'u-dana');

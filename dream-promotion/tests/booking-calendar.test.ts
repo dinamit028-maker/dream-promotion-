@@ -8,8 +8,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  CALENDAR_COLORS, addDays, apptColor, apptCount, closedDay, dayOf, eventLine, eventWhen, eventWho, hourSpan, minuteOfDay, monthCells, place, placeLanes,
-  practitioners, shiftDate, shortDay, staffColor, viewDays, viewRange, viewTitle, weekStart, weekendTone, type CalStaff,
+  CALENDAR_COLORS, DAY_COLORS, PRACTITIONER_COLORS, addDays, apptColor, apptCount, calendarHours, closedDay, dayOf, dayTone, eventLine, eventWhen, eventWho,
+  hourSpan, isPractitionerColor, minuteOfDay, monthCells, place, placeLanes, practitioners, shiftDate, shortDay, staffColor, viewDays, viewRange, viewTitle,
+  weekStart, weekendTone, type CalStaff,
 } from '../src/features/booking/calendar';
 
 test('the colours: the same list as the database\'s check (migration 5700)', () => {
@@ -32,9 +33,9 @@ test('a practitioner\'s colour: hers; else one nobody has, by her place; no prac
   ];
   assert.equal(staffColor(staff, 'sagit'), 'yellow');
   assert.equal(staffColor(staff, 'karin'), 'pink');
-  // gal and noa have none: the first colours nobody took (pink, yellow and violet are taken)
+  // gal and noa have none: the first practitioners' colours nobody took (pink and yellow are taken; violet is a day's — 2.106)
   assert.equal(staffColor(staff, 'gal'), 'turquoise');
-  assert.equal(staffColor(staff, 'noa'), 'orange');
+  assert.equal(staffColor(staff, 'noa'), 'green');
   assert.equal(staffColor(staff, null), 'none');
   assert.equal(staffColor(staff, 'unknown'), 'turquoise', 'an id the team does not know: still a colour, never a crash');
   assert.deepEqual(practitioners(staff).map((s) => s.id), ['sagit', 'karin', 'gal', 'noa'], 'marked and active, in the team\'s order');
@@ -135,12 +136,46 @@ test('the history: each line about the appointment — the same whoever did it',
   assert.equal(eventWhen('2026-10-18T05:52:00Z'), '18.10, 08:52');
 });
 
-test('2.106: Friday and Saturday a colour each (a date or a weekday); a closed day — no hours on its weekday, or one of the closed days', () => {
+test('2.106: the colours of Friday, Saturday and a holiday are the calendar\'s own — never a practitioner\'s', () => {
+  assert.deepEqual(DAY_COLORS, { fri: 'orange', sat: 'blue', chag: 'violet' });
+  assert.deepEqual(PRACTITIONER_COLORS.map((c) => c.key), ['pink', 'turquoise', 'yellow', 'green', 'red', 'gray']);
+  for (const c of Object.values(DAY_COLORS)) assert.equal(isPractitionerColor(c), false, c);
+  assert.equal(isPractitionerColor('pink'), true);
+  assert.equal(isPractitionerColor('purple'), false, 'not on the list at all');
+  // one who had a day's colour before (the database still allows it) is shown in a free practitioner's colour
+  const team: CalStaff[] = [
+    { id: 'a', name: 'א', color: 'pink', practitioner: true, memberUserId: null, active: true },
+    { id: 'b', name: 'ב', color: 'blue', practitioner: true, memberUserId: null, active: true },
+    { id: 'c', name: 'ג', color: 'orange', practitioner: true, memberUserId: null, active: true },
+    { id: 'd', name: 'ד', color: '', practitioner: true, memberUserId: null, active: true },
+  ];
+  assert.deepEqual(team.map((s) => staffColor(team, s.id)), ['pink', 'turquoise', 'yellow', 'green']);
+  // however many practitioners there are, never a day's colour
+  const many: CalStaff[] = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, name: `${i}`, color: CALENDAR_COLORS[i % 9].key, practitioner: true, memberUserId: null, active: true }));
+  for (const s of many) assert.ok(isPractitionerColor(staffColor(many, s.id)), `${s.color} → ${staffColor(many, s.id)}`);
+});
+
+test('2.106: a day\'s colour — a holiday\'s over Friday\'s or Saturday\'s; Friday, Saturday and the holidays are never closed on the calendar', () => {
   assert.deepEqual(['2026-10-18', '2026-10-22', '2026-10-23', '2026-10-24'].map(weekendTone), ['', '', 'cal-fri', 'cal-sat']);
   assert.deepEqual([0, 4, 5, 6].map(weekendTone), ['', '', 'cal-fri', 'cal-sat']);
-  const hours = { 0: [['09:00', '17:00']], 5: [['09:00', '13:00']] } as Record<string, [string, string][]>;
+  assert.deepEqual([dayTone('2026-10-23'), dayTone('2026-10-24'), dayTone('2026-10-03', true), dayTone('2026-09-28', true)], ['cal-fri', 'cal-sat', 'cal-chag', 'cal-chag']);
+  const hours = { 0: [['09:00', '17:00']], 1: [['10:00', '19:00']], 5: [['09:00', '13:00']] } as Record<string, [string, string][]>;
   assert.equal(closedDay(hours, [], '2026-10-18'), false, 'a Sunday with hours');
-  assert.equal(closedDay(hours, [], '2026-10-24'), true, 'a Saturday with none');
-  assert.equal(closedDay(hours, ['2026-10-23'], '2026-10-23'), true, 'a Friday with hours, closed that day');
-  assert.equal(closedDay(hours, ['2026-10-23'], '2026-10-30'), false, 'the next Friday is open');
+  assert.equal(closedDay(hours, [], '2026-10-20'), true, 'a Tuesday with none');
+  assert.equal(closedDay(hours, ['2026-10-18'], '2026-10-18'), true, 'a Sunday with hours, closed that day (a vacation)');
+  assert.equal(closedDay(hours, [], '2026-10-24'), false, 'a Saturday with no hours: open on the calendar');
+  assert.equal(closedDay(hours, ['2026-10-23'], '2026-10-23'), false, 'a Friday closed to customers: open on the calendar');
+  assert.equal(closedDay(hours, ['2027-04-22'], '2027-04-22', true), false, 'a holiday closed to customers (Pesach, a Thursday): open on the calendar');
+  assert.equal(closedDay(hours, [], '2026-10-20', true), false, 'a holiday on a weekday with no hours: open');
+});
+
+test('2.106: the hours a new appointment is offered — on a Friday, a Saturday or a holiday with none, the business\'s usual day', () => {
+  const hours = { 0: [['09:00', '17:00']], 1: [['10:00', '19:00']], 5: [['09:00', '13:00']] } as Record<string, [string, string][]>;
+  assert.equal(calendarHours(hours, '2026-10-18'), hours, 'a Sunday: its own');
+  assert.equal(calendarHours(hours, '2026-10-23'), hours, 'a Friday with hours: its own');
+  assert.deepEqual(calendarHours(hours, '2026-10-24')['6'], [['09:00', '19:00']], 'a Saturday with none: the earliest opening to the latest closing');
+  assert.equal(calendarHours(hours, '2026-10-20'), hours, 'a Tuesday with none, not a holiday: as the business set it');
+  assert.deepEqual(calendarHours(hours, '2026-10-20', true)['2'], [['09:00', '19:00']], 'a holiday on that Tuesday: the usual day');
+  assert.deepEqual(calendarHours({}, '2026-10-24')['6'], [['09:00', '19:00']], 'no hours at all: 09:00–19:00');
+  assert.deepEqual(calendarHours(hours, '2026-10-24')['0'], [['09:00', '17:00']], 'the other days stay');
 });
