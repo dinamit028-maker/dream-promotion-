@@ -6,7 +6,7 @@ import { NEW_LEAD_TEMPLATE, parseWaError, type WaError } from '@/features/crm/le
  *   WHATSAPP_PHONE_NUMBER_ID   the sending number's id         WHATSAPP_WABA_ID   its WhatsApp Business Account (template state)
  *   WHATSAPP_TOKEN             a System User's permanent token — never in the code, never in a log, never in a URL (a header)
  * Without the token (or the number's id) nothing is sent: every caller gets "not_connected", and the screens say
- * "וואטסאפ לא מחובר". Only the template new_lead is sent, and only to a number of lead_staff (the callers in lead-routing.ts
+ * "וואטסאפ לא מחובר". Only the team's template (NEW_LEAD_TEMPLATE — lead_assigned) is sent, and only to a number of lead_staff (the callers in lead-routing.ts
  * pass a person of the team; nothing here takes a customer's phone).
  */
 const graph = () => `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || 'v23.0'}`;
@@ -38,7 +38,7 @@ async function call(path: string, init: RequestInit, timeoutMs: number): Promise
   }
 }
 
-/** new_lead with its 5 values to one number of the team (international digits) */
+/** the team's template with its 5 values to one number of the team (international digits) */
 export async function sendNewLead(to: string, params: string[], timeoutMs = 8_000): Promise<WaSend> {
   if (!whatsappConfigured()) return { ok: false, http: 0, error: ours('not_connected', 'WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID are not set'), definite: true, body: null };
   if (!/^[1-9]\d{7,14}$/.test(to)) return { ok: false, http: 0, error: ours('invalid_recipient', 'not an international number'), definite: true, body: null };
@@ -66,7 +66,7 @@ export type WaHealth = {
   template?: { status: string; language: string; category: string } | { missing: true } | { error: WaError };
 };
 
-/** for the owner's screen: the sending number and the state of new_lead in Hebrew (pending / approved / rejected) */
+/** for the owner's screen: the sending number, and the state and category of the template in Hebrew (pending / approved / rejected) */
 export async function whatsappHealth(): Promise<WaHealth> {
   if (!whatsappConfigured()) return { connected: false };
   const [num, tpl] = await Promise.all([
