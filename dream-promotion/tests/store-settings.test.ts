@@ -7,8 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   allTags, cleanGa4, cleanGscCode, collectionProblem, domainRows, hasPlaceholders, linkOk, linkTargets, matchesTags, menuProblem,
-  missingFromError, normalizeDomain, normalizeWhatsapp, pageProblem, policyDraft, policySlug, REQUIRED_POLICIES, suggestSlug,
-  toCollection, toDomain, toStore, validEmail, validPhone, CHECKLIST,
+  missingFromError, normalizeDomain, normalizeWhatsapp, operatorColumns, operatorLine, pageProblem, policyDraft, policySlug, REQUIRED_POLICIES,
+  suggestSlug, toCollection, toDomain, toStore, validEmail, validPhone, CHECKLIST, type StoreOperator,
 } from '../src/features/store/store';
 
 test('a domain: what the owner types → the name itself; a bare name gets www beside it', () => {
@@ -140,4 +140,45 @@ test('rows from the database → the screen\'s shape (missing values are empty, 
   assert.deepEqual(c.tags, ['א'], 'only text tags');
   assert.deepEqual(c.items.map((x) => x.itemId), ['i1', 'i2'], 'in their order, only this collection\'s');
   assert.equal(c.position, 2);
+});
+
+/**
+ * The company that runs the site (2.103, migration 5500 — tests/sql/store-operator.check.sql checks the database's side): the line
+ * at the bottom of the site shows it instead of the business's details; the documents stay the business's.
+ */
+const op = (o: Partial<StoreOperator>): StoreOperator => ({ name: '', number: '', kind: '', address: '', country: '', ...o });
+
+test('the company that runs the site: an American company without its number — its name, address and country', () => {
+  const r = operatorColumns(op({ name: '  Good Luck Forever   Inc. ', address: '221 Rutgers St,\n Maplewood, NJ 07040', country: 'US' }));
+  assert.deepEqual(r, { ok: true, cols: { legal_name: 'Good Luck Forever Inc.', legal_number: '', legal_number_kind: '', legal_address: '221 Rutgers St, Maplewood, NJ 07040', legal_country: 'US' } });
+  assert.equal(operatorLine(op({ name: 'Good Luck Forever Inc.', address: '221 Rutgers St, Maplewood, NJ 07040' })), 'Good Luck Forever Inc. · 221 Rutgers St, Maplewood, NJ 07040');
+});
+
+test('its number in the usual form: an EIN 12-3456789, ח.פ. / ע.מ. nine digits — with its kind', () => {
+  const ein = operatorColumns(op({ name: 'Good Luck Forever Inc.', kind: 'ein', number: '12 3456789' }));
+  assert.ok(ein.ok && ein.cols.legal_number === '12-3456789' && ein.cols.legal_number_kind === 'ein');
+  assert.equal(operatorLine(op({ name: 'X Inc.', kind: 'ein', number: '12-3456789', address: 'NJ' })), 'X Inc. · EIN 12-3456789 · NJ');
+  const il = operatorColumns(op({ name: 'חברה בע"מ', kind: 'company', number: '51-234567-8' }));
+  assert.ok(il.ok && il.cols.legal_number === '512345678');
+  assert.match(operatorColumns(op({ name: 'X', kind: 'ein', number: '123' })).ok ? '' : (operatorColumns(op({ name: 'X', kind: 'ein', number: '123' })) as any).error, /12-3456789/);
+  assert.match((operatorColumns(op({ name: 'X', kind: 'dealer', number: '12345' })) as any).error, /ע\.מ\. — 9 ספרות/);
+  assert.match((operatorColumns(op({ name: 'X', number: '512345678' })) as any).error, /סוג המספר/, 'a number needs its kind');
+  const kindOnly = operatorColumns(op({ name: 'X', kind: 'ein' }));
+  assert.ok(kindOnly.ok && kindOnly.cols.legal_number_kind === '', 'a kind without a number — nothing shown, nothing kept');
+});
+
+test('no name: the business\'s details — and nothing else may be left filled; the country only from the list', () => {
+  assert.deepEqual(operatorColumns(op({})), { ok: true, cols: { legal_name: '', legal_number: '', legal_number_kind: '', legal_address: '', legal_country: '' } });
+  assert.match((operatorColumns(op({ address: 'NJ' })) as any).error, /בלי שם החברה/);
+  assert.match((operatorColumns(op({ number: '12-3456789', kind: 'ein' })) as any).error, /בלי שם החברה/);
+  assert.match((operatorColumns(op({ name: 'X', country: 'usa' })) as any).error, /מדינה מהרשימה/);
+  assert.match((operatorColumns(op({ name: 'x'.repeat(121) })) as any).error, /120/);
+  assert.equal(operatorLine(op({ address: 'NJ' })), '', 'no name — no line of its own');
+});
+
+test('a store\'s row → its company (empty before the migration; an unknown kind is none)', () => {
+  assert.deepEqual(toStore({ id: 's', business_id: 'b', name: 'X' }).operator, { name: '', number: '', kind: '', address: '', country: '' });
+  assert.deepEqual(toStore({ id: 's', business_id: 'b', name: 'X', legal_name: 'G Inc.', legal_number: '12-3456789', legal_number_kind: 'ein', legal_address: 'NJ', legal_country: 'US' }).operator,
+    { name: 'G Inc.', number: '12-3456789', kind: 'ein', address: 'NJ', country: 'US' });
+  assert.equal(toStore({ id: 's', business_id: 'b', name: 'X', legal_number_kind: 'vat' }).operator.kind, '');
 });

@@ -4,6 +4,7 @@ import { paylinksCron } from '@/lib/server/paylinks';
 import { recurringCron } from '@/lib/server/recurring';
 import { remindersCron } from '@/lib/server/reminders';
 import { chequeRemindersCron } from '@/lib/server/cash';
+import { siteRequestsCron } from '@/lib/server/site-leads';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,7 @@ export const maxDuration = 60;
  * Recurring charges (migration 4500): each plan's period is charged once on its day (08:00–20:00, not on Saturday) — an invoice
  * (with its payment link, when the terminal is ready) or a draft for the owner; a link's email goes out with the other emails.
  * Cheques (migration 5000): a cheque in the drawer is reminded once before it is due — a phone notification to the managers.
+ * The site's requests (migration 5400): a request the storefront's call missed is routed — department, person, WhatsApp.
  */
 function allowed(req: Request) {
   const secret = process.env.CRON_SECRET;
@@ -35,11 +37,12 @@ export async function GET(req: Request) {
     const reminders = await remindersCron().catch((e) => { console.error('[cron/commerce] reminders', e?.message ?? e); return null; });
     const recurring = await recurringCron(new Date(), Date.now() + 10_000).catch((e) => { console.error('[cron/commerce] recurring', e?.message ?? e); return null; });
     const cheques = await chequeRemindersCron().catch((e) => { console.error('[cron/commerce] cheques', e?.message ?? e); return null; });
+    const site = await siteRequestsCron(Date.now() + 10_000).catch((e) => { console.error('[cron/commerce] site requests', e?.message ?? e); return null; });
     const pushed = await pushStoreAlerts();
     const emails = await sendQueuedEmails();
     return NextResponse.json({ orders: orders.length, errors: orders.filter((o) => o.error).map((o) => ({ order: o.order, error: o.error })), pushed, emails,
       paylinks: links ? { expired: links.expired, receipts: links.receipts.length, errors: links.receipts.filter((r) => r.error).map((r) => r.error) } : null,
-      reminders, recurring, cheques });
+      reminders, recurring, cheques, site });
   } catch (e: any) {
     console.error('[cron/commerce]', e?.message ?? e);
     return NextResponse.json({ code: 'error', message: String(e?.message ?? e).slice(0, 300) }, { status: 500 });

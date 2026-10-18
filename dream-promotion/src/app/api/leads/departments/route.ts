@@ -16,7 +16,7 @@ export const maxDuration = 30;
  *  GET                → the view (any member, not a cashier: names; the owner: numbers and rules too)
  *  GET ?view=setup    → + the members (who is this person in Dream), WhatsApp's state (the number, the template), the last messages
  *  GET ?view=forms    → the lead forms of the business's Facebook Pages, with their questions and choices
- *  POST { action }    → the owner only: staff.save / staff.remove / department.save / department.remove / default.set / test
+ *  POST { action }    → the owner only: staff.save / staff.remove / department.save / department.remove / default.set / site.set / test
  * The test sends the team's template with test values to that person only and answers with Meta's own answer, or its error in full.
  */
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -189,6 +189,18 @@ export async function POST(req: Request) {
       }
       const res = await db.from('lead_routing').upsert({ business_id: c.biz, default_staff_id: staffId }, { onConflict: 'business_id' });
       if (res.error) return bad(res.error.message, 'db', 500);
+      return done();
+    }
+    // 2.102: the department that gets the site's requests (none = by the rules, else the default recipient)
+    case 'site.set': {
+      let departmentId: string | null = null;
+      if (body.departmentId) {
+        const { data } = await db.from('lead_departments').select('id').eq('id', String(body.departmentId)).eq('business_id', c.biz).eq('active', true).maybeSingle();
+        if (!data) return bad('צריך לבחור מחלקה מהרשימה.');
+        departmentId = String(body.departmentId);
+      }
+      const res = await db.from('lead_routing').upsert({ business_id: c.biz, site_department_id: departmentId }, { onConflict: 'business_id' });
+      if (res.error) return /site_department_id/.test(res.error.message) ? bad('צריך קודם להריץ את מיגרציה 20261017005400 (פניות מהאתר).', 'not_ready', 409) : bad(res.error.message, 'db', 500);
       return done();
     }
     case 'test': return testMessage(req, c, body, staffOf);

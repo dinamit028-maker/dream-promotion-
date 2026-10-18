@@ -259,6 +259,33 @@ export function FieldInput({ f, value, onChange, collections, kitPicture }: { f:
       </label>
     );
   }
+  // 2.101: a model's brand colour (its drawing while it has no picture) — the colour picker; empty = a dark default
+  if (f.kind === 'color') {
+    const hex = /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : '';
+    return (
+      <div className="mb-4 flex min-h-11 items-center justify-between gap-3 rounded-md border border-line px-3">
+        <span className="text-sm font-semibold text-ink-2">{f.label}</span>
+        <span className="flex items-center gap-2">
+          <span dir="ltr" className="font-mono text-xs text-muted">{hex || 'ללא'}</span>
+          <input type="color" aria-label={f.label} value={hex || '#2a2622'} onChange={(e) => onChange(e.target.value.toLowerCase())} className="h-9 w-12 cursor-pointer rounded border border-line bg-transparent" />
+          {hex && <button type="button" className="text-xs font-semibold text-primary underline underline-offset-2" onClick={() => onChange('')}>ניקוי</button>}
+        </span>
+      </div>
+    );
+  }
+  // 2.102: a switch — 'on' or '' (the contact section's request form)
+  if (f.kind === 'toggle') {
+    return (
+      <label className="mb-4 flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-line px-3">
+        <input type="checkbox" checked={value === 'on'} onChange={(e) => onChange(e.target.checked ? 'on' : '')} className="h-5 w-5 shrink-0" />
+        <span className="text-sm font-semibold text-ink-2">{f.label}</span>
+      </label>
+    );
+  }
+  // 2.101: a minimum order — a whole number, kept as a number (empty = none)
+  if (f.kind === 'qty') {
+    return <TextRow label={f.label} value={v} type="number" dir="ltr" onChange={(x) => onChange(/^\d{1,7}$/.test(x.trim()) ? Number(x.trim()) : x.trim() === '' ? '' : x)} />;
+  }
   if (f.kind === 'collection') {
     return (
       <label className="mb-4 block">
@@ -270,18 +297,29 @@ export function FieldInput({ f, value, onChange, collections, kitPicture }: { f:
       </label>
     );
   }
-  return <TextRow label={f.label} value={v} onChange={onChange} max={f.max} hint={f.hint} dir={f.kind === 'link' ? 'ltr' : undefined} />;
+  return <TextRow label={f.label} value={v} onChange={onChange} max={f.max} hint={f.hint} dir={f.kind === 'link' || f.kind === 'kitfile' ? 'ltr' : undefined} />;
 }
 
 export function ListInput({ def, rows, onChange }: { def: NonNullable<(typeof SECTION_DEFS)[keyof typeof SECTION_DEFS]['list']>; rows: Record<string, unknown>[]; onChange: (rows: Record<string, unknown>[]) => void }) {
+  const fields = (row: Record<string, unknown>, i: number) => (
+    <>
+      {def.fields.map((f) => <FieldInput key={f.key} f={f} value={row[f.key]} collections={[]} onChange={(v) => onChange(rows.map((r, j) => (j === i ? { ...r, [f.key]: v } : r)))} />)}
+      <button type="button" className="text-sm font-semibold text-red-700 underline underline-offset-2" onClick={() => onChange(rows.filter((_, j) => j !== i))}>הסרה</button>
+    </>
+  );
   return (
     <fieldset className="mb-4">
-      <legend className="mb-2 text-sm font-semibold text-ink-2">{def.label}</legend>
-      {rows.map((row, i) => (
-        <div key={i} className="mb-3 rounded-md bg-surface-2 p-3">
-          {def.fields.map((f) => <FieldInput key={f.key} f={f} value={row[f.key]} collections={[]} onChange={(v) => onChange(rows.map((r, j) => (j === i ? { ...r, [f.key]: v } : r)))} />)}
-          <button type="button" className="text-sm font-semibold text-red-700 underline underline-offset-2" onClick={() => onChange(rows.filter((_, j) => j !== i))}>הסרה</button>
-        </div>
+      <legend className="mb-2 text-sm font-semibold text-ink-2">{def.label}{def.fold && rows.length > 0 && <span className="font-normal text-muted"> ({rows.length} מתוך {def.max})</span>}</legend>
+      {rows.map((row, i) => def.fold ? (
+        // 2.101: a long list (a catalog's models) — each row closed under its name, opened one at a time
+        <details key={i} className="mb-2 rounded-md bg-surface-2">
+          <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm font-semibold">
+            <span className="text-muted">{i + 1}.</span><span className="min-w-0 truncate">{String(row[def.fold] ?? '') || 'בלי שם'}</span>
+          </summary>
+          <div className="border-t border-line p-3">{fields(row, i)}</div>
+        </details>
+      ) : (
+        <div key={i} className="mb-3 rounded-md bg-surface-2 p-3">{fields(row, i)}</div>
       ))}
       {rows.length < def.max && <Button type="button" variant="soft" size="sm" onClick={() => onChange([...rows, Object.fromEntries(def.fields.map((f) => [f.key, '']))])}>{def.add}</Button>}
     </fieldset>

@@ -10,7 +10,9 @@ export const DESIGN = {
   headingScale: ['normal', 'large', 'display'],
   buttonStyle: ['solid', 'outline', 'soft', 'underline'],
   container: ['normal', 'narrow', 'wide'],
-  cardStyle: ['border', 'flat', 'soft', 'shadow'],
+  // float (2.101): cards that float over their own shadow and rise a little on scroll and on hover — CSS only, still for
+  // anyone who asked for less motion
+  cardStyle: ['border', 'flat', 'soft', 'shadow', 'float'],
 } as const;
 export const CHROME = {
   header: ['classic', 'centered-logo', 'transparent-overlay', 'minimal', 'commerce-wide', 'search-heavy', 'compact'],
@@ -23,7 +25,7 @@ export const COMMERCE = {
 } as const;
 /** a section's layout, by its type; '' for a type with one look */
 export const SECTION_VARIANTS = {
-  hero: ['split', 'full-image', 'editorial', 'centered', 'slider'],
+  hero: ['split', 'full-image', 'editorial', 'centered', 'slider', 'float'],
   collections: ['grid', 'editorial', 'circles', 'carousel'],
   products: ['grid', 'carousel'],
   imageText: ['split', 'full-bleed', 'overlap'],
@@ -33,6 +35,9 @@ export const SECTION_VARIANTS = {
   text: ['plain'],
   gallery: ['grid', 'masonry', 'editorial'],
   newsletter: ['minimal'],
+  // 2.101: cards with a picture each (categories, finishes, numbered steps, banners) and a catalog of models (not products)
+  cards: ['tiles', 'features', 'steps', 'banners'],
+  showcase: ['grid'],
 } as const;
 
 export type Design = { [K in keyof typeof DESIGN]: (typeof DESIGN)[K][number] };

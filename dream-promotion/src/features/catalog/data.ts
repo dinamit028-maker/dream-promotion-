@@ -60,6 +60,15 @@ export async function loadProduct(id: string): Promise<Result<{ item: CatalogIte
 }
 
 /** a new item (the signed-in member is "who created it"; the database files it under the business they work in) */
+/** is migration 20261017005400 in this database? (a probe of one column: the editor shows "הצעת מחיר" only when it is) */
+let quoteCache: boolean | null = null;
+export async function quoteReady(): Promise<boolean> {
+  if (quoteCache !== null) return quoteCache;
+  const { error } = await supabase().from('catalog_items').select('quote_mode').limit(1);
+  quoteCache = !error;
+  return quoteCache;
+}
+
 export async function insertItem(userId: string, cols: Record<string, unknown>, sort: number): Promise<Result<CatalogItem>> {
   const { data, error } = await supabase().from('catalog_items').insert({ user_id: userId, sort, ...cols }).select('*').single();
   return error ? fail(error) : { ok: true, data: toCatalogItem(data) };
@@ -126,6 +135,11 @@ export async function addFieldDef(key: string, label: string, kind: 'text' | 'mu
 export async function updateMedia(id: string, cols: { alt?: string; position?: number; variant_id?: string | null }): Promise<Result<true>> {
   const { error } = await supabase().from('catalog_media').update(cols).eq('id', id);
   return error ? fail(error) : { ok: true, data: true };
+}
+/** how many pictures an item has — null when the database could not be asked (the import, before a second try: 2.102.2) */
+export async function pictureCount(itemId: string): Promise<number | null> {
+  const { count, error } = await supabase().from('catalog_media').select('id', { count: 'exact', head: true }).eq('item_id', itemId);
+  return error ? null : count ?? 0;
 }
 /** pictures: through the server (signed uploads; deleting removes the files too) */
 export async function mediaApi<T = any>(body: Record<string, unknown>): Promise<Result<T>> {

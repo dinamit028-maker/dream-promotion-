@@ -67,12 +67,14 @@ q "insert into public.stores (id, user_id, business_id, name, slug) values ('000
    values ('00000000-0000-0000-0000-000000e47c52', '$B', '00000000-0000-0000-0000-000000e47c51', 1, repeat('b', 64), 59, 59, 'קונה', '0501234567',
            'buyer@cmp.test', 'pickup', now(), 'mock', now() + interval '15 minutes');" >/dev/null
 
-# every row of the tables 4600 touches, without the columns it adds
+# every row of the tables 4600 touches, without the columns it adds (and the empty ones a later migration adds: 5500, the
+# company that runs the site — stores.legal_*)
 TABLES="sales register_shifts sale_refunds documents document_drafts payments expenses appointments orders stores"
+LATER="- 'legal_name' - 'legal_number' - 'legal_number_kind' - 'legal_address' - 'legal_country' - 'a11y_widget'"
 rows() {
   local out=""
   for t in $TABLES; do
-    out+="$t $(q "select count(*) || ' ' || md5(coalesce(string_agg((to_jsonb(x) - 'location_id' - 'register_id')::text, '|' order by x.id::text), ''))
+    out+="$t $(q "select count(*) || ' ' || md5(coalesce(string_agg((to_jsonb(x) - 'location_id' - 'register_id' $LATER)::text, '|' order by x.id::text), ''))
                   from public.$t x where x.business_id = '$B'")"$'\n'
   done
   out+="members $(q "select md5(string_agg((to_jsonb(m) - 'locations')::text, '|' order by m.user_id::text)) from public.business_members m where m.business_id = '$B'")"$'\n'

@@ -8,7 +8,8 @@ import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import { permanentRedirect } from 'next/navigation';
 import { after } from 'next/server';
-import { ComingSoon, StoreChrome } from '@/components/chrome';
+import { ComingSoon, StoreChrome, a11yMenuOn } from '@/components/chrome';
+import { A11Y_BOOT } from '@/lib/a11y';
 import { getSite, markSeen } from '@/lib/site';
 import { safeImage, themeClasses, themeCss } from '@/lib/theme';
 import { isFullStore } from '@/lib/types';
@@ -49,17 +50,20 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // the storefront served this domain: it works (DNS + certificate) — the dashboard shows it "active"
   if (site && !site.platform) after(() => markSeen(site.host, site.subdomain));
   const lang = site?.store.lang ?? 'he';
+  const full = site && site.live && isFullStore(site.store) ? { ...site, store: site.store } : null;
   return (
-    <html lang={lang} dir={lang === 'he' ? 'rtl' : 'ltr'}>
+    // the boot script below may put the shopper's accessibility classes on <html> before React arrives (2.104)
+    <html lang={lang} dir={lang === 'he' ? 'rtl' : 'ltr'} suppressHydrationWarning>
       <head>
         {site?.theme && <style nonce={nonce} dangerouslySetInnerHTML={{ __html: themeCss(site.theme) }} />}
+        {full && a11yMenuOn(full) && <script nonce={nonce} dangerouslySetInnerHTML={{ __html: A11Y_BOOT }} />}
       </head>
       {/* 2.63: the design choices as classes (every one from a fixed list — lib/variants.ts) */}
       <body className={site?.theme ? themeClasses(site.theme) : undefined}>
         {!site ? (
           <main id="main" className="bare">{children}</main>
-        ) : site.live && isFullStore(site.store) ? (
-          <StoreChrome site={{ ...site, store: site.store }}>{children}</StoreChrome>
+        ) : full ? (
+          <StoreChrome site={full}>{children}</StoreChrome>
         ) : (
           <ComingSoon name={site.store.name} logo={site.store.logo_url} password={site.passwordPage} />
         )}

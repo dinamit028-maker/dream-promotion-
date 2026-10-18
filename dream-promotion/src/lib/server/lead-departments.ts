@@ -27,12 +27,14 @@ export async function leadsCaller(req: Request, write: boolean): Promise<LeadsCa
 /** the business's team and departments; the owner also gets the numbers and the rules. null: before the migration */
 export async function routingView(c: LeadsCaller): Promise<RoutingView | null> {
   const db = adminDb();
-  const [staff, depts, rules, setting] = await Promise.all([
+  const [staff, depts, rules, setting, site] = await Promise.all([
     db.from('lead_staff').select('id, name, phone, active, member_user_id, created_at').eq('business_id', c.biz).order('created_at', { ascending: true }),
     db.from('lead_departments').select('id, name, staff_id, position, active').eq('business_id', c.biz).order('position', { ascending: true }),
     c.owner ? db.from('lead_department_rules').select('department_id, kind, form_id, form_name, campaign, question, answer, created_at').eq('business_id', c.biz).order('created_at', { ascending: true })
       : Promise.resolve({ data: [], error: null }),
     db.from('lead_routing').select('default_staff_id').eq('business_id', c.biz).maybeSingle(),
+    // 2.102: its own query — before migration 20261017005400 the column is not there, and the rest stays as it was
+    db.from('lead_routing').select('site_department_id').eq('business_id', c.biz).maybeSingle(),
   ]);
   if (staff.error || depts.error || (rules as any).error) return null;
   const byDept = new Map<string, RuleView[]>();
@@ -54,6 +56,7 @@ export async function routingView(c: LeadsCaller): Promise<RoutingView | null> {
       ...(c.owner ? { rules: byDept.get(d.id) ?? [] } : {}),
     })),
     defaultStaffId: ((setting.data as any)?.default_staff_id as string | null) ?? null,
+    ...(site.error ? {} : { siteDepartmentId: ((site.data as any)?.site_department_id as string | null) ?? null }),
   };
 }
 

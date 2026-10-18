@@ -8,13 +8,17 @@
  * editor works on them the same way. Gallery and newsletter are new kinds of sections; font and art are new settings.
  */
 /** kitpick (2.66): which of the kit's two wide hero pictures shows while there is no picture of the business — 1 or 2 */
-export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection' | 'kitpick';
+/** 2.101: kitfile — one of the kit's pictures by its file (bag-007.webp), shown while the row has no picture of its own;
+ *  color — #rrggbb (a model's brand colour, for its drawing); qty — a whole number from 1 (a minimum order), or empty */
+/** toggle (2.102): a switch — 'on' or '' (the contact section's request form) */
+export type FieldKind = 'text' | 'longtext' | 'link' | 'image' | 'number' | 'side' | 'collection' | 'kitpick' | 'kitfile' | 'color' | 'qty' | 'toggle';
 export interface FieldDef { key: string; label: string; kind: FieldKind; max?: number; hint?: string }
-export interface ListDef { key: 'items'; label: string; max: number; fields: FieldDef[]; add: string }
+/** fold (2.101): a long list — each row closed under its "fold" field (a catalog's 60 models), opened one at a time */
+export interface ListDef { key: 'items'; label: string; max: number; fields: FieldDef[]; add: string; fold?: string }
 import { CHROME_OPTIONS, cleanGroup, COMMERCE_OPTIONS, DESIGN_OPTIONS, sectionVariantOk, type Overrides } from './variants';
 import { cleanColumns, cleanResponsive, cleanStyle, type Column, type Responsive, type StyleValues } from './builder-registry';
 
-export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter' | 'custom';
+export type SectionType = 'hero' | 'collections' | 'products' | 'imageText' | 'steps' | 'faq' | 'contact' | 'text' | 'gallery' | 'newsletter' | 'custom' | 'cards' | 'showcase';
 /** soon: the storefront does not show it yet (the newsletter waits for the consent to marketing of stage 5) */
 export interface SectionDef { type: SectionType; label: string; fields: FieldDef[]; list?: ListDef; soon?: string }
 /** variant (2.63): the layout the business picked for this section — absent = the kit's (variants.ts) */
@@ -46,6 +50,7 @@ export interface Template {
 }
 
 const LINK_HINT = 'כתובת באתר (למשל /collections/all), קישור https, או whatsapp';
+const KITFILE_HINT = 'למשל bag-007.webp — מוצגת רק כשאין תמונה שלכם. ריק = ציור.';
 export const SECTION_DEFS: Record<SectionType, SectionDef> = {
   hero: { type: 'hero', label: 'פתיח', fields: [
     { key: 'eyebrow', label: 'שורה קטנה מעל הכותרת', kind: 'text', max: 60 },
@@ -83,6 +88,9 @@ export const SECTION_DEFS: Record<SectionType, SectionDef> = {
   contact: { type: 'contact', label: 'יצירת קשר', fields: [
     { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
     { key: 'text', label: 'טקסט', kind: 'longtext', max: 400 },
+    // 2.102: a request form — every request becomes a contact in "לידים" and goes to its department on WhatsApp
+    { key: 'form', label: 'טופס פנייה באתר (כל פנייה נכנסת ללידים)', kind: 'toggle' },
+    { key: 'topics', label: 'נושאים לבחירה בטופס (מופרדים בפסיק, לא חובה)', kind: 'text', max: 200 },
   ] },
   text: { type: 'text', label: 'טקסט', fields: [{ key: 'title', label: 'כותרת', kind: 'text', max: 90 }, { key: 'text', label: 'טקסט', kind: 'longtext', max: 2000 }] },
   gallery: { type: 'gallery', label: 'גלריה (לפני ואחרי, אינסטגרם)', fields: [
@@ -93,6 +101,37 @@ export const SECTION_DEFS: Record<SectionType, SectionDef> = {
   ], list: { key: 'items', label: 'תמונות', max: 8, add: '+ תמונה', fields: [{ key: 'image', label: 'תמונה', kind: 'image' }, { key: 'caption', label: 'כיתוב', kind: 'text', max: 80 }] } },
   // 2.67: columns and blocks (builder-registry.ts) — its content is not fields but `columns`
   custom: { type: 'custom', label: 'חלק חופשי (עמודות)', fields: [] },
+  // 2.101: cards with a picture each — categories, finishes, numbered steps or banners (the layout: variants.ts)
+  cards: { type: 'cards', label: 'כרטיסים עם תמונה', fields: [
+    { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
+    { key: 'subtitle', label: 'טקסט', kind: 'longtext', max: 300 },
+  ], list: { key: 'items', label: 'כרטיסים', max: 8, add: '+ כרטיס', fields: [
+    { key: 'title', label: 'כותרת', kind: 'text', max: 60 },
+    { key: 'text', label: 'טקסט', kind: 'longtext', max: 240 },
+    { key: 'image', label: 'תמונה (בלי תמונה מוצגת התמונה של הערכה, או ציור)', kind: 'image' },
+    { key: 'pic', label: 'תמונה של הערכה (שם הקובץ)', kind: 'kitfile', hint: KITFILE_HINT },
+    { key: 'href', label: 'לאן הכרטיס מוביל (לא חובה)', kind: 'link', hint: `${LINK_HINT}, או חלק בעמוד הבית (/#catalog)` },
+    { key: 'label', label: 'מילים על הקישור', kind: 'text', max: 30 },
+  ] } },
+  // 2.101: a catalog of models — not products: no price and no cart; each one asks for a quote on WhatsApp
+  showcase: { type: 'showcase', label: 'קטלוג דגמים (הצעת מחיר)', fields: [
+    { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
+    { key: 'subtitle', label: 'טקסט', kind: 'longtext', max: 300 },
+    { key: 'buttonLabel', label: 'כפתור בכל דגם (ריק = "בקשת הצעת מחיר")', kind: 'text', max: 30 },
+  ], list: { key: 'items', label: 'דגמים', max: 60, add: '+ דגם', fold: 'name', fields: [
+    { key: 'name', label: 'שם הדגם', kind: 'text', max: 60 },
+    { key: 'brand', label: 'מותג', kind: 'text', max: 40 },
+    { key: 'color', label: 'צבע המותג (לציור, כשאין תמונה)', kind: 'color' },
+    { key: 'category', label: 'קטגוריה (לסינון)', kind: 'text', max: 40 },
+    { key: 'material', label: 'חומר (לסינון)', kind: 'text', max: 40 },
+    { key: 'handle', label: 'ידית (לסינון)', kind: 'text', max: 40 },
+    { key: 'finish', label: 'גימור', kind: 'text', max: 40 },
+    { key: 'shape', label: 'צורה', kind: 'text', max: 40 },
+    { key: 'minQty', label: 'כמות מינימום', kind: 'qty' },
+    { key: 'text', label: 'תיאור קצר', kind: 'longtext', max: 240 },
+    { key: 'image', label: 'תמונה (בלי תמונה מוצגת התמונה של הערכה, או ציור בצבע המותג)', kind: 'image' },
+    { key: 'pic', label: 'תמונה של הערכה (שם הקובץ)', kind: 'kitfile', hint: KITFILE_HINT },
+  ] } },
   newsletter: { type: 'newsletter', label: 'הרשמה לדיוור', soon: 'יוצג באתר רק כשההרשמה לדיוור תיבנה, עם הסכמה לקבלת דיוור (שלב 5).', fields: [
     { key: 'title', label: 'כותרת', kind: 'text', max: 80 },
     { key: 'text', label: 'טקסט', kind: 'longtext', max: 300 },
@@ -182,6 +221,8 @@ export interface Draft {
   overrides: Overrides;
 }
 const HEX = /^#[0-9a-fA-F]{6}$/;
+/** a kit picture's file name — the storefront's rule (lib/theme.ts) */
+const KIT_FILE = /^[a-z0-9-]{1,60}\.webp$/;
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
 const SECTION_ID = /^[a-z][a-z0-9-]{0,30}$/;
@@ -273,6 +314,10 @@ export function fieldError(f: FieldDef, v: unknown): string | null {
   if (f.kind === 'image') { const s = String(v ?? '').trim(); return !s || /^https:\/\/[^\s<>"'\\]+$/.test(s) ? null : `"${f.label}": תמונה צריכה להיות קישור https.`; }
   if (f.kind === 'number') { const n = Number(v); return Number.isInteger(n) && n >= 2 && n <= 12 ? null : `"${f.label}": מספר בין 2 ל-12.`; }
   if (f.kind === 'kitpick') return v === undefined || v === '' || v === 1 || v === 2 ? null : `"${f.label}": הראשונה או השנייה.`;
+  if (f.kind === 'kitfile') return v === undefined || v === '' || (typeof v === 'string' && KIT_FILE.test(v)) ? null : `"${f.label}": שם קובץ כמו bag-007.webp (אותיות באנגלית קטנות, ספרות ומקפים).`;
+  if (f.kind === 'color') return v === undefined || v === '' || (typeof v === 'string' && HEX.test(v)) ? null : `"${f.label}": צבע כמו #1f2a40.`;
+  if (f.kind === 'qty') return v === undefined || v === '' || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 1_000_000) ? null : `"${f.label}": מספר שלם מ-1 עד 1,000,000.`;
+  if (f.kind === 'toggle') return v === undefined || v === '' || v === 'on' ? null : `"${f.label}": מופעל או כבוי.`;
   if ((f.kind === 'text' || f.kind === 'longtext') && f.max && String(v ?? '').length > f.max) return `"${f.label}": עד ${f.max} תווים.`;
   return null;
 }

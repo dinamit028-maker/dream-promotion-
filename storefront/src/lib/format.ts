@@ -1,4 +1,4 @@
-import type { Card, Product, Variant } from './types';
+import type { Card, LegalNumberKind, Product, Quote, Variant } from './types';
 
 /** ₪ — whole shekels without ".00", agorot when there are any */
 export function money(n: number | null | undefined, currency = 'ILS', lang = 'he'): string {
@@ -14,6 +14,9 @@ export function priceLabel(p: Pick<Card, 'price' | 'price_max'>, currency = 'ILS
   return { from: p.price_max != null && p.price_max > p.price, text: money(p.price, currency) };
 }
 
+/** a product sold by a quote: its "from" price in its own currency (else the store's) — '' when the business gave none */
+export const quotePrice = (q: Pick<Quote, 'from' | 'currency'>, storeCurrency = 'ILS') => (q.from != null ? money(q.from, q.currency || storeCurrency) : '');
+
 /** what the shopper reads about availability; a count only when the store chose to show it */
 export function stockLabel(inStock: boolean, stock: number | null): string {
   if (!inStock) return 'אזל המלאי';
@@ -23,6 +26,9 @@ export function stockLabel(inStock: boolean, stock: number | null): string {
 
 /** the variant's options as a label: "M / שחור" */
 export const variantLabel = (v: Pick<Variant, 'options'>) => v.options.filter(Boolean).join(' / ');
+
+/** the label of the number of the company that runs the site (the line at the bottom of every page) */
+export const legalNumberLabel = (kind: LegalNumberKind): string => (kind === 'company' ? 'ח.פ.' : kind === 'ein' ? 'EIN' : 'ע.מ.');
 
 /** a WhatsApp link with a first message (digits only: 9725…) */
 export function whatsappHref(number: string, text: string): string | null {

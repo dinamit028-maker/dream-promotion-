@@ -5,6 +5,7 @@
  */
 import { toCheckout, type CheckoutSettings } from './checkout';
 import { isSlug, slugify, uniqueSlug } from '@/features/catalog/catalog';
+import { a11yStatement } from './a11y-statement';
 
 export type StoreStatus = 'draft' | 'published' | 'paused';
 export type DomainStatus = 'pending' | 'verifying' | 'active' | 'error';
@@ -19,6 +20,59 @@ export interface StoreRow {
   slug: string; storefrontPassword: string; passwordLock: boolean; subdomainSeenAt: string | null;
   /** T12ב: the location the site's orders ship from — and whose stock the site sells (null: the main one; before 4600: none) */
   locationId: string | null;
+  /** 2.103 (migration 5500): the company that runs the site — no name = the business's details, as before */
+  operator: StoreOperator;
+  /** 2.104 (migration 5600): the accessibility button on the site — on unless the owner turned it off (before 5600: on) */
+  a11yWidget: boolean;
+}
+
+/** ח.פ. / ע.מ. / an American company's EIN; '' — no number shown */
+export type OperatorKind = '' | 'company' | 'dealer' | 'ein';
+export interface StoreOperator { name: string; number: string; kind: OperatorKind; address: string; country: string }
+export const OPERATOR_KINDS: { id: OperatorKind; label: string }[] = [
+  { id: '', label: 'בלי מספר' }, { id: 'company', label: 'ח.פ.' }, { id: 'dealer', label: 'ע.מ.' }, { id: 'ein', label: 'EIN (חברה אמריקאית)' },
+];
+/** the company's country ('' = the store's) — two letters, as the database keeps it */
+export const OPERATOR_COUNTRIES: { id: string; label: string }[] = [
+  { id: '', label: 'כמו החנות' }, { id: 'IL', label: 'ישראל' }, { id: 'US', label: 'ארצות הברית' }, { id: 'GB', label: 'בריטניה' }, { id: 'CA', label: 'קנדה' },
+];
+const KIND_LABEL: Record<OperatorKind, string> = { '': '', company: 'ח.פ.', dealer: 'ע.מ.', ein: 'EIN' };
+
+/**
+ * The company that runs the site, as the owner typed it → its columns, or the sentence that says what is wrong (2.103). The
+ * database checks the same (stores_legal_check). A number in its usual form: an EIN 12-3456789, ח.פ. / ע.מ. nine digits. No name
+ * = nothing of its own (the site shows the business's details) — then the other fields must be empty too, or the owner would
+ * think they are shown. Only the line at the bottom of the site changes: the documents are always the business's.
+ */
+export function operatorColumns(o: StoreOperator):
+  { ok: true; cols: { legal_name: string; legal_number: string; legal_number_kind: OperatorKind; legal_address: string; legal_country: string } } | { ok: false; error: string } {
+  const name = o.name.replace(/\s+/g, ' ').trim(), address = o.address.replace(/\s+/g, ' ').trim();
+  const digits = o.number.replace(/[\s-]/g, '');
+  if (!name) {
+    if (digits || address) return { ok: false, error: 'בלי שם החברה האתר מציג את פרטי העסק. מלאו את השם, או רוקנו את שאר השדות.' };
+    return { ok: true, cols: { legal_name: '', legal_number: '', legal_number_kind: '', legal_address: '', legal_country: '' } };
+  }
+  if (name.length > 120) return { ok: false, error: 'שם החברה — עד 120 תווים.' };
+  if (address.length > 200) return { ok: false, error: 'הכתובת — עד 200 תווים.' };
+  if (!OPERATOR_COUNTRIES.some((c) => c.id === o.country)) return { ok: false, error: 'בחרו מדינה מהרשימה.' };
+  let number = '';
+  if (digits) {
+    if (!o.kind) return { ok: false, error: 'בחרו את סוג המספר: ח.פ., ע.מ. או EIN.' };
+    if (o.kind === 'ein') {
+      if (!/^\d{9}$/.test(digits)) return { ok: false, error: 'EIN נראה כך: 12-3456789 (9 ספרות).' };
+      number = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    } else {
+      if (!/^\d{9}$/.test(digits)) return { ok: false, error: `${KIND_LABEL[o.kind]} — 9 ספרות.` };
+      number = digits;
+    }
+  }
+  return { ok: true, cols: { legal_name: name, legal_number: number, legal_number_kind: number ? o.kind : '', legal_address: address, legal_country: o.country } };
+}
+/** the line at the bottom of every page of the site, when the store names its company (as the storefront writes it) */
+export function operatorLine(o: StoreOperator): string {
+  const name = o.name.replace(/\s+/g, ' ').trim();
+  if (!name) return '';
+  return [name, o.number.trim() && o.kind ? `${KIND_LABEL[o.kind]} ${o.number.trim()}` : '', o.address.replace(/\s+/g, ' ').trim()].filter(Boolean).join(' · ');
 }
 export interface DomainRow {
   id: string; storeId: string; domain: string; isPrimary: boolean; status: DomainStatus; lastSeenAt: string | null;
@@ -40,6 +94,11 @@ export const toStore = (r: any): StoreRow => ({
   publishedAt: r.published_at ?? null, updatedAt: r.updated_at ?? '', checkout: toCheckout(r),
   slug: r.slug ?? '', storefrontPassword: r.storefront_password ?? '', passwordLock: Boolean(r.password_lock), subdomainSeenAt: r.subdomain_seen_at ?? null,
   locationId: r.location_id ?? null,
+  operator: {
+    name: r.legal_name ?? '', number: r.legal_number ?? '', address: r.legal_address ?? '', country: r.legal_country ?? '',
+    kind: (['company', 'dealer', 'ein'] as const).find((k) => k === r.legal_number_kind) ?? '',
+  },
+  a11yWidget: r.a11y_widget !== false,
 });
 export const toDomain = (r: any): DomainRow => ({
   id: r.id, storeId: r.store_id, domain: r.domain, isPrimary: Boolean(r.is_primary), status: r.status ?? 'pending',
@@ -149,7 +208,7 @@ export const REQUIRED_POLICIES: PolicyKind[] = ['returns', 'privacy', 'accessibi
  * A draft to start from — every one of them is NEEDS_LEGAL_VERIFICATION: the business checks it with a lawyer before it
  * goes up (DREAM_COMMERCE_ARCHITECTURE §10). Brackets mark what only the business knows.
  */
-export function policyDraft(kind: PolicyKind, b: { name: string; phone?: string; email?: string; address?: string }): { title: string; body: string } {
+export function policyDraft(kind: PolicyKind, b: { name: string; phone?: string; email?: string; address?: string; whatsapp?: string; widget?: boolean }): { title: string; body: string } {
   const contact = [b.phone && `טלפון: ${b.phone}`, b.email && `מייל: ${b.email}`, b.address && `כתובת: ${b.address}`].filter(Boolean).join('\n') || '[פרטי קשר]';
   switch (kind) {
     case 'returns': return { title: POLICY_LABEL.returns, body: [
@@ -171,12 +230,10 @@ export function policyDraft(kind: PolicyKind, b: { name: string; phone?: string;
       contact,
       '[לבדוק עם עורך דין: חובות היידוע לפי תיקון 13 לחוק הגנת הפרטיות.]',
     ].join('\n\n') };
+    // 2.104: the site's automatic statement (a11y-statement.ts — only what is true of every site), and a note to the owner
     case 'accessibility': return { title: POLICY_LABEL.accessibility, body: [
-      '## נגישות באתר',
-      `אנחנו ב-${b.name} רוצים שכל אחד יוכל להשתמש באתר. האתר נבנה עם מבנה ברור, ניווט במקלדת, טקסט חלופי לתמונות וניגודיות צבעים.`,
-      '## נתקלתם בבעיה?',
-      `ספרו לנו ונטפל בה:\n${contact}`,
-      '[לבדוק עם מומחה נגישות לפני שמצהירים על עמידה בתקן ישראלי 5568. אסור לכתוב "האתר נגיש" בלי בדיקה כזו.]',
+      a11yStatement({ name: b.name, phone: b.phone ?? '', whatsapp: b.whatsapp ?? '', email: b.email ?? '', widget: b.widget ?? true }),
+      '[לפני שמפרסמים: אפשר להוסיף מה עוד נעשה באתר ושם של רכז/ת נגישות. לא לכתוב "האתר נגיש" או שהוא עומד בתקן הישראלי 5568 בלי בדיקה של מומחה נגישות.]',
     ].join('\n\n') };
     case 'terms': return { title: POLICY_LABEL.terms, body: '[תנאי השימוש באתר — לנסח עם עורך דין.]' };
     case 'shipping': return { title: POLICY_LABEL.shipping, body: ['## משלוחים', '[אזורים, זמני אספקה ומחיר.]', '## איסוף עצמי', '[אם יש — מאיפה ומתי.]'].join('\n\n') };

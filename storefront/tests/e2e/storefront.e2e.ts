@@ -6,6 +6,7 @@
  * through the pretend provider (PAYMENT_MOCK=1, never on Vercel): cart, checkout, the payment page, the notices, the cron.
  *
  * Run: npm run test:e2e   (needs the local Postgres 16 and the preinstalled Chromium; builds and starts the storefront)
+ * One step while fixing it: SF_E2E_ONLY='<words of its name>' (and SF_E2E_SKIP_BUILD=1 when only the test changed).
  * Screenshots go to tests/e2e/shots/ (not committed).
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -141,9 +142,14 @@ async function main() {
   // (commerce_record_sale, VAT 18% of the total), and a document's PDF by its share token
   const finalized: string[] = [];
   const paylinksTold: string[] = [];   // 2.88: "a payment link was paid" (the dashboard's /api/finance/paylinks/finalize)
+  const leadsTold: string[] = [];      // 2.102: "a request of the site was recorded" (the dashboard's /api/leads/site)
   const dashboard = http.createServer((req, res) => {
     let body = ''; req.on('data', (c) => { body += c; });
     req.on('end', () => {
+      if (req.method === 'POST' && req.url === '/api/leads/site' && req.headers['x-commerce-secret'] === COMMERCE) {
+        leadsTold.push(String(JSON.parse(body || '{}').requestId ?? ''));
+        res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return;
+      }
       if (req.method === 'POST' && req.url === '/api/finance/paylinks/finalize' && req.headers['x-commerce-secret'] === COMMERCE) {
         paylinksTold.push(String(JSON.parse(body || '{}').requestId ?? ''));
         res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return;
@@ -199,6 +205,8 @@ async function main() {
     return { ctx, page };
   }
   async function step(name: string, fn: () => Promise<void>) {
+    // SF_E2E_ONLY=<words>: only the steps whose name has them (a quick rerun of one step while fixing it; never in CI)
+    if (process.env.SF_E2E_ONLY && !name.includes(process.env.SF_E2E_ONLY)) return;
     try { await fn(); results.push({ name, ok: true }); console.log(`ok - ${name}`); }
     catch (e) { results.push({ name, ok: false, error: (e as Error).message }); console.log(`not ok - ${name}\n  ${(e as Error).message.split('\n').join('\n  ')}`); }
   }
@@ -218,7 +226,7 @@ async function main() {
       assert.match(body, /פולואו מי בע"מ/);
       assert.match(body, /ח\.פ\.\s*516000001/);
       assert.match(body, /הרצל 10, תל אביב/);
-      await page.getByRole('link', { name: 'הצהרת נגישות' }).first().waitFor();
+      await page.locator('footer').getByRole('link', { name: 'נגישות', exact: true }).waitFor();   // 2.104: the statement, as "נגישות"
       assert.equal(await page.locator('h2', { hasText: 'שקיות אקולוגיות' }).count(), 0, 'collections show as tiles, not titles');
       await page.getByRole('link', { name: /שקיות אקולוגיות/ }).first().waitFor();
       const csp = res.headers()['content-security-policy'];
@@ -227,6 +235,28 @@ async function main() {
       const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
       assert.match(ld ?? '', /"@type":"Organization"/);
       await page.screenshot({ path: path.join(SHOTS, 'home-390.png'), fullPage: true });
+      await ctx.close();
+    });
+
+    await step('2.103 — the company that runs the site: its name and address at the bottom of every page, never the business\'s number beside it; its EIN; emptied — the business\'s details again', async () => {
+      const { ctx, page } = await phone();
+      const legal = async () => { await page.goto(url('followme.test')); return (await page.locator('footer .legal').innerText()) as string; };
+      try {
+        psql(`update public.stores set legal_name = 'Good Luck Forever Inc.', legal_address = '221 Rutgers St, Maplewood, NJ 07040', legal_country = 'US' where id = '${FOLLOWME_STORE}'`);
+        await refreshAll();
+        const line = await legal();
+        assert.match(line, /Good Luck Forever Inc\. · 221 Rutgers St, Maplewood, NJ 07040/);
+        assert.doesNotMatch(line, /פולואו מי|516000001|ח\.פ\.|ע\.מ\.|הרצל/, 'never the business\'s name, number or address beside another company');
+        const org = JSON.parse((await page.locator('script[type="application/ld+json"]').first().textContent()) ?? '{}')['@graph'][0];
+        assert.deepEqual([org.name, org.address?.streetAddress, org.address?.addressCountry], ['Good Luck Forever Inc.', '221 Rutgers St, Maplewood, NJ 07040', 'US']);
+        psql(`update public.stores set legal_number = '12-3456789', legal_number_kind = 'ein' where id = '${FOLLOWME_STORE}'`);
+        await refreshAll();
+        assert.match(await legal(), /Good Luck Forever Inc\. · EIN\s*12-3456789 · 221 Rutgers St/, 'a number of its own, with its label');
+      } finally {
+        psql(`update public.stores set legal_name = '', legal_number = '', legal_number_kind = '', legal_address = '', legal_country = '' where id = '${FOLLOWME_STORE}'`);
+        await refreshAll();
+      }
+      assert.match(await legal(), /פולואו מי בע"מ · ח\.פ\.\s*516000001 · הרצל 10, תל אביב/, 'emptied — the business\'s details again');
       await ctx.close();
     });
 
@@ -300,6 +330,10 @@ async function main() {
       assert.equal(await page.locator('.gallery img').count(), 2);
       assert.equal(await page.locator('.gallery img').first().getAttribute('alt'), 'שקית בד שחורה');
       assert.match((await page.locator('.gallery img').first().getAttribute('srcset')) ?? '', /tote-1-400\.webp 400w, .*tote-1-1600\.webp 1600w/);
+      // one picture across the phone, the next a swipe away (2.102.2: the section gallery's rules share the class name, and
+      // once made it two to a row — the picture in half the width)
+      const [first, wide] = await page.evaluate(() => [document.querySelector('.gallery figure')!.getBoundingClientRect().width, innerWidth]);
+      assert.ok(first > wide * 0.8, `the first picture fills the phone (${first} of ${wide})`);
       const price = page.locator('.buy-price');
       assert.match(await price.innerText(), /20/);
       await page.getByRole('button', { name: 'M', exact: true }).click();
@@ -328,6 +362,10 @@ async function main() {
       assert.ok(product.offers.some((o: any) => o.availability === 'https://schema.org/OutOfStock'));
       assert.ok(lds.some((t: string) => t.includes('"BreadcrumbList"') && t.includes('שקיות אקולוגיות')), 'breadcrumbs through its collection');
       await page.screenshot({ path: path.join(SHOTS, 'product-390.png'), fullPage: true });
+      // a product with no picture: its placeholder, as wide as a picture would be
+      await page.goto(url('followme.test', '/products/paper-bag'));
+      const [empty, w] = await page.evaluate(() => [document.querySelector('.gallery-empty')!.getBoundingClientRect().width, innerWidth]);
+      assert.ok(empty > w * 0.8, `the placeholder fills the phone (${empty} of ${w})`);
       await ctx.close();
     });
 
@@ -459,7 +497,8 @@ async function main() {
       const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
       assert.match(font, /Frank Ruhl Libre/, 'the kit\'s font');
       assert.equal(await page.locator('.bag-art').first().isVisible(), false, 'not the drawn bag of the first template');
-      assert.equal(await page.locator('#f-info').count(), 0, 'no policy published, no checkout: no empty "מידע" heading in the footer');
+      // 2.104: no policy published, no checkout — "מידע" holds "נגישות" alone (every site has its statement), never an empty heading
+      assert.deepEqual(await page.locator('nav[aria-labelledby="f-info"] a').allInnerTexts(), ['נגישות']);
       await page.screenshot({ path: path.join(SHOTS, 'kit-beauty-home.png'), fullPage: true });
       // the owner's preview: the menu's link to a page not published yet, and the page itself
       await page.locator('.nav-wide').getByRole('link', { name: 'הטיפולים', includeHidden: true }).waitFor({ state: 'attached' });
@@ -842,6 +881,7 @@ async function main() {
           ['services', { body: ['v-h-centered-logo', 'v-f-multi-column', 'v-pc-horizontal', 'v-pp-compact', 'v-card-soft'], hero: 'hero--split' }],
           ['retail', { body: ['v-h-search-heavy', 'v-f-dark', 'v-pc-compact', 'v-sp-compact', 'v-card-shadow'], hero: 'hero--slider' }],
           ['general', { body: ['v-h-compact', 'v-f-minimal', 'v-pc-classic'], hero: 'hero--centered' }],
+          ['bags-3d', { body: ['v-h-centered-logo', 'v-f-centered', 'v-pc-editorial', 'v-sp-airy', 'v-hs-display', 'v-card-float'], hero: 'hero--float' }],
         ] as const) {
           psql(`update public.store_theme_versions set template = 'kit', settings = '${sqlq(asWritten(id))}' where id = '${DRAFT}'`);
           for (const open of [phone, desktop]) {
@@ -875,7 +915,7 @@ async function main() {
             await ctx.close();
           }
         }
-        assert.equal(seen.size, 7, 'seven kits, seven different sites');
+        assert.equal(seen.size, 8, 'eight kits, eight different sites');
         // the business's own choice wins over the kit's: a saved header and hero layout, the rest from the kit
         const own = asWritten('fashion');
         own.chrome = { header: 'centered-logo' };
@@ -942,9 +982,11 @@ async function main() {
     // products, prices, collections and menus) in each kit in full: the home page on a computer and on a phone, a product,
     // the collection, the footer. Pictures differ a little from run to run (fonts, image decoding): a picture fails only
     // when more than VISUAL_MAX of its pixels changed clearly. `npm run visual:update` saves new ones after a change meant.
-    await step('visual regression: 7 kits — home (computer, phone), a product, the collection, the footer — against their saved pictures', async () => {
+    await step('visual regression: every kit — home (computer, phone), a product, the collection, the footer — against their saved pictures', async () => {
       const dir = path.join(__dirname, 'visual');
-      const update = Boolean(process.env.VISUAL_UPDATE);
+      // VISUAL_UPDATE=1 saves every picture; VISUAL_UPDATE=<kit> (2.101) saves that kit's only — a new kit — and compares the rest
+      const only = process.env.VISUAL_UPDATE && process.env.VISUAL_UPDATE !== '1' ? `${process.env.VISUAL_UPDATE}-` : '';
+      const update = Boolean(process.env.VISUAL_UPDATE) && !only;
       mkdirSync(dir, { recursive: true });
       const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
       const product = psql(`select slug from public.catalog_items where business_id = 'aaaaaaaa-0000-4000-8000-00000000000a' and publish_online order by name limit 1`);
@@ -956,14 +998,18 @@ async function main() {
       const cmp = await (await browser.newContext()).newPage();   // compares two pictures in a canvas (no image library)
       await cmp.evaluate('window.__name = (f) => f');   // tsx names the functions it hands the page with a helper of its own
       const ready = async (p: any) => {
-        await p.evaluate(() => document.querySelectorAll('.preview-bar, .consent').forEach((e) => e.remove()));
+        // after the page is hydrated: a bar removed before it comes back when React renders the page again (2.103 — seen once,
+        // the collection of bags-3d 20px lower)
+        await p.waitForLoadState('networkidle');
+        // 2.104: the accessibility button too — its own pictures are in its step (a11y-*); the kits' pictures stay as they were
+        await p.evaluate(() => document.querySelectorAll('.preview-bar, .consent, .a11y').forEach((e) => e.remove()));
         await p.evaluate(() => document.fonts.ready);
         await p.waitForFunction(() => Array.from(document.images).filter((i) => { const r = i.getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; }).every((i) => i.complete));
       };
       const failed: string[] = [];
       const check = async (name: string, shot: Buffer) => {
         const file = path.join(dir, `${name}.jpg`);
-        if (update) { writeFileSync(file, shot); return; }
+        if (update || (only && name.startsWith(only))) { writeFileSync(file, shot); return; }
         if (!existsSync(file)) { failed.push(`${name}: no saved picture — npm run visual:update`); return; }
         const r = await cmp.evaluate(async ([a, b]: string[]) => {
           const load = (src: string) => new Promise<HTMLImageElement>((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
@@ -1009,6 +1055,191 @@ async function main() {
       assert.deepEqual(failed, [], failed.join('\n'));
     });
 
+    // 2.101: a catalog of models (the kit "שקיות יוקרה 3D") — a model is not a product: filters in the page, 12 at a time, a
+    // quote on WhatsApp with the model's name and brand; a category card opens the catalog on its category; a model without
+    // a picture is drawn in its brand's colour; the floating look stands still for a visitor who asked for less motion
+    await step('2.101 — a catalog of models: a category card, filters, 12 at a time, a quote on WhatsApp, the drawing — no cart, no price', async () => {
+      const { ctx, page } = await phone();
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+      await page.goto(url('followme.test', '/?kit=bags-3d&kitmode=full'));
+      const catalog = page.locator('#catalog');
+      await catalog.getByRole('heading', { level: 2, name: 'קטלוג הדגמים' }).waitFor();
+      const models = catalog.locator('.sc-item');
+      await catalog.getByText('מוצגים 12 מתוך 60 דגמים', { exact: true }).waitFor();
+      assert.equal(await models.count(), 12, 'the first 12 of 60');
+      const quote = models.first().getByRole('link', { name: /בקשת הצעת מחיר/ });
+      assert.equal(await quote.getAttribute('target'), '_blank');
+      assert.equal(decodeURIComponent((await quote.getAttribute('href'))!),
+        'https://wa.me/972501234567?text=היי, אשמח לקבל הצעת מחיר על הדגם "שקית נייר שחורה עם חבל" (Aurelle) מהקטלוג באתר של FollowMe Collection.');
+      assert.equal(await models.first().locator('img').getAttribute('src'), '/kit-images/bags-3d/bag-001.webp', 'the model\'s picture, by its file');
+      assert.equal(await catalog.getByText(/₪|הוספה לסל/).count(), 0, 'no price, no cart');
+      // a category card opens the catalog on its category; then a handle, a material, and "ניקוי הסינון"
+      await page.locator('#categories').getByRole('link', { name: /קופסאות מתנה/ }).click();
+      await catalog.getByRole('button', { name: 'קופסאות מתנה', pressed: true }).waitFor();
+      await catalog.getByText('10 דגמים', { exact: true }).waitFor();
+      assert.ok(await page.evaluate(() => {
+        const row = document.querySelector('#catalog .sc-cats')!, chip = row.querySelector('[aria-pressed="true"]')!;
+        const r = row.getBoundingClientRect(), c = chip.getBoundingClientRect();
+        return c.left >= r.left - 1 && c.right <= r.right + 1;
+      }), 'the chosen category in sight, in its row');
+      await catalog.getByLabel('ידית').selectOption('עור');
+      await catalog.getByText('2 דגמים', { exact: true }).waitFor();
+      assert.deepEqual(await models.locator('h3').allInnerTexts(), ['קופסה אפורה עם ידיות עור', 'קופסת בקבוק שחורה']);
+      assert.equal(await catalog.getByLabel('חומר').locator('option', { hasText: 'נייר קרפט' }).evaluate((o: HTMLOptionElement) => o.disabled), true, 'a choice that leaves nothing is off');
+      // a chip that leaves nothing carries hidden words: out of sight in the row that scrolls, they must not widen the page
+      const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+      assert.ok(sw <= iw, `filtered: nothing sideways (${sw} > ${iw})`);
+      await catalog.getByRole('button', { name: 'ניקוי הסינון' }).first().click();
+      await catalog.getByText('מוצגים 12 מתוך 60 דגמים', { exact: true }).waitFor();
+      await catalog.getByLabel('חומר').selectOption('קטיפה וסאטן');
+      await catalog.getByText('3 דגמים', { exact: true }).waitFor();
+      await catalog.getByRole('button', { name: 'ניקוי הסינון' }).first().click();
+      // 12 more: the first of them takes the focus
+      await catalog.getByRole('button', { name: 'עוד דגמים (48)' }).click();
+      await catalog.getByText('מוצגים 24 מתוך 60 דגמים', { exact: true }).waitFor();
+      assert.equal(await models.count(), 24);
+      assert.equal(await page.evaluate(() => document.activeElement?.querySelector('h3')?.textContent), 'שקית זהב מתכתי');
+      // the floating look: moves for a visitor who did not ask otherwise, stands still for one who asked for less motion
+      const moving = await page.evaluate(() => getComputedStyle(document.querySelector('.hero--float .hero-img')!).animationName);
+      assert.equal(moving, 'hero-float');
+      await ctx.close();
+      const calm = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, locale: 'he-IL', reducedMotion: 'reduce' });
+      const still = await calm.newPage();
+      await still.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+      await still.goto(url('followme.test', '/?kit=bags-3d&kitmode=full'));
+      await still.locator('#catalog .sc-item').first().waitFor();
+      assert.deepEqual(await still.evaluate(() => ['.hero--float .hero-img', '.fcard'].map((s) => getComputedStyle(document.querySelector(s)!).animationName)), ['none', 'none']);
+      await calm.close();
+      for (const width of [375, 430]) {
+        const p = await phone(width);
+        await p.page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        await p.page.goto(url('followme.test', '/?kit=bags-3d&kitmode=full'));
+        await p.page.locator('#catalog .sc-item').first().waitFor();
+        const [sw, iw] = await p.page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+        assert.ok(sw <= iw, `bags-3d at ${width}: nothing sideways (${sw} > ${iw})`);
+        await p.ctx.close();
+      }
+      // the page as the server sends it: no style attribute (the CSP), and the word of the platform nowhere
+      const html = (await raw('followme.test', '/', { cookie: `sf_preview=${token}; sf_kit=bags-3d:full` })).body;
+      assert.match(html, /קטלוג הדגמים/);
+      assert.doesNotMatch(html, /\sstyle="/);
+      assert.ok(!/dream/i.test(html), 'Dream is never named to a shopper');
+      // a model without a picture of its own: the kit's by its file, else a drawing in its brand's colour (the draft store's
+      // draft for a moment — it has no WhatsApp, so the quote goes to its contact section)
+      const rows = psql(`select coalesce(json_agg(json_build_object('id', id, 'template', template, 'settings', settings)), '[]') from public.store_theme_versions where store_id = '${DRAFT_STORE}'`);
+      const settings = { kit: 'bags-3d', sections: [{ id: 'catalog', type: 'showcase', settings: { title: 'דגמים', items: [
+        { name: 'דגם בלי תמונה', brand: 'Halden & Rose', color: '#1F2A40', category: 'א', handle: 'חבל', minQty: 100, pic: '' },
+        { name: 'דגם עם תמונה של הערכה', brand: 'Aurelle', color: '#22201e', category: 'ב', pic: 'bag-001.webp' },
+        { name: 'דגם עם קובץ שאין בערכה', category: 'ב', pic: 'bag-999.webp' },
+      ] } }, { id: 'contact', type: 'contact', settings: { title: 'צרו קשר' } }] };
+      psql(`update public.store_theme_versions set template = 'kit', settings = '${JSON.stringify(settings).replace(/'/g, "''")}' where store_id = '${DRAFT_STORE}'`);
+      try {
+        const d = await phone();
+        await d.page.goto(url('draft.test', `/?preview=${encodeURIComponent(makePreviewToken(DRAFT_STORE, SECRET, Date.now() / 1000 + 3600))}`));
+        const items = d.page.locator('#catalog .sc-item');
+        await items.first().waitFor();
+        assert.equal(await items.count(), 3);
+        assert.equal(await items.nth(0).locator('svg.sc-bag path[fill="#1f2a40"]').count() > 0, true, 'the brand\'s colour');
+        assert.equal(await items.nth(0).locator('svg.sc-bag text').textContent(), 'HALDEN & ROSE');
+        assert.equal(await items.nth(1).locator('img').getAttribute('src'), '/kit-images/bags-3d/bag-001.webp');
+        assert.equal(await items.nth(2).locator('svg.sc-bag').count(), 1, 'a file the kit does not have: the drawing');
+        assert.equal(await items.nth(0).getByRole('link', { name: /בקשת הצעת מחיר/ }).getAttribute('href'), '#contact');
+        await d.page.screenshot({ path: path.join(SHOTS, 'showcase-placeholders-390.png'), fullPage: true });
+        await d.ctx.close();
+      } finally {
+        for (const r of JSON.parse(rows) as { id: string; template: string; settings: unknown }[]) {
+          psql(`update public.store_theme_versions set template = '${r.template}', settings = '${JSON.stringify(r.settings).replace(/'/g, "''")}' where id = '${r.id}'`);
+        }
+      }
+    });
+
+    // 2.102: a product sold by a quote — "החל מ-" in its own currency, the minimum, a short form into the leads; never a cart.
+    // And the contact form of a kit that has it ("עסק משולב"). The product and the requests are this step's own (removed after).
+    await step('2.102 — a product sold by a quote: "החל מ-$3.50 ליחידה", a request into the leads, no cart; the contact form of "עסק משולב"', async () => {
+      const BIZ = 'aaaaaaaa-0000-4000-8000-00000000000a', ITEM = 'aaaaaaaa-0000-4000-8000-000000000199';
+      psql(`insert into public.catalog_items (id, user_id, business_id, name, price, kind, slug, publish_online, active, sku, description, tags,
+                                              quote_mode, quote_from, quote_currency, quote_min_qty)
+            values ('${ITEM}', 'aaaaaaaa-0000-4000-8000-0000000000f1', '${BIZ}', 'שקית נייר עם ידית חבל – דגם 001', 0, 'product', 'bag-001', true, true,
+                    'bag-001', 'נייר שחור מט וחבל שזור.\n\nהעיצוב בתמונה להמחשה. השקית מיוצרת עם הלוגו והצבעים שלכם.', '{חבל וסרט}', true, 3.5, 'USD', 500)`);
+      await refreshAll();
+      try {
+        const { ctx, page } = await phone();
+        await page.goto(url('followme.test', '/products/bag-001'));
+        const buy = page.locator('.buy-quote');
+        await buy.waitFor();
+        // the words as a shopper reads them (the direction marks of the number aside)
+        const plain = (t: string) => t.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, ' ').trim();
+        assert.match(plain(await buy.locator('.buy-price').innerText()), /^החל מ- ?(\$ ?3\.50|3\.50 ?\$) ליחידה$/);
+        assert.equal((await buy.locator('.quote-min').innerText()).trim(), 'מינימום 500 יח׳');
+        assert.equal(await page.getByRole('button', { name: 'הוספה לסל' }).count(), 0, 'no cart');
+        const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
+        assert.ok(ld && !ld.includes('"offers"'), 'no offer to search engines (no price a shopper pays)');
+        // the form: what to fix comes back from the server, field by field
+        await buy.getByRole('button', { name: 'בקשת הצעת מחיר' }).click();
+        const form = buy.locator('form.lead-form');
+        await form.waitFor();
+        assert.equal(plain(await form.locator('.lead-model').innerText()), 'קוד דגם: bag-001');
+        await form.getByRole('button', { name: 'שליחת הבקשה' }).click();
+        await form.getByText('נא לכתוב שם (2–80 תווים).').waitFor();
+        await form.getByText('נא לכתוב מספר טלפון תקין.').waitFor();
+        await form.getByLabel('שם').fill('דנה בדיקה');
+        await form.getByText('נא לכתוב שם (2–80 תווים).').waitFor({ state: 'detached' });   // a field being fixed loses its message
+        await form.getByText('נא לכתוב מספר טלפון תקין.').waitFor();
+        await form.getByLabel('טלפון').fill('050-765 4321');
+        await form.getByLabel(/כמות משוערת/).fill('1,000');
+        await form.getByLabel(/מה חשוב לדעת/).fill('לוגו בהטבעת זהב');
+        await form.getByRole('button', { name: 'שליחת הבקשה' }).click();
+        await buy.getByText('הבקשה התקבלה. נחזור אליכם עם הצעת מחיר בהקדם.').waitFor();
+        await page.screenshot({ path: path.join(SHOTS, 'quote-product-390.png'), fullPage: true });
+        const lead = JSON.parse(psql(`select row_to_json(l) from (select name, phone, source, status, tags, notes from public.leads
+                                        where business_id = '${BIZ}' and external_source = 'site') l`));
+        assert.deepEqual([lead.name, lead.phone, lead.source, lead.status], ['דנה בדיקה', '0507654321', 'אתר', 'חדש']);
+        assert.ok(lead.tags.includes('הצעת מחיר'));
+        assert.match(lead.notes, /דגם: bag-001 — שקית נייר עם ידית חבל – דגם 001/);
+        assert.match(lead.notes, /כמות משוערת: 1000/);
+        const req = psql(`select id from public.site_requests where store_id = '${FOLLOWME_STORE}'`);
+        for (let i = 0; i < 50 && !leadsTold.includes(req); i++) await new Promise((r) => setTimeout(r, 100));
+        assert.ok(leadsTold.includes(req), 'the dashboard was told (it routes the request to its person on WhatsApp)');
+        // the card in the list: "החל מ-" in dollars, no stock badge; the cart refuses it even when asked directly
+        await page.goto(url('followme.test', '/collections/all'));
+        const card = page.locator('.card', { hasText: 'דגם 001' });
+        assert.match(plain(await card.locator('.price').innerText()), /^החל מ- ?(\$ ?3\.50|3\.50 ?\$) ליחידה$/);
+        const cart = await page.evaluate(async (item: string) => (await fetch('/api/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'add', item, variant: null, qty: 1 }) })).json(), ITEM);
+        assert.equal(cart.ok, false, 'never into a cart');
+        // a form of another site is refused
+        const forged = await rawPost('followme.test', '/api/lead', JSON.stringify({ kind: 'contact', request: '6f1d2c3b-4a59-4e7f-8a1b-2c3d4e5f6a7b', name: 'x', phone: '0501234567' }),
+          { origin: 'https://evil.test' });
+        assert.equal(forged.status, 403);
+        await ctx.close();
+        // "עסק משולב": the contact part has the request form — a contact request, with the model from the address
+        const c = await phone();
+        const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+        await c.page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+        await c.page.goto(url('followme.test', '/?kit=combined-business&kitmode=full&model=bag-032'));
+        const contact = c.page.locator('#contact');
+        await contact.locator('form.lead-form').waitFor();
+        assert.match(plain(await contact.locator('.lead-model').innerText()), /^קוד דגם: bag-032 ?×$/);
+        await contact.getByLabel('שם').fill('רינה בדיקה');
+        await contact.getByLabel('טלפון').fill('+972 52 111 2233');
+        await contact.getByLabel('נושא').selectOption('שקיות ואריזות');
+        await contact.getByLabel('במה נוכל לעזור?').fill('קופסאות למארזי מתנה');
+        await contact.getByRole('button', { name: 'שליחה' }).click();
+        await contact.getByText('הפנייה התקבלה. נחזור אליכם בהקדם.').waitFor();
+        const notes = psql(`select notes from public.leads where business_id = '${BIZ}' and phone = '0521112233'`);
+        assert.match(notes, /^פנייה מהאתר/);
+        assert.match(notes, /דגם: bag-032/);
+        assert.match(notes, /נושא: שקיות ואריזות/);
+        await c.page.screenshot({ path: path.join(SHOTS, 'combined-business-contact-390.png'), fullPage: true });
+        await c.ctx.close();
+      } finally {
+        psql(`delete from public.site_requests where store_id = '${FOLLOWME_STORE}'; delete from public.leads where business_id = '${BIZ}' and external_source = 'site';
+              delete from public.catalog_items where id = '${ITEM}'`);
+        await refreshAll();
+      }
+    });
+
     // the kits' gallery pictures (2.66, `npm run kit-shots`): each kit in full, on a store named "החנות שלכם" with no product —
     // the real renderer, the kit's own pictures, where products will be — saved small for the dashboard's gallery
     if (process.env.KIT_SHOTS) await step('the kits\' gallery pictures, from the real renderer', async () => {
@@ -1026,7 +1257,8 @@ async function main() {
         await page.goto(url('draft.test', `/?preview=${encodeURIComponent(token)}`));
         // 2.71: every kit in the dashboard's kits/ — a new kit gets its picture with no change here
         const kitIds = readdirSync(path.resolve(ROOT, '../dream-promotion/kits')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
-        for (const kit of kitIds) {
+        // KIT_SHOTS=1: every kit; KIT_SHOTS=<kit> (2.101): that kit's picture only
+        for (const kit of kitIds.filter((k) => process.env.KIT_SHOTS === '1' || k === process.env.KIT_SHOTS)) {
           // the kit's own menus (a booking link → the contact page, as a kit applied with no booking page)
           const k = JSON.parse(readFileSync(path.resolve(ROOT, `../dream-promotion/kits/${kit}.json`), 'utf8'));
           const fix = (items: { label: string; href: string }[]) => items.map((l) => ({ ...l, href: l.href === 'booking' ? '/pages/contact' : l.href }));
@@ -1045,7 +1277,7 @@ async function main() {
     });
 
     // 2.69: the pictures of "+ הוספה" — one per kind of section, with its starting words, on the neutral kit
-    if (process.env.KIT_SHOTS) await step('the section library\'s pictures, from the real renderer', async () => {
+    if (process.env.KIT_SHOTS === '1') await step('the section library\'s pictures, from the real renderer', async () => {
       const rows = psql(`select coalesce(json_agg(json_build_object('id', id, 'template', template, 'settings', settings)), '[]') from public.store_theme_versions where store_id = '${DRAFT_STORE}'`);
       const out = path.resolve(ROOT, '../dream-promotion/public/section-previews');
       mkdirSync(out, { recursive: true });
@@ -1553,6 +1785,368 @@ async function main() {
       assert.equal((await raw('platform.test', '/s/nobody-here')).status, 404);
       assert.equal((await raw('followme.test', '/s/draft')).status, 404);
       assert.equal((await raw('platform.test', '/s/ab')).status, 404);
+    });
+
+    // 2.104: the accessibility menu of every site — a button at the bottom left, one Tab after "דלגו לתוכן"; its panel by keyboard
+    // (Esc closes it and gives the focus back); each choice on <html>, kept in this browser and on the next page before it paints;
+    // "איפוס הכול"; above the cookie banner; off when the owner turns it off (5600); never in the dashboard's editor
+    await step('2.104 — the accessibility menu: the button, the panel by keyboard, every choice kept from page to page, reset, the cookie banner, off when the owner turns it off', async () => {
+      const { ctx, page } = await phone(375);
+      await ctx.addInitScript('window.__name = (f) => f');   // tsx names the functions it hands the page with a helper of its own
+      await page.goto(url('followme.test', '/'));
+      const fab = page.getByRole('button', { name: 'תפריט נגישות' });
+      await fab.waitFor();
+      const box = (await fab.boundingBox())!;
+      assert.ok(box.width >= 44 && box.height >= 44, `44px at least: ${box.width}x${box.height}`);
+      assert.ok(box.x < 40, `at the left: x=${box.x}`);
+      // the cookie banner is open (a first visit): the button sits above it, not on its buttons
+      const banner = (await page.locator('.consent').boundingBox())!;
+      assert.ok(box.y + box.height <= banner.y, `above the cookie banner: ${box.y + box.height} > ${banner.y}`);
+      await page.getByRole('button', { name: 'דחייה' }).click();
+      await page.waitForFunction(() => !document.documentElement.classList.contains('a11y-lift'));
+      const down = (await fab.boundingBox())!;
+      assert.ok(down.y > box.y, 'back at the bottom once the banner is gone');
+      await page.screenshot({ path: path.join(SHOTS, 'a11y-button-375.png') });
+
+      // the keyboard: "דלגו לתוכן", then the button; Enter opens the panel with the focus in it, Esc closes it and gives it back
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.textContent), 'דלגו לתוכן');
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-controls')?.endsWith('-panel')), true, 'the second Tab: the accessibility button');
+      assert.equal(await fab.getAttribute('aria-expanded'), 'false');
+      await page.keyboard.press('Enter');
+      const panel = page.getByRole('dialog', { name: 'נגישות' });
+      await panel.waitFor();
+      assert.equal(await fab.getAttribute('aria-expanded'), 'true');
+      assert.equal(await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.type), 'radio', 'the focus moved into the panel (the text size)');
+      await page.screenshot({ path: path.join(SHOTS, 'a11y-panel-375.png') });
+      await page.keyboard.press('Escape');
+      await panel.waitFor({ state: 'hidden' });
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-expanded')), 'false', 'Esc: the focus is back on the button');
+
+      // every choice: on <html> at once, kept in this browser
+      await fab.click();
+      await panel.getByRole('radio', { name: 'גדול מאוד' }).check();
+      for (const name of ['ניגודיות גבוהה', 'הדגשת קישורים', 'פונט קריא', 'עצירת אנימציות', 'ריווח שורות מוגדל']) await panel.getByRole('checkbox', { name }).check();
+      const want = ['a11y-contrast', 'a11y-font', 'a11y-links', 'a11y-spacing', 'a11y-still', 'a11y-text-3'];
+      const classes = () => page.evaluate(() => [...document.documentElement.classList].filter((c) => c.startsWith('a11y-') && c !== 'a11y-lift').sort());
+      assert.deepEqual(await classes(), want);
+      assert.deepEqual(JSON.parse((await page.evaluate(() => localStorage.getItem('sf-a11y')))!),
+        { text: 3, contrast: true, links: true, font: true, still: true, spacing: true });
+      const look = await page.evaluate(() => {
+        const css = (e: Element | null) => getComputedStyle(e!);
+        const a = document.querySelector('footer a');
+        const p = document.querySelector('main p');
+        return { root: css(document.documentElement).fontSize, bg: css(document.body).backgroundColor, link: css(a).color, line: css(a).textDecorationLine,
+          font: css(document.body).fontFamily, still: [...document.querySelectorAll('body *')].every((e) => css(e).animationName === 'none'),
+          lh: parseFloat(css(p).lineHeight) / parseFloat(css(p).fontSize) };
+      });
+      assert.equal(look.root, '24px', 'the text: 150%');
+      assert.equal(look.bg, 'rgb(0, 0, 0)', 'high contrast: black');
+      assert.equal(look.link, 'rgb(255, 225, 77)', 'high contrast: the links yellow');
+      assert.match(look.line, /underline/, 'links marked');
+      assert.match(look.font, /^Arial/, 'a readable font');
+      assert.ok(look.still, 'no animation anywhere');
+      assert.ok(Math.abs(look.lh - 1.9) < 0.02, `more space between lines: ${look.lh}`);
+      await page.screenshot({ path: path.join(SHOTS, 'a11y-all-on-375.png') });
+      // a click outside closes the panel (on the page's title — nothing there to follow)
+      await page.locator('main h1, main h2').first().click();
+      await panel.waitFor({ state: 'hidden' });
+
+      // the next page: the choices are there before it paints (the boot script in <head>, with the page's nonce)
+      const html = await raw('followme.test', '/collections/all');
+      assert.match(html.body, /<script nonce="[^"]+">\(function\(\)\{try\{var p=JSON\.parse\(localStorage\.getItem\("sf-a11y"\)/);
+      await page.goto(url('followme.test', '/collections/all'), { waitUntil: 'domcontentloaded' });
+      assert.deepEqual(await classes(), want, 'on the next page at once');
+      await fab.click();
+      assert.ok(await panel.getByRole('checkbox', { name: 'ניגודיות גבוהה' }).isChecked(), 'the panel shows what is chosen');
+      assert.ok(await panel.getByRole('radio', { name: 'גדול מאוד' }).isChecked());
+      await page.keyboard.press('Escape');
+      // the largest text on the smallest phone: nothing sideways
+      for (const p of ['/', '/products/tote-bag', '/collections/all', '/policies/returns', '/cart', '/policies/accessibility']) {
+        await page.goto(url('followme.test', p));
+        const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+        assert.ok(sw <= iw, `${p} at 375 with the largest text: ${sw} > ${iw}`);
+      }
+      await page.goto(url('followme.test', '/products/tote-bag'));
+      await page.screenshot({ path: path.join(SHOTS, 'a11y-product-large-375.png'), fullPage: true });
+
+      // "איפוס הכול": nothing on <html>, nothing kept, and a screen reader is told
+      await fab.click();
+      await panel.getByRole('button', { name: 'איפוס הכול' }).click();
+      assert.deepEqual(await classes(), []);
+      assert.equal(await page.evaluate(() => localStorage.getItem('sf-a11y')), null);
+      await panel.getByRole('status').getByText('כל הבחירות בוטלו — האתר חזר לרגיל.').waitFor();
+      assert.equal(await panel.getByRole('button', { name: 'איפוס הכול' }).isDisabled(), true);
+      assert.equal(await panel.getByRole('link', { name: 'הצהרת נגישות' }).getAttribute('href'), '/policies/accessibility');
+      await ctx.close();
+
+      // never in the dashboard's editor; a shopper's page has it
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      const edit = await raw('followme.test', `/?edit=${encodeURIComponent(token)}`);
+      assert.doesNotMatch(edit.body, /a11y-fab|sf-a11y/, 'not in the editor');
+      assert.match((await raw('followme.test', '/')).body, /a11y-fab/);
+
+      // the owner turns it off (5600): no button, no boot script — and a choice kept earlier is not applied either
+      psql(`update public.stores set a11y_widget = false where id = '${FOLLOWME_STORE}'`);
+      await refreshAll();
+      try {
+        const off = await raw('followme.test', '/');
+        assert.doesNotMatch(off.body, /a11y-fab|sf-a11y/);
+        const o = await phone();
+        await o.ctx.addInitScript(() => localStorage.setItem('sf-a11y', '{"text":3,"contrast":true}'));
+        await o.page.goto(url('followme.test', '/'));
+        assert.equal(await o.page.locator('.a11y-fab').count(), 0);
+        assert.equal(await o.page.evaluate(() => document.documentElement.className.includes('a11y-')), false);
+        await o.ctx.close();
+      } finally {
+        psql(`update public.stores set a11y_widget = true where id = '${FOLLOWME_STORE}'`);
+        await refreshAll();
+      }
+    });
+
+    // 2.104: the statement — "נגישות" at the bottom of every page; the business's own when published, else the automatic one
+    // (the store's name, the menu as it is, its contact — no claim); in the sitemap either way
+    await step('2.104 — the accessibility statement: "נגישות" in every footer; the business\'s own, else the automatic one — its name, the menu, its contact, no claim', async () => {
+      const { ctx, page } = await phone();
+      await ctx.addCookies([{ name: 'sf_consent', value: 'none', domain: 'followme.test', path: '/' }]);
+      for (const p of ['/', '/products/tote-bag', '/collections/all', '/pages/about']) {
+        await page.goto(url('followme.test', p));
+        assert.equal(await page.locator('footer').getByRole('link', { name: 'נגישות', exact: true }).getAttribute('href'), '/policies/accessibility', p);
+        assert.equal(await page.locator('footer').getByRole('link', { name: 'הצהרת נגישות' }).count(), 0, `${p}: once, as "נגישות"`);
+      }
+      // the business's own (the seed publishes one)
+      await page.goto(url('followme.test', '/policies/accessibility'));
+      await page.getByText('פנו אלינו בכל בעיה של נגישות.').waitFor();
+      // not published: the automatic statement
+      psql(`update public.store_pages set published = false where store_id = '${FOLLOWME_STORE}' and policy = 'accessibility'`);
+      await refreshAll();
+      try {
+        const r = await raw('followme.test', '/policies/accessibility');
+        assert.equal(r.status, 200);
+        await page.goto(url('followme.test', '/policies/accessibility'));
+        await page.getByRole('heading', { level: 1, name: 'הצהרת נגישות' }).waitFor();
+        const body = await text(page);
+        const name = psql(`select name from public.stores where id = '${FOLLOWME_STORE}'`);
+        assert.ok(body.includes(`ב-${name} אנחנו רוצים שכל אחד ואחת יוכלו להשתמש באתר`), 'the store\'s name');
+        for (const o of ['הגדלת טקסט (שלוש רמות)', 'ניגודיות גבוהה', 'הדגשת קישורים', 'פונט קריא', 'עצירת אנימציות', 'ריווח שורות מוגדל']) assert.ok(body.includes(o), o);
+        assert.match(body, /עודכן: 17\.10\.2026/);
+        const phoneNo = psql(`select phone from public.stores where id = '${FOLLOWME_STORE}'`);
+        if (phoneNo) assert.ok(body.includes(phoneNo), 'its phone');
+        for (const claim of ['האתר נגיש', 'עומד בתקן', 'מונגש', '5568']) assert.ok(!body.includes(claim), claim);
+        assert.match((await raw('followme.test', '/sitemap.xml')).body, /\/policies\/accessibility<\/loc>/, 'in the sitemap');
+        await page.screenshot({ path: path.join(SHOTS, 'a11y-statement-390.png'), fullPage: true });
+      } finally {
+        psql(`update public.store_pages set published = true where store_id = '${FOLLOWME_STORE}' and policy = 'accessibility'`);
+        await refreshAll();
+      }
+      await ctx.close();
+    });
+
+    // 2.104: axe (the engine of Lighthouse's accessibility audit) on the main pages — every kit's home, a product, a product sold by
+    // a quote with its form open, a collection, a page, the policies, the statement, search, the cart and checkout, "ביטול עסקה",
+    // a page that is not there, and the accessibility menu open — on a phone and a computer. WCAG 2.2 A/AA rules decide;
+    // best practices are reported only. The report: tests/e2e/shots/a11y-report.json and .md (A11Y_REPORT=only skips the asserts).
+    await step('2.104 — axe on the main pages of every kit, phone and computer: no WCAG A/AA violation', async () => {
+      const AXE = readFileSync(path.join(ROOT, 'node_modules/axe-core/axe.min.js'), 'utf8');
+      const BIZ = 'aaaaaaaa-0000-4000-8000-00000000000a', ITEM = 'aaaaaaaa-0000-4000-8000-000000000198';
+      psql(`insert into public.catalog_items (id, user_id, business_id, name, price, kind, slug, publish_online, active, sku, description, quote_mode, quote_from, quote_currency, quote_min_qty)
+            values ('${ITEM}', 'aaaaaaaa-0000-4000-8000-0000000000f1', '${BIZ}', 'שקית נייר – דגם 077', 0, 'product', 'bag-077', true, true, 'bag-077', 'נייר ממוחזר.', true, 3.5, 'USD', 500)`);
+      await refreshAll();
+      type Hit = { page: string; rule: string; impact: string; help: string; tags: string[]; nodes: { target: string; html: string; summary: string }[] };
+      const hits: Hit[] = [];
+      const seen: string[] = [];
+      const audit = async (page: any, label: string) => {
+        await page.waitForLoadState('networkidle');
+        if (!(await page.evaluate(() => Boolean((window as any).axe)))) await page.evaluate(AXE);
+        const r = await page.evaluate(async () => {
+          const res = await (window as any).axe.run(document, { resultTypes: ['violations'],
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa', 'best-practice'] } });
+          return res.violations.map((v: any) => ({ rule: v.id, impact: v.impact ?? '', help: v.help, tags: v.tags,
+            nodes: v.nodes.slice(0, 6).map((n: any) => ({ target: String(n.target.join(' ')), html: String(n.html).slice(0, 220), summary: String(n.failureSummary ?? '').slice(0, 300) })) }));
+        });
+        seen.push(label);
+        for (const v of r) hits.push({ page: label, ...v });
+      };
+      const token = makePreviewToken(FOLLOWME_STORE, SECRET, Date.now() / 1000 + 3600);
+      const kits = readdirSync(path.resolve(ROOT, '../dream-promotion/kits')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort();
+      try {
+        for (const [device, width] of [['phone', 390], ['computer', 1280]] as const) {
+          const ctx = await browser.newContext(device === 'phone'
+            ? { viewport: { width, height: 844 }, isMobile: true, hasTouch: true, locale: 'he-IL' }
+            : { viewport: { width, height: 860 }, locale: 'he-IL' });
+          await ctx.route('https://cdn.test/**', (r: any) => r.fulfill({ status: 200, contentType: 'image/png', body: picture }));
+          const page = await ctx.newPage();
+          // the store on the air, as a shopper sees it (the cookie banner answered first — it is checked on its own below)
+          await page.goto(url('followme.test', '/'));
+          await audit(page, `followme home + cookie banner (${device})`);
+          await page.getByRole('button', { name: 'דחייה' }).click();
+          for (const [name, p] of [['home', '/'], ['product', '/products/tote-bag'], ['collection', '/collections/all'], ['page', '/pages/about'],
+            ['returns policy', '/policies/returns'], ['statement', '/policies/accessibility'], ['search', `/search?q=${encodeURIComponent('שקית')}`],
+            ['cancel', '/cancel'], ['not found', '/products/nope'], ['empty cart', '/cart']] as const) {
+            await page.goto(url('followme.test', p));
+            await audit(page, `followme ${name} (${device})`);
+          }
+          await page.goto(url('followme.test', '/products/bag-077'));
+          await page.locator('.buy-quote').getByRole('button', { name: 'בקשת הצעת מחיר' }).click();
+          await page.locator('form.lead-form').waitFor();
+          await audit(page, `followme quote product + its form (${device})`);
+          await page.goto(url('followme.test', '/products/tote-bag'));
+          await page.getByRole('button', { name: 'S', exact: true }).click();
+          await page.getByRole('button', { name: 'שחור', exact: true }).click();
+          await page.getByRole('button', { name: 'הוספה לסל' }).click();
+          await page.getByRole('status').filter({ hasText: 'נוסף לסל' }).waitFor();
+          await page.goto(url('followme.test', '/cart'));
+          await audit(page, `followme cart (${device})`);
+          await page.goto(url('followme.test', '/checkout'));
+          await audit(page, `followme checkout (${device})`);
+          await page.goto(url('followme.test', '/'));
+          await page.getByRole('button', { name: 'תפריט נגישות' }).click();
+          await page.getByRole('dialog', { name: 'נגישות' }).waitFor();
+          await audit(page, `followme accessibility menu open (${device})`);
+          if (device === 'phone') {
+            await page.keyboard.press('Escape');
+            await page.locator('summary[aria-label="פתיחת התפריט"]').click();
+            await audit(page, `followme the menu open (${device})`);
+          }
+          // every kit, in full (the owner's preview of a kit — its own texts, sections and colours)
+          await page.goto(url('followme.test', `/?preview=${encodeURIComponent(token)}`));
+          for (const kit of kits) {
+            await page.goto(url('followme.test', `/?kit=${kit}&kitmode=full`));
+            await page.locator('.preview-bar').waitFor();
+            await audit(page, `kit ${kit} home (${device})`);
+          }
+          await ctx.close();
+        }
+      } finally {
+        psql(`delete from public.catalog_items where id = '${ITEM}'`);
+        await refreshAll();
+      }
+      const wcag = (h: Hit) => h.tags.some((t) => /^wcag\d+a+$/.test(t));
+      const rules = new Map<string, { impact: string; help: string; wcag: boolean; pages: string[]; nodes: Hit['nodes'] }>();
+      for (const h of hits) {
+        const r = rules.get(h.rule) ?? { impact: h.impact, help: h.help, wcag: wcag(h), pages: [], nodes: [] };
+        r.pages.push(h.page);
+        if (r.nodes.length < 8) r.nodes.push(...h.nodes.slice(0, 8 - r.nodes.length));
+        rules.set(h.rule, r);
+      }
+      writeFileSync(path.join(SHOTS, 'a11y-report.json'), JSON.stringify({ pages: seen, rules: Object.fromEntries(rules) }, null, 2));
+      const md = [`# axe — ${seen.length} pages`, '', ...[...rules].map(([id, r]) => [`## ${id} (${r.impact}${r.wcag ? ', WCAG' : ', best practice'}) — ${r.pages.length} pages`, r.help, '',
+        ...r.pages.map((x) => `- ${x}`), '', ...r.nodes.map((n) => `  - \`${n.target}\` ${n.html.replace(/\n/g, ' ')}\n    ${n.summary.replace(/\n/g, ' ')}`), ''].join('\n'))].join('\n');
+      writeFileSync(path.join(SHOTS, 'a11y-report.md'), md);
+      console.log(`# axe: ${seen.length} pages; WCAG: ${[...rules].filter(([, r]) => r.wcag).map(([id, r]) => `${id} ×${r.pages.length}`).join(', ') || 'none'}; best practice: ${[...rules].filter(([, r]) => !r.wcag).map(([id, r]) => `${id} ×${r.pages.length}`).join(', ') || 'none'}`);
+      if (process.env.A11Y_REPORT !== 'only') {
+        const bad = [...rules].filter(([, r]) => r.wcag).map(([id, r]) => `${id}: ${r.help} — ${r.pages.join('; ')}`);
+        assert.deepEqual(bad, [], bad.join('\n'));
+      }
+    });
+
+    // 2.104: the keyboard on the main pages, a computer and a phone — Tab after Tab from the top: every stop a real control, seen
+    // (a size, in the page), with its focus visible (an outline or a ring), each once, and the last one lets go (no trap)
+    await step('2.104 — the keyboard: every Tab stop on the main pages is visible, with its focus seen, once — and nothing traps it', async () => {
+      const BIZ = 'aaaaaaaa-0000-4000-8000-00000000000a', ITEM = 'aaaaaaaa-0000-4000-8000-000000000197';
+      psql(`insert into public.catalog_items (id, user_id, business_id, name, price, kind, slug, publish_online, active, sku, description, quote_mode, quote_from, quote_currency, quote_min_qty)
+            values ('${ITEM}', 'aaaaaaaa-0000-4000-8000-0000000000f1', '${BIZ}', 'שקית נייר – דגם 078', 0, 'product', 'bag-078', true, true, 'bag-078', 'נייר ממוחזר.', true, 3.5, 'USD', 500)`);
+      await refreshAll();
+      const issues: string[] = [];
+      // after each Tab: the scrolling done (the page scrolls smoothly), then the focused element — itself (by its place in the page),
+      // seen, with a visible ring, and not covered (the sticky header, the accessibility button: what is on top at its middle)
+      const settle = (page: any) => page.evaluate(() => new Promise<void>((done) => {
+        // a smooth scroll may start a few frames after the Tab — and a phone scrolls to a text field a moment later (as for its
+        // keyboard): still for 10 frames with the focused element in view, or 2 seconds at most (then it is judged as it is)
+        let last = -1, still = 0, n = 0;
+        const tick = () => {
+          const y = window.scrollY; still = y === last ? still + 1 : 0; last = y;
+          const e = document.activeElement; const r = e && e !== document.body ? e.getBoundingClientRect() : null;
+          if ((still >= 10 && (!r || (r.bottom > 0 && r.top < innerHeight))) || ++n > 120) done(); else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }));
+      const probe = (page: any) => page.evaluate(() => {
+        const e = document.activeElement as HTMLElement | null;
+        if (!e || e === document.body) return null;
+        const r = e.getBoundingClientRect();
+        const css = getComputedStyle(e);
+        const ring = (css.outlineStyle !== 'none' && parseFloat(css.outlineWidth) >= 2) || (css.boxShadow !== 'none' && css.boxShadow !== '');
+        const label = (e.getAttribute('aria-label') || e.textContent || (e as HTMLInputElement).name || e.id || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+        const tag = [e.tagName.toLowerCase(), typeof e.className === 'string' && e.className.trim() ? `.${e.className.trim().split(/\s+/).join('.')}` : ''].join('');
+        const seen = r.width >= 2 && r.height >= 2 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth && css.visibility !== 'hidden';
+        const on = seen ? document.elementFromPoint(Math.min(Math.max(r.left + r.width / 2, 0), innerWidth - 1), Math.min(Math.max(r.top + r.height / 2, 0), innerHeight - 1)) : null;
+        const cover = on && !e.contains(on) && !on.contains(e) ? `${on.tagName.toLowerCase()}${typeof on.className === 'string' && on.className.trim() ? `.${on.className.trim().split(/\s+/)[0]}` : ''}` : '';
+        const vv = window.visualViewport;
+        return { id: Array.prototype.indexOf.call(document.querySelectorAll('*'), e) as number, key: `${tag} «${label}»`, seen, cover, ring, tabindex: e.tabIndex,
+          where: `${Math.round(r.top)}..${Math.round(r.bottom)} of ${innerHeight}; scrollY ${Math.round(scrollY)} of ${document.documentElement.scrollHeight}; `
+            + `visual ${vv ? `${Math.round(vv.height)}@${Math.round(vv.offsetTop)} ×${vv.scale}` : '-'}; width ${document.documentElement.scrollWidth}/${innerWidth}` };
+      });
+      // from the top of the page — or (here = true) from where the focus is, as a shopper goes on from a field they are in
+      const walk = async (page: any, label: string, here = false) => {
+        await page.waitForLoadState('networkidle');
+        if (!here) await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); window.scrollTo(0, 0); });
+        const ids: number[] = [];
+        const look = async (dir: string) => {
+          await settle(page);
+          const f = await probe(page);
+          if (!f) return null;
+          if (!f.seen) issues.push(`${label}: ${dir} focus on something not seen — ${f.key} (${f.where})`);
+          else if (f.cover) issues.push(`${label}: ${dir} the focus is under ${f.cover} — ${f.key} (${f.where})`);
+          if (!f.ring) issues.push(`${label}: no visible focus on ${f.key}`);
+          if (f.tabindex > 0) issues.push(`${label}: tabindex ${f.tabindex} (out of order) on ${f.key}`);
+          return f;
+        };
+        if (here) { const f = await look('the start:'); if (f) ids.push(f.id); }
+        for (let i = 0; i < 160; i++) {
+          await page.keyboard.press('Tab');
+          const f = await look('Tab:');
+          if (!f) break;
+          if (ids.length && ids[ids.length - 1] === f.id) { issues.push(`${label}: Tab does not move from ${f.key} (a trap)`); break; }
+          if (ids.includes(f.id)) issues.push(`${label}: reached twice — ${f.key}`);
+          ids.push(f.id);
+          if (i === 159) issues.push(`${label}: still inside after 160 Tabs (a trap?) at ${f.key}`);
+        }
+        // and back up the page (Shift+Tab): what scrolls in from the top is not under the sticky header
+        await page.keyboard.press('Shift+Tab');
+        for (let i = 0; i < 25; i++) { await page.keyboard.press('Shift+Tab'); if (!(await look('Shift+Tab:'))) break; }
+        return ids.length;
+      };
+      const counts: string[] = [];
+      try {
+        for (const [device, width] of [['computer', 1280], ['phone', 390]] as const) {
+          const ctx = await browser.newContext(device === 'phone'
+            ? { viewport: { width, height: 844 }, isMobile: true, hasTouch: true, locale: 'he-IL' }
+            : { viewport: { width, height: 860 }, locale: 'he-IL' });
+          await ctx.route('https://cdn.test/**', (r: any) => r.fulfill({ status: 200, contentType: 'image/png', body: picture }));
+          await ctx.addCookies([{ name: 'sf_consent', value: 'none', domain: 'followme.test', path: '/' }]);
+          await ctx.addInitScript('window.__name = (f) => f');
+          const page = await ctx.newPage();
+          for (const [name, p] of [['home', '/'], ['product', '/products/tote-bag'], ['collection', '/collections/all'], ['statement', '/policies/accessibility'], ['quote product', '/products/bag-078']] as const) {
+            await page.goto(url('followme.test', p));
+            counts.push(`${name} ${device}: ${await walk(page, `${name} (${device})`)}`);
+          }
+          // the quote form open, the accessibility menu open: their controls in order, and out again
+          await page.goto(url('followme.test', '/products/bag-078'));
+          await page.locator('.buy-quote').getByRole('button', { name: 'בקשת הצעת מחיר' }).click();
+          await page.locator('form.lead-form').waitFor();
+          // the form opens with the focus in its first field (the name): the walk goes on from there
+          counts.push(`quote form ${device}: ${await walk(page, `quote form open (${device})`, true)}`);
+          await page.goto(url('followme.test', '/'));
+          await page.getByRole('button', { name: 'תפריט נגישות' }).click();
+          await page.getByRole('dialog', { name: 'נגישות' }).waitFor();
+          // Tab through the panel — the size, the five choices, the statement — and out of it: it closes, the page goes on
+          const dialog = page.getByRole('dialog', { name: 'נגישות' });
+          let tabs = 0;
+          while (tabs < 12 && (await dialog.isVisible())) { await page.keyboard.press('Tab'); tabs++; }
+          assert.equal(await dialog.isVisible(), false, `${device}: the panel closes when the focus leaves it`);
+          assert.equal(tabs, 7, `${device}: 6 stops in the panel, then out (${tabs})`);
+          assert.ok(await page.evaluate(() => { const e = document.activeElement; return Boolean(e && e !== document.body && !e.closest('.a11y')); }), `${device}: the focus went on to the page`);
+          await ctx.close();
+        }
+      } finally {
+        psql(`delete from public.catalog_items where id = '${ITEM}'`);
+        await refreshAll();
+      }
+      writeFileSync(path.join(SHOTS, 'a11y-keyboard.txt'), [...counts, '', ...issues].join('\n'));
+      console.log(`# keyboard: ${counts.join(', ')}; ${issues.length} issues`);
+      if (process.env.A11Y_REPORT !== 'only') assert.deepEqual(issues, [], issues.join('\n'));
     });
 
     await step('phones 375 / 390 / 430 and a desktop: nothing sideways', async () => {

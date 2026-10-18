@@ -162,7 +162,13 @@ export function validateKit(raw: unknown): { ok: true; kit: Kit } | { ok: false;
     if (def.list) {
       const rows = settings.items === undefined ? [] : settings.items;
       if (!Array.isArray(rows) || rows.length > def.list.max) e.push(`theme.sections[${i}].items: a list of up to ${def.list.max}`);
-      else for (const row of rows) for (const f of def.list.fields) { const err = fieldError(f, obj(row)[f.key]); if (err) e.push(`theme.sections[${i}].items: ${err}`); }
+      else for (const row of rows) for (const f of def.list.fields) {
+        const v = obj(row)[f.key];
+        // 2.101: a card's link, like a section's — to something the kit creates (a section of the home page: /#id)
+        if (f.kind === 'link') { if (!kitLinkOk(str(v), { collections, pages, theme: { sections: (t.sections as Section[]) ?? [] } as KitTheme }, 'theme')) e.push(`theme.sections[${i}].items.${f.key}: the link leads nowhere in this kit (${str(v)})`); continue; }
+        const err = fieldError(f, typeof v === 'string' ? fill(v, SAMPLE_NAME) : v);
+        if (err) e.push(`theme.sections[${i}].items: ${err}`);
+      }
     }
     if (o.variant !== undefined && !sectionVariantOk(type, o.variant)) e.push(`theme.sections[${i}].variant: not a layout of ${type} (${String(o.variant)})`);
     sections.push({ id: sid, type, hidden: o.hidden === true, settings });

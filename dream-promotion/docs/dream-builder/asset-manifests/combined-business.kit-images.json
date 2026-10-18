@@ -1,0 +1,225 @@
+{
+  "kit": "combined-business",
+  "version": 1,
+  "source": "the FollowMe site ZIP of GPT (FOLLOW_ME_STARTER/dist/images: follow-me/*, and bags-3d/bag-001, bag-014, bag-032) — run through scripts/kit-images.mjs",
+  "images": [
+    {
+      "file": "hero-desktop.webp",
+      "slot": "hero",
+      "width": 1599,
+      "height": 900,
+      "variant": "wide",
+      "textSafe": "right",
+      "focal": {
+        "x": 0.3,
+        "y": 0.55
+      },
+      "alt": "שולחן אבן בהיר עם שקיות נייר, קופסה, בדים ומזוודה בחלל שמנת רך"
+    },
+    {
+      "file": "hero-mobile.webp",
+      "slot": "hero",
+      "width": 900,
+      "height": 1125,
+      "variant": "vertical",
+      "focal": {
+        "x": 0.5,
+        "y": 0.6
+      },
+      "alt": "שקיות נייר בהירות וקופסה על משטח אבן, באור טבעי"
+    },
+    {
+      "file": "packaging-room.webp",
+      "slot": "imageText",
+      "width": 1400,
+      "height": 933,
+      "focal": {
+        "x": 0.45,
+        "y": 0.55
+      },
+      "alt": "שקיות וקופסאות ממותגות על שולחן שיש בחלל מואר"
+    },
+    {
+      "file": "sourcing-studio.webp",
+      "slot": "picture",
+      "width": 1200,
+      "height": 900,
+      "alt": "סטודיו עבודה עם דוגמאות בד, קופסאות קרטון וכלי מדידה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "branded-bags.webp",
+      "slot": "picture",
+      "width": 1200,
+      "height": 800,
+      "alt": "שקיות נייר ממותגות בצבעים שונים, מרחפות על רקע בהיר",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "bag-001.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "alt": "שקית נייר שחורה עם ידית חבל — דגם להמחשה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "bag-014.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "alt": "שקית נייר אפורה עם ידית חתוכה — דגם להמחשה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "bag-032.webp",
+      "slot": "picture",
+      "width": 720,
+      "height": 720,
+      "alt": "קופסה קשיחה נשלפת עם ידית — דגם להמחשה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "samples.webp",
+      "slot": "picture",
+      "width": 1200,
+      "height": 900,
+      "alt": "ידיים בוחנות דוגמאות חומר ובד על שולחן עבודה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "details.webp",
+      "slot": "picture",
+      "width": 1200,
+      "height": 900,
+      "alt": "מדידת קופסה בקליבר — בדיקת מידות וגימור",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "collection.webp",
+      "slot": "picture",
+      "width": 1200,
+      "height": 900,
+      "alt": "מתלה בגדים בגווני שמנת וזית בחלל בהיר",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "venture-travel.webp",
+      "slot": "picture",
+      "width": 1200,
+      "height": 900,
+      "alt": "שולחן עבודה עם מחברת, טלפון ומזוודה ליד חלון לשדה תעופה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "venture-studio.webp",
+      "slot": "picture",
+      "width": 1200,
+      "height": 675,
+      "alt": "חלל עבודה בהיר עם דוגמאות, קופסאות ושקית בד",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "collection-handles.webp",
+      "slot": "collection",
+      "width": 600,
+      "height": 900,
+      "collection": "handles",
+      "alt": "שקיות עם ידיות חבל וסרט",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "collection-diecut.webp",
+      "slot": "collection",
+      "width": 600,
+      "height": 900,
+      "collection": "diecut",
+      "alt": "שקיות עם ידית חתוכה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "collection-kraft.webp",
+      "slot": "collection",
+      "width": 600,
+      "height": 900,
+      "collection": "kraft",
+      "alt": "שקיות קראפט טבעיות",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "collection-boxes.webp",
+      "slot": "collection",
+      "width": 600,
+      "height": 900,
+      "collection": "boxes",
+      "alt": "קופסאות קשיחות למתנה",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "collection-fabric.webp",
+      "slot": "collection",
+      "width": 600,
+      "height": 900,
+      "collection": "fabric",
+      "alt": "תיקי בד ופאוצ׳ים",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    },
+    {
+      "file": "collection-special.webp",
+      "slot": "collection",
+      "width": 600,
+      "height": 900,
+      "collection": "special",
+      "alt": "שקיות בעיצובים מיוחדים",
+      "focal": {
+        "x": 0.5,
+        "y": 0.5
+      }
+    }
+  ]
+}

@@ -12,16 +12,23 @@ export interface StoreLite {
   slug?: string; access?: StoreAccess;
 }
 
+/** ח.פ. / ע.מ. / an American company's EIN; '' — no number shown */
+export type LegalNumberKind = 'company' | 'dealer' | 'ein' | '';
+
 export interface Store extends StoreLite {
   template: string; currency: string; country: string; description: string;
   contact: { phone: string; whatsapp: string; email: string; address: string };
   ga4_id: string; gsc_code: string; show_stock_count: boolean;
   theme: { version: number | null; settings: unknown };
-  legal: { name: string; number: string; number_kind: 'company' | 'dealer'; address: string };
+  /** who runs the site: the store's own company (2.103, migration 5500), else the business's details for its documents; country —
+   *  the company's (two letters), absent before the migration */
+  legal: { name: string; number: string; number_kind: LegalNumberKind; address: string; country?: string };
   menus: { main: Link[]; footer: Link[] };
   policies: { policy: PolicyKind; title: string }[];
   collections: { slug: string; title: string; image_url: string }[];
   can_buy: boolean;          // sells on the site (stage 3): a cart in the header, "הוספה לסל" on a product
+  /** 2.104 (migration 5600): the accessibility menu — false only when the owner turned it off; absent before the migration = on */
+  a11y_widget?: boolean;
 }
 
 /** the store as sf_store returns it: whole when it may be shown, only its name when it is not on the air */
@@ -35,9 +42,17 @@ export const POLICY_KINDS: readonly PolicyKind[] = ['returns', 'privacy', 'acces
 
 export interface Picture { url: string; sizes: Record<string, string>; alt: string; width?: number | null; height?: number | null }
 
+/**
+ * 2.102 (migration 20261017005400): a product sold by a quote — no cart and no payment on the site, a request instead. "from" is
+ * the price of one unit as the business wrote it, in its own currency ('' = the store's): shown only, never converted or charged.
+ */
+export interface Quote { from: number | null; currency: string; min: number | null }
+
 export interface Card {
   slug: string; name: string; price: number; price_max: number; compare_at: number | null; in_stock: boolean;
   stock: number | null; image: Picture | null;
+  /** absent before migration 20261017005400; null = sold as before */
+  quote?: Quote | null;
 }
 
 export interface ProductList {
@@ -69,6 +84,8 @@ export interface Product {
   collection: { slug: string; title: string } | null;
   related: Card[];
   can_buy: boolean;
+  /** absent before migration 20261017005400; null = sold as before */
+  quote?: Quote | null;
 }
 
 export interface CollectionCard { slug: string; title: string; description: string; image_url: string; count: number }
@@ -140,4 +157,6 @@ export interface OrderView {
   document?: 'not_required' | 'pending' | 'issued' | 'blocked'; doc_token?: string | null; request?: '' | 'cancel' | 'return';
   refunded?: number; state?: string;
 }
+/** sf_lead_request: a request of the site recorded (the same request again: already) — or why not (lib/leads.ts) */
+export type LeadRequestResult = { ok: true; request: string; already?: boolean } | { ok: false; error: string; fields?: string[] };
 export type OrderRequestResult = { ok: true; kind: 'cancel' | 'return'; number?: number } | { ok: false; error: 'bad_request' | 'not_found' | 'not_paid' | 'already'; kind?: string };

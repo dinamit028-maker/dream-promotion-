@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { jsonForScript } from '@/lib/csp';
-import { money, priceLabel, stockLabel } from '@/lib/format';
-import type { Card, Picture as Pic } from '@/lib/types';
+import { money, priceLabel, quotePrice, stockLabel } from '@/lib/format';
+import type { Card, Picture as Pic, Quote } from '@/lib/types';
 
 /** a picture in its sizes (400 / 800 / 1600, made in the dashboard's browser): the browser picks the right one */
 export function Picture({ pic, alt, sizes, eager = false, className }: { pic: Pic; alt: string; sizes: string; eager?: boolean; className?: string }) {
@@ -19,8 +19,17 @@ export function Picture({ pic, alt, sizes, eager = false, className }: { pic: Pi
   );
 }
 
-/** the price (a number inside <bdi>, so RTL never flips it), the price before the discount, "החל מ-" */
-export function Price({ price, priceMax, compareAt, currency = 'ILS', className = '' }: { price: number; priceMax?: number; compareAt?: number | null; currency?: string; className?: string }) {
+/** the price (a number inside <bdi>, so RTL never flips it), the price before the discount, "החל מ-"; a product sold by a quote
+ *  (2.102): "החל מ-" its price of one unit in its own currency, else "בהצעת מחיר" */
+export function Price({ price, priceMax, compareAt, currency = 'ILS', quote, className = '' }: { price: number; priceMax?: number; compareAt?: number | null; currency?: string; quote?: Quote | null; className?: string }) {
+  if (quote) {
+    const q = quotePrice(quote, currency);
+    return (
+      <span className={`price price-quote ${className}`}>
+        {q ? <><span className="price-from">החל מ-</span><bdi className="price-now">{q}</bdi> <span className="price-unit">ליחידה</span></> : <span className="price-now">בהצעת מחיר</span>}
+      </span>
+    );
+  }
   const { from, text } = priceLabel({ price, price_max: priceMax ?? price }, currency);
   return (
     <span className={`price ${className}`}>
@@ -46,11 +55,11 @@ export function ProductCard({ p, currency, eager = false }: { p: Card; currency:
       <a href={`/products/${encodeURIComponent(p.slug)}`} className="card-link">
         <span className="card-media">
           {p.image ? <Picture pic={p.image} alt={p.image.alt || p.name} sizes="(min-width: 960px) 25vw, 50vw" eager={eager} /> : <span className="card-noimage" aria-hidden="true"><Art /></span>}
-          {!p.in_stock && <span className="badge">אזל</span>}
-          {p.in_stock && p.compare_at != null && p.compare_at > p.price && <span className="badge badge-sale">מבצע</span>}
+          {!p.quote && !p.in_stock && <span className="badge">אזל</span>}
+          {!p.quote && p.in_stock && p.compare_at != null && p.compare_at > p.price && <span className="badge badge-sale">מבצע</span>}
         </span>
         <span className="card-name">{p.name}</span>
-        <Price price={p.price} priceMax={p.price_max} compareAt={p.compare_at} currency={currency} />
+        <Price price={p.price} priceMax={p.price_max} compareAt={p.compare_at} currency={currency} quote={p.quote} />
       </a>
     </li>
   );
@@ -64,7 +73,8 @@ export function ProductGrid({ items, currency, eagerFirst = 0, layout = '' }: { 
 /** 2.58: before there are products, the owner's preview shows where they will be — shapes only, never a made-up product */
 export function PlaceholderGrid({ count = 4, label = 'כאן יופיע מוצר', layout = '' }: { count?: number; label?: string; layout?: string }) {
   return (
-    <ul className={layout === 'carousel' ? 'grid grid--carousel' : 'grid'} role="list" aria-label="מקום למוצרים">
+    // a carousel of places (2.104): nothing in it to focus — the row itself takes the focus, so the keyboard can scroll it
+    <ul className={layout === 'carousel' ? 'grid grid--carousel' : 'grid'} role="list" aria-label="מקום למוצרים" tabIndex={layout === 'carousel' ? 0 : undefined}>
       {Array.from({ length: count }, (_, i) => (
         <li key={i} className="card card-placeholder">
           <span className="card-link">

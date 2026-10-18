@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { editLink } from '@/lib/edit';
 import type { Metadata } from 'next';
 import { headers } from 'next/headers';
+import { QuoteBuy } from '@/components/QuoteBuy';
 import { VariantPicker } from '@/components/VariantPicker';
 import { JsonLd, Picture, ProductGrid, RichText } from '@/components/ui';
 import { data } from '@/lib/data';
@@ -54,7 +55,8 @@ export default async function ProductPage({ params, searchParams }: Props) {
         <ol>{crumbs.map((c, i) => <li key={c.path}>{i < crumbs.length - 1 ? <a href={c.path}>{c.name}</a> : <span aria-current="page">{c.name}</span>}</li>)}</ol>
       </nav>
       <article className="product" {...editLink(Boolean(site.edit), `product:${p.slug}`)}>
-        <div className="gallery" aria-label="תמונות המוצר">
+        {/* 2.104: more than one picture scrolls sideways on a phone — a labelled region the keyboard reaches (axe: scrollable-region-focusable) */}
+        <div className="gallery" {...(p.images.length > 1 ? { role: 'region', 'aria-label': 'תמונות המוצר', tabIndex: 0 } : {})}>
           {p.images.length ? p.images.map((img, i) => (
             <figure key={img.id ?? img.url} id={img.id ? `img-${img.id}` : undefined}>
               <Picture pic={img} alt={img.alt || (i === 0 ? p.name : `${p.name} — תמונה ${i + 1}`)} sizes="(min-width: 900px) 55vw, 88vw" eager={i === 0} />
@@ -63,8 +65,10 @@ export default async function ProductPage({ params, searchParams }: Props) {
         </div>
         <div className="product-info">
           <h1 className="product-title">{p.name}</h1>
-          <VariantPicker product={p} currency={site.store.currency} whatsapp={whatsapp} pageUrl={`${site.origin}${path}`}
-            initialVariant={typeof sp.variant === 'string' ? sp.variant : undefined} />
+          {p.quote
+            ? <QuoteBuy product={p} quote={p.quote} currency={site.store.currency} whatsapp={whatsapp} pageUrl={`${site.origin}${path}`} />
+            : <VariantPicker product={p} currency={site.store.currency} whatsapp={whatsapp} pageUrl={`${site.origin}${path}`}
+                initialVariant={typeof sp.variant === 'string' ? sp.variant : undefined} />}
           {details.length > 0 && (
             <dl className="facts">{details.map((d) => <div key={d.label}><dt>{d.label}</dt><dd>{d.value}</dd></div>)}</dl>
           )}

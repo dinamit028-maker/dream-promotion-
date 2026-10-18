@@ -1,5 +1,6 @@
 import { shared } from '@/lib/shared-cache';
 import { getSite, hostOf } from '@/lib/site';
+import { A11Y_STATEMENT_DATE } from '@/lib/a11y-statement';
 
 /** every address of a store on the air, with its last change — the address Search Console gets once */
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -16,6 +17,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ host: s
     ...map.collections.map((c) => [`${o}/collections/${encodeURIComponent(c.slug)}`, day(c.updated_at)] as [string, string]),
     ...map.products.map((p) => [`${o}/products/${encodeURIComponent(p.slug)}`, day(p.updated_at)] as [string, string]),
     ...map.pages.map((g) => [g.kind === 'policy' ? `${o}/policies/${g.policy}` : `${o}/pages/${encodeURIComponent(g.slug)}`, day(g.updated_at)] as [string, string]),
+    // 2.104: every site has an accessibility statement — the automatic one until the business publishes its own
+    ...(map.pages.some((g) => g.kind === 'policy' && g.policy === 'accessibility') ? [] : [[`${o}/policies/accessibility`, A11Y_STATEMENT_DATE] as [string, string]]),
   ];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${
     urls.map(([loc, mod]) => `  <url><loc>${esc(loc)}</loc>${mod ? `<lastmod>${mod}</lastmod>` : ''}</url>`).join('\n')}\n</urlset>\n`;

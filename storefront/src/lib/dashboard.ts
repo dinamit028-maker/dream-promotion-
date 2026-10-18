@@ -37,6 +37,26 @@ export async function notifyPaylinkPaid(requestId: string): Promise<boolean> {
   }
 }
 
+/**
+ * A request of the site was recorded in the leads (2.102): the dashboard's server routes it now — the department, the person
+ * responsible and the WhatsApp message to them. Never waited on by the shopper, never fatal: the dashboard's cron routes
+ * whatever this missed.
+ */
+export async function notifyLead(requestId: string): Promise<boolean> {
+  const base = (process.env.DASHBOARD_URL ?? '').replace(/\/+$/, '');
+  const secret = process.env.COMMERCE_SECRET ?? '';
+  if (!/^https?:\/\//.test(base) || secret.length < 16) return false;
+  try {
+    const r = await fetch(`${base}/api/leads/site`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-commerce-secret': secret },
+      body: JSON.stringify({ requestId }), cache: 'no-store', signal: AbortSignal.timeout(25_000),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** the document's PDF, from the dashboard, by its share token — served on the business's own domain */
 export async function documentPdf(docToken: string): Promise<Response | null> {
   const base = (process.env.DASHBOARD_URL ?? '').replace(/\/+$/, '');
