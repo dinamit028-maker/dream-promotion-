@@ -17,7 +17,9 @@ import { MILESTONES, milestoneCount, type Milestones } from './milestones';
 type Biz = {
   id: string; name: string; slug: string; status: string; paidUntil: string | null; graceDays: number; lockReason: string;
   state: BizState; lastDay: string | null; daysLeft: number | null; endingSoon: boolean;
-  members: { role: string; access?: 'full' | 'register'; email: string; name: string; locations?: string[] | null }[];
+  members: { role: string; access?: 'full' | 'register'; attendanceRole?: string | null; email: string; name: string; locations?: string[] | null }[];
+  /** 2.107 (migration 5800): what the business bought; null = before the migration (everything) */
+  modules?: string[] | null;
   /** migration 4600: the business's locations, the main one first (one or none: nothing to choose) */
   locations?: { id: string; name: string; active: boolean }[];
   assets: number; missing: string[];
@@ -153,6 +155,8 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
               </details>
             )}
 
+            {b.modules !== undefined && <AttendanceAccess b={b} busy={!!busy} act={act} />}
+
             {(b.locations?.length ?? 0) > 1 && (
               <MemberLocations b={b} busy={!!busy} onSave={(email, locations) => act(b, 'member_locations', { email, locations },
                 locations ? `${email} עובד/ת עכשיו רק ב: ${locations.map((id) => b.locations?.find((l) => l.id === id)?.name ?? '').join(', ')}.` : `${email} עובד/ת עכשיו בכל הסניפים.`)} />
@@ -189,6 +193,43 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
         )}
       </Card>
     </div>
+  );
+}
+
+/**
+ * 2.107: what the business bought (Dream, "נוכחות ועובדים", or both — attendance only = the app shows that module only), and each
+ * person's part in attendance: by their role (owner / editor = the attendance admin), or an approver / payroll (the accountant).
+ */
+const ATT_ROLE: Record<string, string> = { '': 'לפי התפקיד', admin: 'מנהל/ת נוכחות', approver: 'מאשר/ת', payroll: 'שכר / רואה חשבון' };
+function AttendanceAccess({ b, busy, act }: { b: Biz; busy: boolean; act: (b: Biz, action: string, extra: Record<string, unknown>, ok: string) => Promise<boolean> }) {
+  if (b.modules === null) return <p className="mt-2 text-xs text-muted">מודולים: הכול (מיגרציה 20261023005800 עוד לא במסד)</p>;
+  const mods = b.modules ?? ['dream', 'attendance'];
+  const toggle = (m: string) => {
+    const next = mods.includes(m) ? mods.filter((x) => x !== m) : [...mods, m];
+    if (!next.length) return;
+    void act(b, 'modules', { modules: next }, `"${b.name}": ${next.map((x) => (x === 'dream' ? 'Dream' : 'נוכחות ועובדים')).join(' + ')}.`);
+  };
+  return (
+    <details className="mt-2 rounded-xl bg-surface-2 p-2 text-sm">
+      <summary className="cursor-pointer font-semibold">מודולים: {mods.map((x) => (x === 'dream' ? 'Dream' : 'נוכחות ועובדים')).join(' + ')}</summary>
+      <div className="mt-2 flex flex-wrap gap-4">
+        <label className="flex items-center gap-2"><input type="checkbox" disabled={busy || (mods.length === 1 && mods.includes('dream'))} checked={mods.includes('dream')} onChange={() => toggle('dream')} /> Dream (כל השאר)</label>
+        <label className="flex items-center gap-2"><input type="checkbox" disabled={busy || (mods.length === 1 && mods.includes('attendance'))} checked={mods.includes('attendance')} onChange={() => toggle('attendance')} /> נוכחות ועובדים</label>
+      </div>
+      {mods.includes('attendance') && (
+        <ul className="mt-2 grid gap-1">
+          {b.members.filter((m) => m.access !== 'register' && m.email).map((m) => (
+            <li key={m.email} className="flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0 break-words">{m.email}{m.role === 'viewer' ? ' (צפייה)' : ''}</span>
+              <select aria-label={`התפקיד של ${m.email} בנוכחות`} disabled={busy} value={m.attendanceRole ?? ''} className="h-9 rounded-md border border-line bg-surface px-2"
+                onChange={(e) => void act(b, 'member_attendance_role', { email: m.email, role: e.target.value || null }, `${m.email}: ${ATT_ROLE[e.target.value]}.`)}>
+                {Object.entries(ATT_ROLE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
   );
 }
 

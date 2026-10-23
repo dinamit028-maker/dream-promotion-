@@ -37,4 +37,6 @@ bash tests/sql/stock-compare.sh "$DB" 5100 || failed=1
 # … and without and with migration 5400 (a product sold by a quote — the site's line price, card, product and list rewritten:
 # a store that sells as before, the same prices, product and lists)
 bash tests/sql/stock-compare.sh "$DB" 5400 || failed=1
+# the clock without and with migration 5800 (attendance): no existing row changes, the clock works as before
+bash tests/sql/attendance-compare.sh "$DB" || failed=1
 exit $failed

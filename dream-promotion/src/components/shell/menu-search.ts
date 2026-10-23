@@ -3,6 +3,7 @@ import { NAV, NAV_ADMIN, NAV_BOTTOM_ALL, NAV_STOCK } from './app-nav';
 import type { ModuleGroup } from './module-nav';
 import { FINANCE_MODULE, financeGroups } from '@/features/finance/module';
 import { STORE_MODULE } from '@/features/store/module';
+import { ATTENDANCE_MODULE } from '@/features/attendance/module';
 
 /**
  * The search in the menu (2.96, docs/FINANCE_ADDITIONS_HE.md T11): every screen of Dream the person may open — the app's menu, the
@@ -63,6 +64,13 @@ export const KEYWORDS: Record<string, string[]> = {
   '/store/selling': ['סליקה', 'מסוף', 'תשלום באתר', 'משלוח'],
   '/store/coupons': ['הנחה', 'קוד הנחה'],
   '/store/settings': ['דומיין', 'כתובת האתר', 'סיסמה'],
+  // נוכחות ועובדים (2.107)
+  '/attendance/employees': ['עובד', 'צוות', 'קישור אישי', 'זימון', 'ייבוא עובדים', 'קוד עובד'],
+  '/attendance/departments': ['מחלקה', 'מאשר', 'מאשרים', 'מנהל ישיר'],
+  '/attendance/approvals': ['אישור שעות', 'בקשת השלמה', 'סגירת חודש', 'תיקון שעות'],
+  '/attendance/absences': ['חופשה', 'מחלה', 'מילואים', 'אישור מחלה'],
+  '/attendance/reports': ['דוח שעות', 'שכר', 'תוכנת שכר', 'אקסל', 'שעות נוספות'],
+  '/attendance/settings': ['מסלול שעות', 'שעות תקן', 'QR', 'קוד QR', 'הפסקה'],
 };
 
 /** screens inside a screen: a report of its own (2.94), the lead departments (2.99) — found by the search, not in the menu */
@@ -91,7 +99,7 @@ export function appEntries(o: { multi?: boolean; admin?: boolean; cash?: boolean
   const own = [...NAV.flatMap((n) => (n.href === '/register' && o.multi ? [n, NAV_STOCK] : [n])), ...NAV_BOTTOM_ALL, ...(o.admin ? [NAV_ADMIN] : [])]
     .map((n) => entry(n.href, n.label, '', n.Icon));
   return dedupe([...own, ...moduleEntries(FINANCE_MODULE.name, financeGroups({ cash: Boolean(o.cash), journal: Boolean(o.journal) })),
-    ...moduleEntries(STORE_MODULE.name, STORE_MODULE.groups), ...DEEP_LINKS]);
+    ...moduleEntries(STORE_MODULE.name, STORE_MODULE.groups), ...moduleEntries(ATTENDANCE_MODULE.name, ATTENDANCE_MODULE.groups), ...DEEP_LINKS]);
 }
 /** one entry per address — the first wins (a module's own menu before the app's) */
 export function dedupe(list: MenuEntry[]): MenuEntry[] {

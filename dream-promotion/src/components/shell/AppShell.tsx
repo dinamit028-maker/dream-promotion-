@@ -18,6 +18,8 @@ import { FINANCE_MODULE } from '@/features/finance/module';
 import { isFinancePath } from '@/features/finance/routes';
 import { STORE_MODULE } from '@/features/store/module';
 import { isStorePath } from '@/features/store/routes';
+import { ATTENDANCE_MODULE } from '@/features/attendance/module';
+import { attendanceOnlyTarget, isAttendancePath } from '@/features/attendance/routes';
 import { LocationSwitch } from '@/features/locations/LocationSwitch';
 import { useLocations } from '@/features/locations/store';
 import { SquaresFour, Plus, SignOut } from '@/components/ui/Icon';
@@ -55,6 +57,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   type BizItem = { id: string; name: string; state: 'active' | 'locked' | 'expired' };
   const [biz, setBiz] = useState<{ current: BizItem | null; list: BizItem[]; superAdmin: boolean } | null>(null);
   const [switching, setSwitching] = useState(false);
+  // what the business bought (2.107): a business with attendance only sees that module only — no wizard, nothing else of Dream
+  const [modules, setModules] = useState<string[] | null>(null);
+  const attendanceOnly = Boolean(modules && !modules.includes('dream'));
   // who is signed in (the personal area of a module's menu)
   const [me, setMe] = useState<string | null>(null);
   // the cloud is the source of truth: every app open loads fresh data once (leads imported by the timer,
@@ -80,6 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         if (r.ok) {
           current = j.business?.id ?? null; setBiz({ current: j.business, list: j.businesses ?? [], superAdmin: Boolean(j.superAdmin) });
           useApp.getState().setAccess(j.access === 'register' ? 'register' : 'full');
+          if (Array.isArray(j.modules)) setModules(j.modules);
         }
       } catch { /* the app still opens; data comes from row-level security anyway */ }
       if (!alive) return;
@@ -129,7 +135,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     } catch (e: any) { setSwitching(false); window.alert(`לא הצלחנו לעבור עסק: ${e.message}`); }
   }
   const multi = useLocations((s) => multiLocation(s.state));
-  const NAV_ALL = withStock(multi);
+  // a business without the attendance module (2.107) has no "נוכחות" in the menu
+  const NAV_ALL = withStock(multi).filter((n) => n.href !== '/attendance' || !modules || modules.includes('attendance'));
   const NAV_BOTTOM = cashier ? [] : isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
   const NAV_MAIN = cashier ? NAV.filter((n) => n.href === '/register') : NAV_ALL;
   // every screen the person may open — for the search and the favorites (a cashier gets neither)
@@ -161,7 +168,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // signed in, but no business yet (a new account before the system admin opens one, or a member who was removed): nothing
   // can be saved without a business, so the app says so instead of opening screens whose saves would fail
   const noBusiness = Boolean(biz && !biz.current && !biz.superAdmin);
-  useEffect(() => { if (hydrated && !checking && !onboarded && !cashier && !noBusiness) router.replace('/onboarding'); }, [hydrated, checking, onboarded, cashier, noBusiness, router]);
+  useEffect(() => { if (hydrated && !checking && !onboarded && !cashier && !noBusiness && !attendanceOnly) router.replace('/onboarding'); }, [hydrated, checking, onboarded, cashier, noBusiness, attendanceOnly, router]);
+  // attendance only: every other address of the app is the module's home
+  const outside = attendanceOnly && !cashier ? attendanceOnlyTarget(path) : null;
+  useEffect(() => { if (outside && !checking) router.replace(outside); }, [outside, checking, router]);
 
   const sideItem = ({ href, label, Icon }: NavItem) => {
     const on = path === href;
@@ -196,7 +206,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const current = [...NAV, NAV_STOCK, ...NAV_BOTTOM].find((n) => n.href === path);
   const register = path === '/register';
   // a module that opens as an app of its own (2.52: finance, 2.54: the store) — its own menus instead of the app's
-  const moduleConfig = isFinancePath(path) ? FINANCE_MODULE : isStorePath(path) ? STORE_MODULE : null;
+  const moduleConfig = isFinancePath(path) ? FINANCE_MODULE : isStorePath(path) ? STORE_MODULE : isAttendancePath(path) ? ATTENDANCE_MODULE : null;
   const moduleOn = Boolean(moduleConfig) && !cashier;
   useSearchShortcut(!moduleOn && !cashier && !checking, openSearch);
   const lockedNotice = biz?.current && biz.current.state !== 'active' ? (
@@ -213,6 +223,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <span className="spinner" aria-hidden />טוען את החשבון…
       </div>
     );
+  }
+
+  // attendance only, on another address: on the way to the module's home — nothing of Dream is drawn meanwhile
+  if (outside) {
+    return <div className="flex min-h-screen items-center justify-center text-muted"><span className="spinner" aria-hidden /></div>;
   }
 
   if (noBusiness && biz) {
@@ -254,7 +269,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (moduleOn && moduleConfig) {
     return (
       <>
-        <ModuleShell config={moduleConfig} path={path} exitHref="/dashboard" notice={lockedNotice}
+        <ModuleShell config={moduleConfig} path={path} exitHref={attendanceOnly ? null : '/dashboard'} onSignOut={() => void signOut()} notice={lockedNotice}
           businessName={biz?.current?.name ?? undefined} userName={me ?? undefined}
           businesses={biz?.list ?? []} currentBusinessId={biz?.current?.id ?? null}
           canSwitch={Boolean(biz && (biz.superAdmin || biz.list.length > 1))} switching={switching} onSwitchBusiness={(id) => void switchBusiness(id)}
