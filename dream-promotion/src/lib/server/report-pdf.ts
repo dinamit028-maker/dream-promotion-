@@ -31,7 +31,7 @@ export function reportPdfInput(body: unknown): { ok: true; input: ReportPdfInput
   return { ok: true, input: { title: title.trim(), subtitle, note, columns: columns as ReportPdfInput['columns'], rows: rows as string[][], total: total as string[] | null } };
 }
 
-export async function buildReportPdf(r: ReportPdfInput, business: { name: string; dealerNumber: string }, o: { software: string; at: string }): Promise<PDFDocument> {
+export async function buildReportPdf(r: ReportPdfInput, business: { name: string; dealerNumber: string }, o: { software: string; at: string; footer?: string }): Promise<PDFDocument> {
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   const fb = fontBytes();
@@ -120,7 +120,7 @@ export async function buildReportPdf(r: ReportPdfInput, business: { name: string
   }
 
   // ---- the footer on every page ----
-  const foot = `הופק: ${ilDateTime(o.at)} · ${o.software} · דוח עבודה — לא דוח שהוגש לרשות המסים`;
+  const foot = `הופק: ${ilDateTime(o.at)} · ${o.software} · ${o.footer ?? 'דוח עבודה — לא דוח שהוגש לרשות המסים'}`;
   for (const [i, p] of pdf.getPages().entries()) {
     page = p; y = M - 12;
     draw(foot, { right: W - M }, 8, font, muted);

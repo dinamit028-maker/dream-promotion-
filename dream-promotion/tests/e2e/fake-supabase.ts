@@ -27,6 +27,7 @@ import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
 import { MANUAL_KEY, partyKey } from '../../src/features/finance/statements';
+import { ATT_FUNCTION_ONLY, ATT_TABLES, attDefaults, attendanceRpc } from './fake-attendance';
 
 type Row = Record<string, any>;
 export type Tables = Record<string, Row[]>;
@@ -111,6 +112,11 @@ export class FakeSupabase {
   /** 2.105: migration 5700 is in the database (appointments.staff_id, the team's practitioners and colours, appointment_events,
    *  appointment_staff()) — false: as before it */
   calendarTables = true;
+  /** 2.107: migration 5800 is in the database (attendance: departments, tracks, requests, absences, months, the history; the hours
+   *  written by the att_* functions only) — false: as before it (the old clock screen writes time_entries itself) */
+  attendanceTables = true;
+  /** 2.107: the signed-in person's part in attendance (att_role) */
+  attendanceRole = 'admin';
   /** the moments of the history: one after another, also within the same millisecond (clock_timestamp() in the database) */
   private eventClock = 0;
   static CASH = ['bank_deposits', 'bank_deposit_cheques', 'bank_statements', 'bank_lines', 'bank_matches', 'cheque_reminders'];
@@ -343,6 +349,7 @@ export class FakeSupabase {
     r.id ??= randomUUID();
     r.created_at ??= now();
     if (!['businesses', 'business_members', 'profiles'].includes(table)) r.business_id ??= this.opts.businessId;
+    if (this.attendanceTables) attDefaults(table, r);
     const placed = this.fillLocation(table, r);
     if (placed) return placed;
     if (table === 'appointments') { const e = this.appointmentCheck(r, null); if (e) return e; }
@@ -1883,6 +1890,8 @@ export class FakeSupabase {
   }
 
   rpc(fn: string, args: any): { status: number; body: any } {
+    // 2.107 (5800): the attendance functions — none before the migration
+    if (fn.startsWith('att_')) return this.attendanceTables ? attendanceRpc(this, fn, args)! : { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn}` } };
     const journaled = this.journalRpc(fn, args);
     if (journaled) return journaled;
     const placed = this.locationRpc(fn, args);
@@ -2362,6 +2371,12 @@ export class FakeSupabase {
       if (asked) return json(400, { code: '42703', message: `column business_finance_profile.${asked} does not exist` });
       const written = body && (Array.isArray(body) ? body : [body]).flatMap((b: Row) => (b ? Object.keys(b) : [])).find((c) => cols.includes(c));
       if (written) return json(400, { code: 'PGRST204', message: `Could not find the '${written}' column of 'business_finance_profile' in the schema cache` });
+    }
+    // 2.107 (5800): before the migration its tables are missing; after it the hours, requests, absences, months and the history are
+    // written by the att_* functions only (the old screen's direct writes of time_entries are refused)
+    if (ATT_TABLES.includes(table) && !this.attendanceTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+    if (ATT_FUNCTION_ONLY.includes(table) && this.attendanceTables && method !== 'GET' && method !== 'HEAD') {
+      return json(403, { code: '42501', message: `${table} is written only through the attendance functions` });
     }
     // 2.96 (5100): before the migration there is no such table; after it, read through its policies and written by its functions only
     if (table === 'journal_entries') {

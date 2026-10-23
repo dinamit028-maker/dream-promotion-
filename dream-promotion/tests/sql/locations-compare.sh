@@ -77,7 +77,8 @@ rows() {
     out+="$t $(q "select count(*) || ' ' || md5(coalesce(string_agg((to_jsonb(x) - 'location_id' - 'register_id' $LATER)::text, '|' order by x.id::text), ''))
                   from public.$t x where x.business_id = '$B'")"$'\n'
   done
-  out+="members $(q "select md5(string_agg((to_jsonb(m) - 'locations')::text, '|' order by m.user_id::text)) from public.business_members m where m.business_id = '$B'")"$'\n'
+  # 5800 (later) adds attendance_role — null for everyone
+  out+="members $(q "select md5(string_agg((to_jsonb(m) - 'locations' - 'attendance_role')::text, '|' order by m.user_id::text)) from public.business_members m where m.business_id = '$B'")"$'\n'
   out+="profiles $(q "select md5(string_agg((to_jsonb(p) - 'current_location_id')::text, '|' order by p.id::text)) from public.profiles p where p.id in ('$O', '$K')")"
   echo "$out"
 }

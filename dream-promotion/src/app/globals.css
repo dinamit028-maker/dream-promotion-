@@ -93,6 +93,10 @@
 :root { --shop:#FB923C; --shop-soft:#33200F; --shop-ink:#2A1405; --shop-line:rgba(251,146,60,.38); }
 :root[data-theme='light'] { --shop:#C2410C; --shop-soft:#FFEDD5; --shop-ink:#FFFFFF; --shop-line:rgba(194,65,12,.35); }
 .module-store { --module:var(--shop); --module-soft:var(--shop-soft); --module-ink:var(--shop-ink); --module-line:var(--shop-line); }
+/* attendance (2.107) is blue — the same pairs clear 4.5:1 (text in --att on --surface / --att-soft, --att-ink on --att) */
+:root { --att:#60A5FA; --att-soft:#0F2340; --att-ink:#04142B; --att-line:rgba(96,165,250,.38); }
+:root[data-theme='light'] { --att:#1D4ED8; --att-soft:#DBEAFE; --att-ink:#FFFFFF; --att-line:rgba(29,78,216,.35); }
+.module-attendance { --module:var(--att); --module-soft:var(--att-soft); --module-ink:var(--att-ink); --module-line:var(--att-line); }
 
 
 /* keyboard users always see where they are; mouse clicks don't flash a ring */

@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { cx } from '@/lib/utils';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
 import { VersionTag } from '@/components/system/VersionTag';
-import { ArrowRight, ArrowsLeftRight, CaretDown, Check, List, Plus, UserCircle, X } from '@/components/ui/Icon';
+import { ArrowRight, ArrowsLeftRight, CaretDown, Check, List, Plus, SignOut, UserCircle, X } from '@/components/ui/Icon';
 import { groupOfPath, isActiveLink, toggleGroup, type ModuleAction, type ModuleConfig, type ModuleGroup, type ModuleLink } from './module-nav';
 import { FavoritesList, MenuSearch, SearchButton, SearchDialog, StarButton, useMenuEntries, useSearchShortcut } from './MenuTools';
 
@@ -49,8 +49,10 @@ interface Props {
   config: ModuleConfig;
   path: string;
   children: ReactNode;
-  /** where "חזרה ל-Dream" goes (the app's home) */
-  exitHref: string;
+  /** where "חזרה ל-Dream" goes (the app's home); null = a business with this module only — no way out, a sign-out instead */
+  exitHref: string | null;
+  /** with no way out (exitHref null): signing out, in the menu */
+  onSignOut?: () => void;
   businessName?: string;
   userName?: string;
   businesses?: ModuleBusiness[];
@@ -66,7 +68,7 @@ interface Props {
 
 const stateLabel = (b: ModuleBusiness) => (b.state === 'active' ? '' : b.state === 'locked' ? ' (נעול)' : ' (פג תוקף)');
 
-export function ModuleShell({ config, path, children, exitHref, businessName, userName, businesses = [], currentBusinessId, canSwitch, switching, onSwitchBusiness, notice, locationSwitch }: Props) {
+export function ModuleShell({ config, path, children, exitHref, onSignOut, businessName, userName, businesses = [], currentBusinessId, canSwitch, switching, onSwitchBusiness, notice, locationSwitch }: Props) {
   const [override, setOverride] = useState<ModuleAction[] | null>(null);
   const actions = override ?? config.actions;
   const [groupsOverride, setGroupsOverride] = useState<ModuleGroup[] | null>(null);
@@ -130,9 +132,11 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
         {/* ---- computer: the module's sidebar ---------------------------------------------------------------- */}
         <aside aria-label={`ניווט ${config.name}`}
           className="sticky top-3 m-3 me-0 hidden h-[calc(100vh-24px)] w-[248px] shrink-0 flex-col overflow-y-auto rounded-lg border border-line bg-(--glass) p-3 shadow-[0_20px_60px_rgba(0,0,0,.35)] backdrop-blur-xl md:flex">
-          <Link href={exitHref} className="mb-2 flex min-h-11 items-center gap-2 rounded-2xl px-3 text-sm font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink">
-            <ArrowRight size={18} aria-hidden />חזרה ל-Dream
-          </Link>
+          {exitHref && (
+            <Link href={exitHref} className="mb-2 flex min-h-11 items-center gap-2 rounded-2xl px-3 text-sm font-semibold text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink">
+              <ArrowRight size={18} aria-hidden />חזרה ל-Dream
+            </Link>
+          )}
           <div className="mb-3 flex items-center gap-2.5 px-3 py-1">
             <span aria-hidden className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-module text-module-ink"><config.Icon size={20} weight="fill" /></span>
             <strong className="font-display text-[17px] font-bold">{config.name}</strong>
@@ -142,6 +146,11 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
           <ModuleNav groups={groups} path={path} star="hover" />
           <div className="mt-auto border-t border-line pt-3">
             <Person userName={userName} businessName={businessName} />
+            {!exitHref && onSignOut && (
+              <button type="button" onClick={onSignOut} className="flex min-h-11 w-full items-center gap-2 rounded-2xl px-3 text-sm font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink">
+                <SignOut size={18} aria-hidden />יציאה מהחשבון
+              </button>
+            )}
             <VersionTag className="px-3 pt-1 text-[11px] text-muted" />
           </div>
         </aside>
@@ -150,10 +159,12 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
           {/* ---- phone: header ------------------------------------------------------------------------------- */}
           <header className="safe-t sticky top-0 z-30 border-b border-line bg-(--glass-bg) backdrop-blur-xl md:hidden">
             <div className="flex h-14 items-center gap-1 px-1.5">
-              <Link href={exitHref} aria-label="חזרה ל-Dream"
-                className="flex h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-sm font-semibold text-ink-2 hover:text-ink">
-                <ArrowRight size={20} aria-hidden /><span aria-hidden>Dream</span>
-              </Link>
+              {exitHref ? (
+                <Link href={exitHref} aria-label="חזרה ל-Dream"
+                  className="flex h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-sm font-semibold text-ink-2 hover:text-ink">
+                  <ArrowRight size={20} aria-hidden /><span aria-hidden>Dream</span>
+                </Link>
+              ) : <span aria-hidden className="w-11 shrink-0" />}
               <div className="flex min-w-0 flex-1 justify-center">
                 {canSwitch ? (
                   <button type="button" onClick={() => setSheet('business')} aria-haspopup="dialog" aria-expanded={sheet === 'business'}
@@ -254,9 +265,15 @@ export function ModuleShell({ config, path, children, exitHref, businessName, us
                     <ArrowsLeftRight size={20} aria-hidden />החלפת עסק
                   </button>
                 )}
-                <Link href={exitHref} className="flex min-h-11 items-center gap-3 rounded-2xl px-3 font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink">
-                  <ArrowRight size={20} aria-hidden />חזרה ל-Dream
-                </Link>
+                {exitHref ? (
+                  <Link href={exitHref} className="flex min-h-11 items-center gap-3 rounded-2xl px-3 font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink">
+                    <ArrowRight size={20} aria-hidden />חזרה ל-Dream
+                  </Link>
+                ) : onSignOut && (
+                  <button type="button" onClick={onSignOut} className="flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-start font-semibold text-ink-2 hover:bg-surface-2 hover:text-ink">
+                    <SignOut size={20} aria-hidden />יציאה מהחשבון
+                  </button>
+                )}
               </div>
             </div>
           </div>

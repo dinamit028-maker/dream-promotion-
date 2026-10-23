@@ -114,6 +114,14 @@
   - האייקון במסך הבית: manifest לכל עובד (`/api/clock/<token>/manifest`, `clockManifest`) — start_url = הקישור האישי, scope ‏`/clock/`. הדף מקשר אליו דרך `Shell app={token}` (React מעביר ל-`<head>`, כבר ב-HTML של השרת). לא סומכים על localStorage באייקון: באייפון לאפליקציה במסך הבית יש אחסון משלה.
   - סריקה בתוך הדף: `QrScanner` (BarcodeDetector, ואחרת jsQR) → `siteFromScan` (רק `/c/<קוד>`, מכל כתובת; הכתובת לא נפתחת) → אותו `POST /api/clock/<token>` עם `site`. רק השרת בודק את הקוד.
   - שינוי במסכי השעון — `tests/e2e/clock.e2e.ts` (Chromium מלא, `channel: 'chromium'` — ל-headless shell אין מצלמה).
+- נוכחות ועובדים (מ-2.107.0, מיגרציה 5800 — `docs/ATTENDANCE_PLAN_HE.md`, המשימה ב-`docs/ATTENDANCE MODULE TASK HE.md`):
+  - שום רישום שעות לא נמחק ולא נכתב מחדש: רק יציאה (פעם אחת) או ביטול עם סיבה. תיקון = `att_entry_fix` — הישן מבוטל ונשאר, וחדש עם `replaces`. ההיסטוריה (`time_entry_events`) — רק בטריגר. מהדפדפן — רק דרך `att_*` (סיבה חובה); השעון של העובד — כמו קודם, מהשרת.
+  - חודש סגור נעול במסד (`att_month_closed`) לכל רישום, בקשה והיעדרות של העובד בחודש. פתיחה מחדש — `att_month_mark(…, 'reopened', סיבה)`, מנהל בלבד.
+  - כל חישוב שעות — רק `monthReport` ב-`features/attendance/hours-engine.ts` (משמרת שייכת ליום שבו התחילה; הדקות של היום מעוגלות פעם אחת). כללי השעות הנוספות — רק `overtime-rules.ts`; כלל שלא אושר מסומן `needs_confirmation`, ועד `OVERTIME_CONFIRMED` העמודות "טיוטה" וקובץ השכר לא יוצא. לא מנחשים כלל — שואלים את בעל המערכת. שינוי — עם בדיקה ב-`attendance-hours.test.ts`.
+  - הרשאות: `att_role()` במסד = `attRoleOf` בשרת (`lib/server/attendance.ts`) — משנים יחד. ת״ז ושכר רק ב-`employee_private` (מנהל ושכר). המסכים רק מסתירים (`people.ts`).
+  - מודולים: `businesses.modules`. עסק בלי `dream` — רק `/attendance/*` (`attendanceOnlyTarget`), בלי אשף ובלי "חזרה ל-Dream". רק מנהל-העל משנה (ניהול ← עסקים).
+  - עד ש-5800 במסד (`attendanceReady` = false) — המסך הישן של השעון כמו שהיה. שינוי במסכי הנוכחות — `tests/e2e/attendance.e2e.ts` (המסלול המלא); במסד — `attendance-core.check.sql` ו-`attendance-compare.sh`.
+  - מיקום נשמר רק ברגע הכניסה והיציאה. לא בונים מעקב רציף.
 - Supabase דרך ה-MCP: פקודה שמכילה drop נתקעת (ממתינה לאישור). להשתמש ב-create or replace, ולוודא אחרי כל כתיבה שהיא באמת רצה.
   - גם `delete` נתקע, אפילו כשהוא רק כתוב בגוף של פונקציה (נמצא ב-3400). פונקציה כזו בעל המערכת מריץ ב-SQL Editor, ואחר כך בודקים דרך ה-MCP בקריאה בלבד. לא עוקפים את העצירה.
   - פקודה שנתקעה נכשלת אחרי 60 שניות. לבדוק מה נשמר לפני כל ניסיון נוסף.

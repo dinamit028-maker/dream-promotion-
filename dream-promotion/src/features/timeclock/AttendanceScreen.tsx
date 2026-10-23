@@ -260,9 +260,9 @@ function EntryEditor({ value, emps, onClose, onSave, onDelete }: {
   );
 }
 
-type QrSettings = { site_code: string | null; require_qr: boolean; geo_lat: number | null; geo_lng: number | null; geo_radius_m: number };
+export type QrSettings = { site_code: string | null; require_qr: boolean; geo_lat: number | null; geo_lng: number | null; geo_radius_m: number };
 /** The business's clock QR: create, print, replace, and the optional location lock. */
-function QrTab({ userId, business, value, onSaved, onError }: { userId: string; business: string; value: QrSettings | null; onSaved: (v: QrSettings, msg: string) => void; onError: (e: unknown) => void }) {
+export function QrTab({ userId, business, value, onSaved, onError }: { userId: string; business: string; value: QrSettings | null; onSaved: (v: QrSettings, msg: string) => void; onError: (e: unknown) => void }) {
   const v: QrSettings = value ?? { site_code: null, require_qr: true, geo_lat: null, geo_lng: null, geo_radius_m: 150 };
   const url = v.site_code && typeof window !== 'undefined' ? `${window.location.origin}/c/${v.site_code}` : '';
   const [img, setImg] = useState('');

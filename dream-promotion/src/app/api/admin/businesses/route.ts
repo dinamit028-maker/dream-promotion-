@@ -31,6 +31,7 @@ async function superAdminOnly(req: Request): Promise<string | Response> {
 }
 const bad = (message: string, status = 400) => NextResponse.json({ code: 'bad_request', message }, { status });
 const NO_LOCATIONS = 'צריך להריץ את מיגרציה 20261010004600 (סניפים וקופות).';
+const NO_ATTENDANCE = 'צריך להריץ את מיגרציה 20261023005800 (נוכחות ועובדים).';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: Request) {
@@ -38,9 +39,11 @@ export async function GET(req: Request) {
   if (typeof userId !== 'string') return userId;
   const db = adminDb();
   const monthStart = israelToIso(`${todayIL().slice(0, 7)}-01`, '00:00');
-  const [biz, members, assets, posts, leads, costs, me, places] = await Promise.all([
+  const [biz, members, mods, assets, posts, leads, costs, me, places] = await Promise.all([
     db.from('businesses').select('id, name, slug, status, paid_until, grace_days, lock_reason, notes, created_at').order('created_at'),
     db.from('business_members').select('*'),
+    // 2.107 (migration 5800): what each business bought — before the migration the column is missing (null = everything)
+    db.from('businesses').select('id, modules'),
     db.from('social_accounts').select('business_id, provider, display_name, status'),
     db.from('scheduled_posts').select('business_id').in('status', ['done', 'partial']).gte('last_run_at', monthStart),
     db.from('leads').select('business_id').gte('created_at', monthStart),
@@ -78,8 +81,10 @@ export async function GET(req: Request) {
       return {
         id: b.id, name: b.name, slug: b.slug, status: b.status, paidUntil: b.paid_until, graceDays: b.grace_days,
         lockReason: b.lock_reason, ...bizView(b),
+        modules: mods.error ? null : ((mods.data ?? []).find((x: any) => x.id === b.id) as any)?.modules ?? null,
         members: (members.data ?? []).filter((m) => m.business_id === b.id)
-          .map((m: any) => ({ role: m.role, access: m.access === 'register' ? 'register' : 'full', email: person.get(m.user_id)?.email ?? '', name: person.get(m.user_id)?.full_name ?? '',
+          .map((m: any) => ({ role: m.role, access: m.access === 'register' ? 'register' : 'full', attendanceRole: m.attendance_role ?? null,
+            email: person.get(m.user_id)?.email ?? '', name: person.get(m.user_id)?.full_name ?? '',
             locations: Array.isArray(m.locations) ? m.locations.map(String) : null })),
         // the main location first (its id is the business's)
         locations: (places.error ? [] : places.data ?? []).filter((l: any) => l.business_id === b.id)
@@ -173,6 +178,25 @@ export async function PATCH(req: Request) {
       const { error } = await db.from('business_members').delete().eq('business_id', id).eq('user_id', p.id);
       if (error) return bad(error.message);
       await db.from('profiles').update({ current_business_id: null }).eq('id', p.id).eq('current_business_id', id);
+      return NextResponse.json({ ok: true });
+    }
+    // 2.107: what the business bought — Dream, attendance, or both (at least one)
+    case 'modules': {
+      const list = Array.isArray(body.modules) ? [...new Set(body.modules.map(String))] as string[] : [];
+      if (!list.length || list.some((x) => x !== 'dream' && x !== 'attendance')) return bad('בוחרים לפחות מודול אחד: Dream או נוכחות ועובדים.');
+      const { error } = await db.from('businesses').update({ modules: list }).eq('id', id);
+      return error ? bad(/modules/.test(error.message) ? NO_ATTENDANCE : error.message) : NextResponse.json({ ok: true, modules: list });
+    }
+    // 2.107: a person's part in attendance — by the role (empty), or the attendance admin / an approver / payroll (the accountant)
+    case 'member_attendance_role': {
+      const email = String(body.email ?? '').trim().toLowerCase();
+      const r = body.role == null || body.role === '' ? null : String(body.role);
+      if (r && !['admin', 'approver', 'payroll'].includes(r)) return bad('תפקיד לא מוכר');
+      const uid = await signedUpUser(db, email);
+      if (!uid) return bad('המשתמש לא נמצא');
+      const { data: m, error } = await db.from('business_members').update({ attendance_role: r }).eq('business_id', id).eq('user_id', uid).select('user_id').maybeSingle();
+      if (error) return bad(/attendance_role/.test(error.message) ? NO_ATTENDANCE : error.message);
+      if (!m) return bad(`${email} לא חבר/ה בעסק הזה.`);
       return NextResponse.json({ ok: true });
     }
     case 'member_locations': {
