@@ -173,7 +173,7 @@ async function main() {
       fake.attendanceTables = true;
     });
 
-    await step('settings: a six-day contract (8 hours, then 125% / 150%), confirmed by the employer; a changed rule takes the confirmation away; a department', async () => {
+    await step('settings: a six-day contract (8 hours, then a recommended 125% / 150%), no confirmation needed; a department', async () => {
       await goto('/attendance/settings');
       await page.getByRole('button', { name: 'מסלול חדש' }).click({ timeout: 120_000 });
       let d = dialog();
@@ -186,22 +186,19 @@ async function main() {
       const t0 = fake.tables.work_tracks[0];
       assert.deepEqual(t0.day_minutes, [480, 480, 480, 480, 480, 480, 0]);
       assert.deepEqual([t0.ot_mode, t0.tier1_minutes, t0.tier1_pct, t0.tier2_pct, t0.rest_weekday, t0.rest_pct, t0.independence_pct, t0.auto_break_min], ['daily', 120, 125, 150, 6, 150, 200, 0]);
-      await page.getByText('ממתין לאישור המעסיק').waitFor();
-      await page.getByRole('button', { name: 'אישור ההגדרות' }).click();
-      await page.getByText(/אושר ע״י המעסיק/).waitFor();
-      assert.ok(fake.tables.work_tracks[0].rules_confirmed_at);
-      // a rule changed: not confirmed any more; back as it was, confirmed again
-      for (const v of ['130', '125']) {
-        await page.getByRole('button', { name: 'עריכה' }).first().click();
-        d = dialog();
-        await d.getByLabel('דרגה ראשונה (%)').fill(v);
-        if (v === '130') await d.getByText('שינוי של כלל מבטל את האישור').waitFor();
-        await d.getByRole('button', { name: 'שמירה' }).click();
-        await page.getByText('ממתין לאישור המעסיק').waitFor();
-      }
-      assert.equal(fake.tables.work_tracks[0].rules_confirmed_at, null);
-      await page.getByRole('button', { name: 'אישור ההגדרות' }).click();
-      await page.getByText(/אושר ע״י המעסיק/).waitFor();
+      // the settings are a recommendation only (the owner of the system, 23.10.2026): nothing waits for a confirmation of them
+      assert.equal(await page.getByText('ממתין לאישור').count(), 0);
+      await page.getByText(/החלוקה לאחוזים היא המלצה בלבד/).waitFor();
+      await page.getByRole('button', { name: 'עריכה' }).first().click();
+      d = dialog();
+      await d.getByLabel('דרגה ראשונה (%)').fill('130');
+      await d.getByRole('button', { name: 'שמירה' }).click();
+      await page.getByText(/130% ל-2:00/).waitFor();
+      await page.getByRole('button', { name: 'עריכה' }).first().click();
+      d = dialog();
+      await d.getByLabel('דרגה ראשונה (%)').fill('125');
+      await d.getByRole('button', { name: 'שמירה' }).click();
+      await page.getByText(/125% ל-2:00/).waitFor();
       await page.getByLabel('ייצוא שעות ב-PDF בלבד').waitFor();
       assert.ok(await page.getByLabel('ייצוא שעות ב-PDF בלבד').isChecked(), 'PDF only — the default');
       await shot('att-1-settings.png');
@@ -271,7 +268,8 @@ async function main() {
       assert.equal(await page.locator('tbody tr').count(), n, 'a row for every day');
       await row(d1).getByText('חסר').first().waitFor();
       assert.ok(await page.locator('tbody tr').filter({ hasText: 'שבת' }).count() >= 4);
-      assert.equal(await page.getByText('טיוטה').count(), 0, 'the employer confirmed the track: no draft');
+      assert.equal(await page.getByText('טיוטה').count(), 0, 'hours — never a draft');
+      await page.getByText('המלצה בלבד — חלוקה לאחוזים').waitFor();
     });
 
     await step('a manager completes a day (07:00–18:00 — overtime) and a night shift (22:00–06:00); a reason always', async () => {
@@ -282,7 +280,8 @@ async function main() {
       await d.getByLabel('סיבה (חובה — נשמרת בהיסטוריה)').fill('שכחה להחתים');
       await d.getByRole('button', { name: 'שמירה' }).click();
       await row(d1).getByText('11:00').first().waitFor();
-      await row(d1).getByText('125%: 2:00 · 150%: 1:00').waitFor();
+      await row(d1).getByText('3:00', { exact: true }).first().waitFor();
+      await row(d1).getByText('המלצה: 125%: 2:00 · 150%: 1:00').first().waitFor();
       await row(d2).getByRole('button', { name: 'השלמה' }).click();
       d = dialog();
       await d.getByLabel('כניסה').fill('22:00'); await d.getByLabel('יציאה').fill('06:00');
@@ -387,14 +386,16 @@ async function main() {
       await page.getByText('השעות יוצאות מהמערכת ב-PDF בלבד').waitFor({ timeout: 120_000 });
       assert.equal(await page.getByRole('button', { name: 'ייצוא לאקסל' }).count(), 0);
       assert.equal(await page.getByRole('button', { name: 'קובץ לתוכנת שכר (CSV)' }).count(), 0);
-      const [pay] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'דוח שכר (PDF)' }).click()]);
+      const [pay] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'דוח שעות לשכר (PDF)' }).click()]);
       assert.equal(readFileSync(await pay.path(), 'utf8').slice(0, 5), '%PDF-');
       const b = pdfBodies.at(-1);
       assert.equal(reportPdfInput(b).ok, true);
-      assert.match(b.title, /^דוח שכר/);
-      assert.deepEqual(b.columns.map((c: any) => c.label).slice(0, 6), ['מספר', 'שם', 'ימים', 'רגילות', '125%', '150%']);
+      assert.match(b.title, /^דוח שעות לשכר/);
+      assert.deepEqual(b.columns.map((c: any) => c.label), ['מספר', 'שם', 'ימים', 'סה״כ שעות', 'תקן', 'מעבר לתקן', 'מנוחה וחג', 'היעדרות', 'חסרים']);
       const dRow = b.rows.find((r: string[]) => r[1] === 'דנה כהן');
-      assert.deepEqual(dRow.slice(0, 6), ['101', 'דנה כהן', '3', '22:00', '2:00', '0:00'], 'regular 8 + 8 + 6; the long day (10 h): 2 at 125%');
+      assert.deepEqual(dRow.slice(0, 4), ['101', 'דנה כהן', '3', '24:00']);
+      assert.deepEqual(dRow.slice(5, 7), ['2:00', '0:00'], 'the long day (10 h): 2 hours over the standard');
+      assert.match(b.note, /דנה כהן — המלצה לפי הגדרות המסלול: 100% 22:00 · 125% 2:00/, 'the rates — a recommendation');
       await shot('att-9-reports.png');
       await goto('/attendance/settings');
       await page.getByLabel('ייצוא שעות ב-PDF בלבד').click({ timeout: 120_000 });

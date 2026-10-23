@@ -3,10 +3,9 @@ import { useEffect, useState } from 'react';
 import { Button, Card, Chip, Field, Input, PageHead, Pill, Select } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/feedback';
 import { supabase } from '@/lib/supabase/client';
-import { formatIL } from '@/lib/il-time';
 import { QrTab, type QrSettings } from '@/features/timeclock/AttendanceScreen';
 import { useAtt } from './AttendanceLayout';
-import { addTrack, attError, confirmTrack, saveTrack, setExportsPdfOnly, setTrackActive } from './api';
+import { addTrack, attError, saveTrack, setExportsPdfOnly, setTrackActive } from './api';
 import { DAY_NAMES, hm } from './hours-engine';
 import { AUTO_BREAK, DEFAULT_RULES, RULE_NOTES, ratesValid, rulesOf, type ContractRules } from './overtime-rules';
 import { isAdmin, trackDayMinutes, trackDayText, trackSummary, type WorkTrack } from './people';
@@ -14,12 +13,13 @@ import { Notice } from './ui';
 
 /**
  * הגדרות (2.107): the hours tracks — each one a contract ("מסלול הסכם"): the standard of each weekday, the overtime threshold (by
- * day — 8:00 / 8:36 / 8:40 / anything — or by month, e.g. 186 hours), the rates (125% for two hours, then 150% — the law), the
- * weekly rest day, a festival, Independence Day, the eve of a festival, an automatic 30-minute break; the employer confirms them
- * (any later change of a rule takes the confirmation away). Then the business's clock QR (as before), and hours as PDF only.
+ * day — 8:00 / 8:36 / 8:40 / anything — or by month, e.g. 186 hours), the rates of the recommended split (125% for two hours,
+ * then 150%), the weekly rest day, a festival, Independence Day, the eve of a festival, an automatic 30-minute break. The system
+ * calculates hours only; the split is a recommendation for the accountant (the owner of the system, 23.10.2026) — nothing waits
+ * for a confirmation of it. Then the business's clock QR (as before), and hours as PDF only.
  */
 const SOURCE: Record<string, { label: string; tone: 'ok' | 'ai' | 'default' }> = {
-  law: { label: 'לפי החוק', tone: 'ok' }, owner: { label: 'ברירת מחדל', tone: 'default' }, employer: { label: 'לפי המעסיק', tone: 'ai' },
+  common: { label: 'נהוג במשק', tone: 'ok' }, owner: { label: 'ברירת מחדל', tone: 'default' }, employer: { label: 'לפי המעסיק', tone: 'ai' },
 };
 
 export function Settings() {
@@ -41,7 +41,7 @@ export function Settings() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="font-bold">מסלולי הסכם (שעות תקן ושעות נוספות)</h3>
+            <h3 className="font-bold">מסלולי הסכם (שעות תקן, והמלצה לחלוקה)</h3>
             {admin && <Button size="sm" variant="primary" onClick={() => setEditing('new')}>מסלול חדש</Button>}
           </div>
           <ul className="divide-y divide-line">
@@ -56,17 +56,10 @@ export function Settings() {
                         {` · ${r.tier1Pct}% ל-${hm(r.tier1Minutes)}, ואז ${r.tier2Pct}% · מנוחה ${r.restPct}%${r.autoBreakMin ? ` · הפסקה ${r.autoBreakMin} ד׳` : ''}`}</span></span>
                     {admin && <Button size="sm" variant="ghost" onClick={() => setEditing(t)}>עריכה</Button>}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    {t.confirmedAt ? <Pill tone="ok">אושר ע״י המעסיק · {formatIL(t.confirmedAt, { dateStyle: 'short' })}</Pill>
-                      : <><Pill tone="warn">ממתין לאישור המעסיק</Pill>
-                        {admin && <Button size="sm" variant="soft" disabled={busy} onClick={() => {
-                          if (window.confirm(`לאשר את ההגדרות של "${t.name}"? לפיהן יחושבו השעות הנוספות, דוח השכר וסגירת החודש.`)) void run(() => confirmTrack(t.id), 'ההגדרות אושרו');
-                        }}>אישור ההגדרות</Button>}</>}
-                  </div>
                 </li>
               );
             })}
-            {!att.setup.tracks.length && <li className="py-2 text-sm text-muted">עוד אין מסלולים. בלי מסלול אין שעות תקן, שעות נוספות או סגירת חודש.</li>}
+            {!att.setup.tracks.length && <li className="py-2 text-sm text-muted">עוד אין מסלולים. בלי מסלול אין שעות תקן, חוסרים או סגירת חודש.</li>}
           </ul>
         </Card>
 
@@ -82,7 +75,7 @@ export function Settings() {
           </Card>
           <Card className="p-4">
             <h3 className="mb-1 font-bold">איך מחושבות השעות</h3>
-            <p className="mb-3 text-sm text-ink-2">כל מעסיק קובע לכל מסלול. ברירות המחדל — לפי החוק:</p>
+            <p className="mb-3 text-sm text-ink-2">המערכת מחשבת שעות: יומי, מצטבר, מעבר לתקן, ימי מנוחה וחוסרים. החלוקה לאחוזים היא המלצה בלבד לרואה החשבון — הוא והמעסיק מחליטים מה משולם. כל מעסיק קובע את ההגדרות לכל מסלול; ברירות המחדל:</p>
             <ul className="grid gap-2 text-sm">
               {RULE_NOTES.map((r) => (
                 <li key={r.key} className="flex items-start justify-between gap-2"><span>{r.text}</span><Pill tone={SOURCE[r.source].tone}>{SOURCE[r.source].label}</Pill></li>
@@ -139,13 +132,13 @@ function TrackEditor({ value, onClose, onActive }: { value: WorkTrack | null; on
     const t = { name: f.name, dayMinutes: mins as number[], startTime: f.start || null, lateGraceMin: Math.max(0, Math.min(240, Number(f.grace) || 0)), rules };
     try {
       if (value) await saveTrack(value.id, t); else await addTrack(att.businessId, t);
-      await att.reload(); att.say(value?.confirmedAt ? 'נשמר — צריך לאשר את ההגדרות מחדש' : 'המסלול נשמר'); onClose();
+      await att.reload(); att.say('המסלול נשמר'); onClose();
     } catch (e) { setErr(attError(e)); } finally { setBusy(false); }
   }
   return (
     <Modal open onClose={onClose} wide>
       <h3 className="mb-3 font-display text-xl font-bold">{value ? `מסלול — ${value.name}` : 'מסלול הסכם חדש'}</h3>
-      {value?.confirmedAt && <Notice>שינוי של כלל מבטל את האישור — אחרי השמירה מאשרים שוב. חודש שכבר נסגר נשאר לפי ההגדרות שהיו בו.</Notice>}
+      {value && <Notice>חודש שכבר נסגר נשאר לפי ההגדרות שהיו בו.</Notice>}
       <Field label="שם המסלול"><Input value={f.name} maxLength={60} placeholder="למשל: 6 ימים, 8 שעות" onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
 
       <p className="mb-2 text-sm font-semibold text-ink-2">ימי עבודה ושעות תקן (ריק = לא יום עבודה; 8, 8.6 או 8:40)</p>
@@ -164,7 +157,7 @@ function TrackEditor({ value, onClose, onActive }: { value: WorkTrack | null; on
       </div>
 
       <fieldset className="mb-4 rounded-2xl border border-line p-3">
-        <legend className="px-1 text-sm font-bold">שעות נוספות</legend>
+        <legend className="px-1 text-sm font-bold">שעות נוספות — המלצה לחלוקה</legend>
         <div className="mb-3 flex flex-wrap gap-1.5">
           <Chip className="min-h-10" on={r.mode === 'daily'} onClick={() => setR({ ...r, mode: 'daily' })}>אחרי שעות התקן של כל יום</Chip>
           <Chip className="min-h-10" on={r.mode === 'monthly'} onClick={() => setR({ ...r, mode: 'monthly' })}>אחרי סף חודשי (לפי חוזה)</Chip>
@@ -206,7 +199,7 @@ function TrackEditor({ value, onClose, onActive }: { value: WorkTrack | null; on
           <input type="checkbox" className="mt-1" checked={r.autoBreakMin > 0} aria-label="הפסקה אוטומטית של 30 דקות"
             onChange={(e) => setR({ ...r, autoBreakMin: e.target.checked ? AUTO_BREAK.minutes : 0 })} />
           <span><strong>הפסקה אוטומטית של 30 דקות</strong> — בלחיצת כפתור: יורדת מכל יום עבודה של יותר מ-8 שעות, בלי שהעובד/ת מחתים/ה יציאה וכניסה להפסקה.
-            <span className="block text-xs text-muted">הדרך הרגילה — העובד/ת מחתים/ה יציאה וכניסה, וזה התיעוד שהחוק מחייב. אם ביום עם הכפתור העובד/ת גם הוחתם/ה להפסקה, ההפסקה שהוחתמה נספרת בתוך ה-30 — כדי שלא ירד פעמיים.</span></span>
+            <span className="block text-xs text-muted">הדרך הרגילה — העובד/ת מחתים/ה יציאה וכניסה, וכך ההפסקה מתועדת. אם ביום עם הכפתור העובד/ת גם הוחתם/ה להפסקה, ההפסקה שהוחתמה נספרת בתוך ה-30 — כדי שלא ירד פעמיים.</span></span>
         </label>
         {r.autoBreakMin > 0 && <div className="mt-2 max-w-xs"><Field label="ביום עבודה של יותר מ- (שעות)"><Input value={text.breakAfter} inputMode="decimal" onChange={(e) => setText({ ...text, breakAfter: e.target.value })} /></Field></div>}
       </fieldset>

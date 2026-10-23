@@ -7,7 +7,9 @@ import { PCT_COLUMNS, rulesOf, type ContractRules, type Tier } from './overtime-
  * payroll file (tests/attendance-hours.test.ts). Pure: entries in, rows out.
  *   - a moment is exact (UTC); its day is the Israeli calendar day — so summer / winter time changes a night by an hour, never
  *     the sums of a day by a wrong one;
- *   - the overtime rules are the employee's track's (rulesOf — the employer's own; a closed month — the ones it was closed with);
+ *   - hours only (the owner of the system, 23.10.2026): the result is the hours — daily, cumulative, over the threshold, on days of
+ *     rest, missing. The split by rates (pct) is a recommendation by the track's settings (rulesOf — the employer's own; a closed
+ *     month — the ones it was closed with): the accountant and the employer decide the pay, never the system;
  *   - a shift belongs to the day it started on, a night shift is one shift of that day;
  *   - a voided entry is out of every sum (it is shown in the history only); an open one (no clock-out) is "חסר יציאה" — red,
  *     and not paid until it is closed;
@@ -38,10 +40,8 @@ export interface Track {
   lateGraceMin?: number;
   autoBreakMin?: number;
   autoBreakAfterMin?: number;
-  /** the contract's overtime rules (the employer's; missing = the defaults of overtime-rules.ts) */
+  /** the track's settings for the recommended split by rates (the employer's; missing = the defaults of overtime-rules.ts) */
   rules?: Partial<ContractRules>;
-  /** the employer confirmed the rules (until then overtime is a draft) */
-  confirmed?: boolean;
 }
 /** a track that is not set: no standard (every day off the track) */
 export const NO_TRACK: Track = { dayMinutes: [0, 0, 0, 0, 0, 0, 0] };
@@ -73,7 +73,9 @@ export interface DayRow {
   paid: number;
   cumulative: number;
   standardCumulative: number;
-  /** paid minutes by rate (100 = regular) */
+  /** the minutes over the threshold, on a day that is not a day of rest (hours — not a rate) */
+  over: number;
+  /** the recommended split of the paid minutes by rate (100 = regular) — a recommendation for the accountant, never a ruling */
   pct: Record<number, number>;
   absence: { id: string; kind: AbsenceKind; minutes: number | null } | null;
   late: number;
@@ -83,6 +85,8 @@ export interface MonthTotals {
   workDays: number;
   paid: number;
   standard: number;
+  /** the minutes over the threshold on days that are not days of rest; the minutes on days of rest (festivals included) */
+  overMinutes: number;
   pct: Record<number, number>;
   restMinutes: number;
   absenceDays: Record<AbsenceKind, number>;
@@ -93,8 +97,8 @@ export interface MonthTotals {
 }
 export interface MonthReport {
   month: string; days: DayRow[]; totals: MonthTotals;
-  /** the rules the month was computed by, and whether the employer confirmed them (false = overtime is a draft) */
-  rules: ContractRules; confirmed: boolean;
+  /** the settings the recommended split was computed by */
+  rules: ContractRules;
 }
 /** the rates of some reports, in order: the usual ones, and any other rate an employer set that has minutes */
 export function pctColumns(reports: Pick<MonthReport, 'totals'>[]): number[] {
@@ -204,7 +208,7 @@ export function monthReport(input: MonthInput): MonthReport {
   const pctZero = () => Object.fromEntries(PCT_COLUMNS.map((p) => [p, 0])) as Record<number, number>;
   const kinds: AbsenceKind[] = ['vacation', 'sick', 'reserve', 'other'];
   const totals: MonthTotals = {
-    workDays: 0, paid: 0, standard: 0, pct: pctZero(), restMinutes: 0,
+    workDays: 0, paid: 0, standard: 0, overMinutes: 0, pct: pctZero(), restMinutes: 0,
     absenceDays: Object.fromEntries(kinds.map((k) => [k, 0])) as Record<AbsenceKind, number>,
     absenceMinutes: Object.fromEntries(kinds.map((k) => [k, 0])) as Record<AbsenceKind, number>,
     missingDays: 0, openShifts: 0, lateDays: 0,
@@ -284,6 +288,9 @@ export function monthReport(input: MonthInput): MonthReport {
     cumulative += paid; standardCumulative += standard;
     totals.paid += paid; totals.standard += standard;
     for (const [p, m] of Object.entries(pct)) totals.pct[+p] = (totals.pct[+p] ?? 0) + m;
+    // over the threshold = what the split put above the regular rate (the same minutes, whatever the rates are)
+    const over = rest ? 0 : paid - (pct[100] ?? 0);
+    totals.overMinutes += over;
     if (rest) totals.restMinutes += paid;
     if (shifts.some((s) => !s.open)) totals.workDays += 1;
     if (status === 'missing') totals.missingDays += 1;
@@ -294,11 +301,11 @@ export function monthReport(input: MonthInput): MonthReport {
       else totals.absenceMinutes[abs.kind] += abs.minutes;
     }
     return {
-      date, weekday, type, holiday, rest, standard, shifts, worked, breakTaken, paid, cumulative, standardCumulative, pct,
+      date, weekday, type, holiday, rest, standard, shifts, worked, breakTaken, paid, cumulative, standardCumulative, over, pct,
       absence: abs ? { id: abs.id, kind: abs.kind, minutes: abs.minutes } : null, late, status,
     };
   });
-  return { month: input.month, days: rows, totals, rules, confirmed: input.rules ? true : Boolean(track.confirmed) };
+  return { month: input.month, days: rows, totals, rules };
 }
 
 /** 7:05 */

@@ -1,15 +1,16 @@
 /**
- * The overtime rules of the attendance module — the ONLY place they are read (docs/ATTENDANCE_PLAN_HE.md; tests/attendance-hours.test.ts).
- * The owner of the system decided (23.10.2026): every employer sets the rules of each hours track ("מסלול הסכם") for themselves —
- * the system is open; the defaults below are the law's and the owner's:
+ * The settings of the recommended split of the hours by rates — the ONLY place they are read (docs/ATTENDANCE_PLAN_HE.md;
+ * tests/attendance-hours.test.ts). The owner of the system decided (23.10.2026): the system calculates hours only; the split by
+ * rates is a recommendation for the accountant, who decides the pay with the employer — the system never rules and never waits
+ * for anyone's confirmation of these settings. Every employer sets them for each hours track ("מסלול הסכם"); the defaults are the
+ * common practice:
  *   - the threshold: by day (after the day's standard: 8:00, 8:36, 8:40 or anything) or by month (e.g. 186 hours a month);
- *   - then 125% for two hours, then 150% (the Hours of Work and Rest Law);
+ *   - then 125% for two hours, then 150%;
  *   - the weekly rest day (Saturday): 150%; a festival: 150%; Independence Day: a day of rest, 200%;
  *   - the eve of a festival, an automatic 30-minute break: the employer's choice (off by default).
- * The same columns are in work_tracks (migration 5800). A track's rules count only after the employer confirmed them
- * (rules_confirmed_at): until then overtime is a draft, the payroll report waits and the month does not close.
+ * The same columns are in work_tracks (migration 5800).
  */
-export type RuleSource = 'law' | 'owner' | 'employer';
+export type RuleSource = 'common' | 'owner' | 'employer';
 
 export interface Tier {
   /** how many minutes of this tier (null = the rest) */
@@ -72,17 +73,17 @@ export function rulesOf(r: Record<string, any> | null | undefined): ContractRule
   };
 }
 
-/** what each rule is, in Hebrew, and where its default comes from — shown in the settings */
+/** what each setting is, in Hebrew, and where its default comes from — shown in the settings (a recommendation, never a ruling) */
 export const RULE_NOTES: { key: keyof ContractRules | 'shiftDay' | 'rounding'; text: string; source: RuleSource }[] = [
   { key: 'mode', text: 'שעות נוספות אחרי שעות התקן של היום (8:00, 8:36, 8:40 או כל מספר), או אחרי סף חודשי (למשל 186 שעות) — לפי חוזה העבודה', source: 'employer' },
-  { key: 'tier1Pct', text: 'אחרי הסף: השעתיים הראשונות ב-125%, ומשם 150%', source: 'law' },
-  { key: 'restPct', text: 'עבודה ביום המנוחה השבועי (שבת): 150%', source: 'law' },
+  { key: 'tier1Pct', text: 'אחרי הסף: השעתיים הראשונות ב-125%, ומשם 150%', source: 'common' },
+  { key: 'restPct', text: 'עבודה ביום המנוחה השבועי (שבת): 150%', source: 'common' },
   { key: 'restTier1Pct', text: 'שעות נוספות ביום המנוחה: שעתיים ב-175%, ומשם 200% (ניתן לשינוי)', source: 'employer' },
-  { key: 'festivalPct', text: 'חג (לפי לוח השנה העברי, יום אחד בישראל): יום מנוחה, 150%', source: 'law' },
+  { key: 'festivalPct', text: 'חג (לפי לוח השנה העברי, יום אחד בישראל): יום מנוחה, 150%', source: 'common' },
   { key: 'independencePct', text: 'יום העצמאות: יום מנוחה, עבודה בו 200%', source: 'owner' },
   { key: 'eveMinutes', text: 'ערב חג: שעות התקן של המסלול, או מספר שעות אחר שהמעסיק קובע', source: 'employer' },
-  { key: 'autoBreakMin', text: 'הפסקה: העובד/ת מחתים/ה יציאה וכניסה (תיעוד לפי החוק). או כפתור של המעסיק — 30 דקות ביום עבודה של יותר מ-8 שעות; הפסקה שכבר הוחתמה נספרת בתוכן', source: 'employer' },
-  { key: 'shiftDay', text: 'משמרת שייכת כולה ליום (ולחודש) שבו התחילה — גם שישי שנמשך לתוך ערב חג או שבת נשאר כרגיל', source: 'owner' },
+  { key: 'autoBreakMin', text: 'הפסקה: העובד/ת מחתים/ה יציאה וכניסה (כך היא מתועדת). או כפתור של המעסיק — 30 דקות ביום עבודה של יותר מ-8 שעות; הפסקה שכבר הוחתמה נספרת בתוכן', source: 'employer' },
+  { key: 'shiftDay', text: 'משמרת שייכת כולה ליום (ולחודש) שבו התחילה — שישי לא נמשך לתוך ערב חג או שבת: נשאר יום שישי רגיל', source: 'owner' },
   { key: 'rounding', text: 'מדויק לדקה, בלי עיגול: יציאה פחות כניסה, כפי שמוצגות (07:58 ← 16:03 = 8:05)', source: 'owner' },
 ];
 

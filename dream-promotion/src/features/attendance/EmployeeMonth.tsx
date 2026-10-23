@@ -16,7 +16,7 @@ import {
 import {
   ABSENCE_LABEL, DAY_NAMES, DAY_TYPE_LABEL, METHOD_LABEL, STATUS_LABEL, addDay, hm, monthReport, pctColumns, type DayRow, type ShiftRow,
 } from './hours-engine';
-import { DRAFT_NOTE, fileName, monthLabel, monthPdfBody, monthSheet, xlsx } from './exports';
+import { fileName, monthLabel, monthPdfBody, monthSheet, xlsx } from './exports';
 import { canManage, isAdmin, trackSummary, type WorkTrack } from './people';
 import { attendanceHref } from './routes';
 import { MonthSwitch, Notice, ReasonModal, ShiftDialog, saveFile, thisMonth, XLSX_TYPE } from './ui';
@@ -107,7 +107,6 @@ export function EmployeeMonth({ id }: { id: string }) {
       </div>
       {error && <Notice tone="warn">{error}</Notice>}
       {state === 'closed' && <Notice>החודש סגור — הדוח נעול. כל שינוי מחייב פתיחה מחדש עם סיבה (נרשם).</Notice>}
-      {report && !report.confirmed && <Notice tone="warn">{DRAFT_NOTE} {isAdmin(role) && <Link href={attendanceHref('settings')} className="font-semibold underline">להגדרות המסלול</Link>}</Notice>}
       {snapshot && <Notice>החודש מחושב לפי הגדרות המסלול כפי שהיו ברגע הסגירה ({snapshot.name}).</Notice>}
       {!report ? <div className="flex justify-center py-16"><Spinner /></div> : (
         <>
@@ -162,7 +161,7 @@ function DaysTable({ report, manage, onAdd, onShift, onHistory }: {
       <Card className="hidden overflow-x-auto p-0 lg:block">
         <table className="w-full min-w-[1100px] text-sm">
           <thead><tr className="border-b border-line text-muted">
-            {['תאריך', 'יום', 'סוג יום', 'תקן', 'סה״כ תקן', 'כניסה', 'יציאה', 'סה״כ יומי', 'מצטבר', 'נוספות', 'סטטוס', ''].map((h) => <th key={h} className="p-2 text-start font-semibold">{h}</th>)}
+            {['תאריך', 'יום', 'סוג יום', 'תקן', 'סה״כ תקן', 'כניסה', 'יציאה', 'סה״כ יומי', 'מצטבר', 'מעבר לתקן', 'סטטוס', ''].map((h) => <th key={h} className="p-2 text-start font-semibold">{h}</th>)}
           </tr></thead>
           <tbody>
             {report.days.map((d) => (
@@ -181,7 +180,8 @@ function DaysTable({ report, manage, onAdd, onShift, onHistory }: {
                 ))}{d.status === 'missing' && <span className="font-bold text-danger">חסר</span>}</td>
                 <td className="p-2 font-semibold tabular-nums">{d.paid ? hm(d.paid) : ''}{d.breakTaken ? <span className="block text-xs font-normal text-muted">הפסקה {hm(d.breakTaken)}</span> : null}</td>
                 <td className="p-2 tabular-nums">{hm(d.cumulative)}</td>
-                <td className="p-2 text-xs">{ot(d)}</td>
+                <td className="p-2 text-xs"><span className="block font-semibold tabular-nums">{d.over ? hm(d.over) : ''}</span>
+                  {ot(d) && <span className="block text-muted">המלצה: {ot(d)}</span>}</td>
                 <td className={cx('p-2', red(d) && 'font-bold text-danger')}>{status(d)}{d.late ? <span className="block text-xs text-warn">איחור {hm(d.late)}</span> : null}
                   {d.shifts.some((s) => s.corrected) && <span className="block text-xs text-muted">תוקן</span>}</td>
                 <td className="p-2"><DayActions d={d} manage={manage} onAdd={onAdd} onShift={onShift} onHistory={onHistory} /></td>
@@ -206,7 +206,7 @@ function DaysTable({ report, manage, onAdd, onShift, onHistory }: {
               </div>
             ))}
             <div className="mt-1 flex items-center justify-between gap-2">
-              <span className="text-xs text-muted">{d.paid ? `יומי ${hm(d.paid)} · ` : ''}מצטבר {hm(d.cumulative)}{ot(d) ? ` · ${ot(d)}` : ''}</span>
+              <span className="text-xs text-muted">{d.paid ? `יומי ${hm(d.paid)} · ` : ''}מצטבר {hm(d.cumulative)}{d.over ? ` · מעבר לתקן ${hm(d.over)}` : ''}{ot(d) ? ` · המלצה: ${ot(d)}` : ''}</span>
               <DayActions d={d} manage={manage} onAdd={onAdd} onShift={onShift} onHistory={onHistory} />
             </div>
           </div>
@@ -250,20 +250,30 @@ const MenuItem = ({ onClick, children }: { onClick: () => void; children: React.
 
 function Totals({ report }: { report: ReturnType<typeof monthReport> }) {
   const t = report.totals;
-  const items: [string, string, boolean?][] = [
-    ['ימי עבודה', String(t.workDays)], ['סה״כ שעות', hm(t.paid)], ['סה״כ תקן', hm(t.standard)],
-    ...pctColumns([report]).map((p): [string, string, boolean] => [p === 100 ? 'רגילות' : `${p}%${report.confirmed ? '' : ' (טיוטה)'}`, hm(t.pct[p] ?? 0), p !== 100 && !report.confirmed]),
-    ['בימי מנוחה', hm(t.restMinutes)], ['ימים חסרים', String(t.missingDays)], ['יציאות חסרות', String(t.openShifts)], ['איחורים', String(t.lateDays)],
+  const items: [string, string][] = [
+    ['ימי עבודה', String(t.workDays)], ['סה״כ שעות', hm(t.paid)], ['סה״כ תקן', hm(t.standard)], ['מעבר לתקן', hm(t.overMinutes)],
+    ['בימי מנוחה וחג', hm(t.restMinutes)], ['ימים חסרים', String(t.missingDays)], ['יציאות חסרות', String(t.openShifts)], ['איחורים', String(t.lateDays)],
     ...(['vacation', 'sick', 'reserve', 'other'] as const).filter((k) => t.absenceDays[k] || t.absenceMinutes[k])
       .map((k): [string, string] => [ABSENCE_LABEL[k], `${t.absenceDays[k] ? (t.absenceDays[k] === 1 ? 'יום אחד' : `${t.absenceDays[k]} ימים`) : ''}${t.absenceMinutes[k] ? ` ${hm(t.absenceMinutes[k])}` : ''}`.trim()]),
   ];
+  const rec = pctColumns([report]).filter((p) => t.pct[p]);
   return (
-    <Card className="mt-4 grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 lg:grid-cols-7">
-      {items.map(([l, v, draft]) => (
-        <div key={l}><span className={cx('block font-display text-xl font-extrabold tabular-nums', (l === 'ימים חסרים' || l === 'יציאות חסרות') && v !== '0' && 'text-danger', draft && 'text-muted')}>{v}</span>
-          <span className="text-xs font-semibold text-ink-2">{l}</span></div>
-      ))}
-    </Card>
+    <>
+      <Card className="mt-4 grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 lg:grid-cols-7">
+        {items.map(([l, v]) => (
+          <div key={l}><span className={cx('block font-display text-xl font-extrabold tabular-nums', (l === 'ימים חסרים' || l === 'יציאות חסרות') && v !== '0' && 'text-danger')}>{v}</span>
+            <span className="text-xs font-semibold text-ink-2">{l}</span></div>
+        ))}
+      </Card>
+      {/* the split by rates — a recommendation only (the owner of the system, 23.10.2026): the accountant and the employer decide */}
+      <Card className="mt-3 p-4">
+        <h3 className="font-bold">המלצה בלבד — חלוקה לאחוזים</h3>
+        <p className="mb-2 text-xs text-ink-2">לפי הגדרות המסלול של המעסיק. ההחלטה מה משולם — של רואה החשבון והמעסיק.</p>
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink-2">
+          {rec.length ? rec.map((p) => <span key={p} className="tabular-nums">{p}%: <strong>{hm(t.pct[p])}</strong></span>) : <span>אין שעות בחודש</span>}
+        </div>
+      </Card>
+    </>
   );
 }
 

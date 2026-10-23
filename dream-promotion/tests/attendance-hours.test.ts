@@ -233,7 +233,7 @@ test('attendance: the rules — the law\'s and the owner\'s defaults, each with 
   assert.ok(ratesValid(DEFAULT_RULES)); assert.ok(!ratesValid({ ...DEFAULT_RULES, tier1Pct: 90 })); assert.ok(!ratesValid({ ...DEFAULT_RULES, mode: 'monthly' }), 'monthly needs its hours');
 });
 
-const SIX: Track = { dayMinutes: [480, 480, 480, 480, 480, 480, 0], confirmed: true };
+const SIX: Track = { dayMinutes: [480, 480, 480, 480, 480, 480, 0] };
 const withRules = (t: Track, r: Partial<ContractRules>): Track => ({ ...t, rules: { ...DEFAULT_RULES, ...r } });
 
 test('attendance: a six-day contract — the threshold the employer picks (8:00, 8:40), then 125% / 150%', () => {
@@ -307,8 +307,13 @@ test('attendance: the automatic 30-minute break — the employer\'s button', () 
   assert.equal(day(monthReport({ month: '2026-09', entries: [S('p', '2026-09-08', '07:00', '2026-09-08', '12:00'), S('q', '2026-09-08', '12:20', '2026-09-08', '17:00')], track: SIX, now: NOW }), '2026-09-08').paid, 580);
 });
 
-test('attendance: a report says whether its rules are the employer\'s confirmed ones', () => {
-  assert.equal(monthReport({ month: '2026-09', entries: [], track: SIX, now: NOW }).confirmed, true);
-  assert.equal(monthReport({ month: '2026-09', entries: [], track: { ...SIX, confirmed: false }, now: NOW }).confirmed, false);
-  assert.equal(monthReport({ month: '2026-09', entries: [], track: null, now: NOW }).confirmed, false, 'no track — nothing confirmed');
+test('attendance: hours only — over the threshold and on days of rest are hours, whatever the recommended rates are', () => {
+  const entries = [S('a', '2026-09-08', '07:00', '2026-09-08', '17:00'), S('b', '2026-09-12', '08:00', '2026-09-12', '11:30')];   // Tuesday 10h, Saturday 3:30
+  const a = monthReport({ month: '2026-09', entries, track: SIX, now: NOW });
+  const b = monthReport({ month: '2026-09', entries, track: withRules(SIX, { tier1Pct: 140, tier2Pct: 175, restPct: 200 }), now: NOW });
+  for (const r of [a, b]) {
+    assert.equal(r.totals.paid, 810); assert.equal(r.totals.overMinutes, 120, '2 hours over 8:00'); assert.equal(r.totals.restMinutes, 210);
+    assert.equal(day(r, '2026-09-08').over, 120); assert.equal(day(r, '2026-09-12').over, 0, 'a day of rest: its hours are rest hours');
+  }
+  assert.notDeepEqual(a.totals.pct, b.totals.pct, 'only the recommendation follows the settings');
 });

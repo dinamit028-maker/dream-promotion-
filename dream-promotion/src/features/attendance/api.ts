@@ -163,8 +163,6 @@ const trackRow = (t: TrackForm) => ({ name: t.name.trim(), day_minutes: t.dayMin
   tier1_minutes: t.rules.tier1Minutes, tier1_pct: t.rules.tier1Pct, tier2_pct: t.rules.tier2Pct,
   rest_weekday: t.rules.restWeekday, rest_pct: t.rules.restPct, rest_tier1_pct: t.rules.restTier1Pct, rest_tier2_pct: t.rules.restTier2Pct,
   festival_pct: t.rules.festivalPct, independence_rest: t.rules.independenceRest, independence_pct: t.rules.independencePct, eve_minutes: t.rules.eveMinutes });
-/** the employer confirms the track's rules (the database stamps who and when; any later change of a rule takes it away) */
-export const confirmTrack = (id: string) => must(db().from('work_tracks').update({ rules_confirmed_at: new Date().toISOString() }).eq('id', id));
 export const setTrackActive = (id: string, active: boolean) => must(db().from('work_tracks').update({ active }).eq('id', id));
 /** hours leave the system as PDF only (the business's setting, default on) */
 export async function loadExportsPdfOnly(): Promise<boolean> {
