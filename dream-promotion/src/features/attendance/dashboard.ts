@@ -16,7 +16,8 @@ export function dailyStatus<E extends { id: string; active: boolean }>(list: Per
     const d = report.days.find((x) => x.date === today);
     if (report.days.some((x) => x.date < today && x.status === 'open')) out.openOld.push(e);
     if (!d) continue;
-    if (d.shifts.some((s) => s.open)) out.working.push(e);
+    // on shift now: an open shift of today, or one of yesterday still within its 24 hours
+    if (report.days.some((x) => x.status === 'working')) out.working.push(e);
     else if (d.shifts.length) out.reported.push(e);
     else if (d.absence) out.absent.push(e);
     else if (d.standard > 0) out.notReported.push(e);

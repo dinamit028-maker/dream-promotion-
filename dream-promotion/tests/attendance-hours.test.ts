@@ -61,9 +61,22 @@ test('attendance: a clock-in with no clock-out — red, not paid, counted as ope
   const d = day(r, '2026-09-07');
   assert.equal(d.status, 'open'); assert.equal(d.paid, 0); assert.equal(d.shifts[0].open, true);
   assert.equal(r.totals.openShifts, 1); assert.equal(r.totals.workDays, 0);
-  // today: "היום", not red
+  // today: on shift, not red
   const t = monthReport({ month: '2026-10', entries: [S('t', '2026-10-23', '08:00', null)], track: FIVE, now: NOW });
-  assert.equal(day(t, '2026-10-23').status, 'today');
+  assert.equal(day(t, '2026-10-23').status, 'working'); assert.equal(t.totals.openShifts, 0);
+});
+
+test('attendance: a shift runs up to 24 hours — on shift until then, never closed by itself; after 24 hours a missing clock-out', () => {
+  const at = (iso: string) => Date.parse(iso);
+  const night = [S('n', '2026-09-07', '20:00', null)];   // 20:00 Israel = 17:00 UTC
+  const before = monthReport({ month: '2026-09', entries: night, track: FIVE, now: at('2026-09-08T16:59:00Z') });   // 23:59 on
+  assert.equal(day(before, '2026-09-07').status, 'working', 'yesterday\'s shift, 23:59 on — on shift, not red');
+  assert.equal(before.totals.openShifts, 0); assert.equal(day(before, '2026-09-07').shifts[0].open, true, 'still open — nothing closed it');
+  const after = monthReport({ month: '2026-09', entries: night, track: FIVE, now: at('2026-09-08T17:00:00Z') });   // 24:00 on
+  assert.equal(day(after, '2026-09-07').status, 'open'); assert.equal(after.totals.openShifts, 1);
+  // closed at 23:30 on: every minute counted, on the day it started
+  const long = monthReport({ month: '2026-09', entries: [S('l', '2026-09-07', '07:00', '2026-09-08', '06:30')], track: FIVE, now: NOW });
+  assert.equal(day(long, '2026-09-07').worked, 23 * 60 + 30); assert.equal(day(long, '2026-09-08').worked, 0);
 });
 
 test('attendance: two shifts in a day, and breaks', () => {
