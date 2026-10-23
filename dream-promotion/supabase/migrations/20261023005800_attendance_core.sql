@@ -95,13 +95,70 @@ create table if not exists public.work_tracks (
                          check (array_length(day_minutes, 1) = 7 and 0 <= all (day_minutes) and 1440 >= all (day_minutes)),
   start_time           time,                                   -- the expected start (for "late"); null = not tracked
   late_grace_min       int not null default 0 check (late_grace_min between 0 and 240),
-  -- an unpaid break taken off a day that is at least auto_break_after_min long (0 / 0 = none — the default; see the plan, §questions)
+  -- an unpaid break taken off a day that is at least auto_break_after_min long (0 / 0 = none — the default; the employer's button)
   auto_break_min       int not null default 0 check (auto_break_min between 0 and 180),
   auto_break_after_min int not null default 0 check (auto_break_after_min between 0 and 1440),
   active               boolean not null default true,
   created_at           timestamptz not null default now(),
   unique (id, business_id)
 );
+-- the contract's overtime rules (the owner of the system, 23.10.2026: every employer sets their own; the defaults are the law's
+-- and the owner's): the threshold — by day (the day's standard above) or by month; then tier 1 (125% for 2 hours), then tier 2
+-- (150%); the weekly rest day, a festival, Independence Day and the eve of a festival. The employer confirms the rules
+-- (rules_confirmed_at) — any change of a rule takes the confirmation away (b_att_track_rules); until then overtime is a draft and
+-- a month of the track's employees does not close. src/features/attendance/overtime-rules.ts reads the same columns (rulesOf).
+alter table public.work_tracks add column if not exists ot_mode text not null default 'daily';
+alter table public.work_tracks add column if not exists monthly_minutes int;
+alter table public.work_tracks add column if not exists monthly_tier1_minutes int;
+alter table public.work_tracks add column if not exists tier1_minutes int not null default 120;
+alter table public.work_tracks add column if not exists tier1_pct int not null default 125;
+alter table public.work_tracks add column if not exists tier2_pct int not null default 150;
+alter table public.work_tracks add column if not exists rest_weekday int not null default 6;
+alter table public.work_tracks add column if not exists rest_pct int not null default 150;
+alter table public.work_tracks add column if not exists rest_tier1_pct int not null default 175;
+alter table public.work_tracks add column if not exists rest_tier2_pct int not null default 200;
+alter table public.work_tracks add column if not exists festival_pct int not null default 150;
+alter table public.work_tracks add column if not exists independence_rest boolean not null default true;
+alter table public.work_tracks add column if not exists independence_pct int not null default 200;
+alter table public.work_tracks add column if not exists eve_minutes int;
+alter table public.work_tracks add column if not exists rules_confirmed_at timestamptz;
+alter table public.work_tracks add column if not exists rules_confirmed_by uuid references auth.users on delete set null;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'work_tracks_rules_check') then
+    alter table public.work_tracks add constraint work_tracks_rules_check check (
+      ot_mode in ('daily', 'monthly')
+      and (ot_mode = 'daily' or (monthly_minutes is not null and monthly_tier1_minutes is not null
+                               and monthly_minutes between 60 and 44640 and monthly_tier1_minutes between 0 and 44640))
+      and tier1_minutes between 0 and 1440 and rest_weekday between 0 and 6 and (eve_minutes is null or eve_minutes between 0 and 1440)
+      and 100 <= all (array[tier1_pct, tier2_pct, rest_pct, rest_tier1_pct, rest_tier2_pct, festival_pct, independence_pct])
+      and 400 >= all (array[tier1_pct, tier2_pct, rest_pct, rest_tier1_pct, rest_tier2_pct, festival_pct, independence_pct]));
+  end if;
+end $$;
+
+-- a rule changed = not confirmed any more; a confirmation is the caller's, now
+create or replace function public.att_track_rules() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' and (new.day_minutes, new.auto_break_min, new.auto_break_after_min, new.ot_mode, new.monthly_minutes, new.monthly_tier1_minutes,
+      new.tier1_minutes, new.tier1_pct, new.tier2_pct, new.rest_weekday, new.rest_pct, new.rest_tier1_pct, new.rest_tier2_pct, new.festival_pct,
+      new.independence_rest, new.independence_pct, new.eve_minutes)
+     is distinct from (old.day_minutes, old.auto_break_min, old.auto_break_after_min, old.ot_mode, old.monthly_minutes, old.monthly_tier1_minutes,
+      old.tier1_minutes, old.tier1_pct, old.tier2_pct, old.rest_weekday, old.rest_pct, old.rest_tier1_pct, old.rest_tier2_pct, old.festival_pct,
+      old.independence_rest, old.independence_pct, old.eve_minutes)
+     and new.rules_confirmed_at is not distinct from old.rules_confirmed_at then
+    new.rules_confirmed_at := null; new.rules_confirmed_by := null;
+  end if;
+  if new.rules_confirmed_at is not null and (tg_op = 'INSERT' or new.rules_confirmed_at is distinct from old.rules_confirmed_at) then
+    new.rules_confirmed_at := now(); new.rules_confirmed_by := auth.uid();
+  end if;
+  return new;
+end $$;
+revoke execute on function public.att_track_rules() from public, anon, authenticated;
+drop trigger if exists b_att_track_rules on public.work_tracks;
+create trigger b_att_track_rules before insert or update on public.work_tracks for each row execute function public.att_track_rules();
+
+-- exports of hours as PDF only (the owner of the system, 23.10.2026: nobody changes hours outside the documented correction)
+alter table public.timeclock_settings add column if not exists exports_pdf_only boolean not null default true;
 
 -- ---- 4. employees: the reference's fields (all optional — existing rows stay as they are) -----------------------------------------
 alter table public.employees add column if not exists employee_code text not null default '';
@@ -264,10 +321,13 @@ create table if not exists public.attendance_months (
   approved_at  timestamptz,
   closed_by    uuid references auth.users on delete set null,
   closed_at    timestamptz,
+  -- the hours track the month was closed with (a later change of the track does not change a closed month)
+  rules_snapshot jsonb,
   updated_at   timestamptz not null default now(),
   primary key (employee_id, month),
   foreign key (employee_id, business_id) references public.employees (id, business_id)
 );
+alter table public.attendance_months add column if not exists rules_snapshot jsonb;
 create index if not exists attendance_months_business_idx on public.attendance_months (business_id, month);
 
 create table if not exists public.attendance_month_events (
@@ -843,7 +903,7 @@ create or replace function public.att_month_mark(p_employee uuid, p_month text, 
 returns text language plpgsql security definer set search_path = public as $$
 declare
   b uuid := public.att_guard(p_employee, case when p_kind = 'approved' then 'manage' else 'admin' end);
-  cur text; first_day date; last_day date; why text := '';
+  cur text; first_day date; last_day date; why text := ''; snap jsonb;
 begin
   if p_month !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' then raise exception 'att: month' using errcode = '22023'; end if;
   first_day := (p_month || '-01')::date; last_day := (first_day + interval '1 month')::date - 1;
@@ -870,18 +930,25 @@ begin
                 and a.from_day <= last_day and a.to_day >= first_day) then
       raise exception 'att: an absence is waiting in this month' using errcode = '23514';
     end if;
+    -- the hours are computed by the employee's track: its rules confirmed by the employer, and kept with the month
+    select to_jsonb(t) into snap from public.employees e join public.work_tracks t on t.id = e.track_id and t.business_id = e.business_id
+     where e.id = p_employee;
+    if snap is null or snap->>'rules_confirmed_at' is null then
+      raise exception 'att: the hours track of the employee is not set or its rules are not confirmed' using errcode = '23514';
+    end if;
   elsif p_kind = 'reopened' then
     why := public.att_reason(p_reason);
     if cur <> 'closed' then return cur; end if;
   else
     raise exception 'att: kind' using errcode = '22023';
   end if;
-  insert into public.attendance_months as m (employee_id, month, business_id, status, approved_by, approved_at, closed_by, closed_at)
+  insert into public.attendance_months as m (employee_id, month, business_id, status, approved_by, approved_at, closed_by, closed_at, rules_snapshot)
   values (p_employee, p_month, b, case p_kind when 'reopened' then 'open' else p_kind end,
           case when p_kind = 'approved' then auth.uid() end, case when p_kind = 'approved' then now() end,
-          case when p_kind = 'closed' then auth.uid() end, case when p_kind = 'closed' then now() end)
+          case when p_kind = 'closed' then auth.uid() end, case when p_kind = 'closed' then now() end, snap)
   on conflict (employee_id, month) do update set
     status = excluded.status,
+    rules_snapshot = case when p_kind = 'closed' then snap when p_kind = 'reopened' then null else m.rules_snapshot end,
     approved_by = case when p_kind = 'approved' then auth.uid() else m.approved_by end,
     approved_at = case when p_kind = 'approved' then now() else m.approved_at end,
     closed_by = case when p_kind = 'closed' then auth.uid() else m.closed_by end,

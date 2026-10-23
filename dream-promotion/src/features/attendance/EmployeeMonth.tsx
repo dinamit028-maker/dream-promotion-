@@ -10,15 +10,14 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { authHeaders } from '@/lib/services/http';
 import { useAtt } from './AttendanceLayout';
 import {
-  attError, entryClose, entryFix, entryVoid, loadAbsences, loadEntries, loadHistory, loadMonthHistory, loadMonths, monthMark, shiftMoments,
+  attError, entryClose, entryFix, entryVoid, loadAbsences, loadEntries, loadHistory, loadMonthHistory, loadMonthRows, monthMark, shiftMoments, trackFor,
   type Absence, type Entry, type HistoryLine, type MonthState,
 } from './api';
 import {
-  ABSENCE_LABEL, DAY_NAMES, DAY_TYPE_LABEL, METHOD_LABEL, STATUS_LABEL, addDay, hm, monthReport, type DayRow, type ShiftRow,
+  ABSENCE_LABEL, DAY_NAMES, DAY_TYPE_LABEL, METHOD_LABEL, STATUS_LABEL, addDay, hm, monthReport, pctColumns, type DayRow, type ShiftRow,
 } from './hours-engine';
 import { DRAFT_NOTE, fileName, monthLabel, monthPdfBody, monthSheet, xlsx } from './exports';
-import { OVERTIME_CONFIRMED, PCT_COLUMNS } from './overtime-rules';
-import { canManage, isAdmin, trackSummary } from './people';
+import { canManage, isAdmin, trackSummary, type WorkTrack } from './people';
 import { attendanceHref } from './routes';
 import { MonthSwitch, Notice, ReasonModal, ShiftDialog, saveFile, thisMonth, XLSX_TYPE } from './ui';
 
@@ -42,7 +41,10 @@ export function EmployeeMonth({ id }: { id: string }) {
   const month = params.get('month') && /^\d{4}-\d{2}$/.test(params.get('month')!) ? params.get('month')! : thisMonth();
   const setMonth = (m: string) => router.replace(`/attendance/employees/${encodeURIComponent(id)}?month=${m}`);
   const emp = setup.employees.find((e) => e.id === id) ?? null;
-  const track = emp?.trackId ? setup.tracks.find((t) => t.id === emp.trackId) ?? null : null;
+  const empTrack = emp?.trackId ? setup.tracks.find((t) => t.id === emp.trackId) ?? null : null;
+  const [snapshot, setSnapshot] = useState<WorkTrack | null>(null);
+  // a closed month is computed by the track it was closed with
+  const track = trackFor(empTrack, { snapshot });
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [state, setState] = useState<MonthState>('open');
@@ -53,8 +55,8 @@ export function EmployeeMonth({ id }: { id: string }) {
 
   const load = useCallback(async () => {
     try {
-      const [e, a, m, log] = await Promise.all([loadEntries(month, id), loadAbsences({ month, employeeId: id }), loadMonths(month), loadMonthHistory(id, month)]);
-      setEntries(e); setAbsences(a); setState(m.get(id) ?? 'open'); setMonthLog(log); setError(null);
+      const [e, a, m, log] = await Promise.all([loadEntries(month, id), loadAbsences({ month, employeeId: id }), loadMonthRows(month), loadMonthHistory(id, month)]);
+      setEntries(e); setAbsences(a); setState(m.get(id)?.status ?? 'open'); setSnapshot(m.get(id)?.snapshot ?? null); setMonthLog(log); setError(null);
     } catch (e) { setError(attError(e)); }
   }, [id, month]);
   useEffect(() => { setEntries(null); void load(); }, [load]);
@@ -94,7 +96,7 @@ export function EmployeeMonth({ id }: { id: string }) {
         <MonthSwitch month={month} onChange={setMonth} />
         <div className="flex flex-wrap gap-2">
           {manage && <Button variant="primary" disabled={busy} onClick={() => setDialog({ kind: 'add', date: israelParts(Date.now()).date.slice(0, 7) === month ? israelParts(Date.now()).date : `${month}-01` })}>השלמת דיווח</Button>}
-          <Button variant="ghost" disabled={!report} onClick={() => void excel()}>אקסל</Button>
+          {!att.pdfOnly && <Button variant="ghost" disabled={!report} onClick={() => void excel()}>אקסל</Button>}
           <Button variant="ghost" disabled={!report || busy} onClick={() => void pdf()}>PDF</Button>
           {canManage(role) && state === 'open' && <Button variant="soft" disabled={busy} onClick={() => void run(() => monthMark(id, month, 'approved'), 'החודש אושר')}>אישור החודש</Button>}
           {isAdmin(role) && state !== 'closed' && ended && <Button variant="soft" disabled={busy} onClick={() => {
@@ -105,7 +107,8 @@ export function EmployeeMonth({ id }: { id: string }) {
       </div>
       {error && <Notice tone="warn">{error}</Notice>}
       {state === 'closed' && <Notice>החודש סגור — הדוח נעול. כל שינוי מחייב פתיחה מחדש עם סיבה (נרשם).</Notice>}
-      {!OVERTIME_CONFIRMED && <Notice tone="warn">{DRAFT_NOTE} <Link href={attendanceHref('settings')} className="font-semibold underline">הכללים</Link></Notice>}
+      {report && !report.confirmed && <Notice tone="warn">{DRAFT_NOTE} {isAdmin(role) && <Link href={attendanceHref('settings')} className="font-semibold underline">להגדרות המסלול</Link>}</Notice>}
+      {snapshot && <Notice>החודש מחושב לפי הגדרות המסלול כפי שהיו ברגע הסגירה ({snapshot.name}).</Notice>}
       {!report ? <div className="flex justify-center py-16"><Spinner /></div> : (
         <>
           <DaysTable report={report} manage={manage} onAdd={(date) => setDialog({ kind: 'add', date })}
@@ -148,7 +151,7 @@ function DaysTable({ report, manage, onAdd, onShift, onHistory }: {
 }) {
   const red = (d: DayRow) => d.status === 'missing' || d.status === 'open';
   const status = (d: DayRow) => (d.absence ? `${ABSENCE_LABEL[d.absence.kind]}${d.absence.minutes ? ` ${hm(d.absence.minutes)}` : ''}` : STATUS_LABEL[d.status]);
-  const ot = (d: DayRow) => PCT_COLUMNS.filter((p) => p !== 100 && d.pct[p]).map((p) => `${p}%: ${hm(d.pct[p])}`).join(' · ');
+  const ot = (d: DayRow) => Object.keys(d.pct).map(Number).sort((a, b) => a - b).filter((p) => p !== 100 && d.pct[p]).map((p) => `${p}%: ${hm(d.pct[p])}`).join(' · ');
   const place = (p: { lat: number; lng: number } | null, label: string) => p && (
     <a href={mapUrl(p)} target="_blank" rel="noopener noreferrer" aria-label={`מיקום ${label}`} className="ms-1 inline-flex text-muted hover:text-module"><MapPin size={14} aria-hidden /></a>
   );
@@ -249,7 +252,7 @@ function Totals({ report }: { report: ReturnType<typeof monthReport> }) {
   const t = report.totals;
   const items: [string, string, boolean?][] = [
     ['ימי עבודה', String(t.workDays)], ['סה״כ שעות', hm(t.paid)], ['סה״כ תקן', hm(t.standard)],
-    ...PCT_COLUMNS.map((p): [string, string, boolean] => [p === 100 ? 'רגילות' : `${p}%${OVERTIME_CONFIRMED ? '' : ' (טיוטה)'}`, hm(t.pct[p] ?? 0), p !== 100 && !OVERTIME_CONFIRMED]),
+    ...pctColumns([report]).map((p): [string, string, boolean] => [p === 100 ? 'רגילות' : `${p}%${report.confirmed ? '' : ' (טיוטה)'}`, hm(t.pct[p] ?? 0), p !== 100 && !report.confirmed]),
     ['בימי מנוחה', hm(t.restMinutes)], ['ימים חסרים', String(t.missingDays)], ['יציאות חסרות', String(t.openShifts)], ['איחורים', String(t.lateDays)],
     ...(['vacation', 'sick', 'reserve', 'other'] as const).filter((k) => t.absenceDays[k] || t.absenceMinutes[k])
       .map((k): [string, string] => [ABSENCE_LABEL[k], `${t.absenceDays[k] ? (t.absenceDays[k] === 1 ? 'יום אחד' : `${t.absenceDays[k]} ימים`) : ''}${t.absenceMinutes[k] ? ` ${hm(t.absenceMinutes[k])}` : ''}`.trim()]),

@@ -320,8 +320,20 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000580a1');
 select pg_temp.refused_with($$select public.att_month_mark('00000000-0000-0000-0000-00000058e002', '2026-09', 'closed')$$, 'open shift', 'not with an open shift');
 select pg_temp.refused_with($$select public.att_month_mark('00000000-0000-0000-0000-00000058e001', '2026-09', 'closed')$$, 'request is waiting', 'not with a request waiting');
 select public.att_request_decide('00000000-0000-0000-0000-000000584003', false, 'לא אושר');
+-- the track's rules: the employer confirms them; until then the month does not close; a changed rule takes the confirmation away
+select pg_temp.refused_with($$select public.att_month_mark('00000000-0000-0000-0000-00000058e001', '2026-09', 'closed')$$, 'not confirmed', 'not before the rules are confirmed');
+update public.work_tracks set rules_confirmed_at = '2000-01-01' where id = '00000000-0000-0000-0000-00000058f001';
+select pg_temp.check((select rules_confirmed_at > now() - interval '1 minute' and rules_confirmed_by = '00000000-0000-0000-0000-0000000580a1'
+  from public.work_tracks where id = '00000000-0000-0000-0000-00000058f001'), 'confirmed now, by the caller (not a date sent)');
+update public.work_tracks set tier1_pct = 130 where id = '00000000-0000-0000-0000-00000058f001';
+select pg_temp.check((select rules_confirmed_at is null from public.work_tracks where id = '00000000-0000-0000-0000-00000058f001'), 'a changed rule = not confirmed');
+update public.work_tracks set tier1_pct = 125, rules_confirmed_at = now() where id = '00000000-0000-0000-0000-00000058f001';
+select pg_temp.refused_with($$update public.work_tracks set ot_mode = 'monthly' where id = '00000000-0000-0000-0000-00000058f001'$$, 'work_tracks_rules_check',
+  'a monthly threshold has its hours and its 125% part');
 select public.att_month_mark('00000000-0000-0000-0000-00000058e001', '2026-09', 'closed');
 select public.att_month_mark('00000000-0000-0000-0000-00000058e001', '2026-09', 'closed');
+select pg_temp.check((select rules_snapshot->>'name' = '8.6 שעות' and (rules_snapshot->>'tier1_pct')::int = 125 from public.attendance_months
+  where employee_id = '00000000-0000-0000-0000-00000058e001' and month = '2026-09'), 'the month keeps the rules it was closed with');
 -- locked: nothing of Dana's September is written
 select pg_temp.refused_with($$select public.att_entry_add('00000000-0000-0000-0000-000000583030', '00000000-0000-0000-0000-00000058e001',
   '2026-09-16 05:00:00+00', '2026-09-16 06:00:00+00', 'אחרי הסגירה')$$, 'month is closed', 'no new entry in a closed month');

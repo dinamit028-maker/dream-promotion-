@@ -6,7 +6,7 @@ import { Button, Card, Chip, PageHead } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { useAtt } from './AttendanceLayout';
-import { attError, loadAbsences, loadEntries, loadRequests, type Absence, type Entry } from './api';
+import { attError, loadAbsences, loadEntries, loadMonthRows, loadRequests, trackFor, type Absence, type Entry } from './api';
 import { dailyStatus, monthlyStatus, type DailyKey } from './dashboard';
 import { hm, monthReport, shiftMonth, type MonthReport } from './hours-engine';
 import { monthLabel } from './exports';
@@ -23,7 +23,7 @@ export function Dashboard() {
   const { setup, role } = useAtt();
   const params = useSearchParams();
   const [month, setMonth] = useState(thisMonth());
-  const [data, setData] = useState<{ entries: Entry[]; absences: Absence[]; pending: number; prev: { entries: Entry[]; absences: Absence[] } } | null>(null);
+  const [data, setData] = useState<{ entries: Entry[]; absences: Absence[]; pending: number; prev: { entries: Entry[]; absences: Absence[]; months: Awaited<ReturnType<typeof loadMonthRows>> } } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState(params.get('report') === '1');
   const [show, setShow] = useState<DailyKey | null>(null);
@@ -31,25 +31,25 @@ export function Dashboard() {
   const load = useCallback(async () => {
     try {
       const prevMonth = shiftMonth(thisMonth(), -1);
-      const [entries, absences, requests, pe, pa] = await Promise.all([
+      const [entries, absences, requests, pe, pa, pm] = await Promise.all([
         loadEntries(thisMonth()), loadAbsences({ month: thisMonth() }), canManage(role) ? loadRequests() : Promise.resolve([]),
-        loadEntries(prevMonth), loadAbsences({ month: prevMonth }),
+        loadEntries(prevMonth), loadAbsences({ month: prevMonth }), loadMonthRows(prevMonth),
       ]);
       const pendingAbs = canManage(role) ? (await loadAbsences({ status: 'pending' })).length : 0;
-      setData({ entries, absences, pending: requests.length + pendingAbs, prev: { entries: pe, absences: pa } });
+      setData({ entries, absences, pending: requests.length + pendingAbs, prev: { entries: pe, absences: pa, months: pm } });
       setError(null);
     } catch (e) { setError(attError(e)); }
   }, [role]);
   useEffect(() => { void load(); }, [load]);
 
   const tracks = useMemo(() => new Map(setup.tracks.map((t) => [t.id, t])), [setup.tracks]);
-  const reports = useCallback((m: string, entries: Entry[], absences: Absence[]) => setup.employees.map((e) => ({
+  const reports = useCallback((m: string, entries: Entry[], absences: Absence[], months?: Awaited<ReturnType<typeof loadMonthRows>>) => setup.employees.map((e) => ({
     employee: e,
     report: monthReport({ month: m, entries: entries.filter((x) => x.employeeId === e.id), absences: absences.filter((a) => a.employeeId === e.id),
-      track: e.trackId ? tracks.get(e.trackId) : null, startDate: e.startDate, endDate: e.endDate }),
+      track: trackFor(e.trackId ? tracks.get(e.trackId) : null, months?.get(e.id)), startDate: e.startDate, endDate: e.endDate }),
   })), [setup.employees, tracks]);
   const now = useMemo(() => (data ? reports(thisMonth(), data.entries, data.absences) : []), [data, reports]);
-  const prev = useMemo(() => (data ? reports(shiftMonth(thisMonth(), -1), data.prev.entries, data.prev.absences) : []), [data, reports]);
+  const prev = useMemo(() => (data ? reports(shiftMonth(thisMonth(), -1), data.prev.entries, data.prev.absences, data.prev.months) : []), [data, reports]);
   const daily = useMemo(() => dailyStatus(now, today()), [now]);
   const monthly = useMemo(() => monthlyStatus(month === thisMonth() ? now : prev, month === thisMonth() ? today() : '9999-12-31'), [month, now, prev]);
 

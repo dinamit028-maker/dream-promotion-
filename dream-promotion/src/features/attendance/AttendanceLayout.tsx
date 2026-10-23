@@ -7,7 +7,7 @@ import { PageHead } from '@/components/ui/primitives';
 import { EmptyState, Spinner } from '@/components/ui/feedback';
 import { IdentificationBadge } from '@/components/ui/Icon';
 import { AttendanceScreen } from '@/features/timeclock/AttendanceScreen';
-import { attError, attendanceReady, loadSetup, myRole, type Setup } from './api';
+import { attError, attendanceReady, loadExportsPdfOnly, loadSetup, myRole, type Setup } from './api';
 import { seesPrivate, type AttRole } from './people';
 
 /**
@@ -22,6 +22,8 @@ interface Att {
   businessId: string;
   businessName: string;
   setup: Setup;
+  /** hours leave the system as PDF only (the business's setting — no Excel / CSV of hours) */
+  pdfOnly: boolean;
   reload: () => Promise<void>;
   /** a short "✓ …" at the top of the screen */
   say: (msg: string) => void;
@@ -43,13 +45,17 @@ export function AttendanceLayout({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState<boolean | null>(null);
   const [role, setRole] = useState<AttRole | null>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
+  const [pdfOnly, setPdfOnly] = useState(true);
   const [businessName, setBusinessName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   useEffect(() => { if (cashier) router.replace('/register'); }, [cashier, router]);
 
   const reload = useCallback(async (r?: AttRole) => {
-    try { setSetup(await loadSetup({ privates: seesPrivate(r ?? role ?? 'none') })); setError(null); }
+    try {
+      const [s, p] = await Promise.all([loadSetup({ privates: seesPrivate(r ?? role ?? 'none') }), loadExportsPdfOnly()]);
+      setSetup(s); setPdfOnly(p); setError(null);
+    }
     catch (e) { setError(attError(e)); }
   }, [role]);
 
@@ -73,7 +79,7 @@ export function AttendanceLayout({ children }: { children: ReactNode }) {
 
   const say = useCallback((m: string) => { setFlash(m); setTimeout(() => setFlash(null), 3000); }, []);
   const value = useMemo<Att | null>(() => (role && setup && userId && businessId
-    ? { role, userId, businessId, businessName, setup, reload: () => reload(), say } : null), [role, setup, userId, businessId, businessName, reload, say]);
+    ? { role, userId, businessId, businessName, setup, pdfOnly, reload: () => reload(), say } : null), [role, setup, pdfOnly, userId, businessId, businessName, reload, say]);
 
   if (cashier) return null;
   if (!isCloudConfigured || !userId) {

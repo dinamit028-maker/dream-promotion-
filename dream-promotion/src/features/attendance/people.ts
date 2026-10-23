@@ -1,5 +1,6 @@
 import { waLink } from '@/features/crm/crm';
 import type { Track } from './hours-engine';
+import { rulesOf } from './overtime-rules';
 
 /**
  * The people of the attendance module and their rows (tests/attendance-people.test.ts): an employee as the screens use it,
@@ -11,7 +12,7 @@ export interface Employee {
   startDate: string | null; endDate: string | null; createdAt: string; lastActiveAt: string | null; invitedAt: string | null;
 }
 export interface Department { id: string; name: string; active: boolean }
-export interface WorkTrack extends Track { id: string; name: string; active: boolean }
+export interface WorkTrack extends Track { id: string; name: string; active: boolean; confirmedAt: string | null }
 export interface PrivateDetails { employeeId: string; idNumber: string; payKind: '' | 'hourly' | 'monthly'; hourlyAgorot: number | null; monthlyAgorot: number | null }
 export type AttRole = 'admin' | 'approver' | 'payroll' | 'viewer' | 'none';
 
@@ -24,6 +25,7 @@ export const toTrack = (r: any): WorkTrack => ({
   id: r.id, name: r.name, active: r.active !== false, dayMinutes: (r.day_minutes ?? [0, 0, 0, 0, 0, 0, 0]).map(Number),
   startTime: r.start_time ? String(r.start_time).slice(0, 5) : null, lateGraceMin: r.late_grace_min ?? 0,
   autoBreakMin: r.auto_break_min ?? 0, autoBreakAfterMin: r.auto_break_after_min ?? 0,
+  rules: rulesOf(r), confirmed: Boolean(r.rules_confirmed_at), confirmedAt: r.rules_confirmed_at ?? null,
 });
 export const toPrivate = (r: any): PrivateDetails => ({
   employeeId: r.employee_id, idNumber: r.id_number ?? '', payKind: r.pay_kind ?? '', hourlyAgorot: r.hourly_agorot ?? null, monthlyAgorot: r.monthly_agorot ?? null,

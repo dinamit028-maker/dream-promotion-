@@ -1,13 +1,14 @@
 import { israelParts } from '@/lib/il-time';
 import { holidaysIn, type Holiday } from '@/features/booking/holidays';
-import { OVERTIME_RULES, PCT_COLUMNS, type OvertimeRules, type Tier } from './overtime-rules';
+import { PCT_COLUMNS, rulesOf, type ContractRules, type Tier } from './overtime-rules';
 
 /**
  * The hours of an employee's month — the one calculation behind the monthly report, the dashboard, the Excel / PDF and the
  * payroll file (tests/attendance-hours.test.ts). Pure: entries in, rows out.
  *   - a moment is exact (UTC); its day is the Israeli calendar day — so summer / winter time changes a night by an hour, never
  *     the sums of a day by a wrong one;
- *   - a shift belongs to the day it started on (OVERTIME_RULES.shiftDay), a night shift is one shift of that day;
+ *   - the overtime rules are the employee's track's (rulesOf — the employer's own; a closed month — the ones it was closed with);
+ *   - a shift belongs to the day it started on, a night shift is one shift of that day;
  *   - a voided entry is out of every sum (it is shown in the history only); an open one (no clock-out) is "חסר יציאה" — red,
  *     and not paid until it is closed;
  *   - a day's minutes are its shifts' seconds, rounded once (no rounding per shift); the month = the sum of the days, so the
@@ -36,6 +37,10 @@ export interface Track {
   lateGraceMin?: number;
   autoBreakMin?: number;
   autoBreakAfterMin?: number;
+  /** the contract's overtime rules (the employer's; missing = the defaults of overtime-rules.ts) */
+  rules?: Partial<ContractRules>;
+  /** the employer confirmed the rules (until then overtime is a draft) */
+  confirmed?: boolean;
 }
 /** a track that is not set: no standard (every day off the track) */
 export const NO_TRACK: Track = { dayMinutes: [0, 0, 0, 0, 0, 0, 0] };
@@ -85,7 +90,17 @@ export interface MonthTotals {
   openShifts: number;
   lateDays: number;
 }
-export interface MonthReport { month: string; days: DayRow[]; totals: MonthTotals }
+export interface MonthReport {
+  month: string; days: DayRow[]; totals: MonthTotals;
+  /** the rules the month was computed by, and whether the employer confirmed them (false = overtime is a draft) */
+  rules: ContractRules; confirmed: boolean;
+}
+/** the rates of some reports, in order: the usual ones, and any other rate an employer set that has minutes */
+export function pctColumns(reports: Pick<MonthReport, 'totals'>[]): number[] {
+  const used = new Set<number>(PCT_COLUMNS);
+  for (const r of reports) for (const [p, m] of Object.entries(r.totals.pct)) if (m > 0) used.add(+p);
+  return [...used].sort((a, b) => a - b);
+}
 
 const MIN = 60_000;
 /** "late" only within this many minutes after the track's start (a flag on the screen — never in the pay) */
@@ -125,8 +140,13 @@ export function dayType(date: string, holidays: Holiday[]): { type: DayType; hol
   return { type: w === 6 ? 'saturday' : w === 5 ? 'friday' : 'weekday', holiday: names };
 }
 
-export const isRestDay = (type: DayType, weekday: number, rules: OvertimeRules = OVERTIME_RULES) =>
-  (type === 'chag' && rules.restOnFestival) || (type === 'national' && rules.restOnIndependenceDay) || (weekday === 6 && rules.restOnSaturday);
+/** a day of rest: a festival, Independence Day (when the track says so), the weekly rest day — and its rate */
+export function restOf(type: DayType, weekday: number, rules: ContractRules): number | null {
+  if (type === 'chag') return rules.festivalPct;
+  if (type === 'national' && rules.independenceRest) return rules.independencePct;
+  if (weekday === rules.restWeekday) return rules.restPct;
+  return null;
+}
 
 /** minutes split by tiers: [100% up to the threshold, then each tier] */
 export function splitByTiers(minutes: number, threshold: number, basePct: number, tiers: Tier[]): Record<number, number> {
@@ -149,7 +169,8 @@ export interface MonthInput {
   entries: EngineEntry[];
   absences?: EngineAbsence[];
   track?: Track | null;
-  rules?: OvertimeRules;
+  /** rules instead of the track's (tests) */
+  rules?: ContractRules;
   /** now — days after it are "future", today is "today" (default: Date.now()) */
   now?: number;
   /** the employee's first / last day (days outside are "off") */
@@ -158,8 +179,13 @@ export interface MonthInput {
 }
 
 export function monthReport(input: MonthInput): MonthReport {
-  const rules = input.rules ?? OVERTIME_RULES;
   const track = input.track ?? NO_TRACK;
+  const rules = input.rules ?? rulesOf({ ...(track.rules ?? {}), autoBreakMin: track.autoBreakMin ?? track.rules?.autoBreakMin, autoBreakAfterMin: track.autoBreakAfterMin ?? track.rules?.autoBreakAfterMin });
+  // the threshold of a day that is not a work day of the track, and of a day of rest: the track's longest day (8 hours without one)
+  const longest = Math.max(0, ...track.dayMinutes) || 480;
+  const dailyTiers: Tier[] = [{ minutes: rules.tier1Minutes, pct: rules.tier1Pct }, { minutes: null, pct: rules.tier2Pct }];
+  // monthly mode: the work days' minutes so far, and the overtime minutes at tier 1 so far
+  let monthWork = 0, monthTier1 = 0;
   const now = input.now ?? Date.now();
   const today = israelParts(now).date;
   const days = daysOfMonth(input.month);
@@ -184,10 +210,11 @@ export function monthReport(input: MonthInput): MonthReport {
   const rows: DayRow[] = days.map((date) => {
     const weekday = weekdayOfDate(date);
     const { type, holiday } = dayType(date, holidays.get(date) ?? []);
-    const rest = isRestDay(type, weekday, rules);
+    const restPct = restOf(type, weekday, rules);
+    const rest = restPct != null;
     const employed = (!input.startDate || date >= input.startDate) && (!input.endDate || date <= input.endDate);
     const trackMinutes = track.dayMinutes[weekday] ?? 0;
-    const standard = !employed || type === 'chag' || (type === 'national' && rules.restOnIndependenceDay) ? 0
+    const standard = !employed || type === 'chag' || (type === 'national' && rules.independenceRest) ? 0
       : type === 'erev' && rules.eveMinutes != null && trackMinutes > 0 ? rules.eveMinutes : trackMinutes;
 
     const list = (byDay.get(date) ?? []).slice().sort((a, b) => a.clockIn.localeCompare(b.clockIn));
@@ -208,13 +235,28 @@ export function monthReport(input: MonthInput): MonthReport {
     });
     const worked = Math.round(seconds / 60);
     // an unpaid break: taken off a long enough day, less the breaks the employee clocked out for
-    const breakMin = track.autoBreakMin ?? 0;
-    const breakTaken = breakMin > 0 && worked >= (track.autoBreakAfterMin ?? 0) && worked > 0 ? Math.max(0, Math.min(worked, breakMin - gaps)) : 0;
+    const breakMin = rules.autoBreakMin;
+    const breakTaken = breakMin > 0 && worked >= rules.autoBreakAfterMin && worked > 0 ? Math.max(0, Math.min(worked, breakMin - gaps)) : 0;
     const paid = worked - breakTaken;
 
-    const pct = rest
-      ? splitByTiers(paid, rules.restDayMinutes, rules.restDayPct, rules.restDayTiers)
-      : splitByTiers(paid, standard > 0 ? standard : rules.offTrackDayMinutes, 100, rules.dailyTiers);
+    let pct: Record<number, number>;
+    if (rest) {
+      // a day of rest: its rate up to a day's length, then its own overtime (never below the day's rate)
+      pct = splitByTiers(paid, longest, restPct, [{ minutes: rules.tier1Minutes, pct: Math.max(restPct, rules.restTier1Pct) },
+        { minutes: null, pct: Math.max(restPct, rules.restTier2Pct) }]);
+    } else if (rules.mode === 'monthly' && rules.monthlyMinutes != null) {
+      // by month: regular until the month's threshold, then tier 1 for its share of the month, then tier 2 — in day order
+      const regular = Math.max(0, Math.min(paid, rules.monthlyMinutes - monthWork));
+      const over = paid - regular;
+      const t1 = Math.max(0, Math.min(over, (rules.monthlyTier1Minutes ?? 0) - monthTier1));
+      pct = {};
+      if (regular) pct[100] = regular;
+      if (t1) pct[rules.tier1Pct] = (pct[rules.tier1Pct] ?? 0) + t1;
+      if (over - t1) pct[rules.tier2Pct] = (pct[rules.tier2Pct] ?? 0) + over - t1;
+      monthWork += paid; monthTier1 += t1;
+    } else {
+      pct = splitByTiers(paid, standard > 0 ? standard : longest, 100, dailyTiers);
+    }
 
     const abs = employed ? absences.find((x) => x.from <= date && x.to >= date) : undefined;
     const open = shifts.some((s) => s.open);
@@ -252,7 +294,7 @@ export function monthReport(input: MonthInput): MonthReport {
       absence: abs ? { id: abs.id, kind: abs.kind, minutes: abs.minutes } : null, late, status,
     };
   });
-  return { month: input.month, days: rows, totals };
+  return { month: input.month, days: rows, totals, rules, confirmed: input.rules ? true : Boolean(track.confirmed) };
 }
 
 /** 7:05 */

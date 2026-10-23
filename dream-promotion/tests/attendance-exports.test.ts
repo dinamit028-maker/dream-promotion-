@@ -4,10 +4,10 @@ import JSZip from 'jszip';
 import { israelToIso } from '../src/lib/il-time';
 import { parseXlsx } from '../src/features/finance/bank';
 import { monthReport, type EngineEntry, type Track } from '../src/features/attendance/hours-engine';
-import { DRAFT_NOTE, PAYROLL_HEADER, csv, monthLabel, monthPdfBody, monthSheet, payrollCsv, summarySheet, xlsx } from '../src/features/attendance/exports';
+import { DRAFT_NOTE, csv, monthLabel, monthPdfBody, monthSheet, payrollCsv, payrollHeader, payrollPdfBody, summarySheet, unconfirmed, xlsx } from '../src/features/attendance/exports';
 import { reportPdfInput } from '../src/lib/server/report-pdf';
 
-const FIVE: Track = { dayMinutes: [516, 516, 516, 516, 516, 0, 0] };
+const FIVE: Track = { dayMinutes: [516, 516, 516, 516, 516, 0, 0] };   // not confirmed by the employer yet: overtime is a draft
 const S = (d: string, a: string, od: string, b: string): EngineEntry => ({ id: `${d}${a}`, clockIn: israelToIso(d, a), clockOut: israelToIso(od, b), method: 'qr' });
 const NOW = Date.parse('2026-10-23T09:00:00Z');
 const report = monthReport({ month: '2026-09', track: FIVE, now: NOW, entries: [
@@ -36,21 +36,37 @@ test('attendance exports: the month for Excel — hours as numbers, every rate, 
   const first = rows[3];
   assert.equal(first[8], 11); assert.equal(first[head.indexOf('125% (טיוטה)')], 2); assert.equal(first[head.indexOf('150% (טיוטה)')], 0.4);
   assert.equal(rows[3 + 30][8], 27, 'the total');
-  assert.equal(rows[rows.length - 1][0], DRAFT_NOTE);
+  assert.equal(rows[rows.length - 1][0], DRAFT_NOTE, 'the employer did not confirm the track yet');
+  assert.ok(!monthSheet({ ...report, confirmed: true }, dana).some((r) => r[0] === DRAFT_NOTE));
 });
 
-test('attendance exports: the payroll file — refused until the overtime rules are confirmed; its standard columns', () => {
+test('attendance exports: the payroll report — waits for the employer\'s confirmation; PDF and CSV, the rates found', () => {
   assert.equal(payrollCsv([{ employee: dana, report }]), null);
-  const file = payrollCsv([{ employee: dana, report }], { confirmed: true })!;
-  assert.ok(file.startsWith('﻿'));
+  assert.equal(payrollPdfBody([{ employee: dana, report }], '2026-09', 'ים'), null);
+  assert.deepEqual(unconfirmed([{ employee: dana, report }]), ['דנה כהן']);
+  const ok = { ...report, confirmed: true };
+  const file = payrollCsv([{ employee: dana, report: ok }])!;
+  assert.ok(file.startsWith('\uFEFF'));
   const [head, row] = file.slice(1).trim().split('\r\n').map((l) => l.split(','));
-  assert.deepEqual(head, PAYROLL_HEADER);
+  assert.deepEqual(head, payrollHeader([100, 125, 150, 175, 200]));
   assert.deepEqual(head.slice(0, 7), ['מספר עובד', 'שם', 'ת.ז', 'ימי עבודה', 'שעות רגילות', '125%', '150%']);
   const v = (k: string) => row[head.indexOf(k)];
   assert.equal(v('מספר עובד'), '101'); assert.equal(v('ימי עבודה'), '3');
   assert.equal(v('שעות רגילות'), String(Math.round(((516 + 480) / 60) * 100) / 100));
   assert.equal(v('125%'), '2'); assert.equal(v('150%'), String(Math.round(((24 + 480) / 60) * 100) / 100));
   assert.equal(v('שעות בימי מנוחה'), '8'); assert.equal(v('ימי חופשה'), '2');
+  const pdf = payrollPdfBody([{ employee: dana, report: ok }], '2026-09', 'מסעדת הים')!;
+  assert.equal(pdf.columns.length, 10);
+  assert.deepEqual(pdf.columns.map((c) => c.label), ['מספר', 'שם', 'ימים', 'רגילות', '125%', '150%', '175%', '200%', 'היעדרות', 'חסרים']);
+  assert.deepEqual(pdf.rows[0].slice(0, 6), ['101', 'דנה כהן', '3', '16:36', '2:00', '8:24']);
+  assert.match(pdf.note, /דנה כהן: חופשה 2/);
+  assert.equal(reportPdfInput(pdf).ok, true);
+  // an employer's own rate: its own column; more than four rates — the rest together, still 10 columns
+  const many = { ...ok, totals: { ...ok.totals, pct: { ...ok.totals.pct, 130: 60, 160: 30 } } };
+  const p2 = payrollPdfBody([{ employee: dana, report: many }], '2026-09', '')!;
+  assert.equal(p2.columns.length, 10);
+  assert.deepEqual(p2.columns.slice(4, 8).map((c) => c.label), ['125%', '130%', '150%', '160%+175%+200%']);
+  assert.equal(reportPdfInput(p2).ok, true);
 });
 
 test('attendance exports: CSV cells — quotes, and a formula never runs in Excel', () => {

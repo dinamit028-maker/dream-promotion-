@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase/client';
 import { israelToIso } from '@/lib/il-time';
 import { newToken } from '@/features/timeclock/hours';
 import { addDay, daysOfMonth, type AbsenceKind, type EngineAbsence, type EngineEntry, type Method } from './hours-engine';
+import type { ContractRules } from './overtime-rules';
 import { toEmployee, toPrivate, toTrack, type AttRole, type Department, type Employee, type PrivateDetails, type WorkTrack } from './people';
 
 /**
@@ -111,9 +112,15 @@ export async function loadRequests(status = 'pending'): Promise<TimeRequest[]> {
 
 export type MonthState = 'open' | 'approved' | 'closed';
 export async function loadMonths(month: string): Promise<Map<string, MonthState>> {
-  const rows = (await must(db().from('attendance_months').select('employee_id, status').eq('month', month))) as any[];
-  return new Map(rows.map((r) => [r.employee_id, r.status as MonthState]));
+  return new Map([...(await loadMonthRows(month))].map(([k, v]) => [k, v.status]));
 }
+/** a month of each employee: its state, and the track it was closed with (a closed month is computed by it — never by today's track) */
+export async function loadMonthRows(month: string): Promise<Map<string, { status: MonthState; snapshot: WorkTrack | null }>> {
+  const rows = (await must(db().from('attendance_months').select('employee_id, status, rules_snapshot').eq('month', month))) as any[];
+  return new Map(rows.map((r) => [r.employee_id, { status: r.status as MonthState, snapshot: r.status === 'closed' && r.rules_snapshot ? toTrack(r.rules_snapshot) : null }]));
+}
+/** the track to compute a month by: the closed month's snapshot, else the employee's track today */
+export const trackFor = (employeeTrack: WorkTrack | null | undefined, month?: { snapshot: WorkTrack | null } | null) => month?.snapshot ?? employeeTrack ?? null;
 
 export interface HistoryLine { at: string; kind: string; entryId: string; actorName: string; channel: string; reason: string; before: any; after: any }
 export async function loadHistory(employeeId: string, entryIds: string[]): Promise<HistoryLine[]> {
@@ -148,9 +155,25 @@ export const savePrivate = (businessId: string, p: PrivateDetails) => must(db().
 
 export const addDepartment = (businessId: string, name: string) => must(db().from('departments').insert({ business_id: businessId, name: name.trim() }));
 export const setDepartment = (id: string, patch: { name?: string; active?: boolean }) => must(db().from('departments').update(patch).eq('id', id));
-export interface TrackForm { name: string; dayMinutes: number[]; startTime: string | null; lateGraceMin: number; autoBreakMin: number; autoBreakAfterMin: number }
+export interface TrackForm { name: string; dayMinutes: number[]; startTime: string | null; lateGraceMin: number; rules: ContractRules }
 const trackRow = (t: TrackForm) => ({ name: t.name.trim(), day_minutes: t.dayMinutes, start_time: t.startTime || null, late_grace_min: t.lateGraceMin,
-  auto_break_min: t.autoBreakMin, auto_break_after_min: t.autoBreakAfterMin });
+  auto_break_min: t.rules.autoBreakMin, auto_break_after_min: t.rules.autoBreakAfterMin,
+  ot_mode: t.rules.mode, monthly_minutes: t.rules.mode === 'monthly' ? t.rules.monthlyMinutes : null,
+  monthly_tier1_minutes: t.rules.mode === 'monthly' ? t.rules.monthlyTier1Minutes : null,
+  tier1_minutes: t.rules.tier1Minutes, tier1_pct: t.rules.tier1Pct, tier2_pct: t.rules.tier2Pct,
+  rest_weekday: t.rules.restWeekday, rest_pct: t.rules.restPct, rest_tier1_pct: t.rules.restTier1Pct, rest_tier2_pct: t.rules.restTier2Pct,
+  festival_pct: t.rules.festivalPct, independence_rest: t.rules.independenceRest, independence_pct: t.rules.independencePct, eve_minutes: t.rules.eveMinutes });
+/** the employer confirms the track's rules (the database stamps who and when; any later change of a rule takes it away) */
+export const confirmTrack = (id: string) => must(db().from('work_tracks').update({ rules_confirmed_at: new Date().toISOString() }).eq('id', id));
+export const setTrackActive = (id: string, active: boolean) => must(db().from('work_tracks').update({ active }).eq('id', id));
+/** hours leave the system as PDF only (the business's setting, default on) */
+export async function loadExportsPdfOnly(): Promise<boolean> {
+  const { data, error } = await db().from('timeclock_settings').select('exports_pdf_only').maybeSingle();
+  return error || !data ? true : (data as any).exports_pdf_only !== false;
+}
+export async function setExportsPdfOnly(userId: string, on: boolean) {
+  return must(db().from('timeclock_settings').upsert({ user_id: userId, exports_pdf_only: on }, { onConflict: 'business_id' }));
+}
 export const addTrack = (businessId: string, t: TrackForm) => must(db().from('work_tracks').insert({ business_id: businessId, ...trackRow(t) }));
 export const saveTrack = (id: string, t: TrackForm) => must(db().from('work_tracks').update(trackRow(t)).eq('id', id));
 export const addApprover = (businessId: string, userId: string, target: { departmentId?: string; employeeId?: string }) =>

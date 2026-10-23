@@ -173,16 +173,37 @@ async function main() {
       fake.attendanceTables = true;
     });
 
-    await step('settings: an hours track (8.6, Sunday–Thursday, start 08:00); a department', async () => {
+    await step('settings: a six-day contract (8 hours, then 125% / 150%), confirmed by the employer; a changed rule takes the confirmation away; a department', async () => {
       await goto('/attendance/settings');
       await page.getByRole('button', { name: 'מסלול חדש' }).click({ timeout: 120_000 });
-      const d = dialog();
-      await d.getByLabel('שם המסלול').fill('8.6 שעות');
+      let d = dialog();
+      await d.getByLabel('שם המסלול').fill('6 ימים, 8 שעות');
       await d.getByLabel('שעת התחלה (לסימון איחור, לא חובה)').fill('08:00');
+      await d.getByText('6 ימים (א׳–ו׳)').waitFor();
+      await shot('att-0-track-editor.png');
       await d.getByRole('button', { name: 'שמירה' }).click();
-      await page.getByText('א׳–ה׳ 8.6 ש׳').waitFor();
-      assert.deepEqual(fake.tables.work_tracks[0].day_minutes, [516, 516, 516, 516, 516, 0, 0]);
-      await page.getByText('ממתין לאישור').first().waitFor();
+      await page.getByText('א׳–ו׳ 8 ש׳').waitFor();
+      const t0 = fake.tables.work_tracks[0];
+      assert.deepEqual(t0.day_minutes, [480, 480, 480, 480, 480, 480, 0]);
+      assert.deepEqual([t0.ot_mode, t0.tier1_minutes, t0.tier1_pct, t0.tier2_pct, t0.rest_weekday, t0.rest_pct, t0.independence_pct, t0.auto_break_min], ['daily', 120, 125, 150, 6, 150, 200, 0]);
+      await page.getByText('ממתין לאישור המעסיק').waitFor();
+      await page.getByRole('button', { name: 'אישור ההגדרות' }).click();
+      await page.getByText(/אושר ע״י המעסיק/).waitFor();
+      assert.ok(fake.tables.work_tracks[0].rules_confirmed_at);
+      // a rule changed: not confirmed any more; back as it was, confirmed again
+      for (const v of ['130', '125']) {
+        await page.getByRole('button', { name: 'עריכה' }).first().click();
+        d = dialog();
+        await d.getByLabel('דרגה ראשונה (%)').fill(v);
+        if (v === '130') await d.getByText('שינוי של כלל מבטל את האישור').waitFor();
+        await d.getByRole('button', { name: 'שמירה' }).click();
+        await page.getByText('ממתין לאישור המעסיק').waitFor();
+      }
+      assert.equal(fake.tables.work_tracks[0].rules_confirmed_at, null);
+      await page.getByRole('button', { name: 'אישור ההגדרות' }).click();
+      await page.getByText(/אושר ע״י המעסיק/).waitFor();
+      await page.getByLabel('ייצוא שעות ב-PDF בלבד').waitFor();
+      assert.ok(await page.getByLabel('ייצוא שעות ב-PDF בלבד').isChecked(), 'PDF only — the default');
       await shot('att-1-settings.png');
       await goto('/attendance/departments');
       await page.getByLabel('שם מחלקה').fill('מטבח', { timeout: 120_000 });
@@ -250,7 +271,7 @@ async function main() {
       assert.equal(await page.locator('tbody tr').count(), n, 'a row for every day');
       await row(d1).getByText('חסר').first().waitFor();
       assert.ok(await page.locator('tbody tr').filter({ hasText: 'שבת' }).count() >= 4);
-      await page.getByText('טיוטה').first().waitFor();
+      assert.equal(await page.getByText('טיוטה').count(), 0, 'the employer confirmed the track: no draft');
     });
 
     await step('a manager completes a day (07:00–18:00 — overtime) and a night shift (22:00–06:00); a reason always', async () => {
@@ -261,7 +282,7 @@ async function main() {
       await d.getByLabel('סיבה (חובה — נשמרת בהיסטוריה)').fill('שכחה להחתים');
       await d.getByRole('button', { name: 'שמירה' }).click();
       await row(d1).getByText('11:00').first().waitFor();
-      await row(d1).getByText('125%: 2:00 · 150%: 0:24').waitFor();
+      await row(d1).getByText('125%: 2:00 · 150%: 1:00').waitFor();
       await row(d2).getByRole('button', { name: 'השלמה' }).click();
       d = dialog();
       await d.getByLabel('כניסה').fill('22:00'); await d.getByLabel('יציאה').fill('06:00');
@@ -338,9 +359,9 @@ async function main() {
 
     await step('the month: approved, closed (locked), reopened with a reason, closed again', async () => {
       await page.getByRole('button', { name: 'אישור החודש' }).click();
-      await page.getByText('חודש אושר').waitFor();
+      await page.getByText('חודש אושר', { exact: true }).waitFor();
       await page.getByRole('button', { name: 'סגירת חודש' }).click();
-      await page.getByText('חודש נסגר').waitFor();
+      await page.getByText('חודש נסגר', { exact: true }).waitFor();
       await page.getByText('החודש סגור — הדוח נעול').waitFor();
       assert.equal(await page.getByRole('button', { name: 'השלמה' }).count(), 0, 'nothing to add in a closed month');
       assert.equal(await page.getByRole('button', { name: 'השלמת דיווח' }).count(), 0);
@@ -350,31 +371,47 @@ async function main() {
       const d = dialog();
       await d.getByLabel('סיבה (חובה — נשמרת בהיסטוריה)').fill('תיקון אחרי בדיקת רו״ח');
       await d.getByRole('button', { name: 'פתיחה מחדש' }).click();
-      await page.getByText('חודש פתוח').waitFor();
+      await page.getByText('חודש פתוח', { exact: true }).waitFor();
       await page.getByText(/נפתח מחדש · רונית הבעלים · תיקון אחרי בדיקת רו״ח/).waitFor();
       await page.getByRole('button', { name: 'סגירת חודש' }).click();
-      await page.getByText('חודש נסגר').waitFor();
+      await page.getByText('חודש נסגר', { exact: true }).waitFor();
       assert.deepEqual(fake.tables.attendance_month_events.map((e) => e.kind), ['approved', 'closed', 'reopened', 'closed']);
     });
 
-    await step('exports: the month in Excel (the same sums) and in PDF (within the PDF route\'s limits)', async () => {
+    await step('exports: PDF only by default (no Excel) — the month as PDF; the payroll report as PDF; Excel once the employer allows it', async () => {
+      assert.equal(await page.getByRole('button', { name: 'אקסל' }).count(), 0, 'PDF only: no Excel of hours');
+      const [p0] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
+      assert.equal(readFileSync(await p0.path(), 'utf8').slice(0, 5), '%PDF-');
+      assert.equal(pdfBodies.at(-1).total[6], '24:00');
+      await goto('/attendance/reports');
+      await page.getByText('השעות יוצאות מהמערכת ב-PDF בלבד').waitFor({ timeout: 120_000 });
+      assert.equal(await page.getByRole('button', { name: 'ייצוא לאקסל' }).count(), 0);
+      assert.equal(await page.getByRole('button', { name: 'קובץ לתוכנת שכר (CSV)' }).count(), 0);
+      const [pay] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'דוח שכר (PDF)' }).click()]);
+      assert.equal(readFileSync(await pay.path(), 'utf8').slice(0, 5), '%PDF-');
+      const b = pdfBodies.at(-1);
+      assert.equal(reportPdfInput(b).ok, true);
+      assert.match(b.title, /^דוח שכר/);
+      assert.deepEqual(b.columns.map((c: any) => c.label).slice(0, 6), ['מספר', 'שם', 'ימים', 'רגילות', '125%', '150%']);
+      const dRow = b.rows.find((r: string[]) => r[1] === 'דנה כהן');
+      assert.deepEqual(dRow.slice(0, 6), ['101', 'דנה כהן', '3', '22:00', '2:00', '0:00'], 'regular 8 + 8 + 6; the long day (10 h): 2 at 125%');
+      await shot('att-9-reports.png');
+      await goto('/attendance/settings');
+      await page.getByLabel('ייצוא שעות ב-PDF בלבד').click({ timeout: 120_000 });
+      await page.getByText('מותר גם אקסל וקובץ שכר').waitFor();
+      await report();
       const [x] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'אקסל' }).click()]);
       const grid = await parseXlsx(new Uint8Array(readFileSync(await x.path())));
       const head = grid.find((r) => r[0] === 'תאריך')!;
       const total = grid.find((r) => r[0] === 'סה״כ')!;
       assert.equal(total[head.indexOf('סה״כ יומי')], String(10 + 8 + 6), 'the month: 10 + 8 + 6 hours');
-      const [p] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
-      assert.equal(readFileSync(await p.path(), 'utf8').slice(0, 5), '%PDF-', 'the file the server answered');
-      const b = pdfBodies.at(-1);
-      assert.equal(reportPdfInput(b).ok, true); assert.equal(b.total[6], '24:00');
       await goto('/attendance/reports');
       await page.getByRole('link', { name: 'דנה כהן' }).first().waitFor({ timeout: 120_000 });
-      assert.ok(await page.getByRole('button', { name: 'קובץ לתוכנת שכר (CSV)' }).isDisabled(), 'the payroll file waits for the overtime rules');
-      await page.getByText('לכן הקובץ לתוכנת השכר עוד לא יוצא').waitFor();
       const [s] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'ייצוא לאקסל' }).click()]);
       const sum = await parseXlsx(new Uint8Array(readFileSync(await s.path())));
       assert.equal(sum.find((r) => r[1] === 'דנה כהן')![4], '24');
-      await shot('att-9-reports.png');
+      const [c] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'קובץ לתוכנת שכר (CSV)' }).click()]);
+      assert.match(readFileSync(await c.path(), 'utf8'), /^\uFEFFמספר עובד,שם/);
     });
 
     await step('the dashboard: today and the month — from the same reports', async () => {

@@ -5,7 +5,9 @@ import { holidaysIn } from '../src/features/booking/holidays';
 import {
   daysOfMonth, dayType, hm, hoursDec, monthReport, shiftMonth, splitByTiers, type EngineEntry, type Track,
 } from '../src/features/attendance/hours-engine';
-import { OVERTIME_CONFIRMED, OVERTIME_RULES, PCT_COLUMNS, RULE_NOTES } from '../src/features/attendance/overtime-rules';
+import { AUTO_BREAK, DEFAULT_RULES, PCT_COLUMNS, RULE_NOTES, ratesValid, rulesOf, type ContractRules } from '../src/features/attendance/overtime-rules';
+import { pctColumns } from '../src/features/attendance/hours-engine';
+const DAILY = [{ minutes: 120, pct: 125 }, { minutes: null, pct: 150 }];
 
 /** a shift by Israeli wall time: day + "HH:MM" in, day + "HH:MM" out (null = still open) */
 const S = (id: string, inDay: string, inT: string, outDay: string | null, outT?: string, extra: Partial<EngineEntry> = {}): EngineEntry =>
@@ -84,9 +86,9 @@ test('attendance: two shifts in a day, and breaks', () => {
 });
 
 test('attendance: overtime after the day\'s standard — 125% for two hours, then 150%', () => {
-  assert.deepEqual(splitByTiers(660, 516, 100, OVERTIME_RULES.dailyTiers), { 100: 516, 125: 120, 150: 24 });
-  assert.deepEqual(splitByTiers(500, 516, 100, OVERTIME_RULES.dailyTiers), { 100: 500 });
-  assert.deepEqual(splitByTiers(0, 516, 100, OVERTIME_RULES.dailyTiers), {});
+  assert.deepEqual(splitByTiers(660, 516, 100, DAILY), { 100: 516, 125: 120, 150: 24 });
+  assert.deepEqual(splitByTiers(500, 516, 100, DAILY), { 100: 500 });
+  assert.deepEqual(splitByTiers(0, 516, 100, DAILY), {});
   const r = monthReport({ month: '2026-09', entries: [S('x', '2026-09-08', '07:00', '2026-09-08', '18:00')], track: FIVE, now: NOW });
   const d = day(r, '2026-09-08');
   assert.equal(d.pct[100], 516); assert.equal(d.pct[125], 120); assert.equal(d.pct[150], 24);
@@ -213,12 +215,89 @@ test('attendance: formats for the screen and for payroll', () => {
   assert.equal(hoursDec(425), 7.08); assert.equal(hoursDec(516), 8.6);
 });
 
-test('attendance: the overtime rules — one file, each rule with its source, not confirmed yet', () => {
-  assert.equal(OVERTIME_CONFIRMED, false, 'confirmed only after the owner answers the questions (docs/ATTENDANCE_PLAN_HE.md)');
-  const keys = Object.keys(OVERTIME_RULES);
-  for (const n of RULE_NOTES) assert.ok(keys.includes(n.key), n.key);
-  for (const k of ['dailyTiers', 'restDayPct', 'restDayTiers', 'restDayMinutes', 'offTrackDayMinutes', 'eveMinutes', 'weeklyMinutes', 'shiftDay', 'rounding'])
+test('attendance: the rules — the law\'s and the owner\'s defaults, each with its source; a track\'s row read as rules', () => {
+  assert.deepEqual([DEFAULT_RULES.tier1Minutes, DEFAULT_RULES.tier1Pct, DEFAULT_RULES.tier2Pct], [120, 125, 150], '125% for two hours, then 150%');
+  assert.deepEqual([DEFAULT_RULES.restWeekday, DEFAULT_RULES.restPct, DEFAULT_RULES.independencePct, DEFAULT_RULES.independenceRest], [6, 150, 200, true]);
+  assert.equal(DEFAULT_RULES.autoBreakMin, 0, 'the automatic break is the employer\'s button — off');
+  assert.deepEqual(AUTO_BREAK, { minutes: 30, afterMinutes: 360 });
+  for (const k of ['mode', 'tier1Pct', 'restPct', 'festivalPct', 'independencePct', 'eveMinutes', 'autoBreakMin', 'shiftDay', 'rounding'])
     assert.ok(RULE_NOTES.some((n) => n.key === k), `a note for ${k}`);
-  assert.ok(RULE_NOTES.some((n) => n.source === 'needs_confirmation'));
-  assert.equal(OVERTIME_RULES.weeklyMinutes, null, 'no weekly threshold is computed until it is decided');
+  const r = rulesOf({ ot_mode: 'monthly', monthly_minutes: 11160, monthly_tier1_minutes: 600, tier1_pct: 130, rest_weekday: 5, independence_rest: false, eve_minutes: 420 });
+  assert.equal(r.mode, 'monthly'); assert.equal(r.monthlyMinutes, 11160); assert.equal(r.tier1Pct, 130); assert.equal(r.tier2Pct, 150);
+  assert.equal(r.restWeekday, 5); assert.equal(r.independenceRest, false); assert.equal(r.eveMinutes, 420);
+  assert.ok(ratesValid(DEFAULT_RULES)); assert.ok(!ratesValid({ ...DEFAULT_RULES, tier1Pct: 90 })); assert.ok(!ratesValid({ ...DEFAULT_RULES, mode: 'monthly' }), 'monthly needs its hours');
+});
+
+const SIX: Track = { dayMinutes: [480, 480, 480, 480, 480, 480, 0], confirmed: true };
+const withRules = (t: Track, r: Partial<ContractRules>): Track => ({ ...t, rules: { ...DEFAULT_RULES, ...r } });
+
+test('attendance: a six-day contract — the threshold the employer picks (8:00, 8:40), then 125% / 150%', () => {
+  const day10 = [S('a', '2026-09-08', '07:00', '2026-09-08', '17:00')];   // 10 hours on a Tuesday
+  const eight = monthReport({ month: '2026-09', entries: day10, track: SIX, now: NOW });
+  assert.deepEqual(day(eight, '2026-09-08').pct, { 100: 480, 125: 120 });
+  const t840 = monthReport({ month: '2026-09', entries: day10, track: { ...SIX, dayMinutes: SIX.dayMinutes.map((m) => (m ? 520 : 0)) }, now: NOW });
+  assert.deepEqual(day(t840, '2026-09-08').pct, { 100: 520, 125: 80 });
+  // a Friday is a work day on a six-day track — its own standard, not "off"
+  const fri = monthReport({ month: '2026-09', entries: [S('f', '2026-09-04', '08:00', '2026-09-04', '18:00')], track: SIX, now: NOW });
+  assert.equal(day(fri, '2026-09-04').standard, 480); assert.deepEqual(day(fri, '2026-09-04').pct, { 100: 480, 125: 120 });
+  assert.equal(day(monthReport({ month: '2026-09', entries: [], track: SIX, now: NOW }), '2026-09-11').status, 'missing', 'a Friday with no report on a six-day track is missing');
+  // the employer's own rates and length of the first tier
+  const own = monthReport({ month: '2026-09', entries: [S('b', '2026-09-08', '06:00', '2026-09-08', '18:00')], track: withRules(SIX, { tier1Minutes: 60, tier1Pct: 130, tier2Pct: 160 }), now: NOW });
+  assert.deepEqual(day(own, '2026-09-08').pct, { 100: 480, 130: 60, 160: 180 });
+  assert.deepEqual(pctColumns([own]), [100, 125, 130, 150, 160, 175, 200], 'a rate the employer set has its own column');
+});
+
+test('attendance: a monthly threshold (186 hours) — overtime once the month passed it, in day order, its 125% share by the contract', () => {
+  const track = withRules(SIX, { mode: 'monthly', monthlyMinutes: 186 * 60, monthlyTier1Minutes: 120 });
+  // September 2026 has 24 work days on a six-day track (no Saturday, no festival): 8 hours each = 192 — 186 regular, then 2 at 125%, 4 at 150%
+  const days = monthReport({ month: '2026-09', entries: [], track: SIX, now: NOW }).days.filter((x) => x.standard > 0).map((x) => x.date);
+  assert.equal(days.length, 24);
+  const r = monthReport({ month: '2026-09', entries: days.map((d) => S(d, d, '08:00', d, '16:00')), track, now: NOW });
+  assert.equal(r.totals.paid, 192 * 60);
+  assert.equal(r.totals.pct[100], 186 * 60); assert.equal(r.totals.pct[125], 120); assert.equal(r.totals.pct[150], 240);
+  assert.deepEqual(day(r, days[22]).pct, { 100: 480 }, 'day 23: 176 → 184 hours, still regular');
+  assert.deepEqual(day(r, days[23]).pct, { 100: 120, 125: 120, 150: 240 }, 'day 24: crosses 186 — then the contract\'s 125% share, then 150%');
+  // a long day under the monthly threshold is regular (no daily overtime)
+  const one = monthReport({ month: '2026-09', entries: [S('l', '2026-09-08', '06:00', '2026-09-08', '18:00')], track, now: NOW });
+  assert.deepEqual(day(one, '2026-09-08').pct, { 100: 720 });
+});
+
+test('attendance: rest days — the weekly one at 150%, Independence Day at 200%, a festival; the employer may change each', () => {
+  const sat = monthReport({ month: '2026-09', entries: [S('s', '2026-09-05', '08:00', '2026-09-05', '16:00')], track: SIX, now: NOW });
+  assert.deepEqual(day(sat, '2026-09-05').pct, { 150: 480 });
+  // Independence Day 5787 (spring 2027)
+  const indep = [...holidaysIn('2027-04-01', '2027-06-15')].find(([, l]) => l.some((h) => h.name === 'יום העצמאות'))![0];
+  const i = monthReport({ month: indep.slice(0, 7), entries: [S('i', indep, '08:00', indep, '14:00')], track: SIX, now: Date.parse('2027-07-01T09:00:00Z') });
+  assert.equal(day(i, indep).type, 'national'); assert.equal(day(i, indep).standard, 0); assert.deepEqual(day(i, indep).pct, { 200: 360 });
+  const work = monthReport({ month: indep.slice(0, 7), entries: [S('i', indep, '08:00', indep, '14:00')], track: withRules(SIX, { independenceRest: false }), now: Date.parse('2027-07-01T09:00:00Z') });
+  assert.deepEqual(day(work, indep).pct, { 100: 360 }, 'not a day of rest in this contract');
+  // a contract whose weekly rest day is Friday
+  const fri = monthReport({ month: '2026-09', entries: [S('f', '2026-09-04', '08:00', '2026-09-04', '12:00')], track: withRules({ ...SIX, dayMinutes: [480, 480, 480, 480, 480, 0, 480] }, { restWeekday: 5 }), now: NOW });
+  assert.deepEqual(day(fri, '2026-09-04').pct, { 150: 240 });
+  // a festival at the employer's rate, overtime on a rest day never below the day's own rate
+  const k = monthReport({ month: '2026-09', entries: [S('k', '2026-09-21', '06:00', '2026-09-21', '18:00')], track: withRules(SIX, { festivalPct: 200 }), now: NOW });
+  assert.deepEqual(day(k, '2026-09-21').pct, { 200: 720 });
+});
+
+test('attendance: the eve of a festival — the track\'s day, or the employer\'s hours', () => {
+  const eve = '2026-09-20';   // ערב יום כיפור, a Sunday
+  const plain = monthReport({ month: '2026-09', entries: [S('e', eve, '08:00', eve, '16:00')], track: SIX, now: NOW });
+  assert.equal(day(plain, eve).standard, 480); assert.deepEqual(day(plain, eve).pct, { 100: 480 });
+  const short = monthReport({ month: '2026-09', entries: [S('e', eve, '08:00', eve, '16:00')], track: withRules(SIX, { eveMinutes: 360 }), now: NOW });
+  assert.equal(day(short, eve).standard, 360); assert.deepEqual(day(short, eve).pct, { 100: 360, 125: 120 });
+});
+
+test('attendance: the automatic 30-minute break — the employer\'s button', () => {
+  const nine = [S('n', '2026-09-08', '08:00', '2026-09-08', '17:00')];
+  assert.equal(day(monthReport({ month: '2026-09', entries: nine, track: SIX, now: NOW }), '2026-09-08').paid, 540, 'off: nothing taken');
+  const on = withRules(SIX, { autoBreakMin: AUTO_BREAK.minutes, autoBreakAfterMin: AUTO_BREAK.afterMinutes });
+  const d = day(monthReport({ month: '2026-09', entries: nine, track: on, now: NOW }), '2026-09-08');
+  assert.equal(d.breakTaken, 30); assert.equal(d.paid, 510); assert.deepEqual(d.pct, { 100: 480, 125: 30 });
+  assert.equal(day(monthReport({ month: '2026-09', entries: [S('h', '2026-09-08', '08:00', '2026-09-08', '13:00')], track: on, now: NOW }), '2026-09-08').breakTaken, 0, 'a short day');
+});
+
+test('attendance: a report says whether its rules are the employer\'s confirmed ones', () => {
+  assert.equal(monthReport({ month: '2026-09', entries: [], track: SIX, now: NOW }).confirmed, true);
+  assert.equal(monthReport({ month: '2026-09', entries: [], track: { ...SIX, confirmed: false }, now: NOW }).confirmed, false);
+  assert.equal(monthReport({ month: '2026-09', entries: [], track: null, now: NOW }).confirmed, false, 'no track — nothing confirmed');
 });

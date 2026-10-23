@@ -27,7 +27,7 @@ import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
 import { MANUAL_KEY, partyKey } from '../../src/features/finance/statements';
-import { ATT_FUNCTION_ONLY, ATT_TABLES, attDefaults, attendanceRpc } from './fake-attendance';
+import { ATT_FUNCTION_ONLY, ATT_TABLES, attDefaults, attTrackUpdate, attendanceRpc } from './fake-attendance';
 
 type Row = Record<string, any>;
 export type Tables = Record<string, Row[]>;
@@ -542,6 +542,7 @@ export class FakeSupabase {
     if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
+    if (this.attendanceTables) attTrackUpdate(this, table, old, patch);
     if (this.locationTables && FakeSupabase.LOCATED.includes(table) && 'location_id' in patch && (patch.location_id ?? null) !== (old.location_id ?? null)) {
       return 'location_fixed: a row keeps its location';
     }

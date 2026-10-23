@@ -128,6 +128,7 @@ export function attendanceRpc(f: AttFake & { attendanceRole?: string }, fn: stri
       const cur = m?.status ?? 'open';
       const today = il(new Date().toISOString());
       const why = a.p_kind === 'reopened' ? reason(a.p_reason) : '';
+      let snap: Row | null = null;
       if (a.p_kind === 'approved') { if (cur === 'closed') return no('att: the month is closed', '23514'); if (cur === 'approved') return ok(cur); }
       else if (a.p_kind === 'closed') {
         if (cur === 'closed') return ok(cur);
@@ -135,10 +136,15 @@ export function attendanceRpc(f: AttFake & { attendanceRole?: string }, fn: stri
         if (entries.some((x) => x.employee_id === a.p_employee && !x.voided_at && !x.clock_out && monthOf(x.clock_in) <= a.p_month)) return no('att: an open shift (no clock-out) — close it first', '23514');
         if (t(f, 'time_requests').some((q) => q.employee_id === a.p_employee && q.status === 'pending' && monthOf(q.clock_in ?? entries.find((x) => x.id === q.entry_id)?.clock_in ?? '') === a.p_month)) return no('att: a request is waiting in this month', '23514');
         if (t(f, 'absences').some((x) => x.employee_id === a.p_employee && x.status === 'pending' && x.from_day.slice(0, 7) <= a.p_month && x.to_day.slice(0, 7) >= a.p_month)) return no('att: an absence is waiting in this month', '23514');
+        const emp = t(f, 'employees').find((e) => e.id === a.p_employee);
+        const track = t(f, 'work_tracks').find((x) => x.id === emp?.track_id);
+        if (!track?.rules_confirmed_at) return no('att: the hours track of the employee is not set or its rules are not confirmed', '23514');
+        snap = { ...track };
       } else if (a.p_kind === 'reopened') { if (!why) return no('att: a reason is required', '22023'); if (cur !== 'closed') return ok(cur); }
       const status = a.p_kind === 'reopened' ? 'open' : a.p_kind;
-      if (m) Object.assign(m, { status, updated_at: new Date().toISOString() });
-      else months.push({ employee_id: a.p_employee, month: a.p_month, business_id: f.opts.businessId, status, updated_at: new Date().toISOString() });
+      const rules_snapshot = a.p_kind === 'closed' ? snap : a.p_kind === 'reopened' ? null : m?.rules_snapshot ?? null;
+      if (m) Object.assign(m, { status, rules_snapshot, updated_at: new Date().toISOString() });
+      else months.push({ employee_id: a.p_employee, month: a.p_month, business_id: f.opts.businessId, status, rules_snapshot, updated_at: new Date().toISOString() });
       t(f, 'attendance_month_events').push({ id: randomUUID(), business_id: f.opts.businessId, employee_id: a.p_employee, month: a.p_month, kind: a.p_kind, reason: why || '',
         actor: f.opts.userId, actor_name: 'רונית הבעלים', at: new Date(Date.now() + t(f, 'attendance_month_events').length).toISOString() });
       return ok(status);
@@ -181,11 +187,23 @@ export const ATT_FUNCTION_ONLY = ['time_entries', 'time_requests', 'absences', '
 /** the columns' defaults of 5800 (the fake keeps what is sent; the database fills the rest) */
 const DEFAULTS: Record<string, Row> = {
   departments: { active: true },
-  work_tracks: { active: true, start_time: null, late_grace_min: 0, auto_break_min: 0, auto_break_after_min: 0 },
+  work_tracks: { active: true, start_time: null, late_grace_min: 0, auto_break_min: 0, auto_break_after_min: 0, ot_mode: 'daily', monthly_minutes: null,
+    monthly_tier1_minutes: null, tier1_minutes: 120, tier1_pct: 125, tier2_pct: 150, rest_weekday: 6, rest_pct: 150, rest_tier1_pct: 175, rest_tier2_pct: 200,
+    festival_pct: 150, independence_rest: true, independence_pct: 200, eve_minutes: null, rules_confirmed_at: null, rules_confirmed_by: null },
   attendance_approvers: { active: true },
   employees: { active: true, employee_code: '', title: '', department_id: null, track_id: null, start_date: null, end_date: null, last_active_at: null, invited_at: null },
   employee_private: { id_number: '', pay_kind: '', hourly_agorot: null, monthly_agorot: null },
 };
 export function attDefaults(table: string, r: Row) {
   for (const [k, v] of Object.entries(DEFAULTS[table] ?? {})) if (r[k] === undefined) r[k] = v;
+}
+
+/** b_att_track_rules: a changed rule takes the employer's confirmation away; a confirmation is stamped now, by the caller */
+const RULE_COLUMNS = ['day_minutes', 'auto_break_min', 'auto_break_after_min', 'ot_mode', 'monthly_minutes', 'monthly_tier1_minutes', 'tier1_minutes', 'tier1_pct',
+  'tier2_pct', 'rest_weekday', 'rest_pct', 'rest_tier1_pct', 'rest_tier2_pct', 'festival_pct', 'independence_rest', 'independence_pct', 'eve_minutes'];
+export function attTrackUpdate(f: AttFake, table: string, old: Row, patch: Row) {
+  if (table !== 'work_tracks') return;
+  const changed = RULE_COLUMNS.some((k) => k in patch && JSON.stringify(patch[k]) !== JSON.stringify(old[k]));
+  if (changed && !('rules_confirmed_at' in patch)) { patch.rules_confirmed_at = null; patch.rules_confirmed_by = null; }
+  if (patch.rules_confirmed_at) { patch.rules_confirmed_at = new Date().toISOString(); patch.rules_confirmed_by = f.opts.userId; }
 }
