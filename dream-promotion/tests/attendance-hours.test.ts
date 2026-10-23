@@ -183,12 +183,17 @@ test('attendance: absences — whole days by kind, hours of one day', () => {
   assert.equal(h.totals.absenceMinutes.other, 120); assert.equal(day(h, '2026-09-08').status, 'ok');
 });
 
-test('attendance: the day\'s minutes are rounded once — the month is the sum of the days, "מצטבר" ends on it', () => {
-  // three shifts of 20 minutes 30 seconds: 61.5 minutes → 62 (not 3 × 21 = 63, not 3 × 20 = 60)
+test('attendance: exact to the minute — clock-out minute less clock-in minute, as the screen shows them; never rounded', () => {
   const at = (h: number, m: number, s = 0) => new Date(Date.parse(israelToIso('2026-09-08', '00:00')) + ((h * 60 + m) * 60 + s) * 1000).toISOString();
+  // 07:58:40 → 16:03:10 is shown 07:58 → 16:03 = 8:05 — and counted 8:05 (not 8:04:30 rounded either way)
+  const one = monthReport({ month: '2026-09', entries: [{ id: 'x', clockIn: at(7, 58, 40), clockOut: at(16, 3, 10) }], track: FIVE, now: NOW });
+  assert.equal(day(one, '2026-09-08').worked, 485);
+  assert.deepEqual([day(one, '2026-09-08').shifts[0].inTime, day(one, '2026-09-08').shifts[0].outTime], ['07:58', '16:03']);
+  // three shifts of 08:00:00 → 08:20:30 each: 20 minutes each as shown — 60, the sum of what the report lists
   const entries: EngineEntry[] = [0, 1, 2].map((i) => ({ id: `r${i}`, clockIn: at(8 + i, 0), clockOut: at(8 + i, 20, 30) }));
   const r = monthReport({ month: '2026-09', entries, track: FIVE, now: NOW });
-  assert.equal(day(r, '2026-09-08').worked, 62);
+  assert.equal(day(r, '2026-09-08').worked, 60);
+  assert.equal(day(r, '2026-09-08').shifts.reduce((a, x) => a + x.minutes, 0), day(r, '2026-09-08').worked, 'the day = the sum of its shifts');
   const many = monthReport({ month: '2026-09', track: FIVE, now: NOW, entries: [
     S('a', '2026-09-01', '07:03', '2026-09-01', '18:47'), S('b', '2026-09-03', '22:10', '2026-09-04', '06:05'),
     S('c', '2026-09-05', '09:00', '2026-09-05', '19:30'), S('d', '2026-09-21', '08:00', '2026-09-21', '10:00'),
@@ -219,7 +224,7 @@ test('attendance: the rules — the law\'s and the owner\'s defaults, each with 
   assert.deepEqual([DEFAULT_RULES.tier1Minutes, DEFAULT_RULES.tier1Pct, DEFAULT_RULES.tier2Pct], [120, 125, 150], '125% for two hours, then 150%');
   assert.deepEqual([DEFAULT_RULES.restWeekday, DEFAULT_RULES.restPct, DEFAULT_RULES.independencePct, DEFAULT_RULES.independenceRest], [6, 150, 200, true]);
   assert.equal(DEFAULT_RULES.autoBreakMin, 0, 'the automatic break is the employer\'s button — off');
-  assert.deepEqual(AUTO_BREAK, { minutes: 30, afterMinutes: 360 });
+  assert.deepEqual(AUTO_BREAK, { minutes: 30, afterMinutes: 480 }, 'a work day of more than 8 hours');
   for (const k of ['mode', 'tier1Pct', 'restPct', 'festivalPct', 'independencePct', 'eveMinutes', 'autoBreakMin', 'shiftDay', 'rounding'])
     assert.ok(RULE_NOTES.some((n) => n.key === k), `a note for ${k}`);
   const r = rulesOf({ ot_mode: 'monthly', monthly_minutes: 11160, monthly_tier1_minutes: 600, tier1_pct: 130, rest_weekday: 5, independence_rest: false, eve_minutes: 420 });
@@ -293,7 +298,13 @@ test('attendance: the automatic 30-minute break — the employer\'s button', () 
   const on = withRules(SIX, { autoBreakMin: AUTO_BREAK.minutes, autoBreakAfterMin: AUTO_BREAK.afterMinutes });
   const d = day(monthReport({ month: '2026-09', entries: nine, track: on, now: NOW }), '2026-09-08');
   assert.equal(d.breakTaken, 30); assert.equal(d.paid, 510); assert.deepEqual(d.pct, { 100: 480, 125: 30 });
-  assert.equal(day(monthReport({ month: '2026-09', entries: [S('h', '2026-09-08', '08:00', '2026-09-08', '13:00')], track: on, now: NOW }), '2026-09-08').breakTaken, 0, 'a short day');
+  assert.equal(day(monthReport({ month: '2026-09', entries: [S('h', '2026-09-08', '08:00', '2026-09-08', '16:00')], track: on, now: NOW }), '2026-09-08').breakTaken, 0, 'exactly 8 hours: not more than 8');
+  assert.equal(day(monthReport({ month: '2026-09', entries: [S('h', '2026-09-08', '08:00', '2026-09-08', '16:01')], track: on, now: NOW }), '2026-09-08').breakTaken, 30, '8:01: more than 8');
+  // the employee clocked out for 20 minutes too: 10 more, never 50 in all
+  const both = day(monthReport({ month: '2026-09', entries: [S('p', '2026-09-08', '07:00', '2026-09-08', '12:00'), S('q', '2026-09-08', '12:20', '2026-09-08', '17:00')], track: on, now: NOW }), '2026-09-08');
+  assert.equal(both.worked, 580); assert.equal(both.breakTaken, 10); assert.equal(both.paid, 570);
+  // the button off: the clocked break is the break — nothing more taken off
+  assert.equal(day(monthReport({ month: '2026-09', entries: [S('p', '2026-09-08', '07:00', '2026-09-08', '12:00'), S('q', '2026-09-08', '12:20', '2026-09-08', '17:00')], track: SIX, now: NOW }), '2026-09-08').paid, 580);
 });
 
 test('attendance: a report says whether its rules are the employer\'s confirmed ones', () => {

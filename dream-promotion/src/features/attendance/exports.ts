@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { ABSENCE_LABEL, DAY_NAMES, DAY_TYPE_LABEL, METHOD_LABEL, STATUS_LABEL, hm, hoursDec, pctColumns, type AbsenceKind, type DayRow, type MonthReport } from './hours-engine';
+import { ABSENCE_LABEL, DAY_NAMES, DAY_TYPE_LABEL, METHOD_LABEL, STATUS_LABEL, hm, pctColumns, type AbsenceKind, type DayRow, type MonthReport } from './hours-engine';
 
 /**
  * The attendance files (tests/attendance-exports.test.ts): an employee's month as Excel and as PDF (the same rows as the screen —
@@ -16,6 +16,8 @@ const ways = (d: DayRow, side: 'in' | 'out') =>
 const overtime = (d: DayRow) => Object.entries(d.pct).filter(([p]) => +p !== 100).reduce((a, [, m]) => a + m, 0);
 const statusOf = (d: DayRow) => (d.absence ? `${ABSENCE_LABEL[d.absence.kind]}${d.absence.minutes ? ` ${hm(d.absence.minutes)}` : ''}` : STATUS_LABEL[d.status]);
 
+/** what every file says (the owner of the system, 23.10.2026): the system records and arranges; the accountant and the employer decide the pay */
+export const AID_NOTE = 'הדוח מסכם את השעות כפי שנרשמו, לפי הגדרות המסלול של המעסיק — מדויק לדקה, בלי עיגול. החישוב בתלוש — של רואה החשבון והמעסיק.';
 export const DRAFT_NOTE = 'שעות נוספות — טיוטה: המעסיק עוד לא אישר את הגדרות מסלול השעות.';
 type Person = { employee: ExportEmployee; report: MonthReport };
 const pctLabel = (p: number, draft: boolean) => (p === 100 ? 'רגילות' : `${p}%${draft ? ' (טיוטה)' : ''}`);
@@ -37,18 +39,19 @@ export function monthPdfBody(r: MonthReport, e: ExportEmployee, businessName: st
     `${e.name}${e.code ? ` · מספר עובד ${e.code}` : ''}${e.department ? ` · ${e.department}` : ''}`,
     pctColumns([r]).map((p) => `${p}%: ${hm(t.pct[p] ?? 0)}`).join(' · '),
     !r.confirmed ? DRAFT_NOTE : '',
+    AID_NOTE,
   ].filter(Boolean).join(' — ');
   return { title: `דוח נוכחות חודשי — ${e.name}`, subtitle: `${businessName ? `${businessName} · ` : ''}${monthLabel(r.month)}`, columns, rows, total, note };
 }
 
-/** the month for Excel: every column of the reference, hours as numbers (decimal hours) so Excel can add them up */
+/** the month for Excel: every column of the reference; hours as H:MM — exact to the minute (a decimal hour would round) */
 export function monthSheet(r: MonthReport, e: ExportEmployee): (string | number)[][] {
   const cols = pctColumns([r]);
   const head = ['תאריך', 'יום', 'סוג יום', 'שעות תקן', 'כניסה', 'דרך כניסה', 'יציאה', 'דרך יציאה', 'סה״כ יומי', 'מצטבר',
     ...cols.map((p) => pctLabel(p, !r.confirmed)), 'סטטוס'];
   const rows = r.days.map((d) => [
-    dmy(d.date), DAY_NAMES[d.weekday], d.holiday || DAY_TYPE_LABEL[d.type], hoursDec(d.standard), times(d, 'in'), ways(d, 'in'), times(d, 'out'), ways(d, 'out'),
-    hoursDec(d.paid), hoursDec(d.cumulative), ...cols.map((p) => hoursDec(d.pct[p] ?? 0)), statusOf(d),
+    dmy(d.date), DAY_NAMES[d.weekday], d.holiday || DAY_TYPE_LABEL[d.type], hm(d.standard), times(d, 'in'), ways(d, 'in'), times(d, 'out'), ways(d, 'out'),
+    hm(d.paid), hm(d.cumulative), ...cols.map((p) => hm(d.pct[p] ?? 0)), statusOf(d),
   ]);
   const t = r.totals;
   return [
@@ -56,8 +59,10 @@ export function monthSheet(r: MonthReport, e: ExportEmployee): (string | number)
     [],
     head,
     ...rows,
-    ['סה״כ', '', `${t.workDays} ימים`, hoursDec(t.standard), '', '', '', '', hoursDec(t.paid), '', ...cols.map((p) => hoursDec(t.pct[p] ?? 0)), ''],
-    ...(r.confirmed ? [] : [[], [DRAFT_NOTE]]),
+    ['סה״כ', '', `${t.workDays} ימים`, hm(t.standard), '', '', '', '', hm(t.paid), '', ...cols.map((p) => hm(t.pct[p] ?? 0)), ''],
+    [],
+    ...(r.confirmed ? [] : [[DRAFT_NOTE]]),
+    [AID_NOTE],
   ];
 }
 
@@ -68,7 +73,7 @@ export function payrollHeader(cols: number[]) {
     ...ABSENCE_ORDER.map((k) => `ימי ${ABSENCE_LABEL[k]}`), ...ABSENCE_ORDER.map((k) => `שעות ${ABSENCE_LABEL[k]}`), 'ימים חסרים'];
 }
 
-/** CSV (UTF-8 with BOM, so Excel shows Hebrew); a number is a plain number with a point */
+/** CSV (UTF-8 with BOM, so Excel shows Hebrew); hours as H:MM (exact), counts as plain numbers */
 export function csv(rows: (string | number)[][]) {
   const cell = (v: string | number) => (typeof v === 'number' ? String(v) : /[",\r\n]/.test(v) || /^[=+\-@]/.test(v) ? `"${(/^[=+\-@]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"` : v);
   return '\uFEFF' + rows.map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
@@ -82,8 +87,8 @@ export function payrollCsv(list: Person[]): string | null {
   if (unconfirmed(list).length) return null;
   const cols = pctColumns(list.map((x) => x.report));
   const rows = list.map(({ employee: e, report: { totals: t } }) => [
-    e.code, e.name, e.idNumber ?? '', t.workDays, hoursDec(t.pct[100] ?? 0), ...cols.filter((p) => p !== 100).map((p) => hoursDec(t.pct[p] ?? 0)), hoursDec(t.restMinutes),
-    ...ABSENCE_ORDER.map((k) => t.absenceDays[k]), ...ABSENCE_ORDER.map((k) => hoursDec(t.absenceMinutes[k])), t.missingDays,
+    e.code, e.name, e.idNumber ?? '', t.workDays, hm(t.pct[100] ?? 0), ...cols.filter((p) => p !== 100).map((p) => hm(t.pct[p] ?? 0)), hm(t.restMinutes),
+    ...ABSENCE_ORDER.map((k) => t.absenceDays[k]), ...ABSENCE_ORDER.map((k) => hm(t.absenceMinutes[k])), t.missingDays,
   ]);
   return csv([payrollHeader(cols), ...rows]);
 }
@@ -113,7 +118,7 @@ export function payrollPdfBody(list: Person[], month: string, businessName: stri
     const k = ABSENCE_ORDER.filter((x) => t.absenceDays[x] || t.absenceMinutes[x]).map((x) => `${ABSENCE_LABEL[x]} ${t.absenceDays[x]}${t.absenceMinutes[x] ? ` + ${hm(t.absenceMinutes[x])}` : ''}`);
     return k.length ? `${e.name}: ${k.join(', ')}` : '';
   }).filter(Boolean)].join(' ');
-  return { title: `דוח שכר — ${monthLabel(month)}`, subtitle: businessName, columns, rows, total, note: note === 'היעדרויות לפי סוג:' ? '' : note };
+  return { title: `דוח שכר — ${monthLabel(month)}`, subtitle: businessName, columns, rows, total, note: [note === 'היעדרויות לפי סוג:' ? '' : note, AID_NOTE].filter(Boolean).join(' — ') };
 }
 
 /** the month of all employees, for the screen and Excel (it carries the draft note while any rules wait) */
@@ -126,10 +131,12 @@ export function summarySheet(list: Person[], month: string): (string | number)[]
     ['מספר עובד', 'שם', 'מחלקה', 'ימי עבודה', 'סה״כ שעות', 'תקן', ...cols.map((p) => pctLabel(p, false)), 'ימים חסרים', 'יציאות חסרות',
       ...ABSENCE_ORDER.map((k) => `ימי ${ABSENCE_LABEL[k]}`)],
     ...list.map(({ employee: e, report: { totals: t } }) => [
-      e.code, e.name, e.department, t.workDays, hoursDec(t.paid), hoursDec(t.standard), ...cols.map((p) => hoursDec(t.pct[p] ?? 0)), t.missingDays, t.openShifts,
+      e.code, e.name, e.department, t.workDays, hm(t.paid), hm(t.standard), ...cols.map((p) => hm(t.pct[p] ?? 0)), t.missingDays, t.openShifts,
       ...ABSENCE_ORDER.map((k) => t.absenceDays[k]),
     ]),
-    ...(draft ? [[], [`${DRAFT_NOTE} (${unconfirmed(list).join(', ')})`]] : []),
+    [],
+    ...(draft ? [[`${DRAFT_NOTE} (${unconfirmed(list).join(', ')})`]] : []),
+    [AID_NOTE],
   ];
 }
 

@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import { israelToIso } from '../src/lib/il-time';
 import { parseXlsx } from '../src/features/finance/bank';
 import { monthReport, type EngineEntry, type Track } from '../src/features/attendance/hours-engine';
-import { DRAFT_NOTE, csv, monthLabel, monthPdfBody, monthSheet, payrollCsv, payrollHeader, payrollPdfBody, summarySheet, unconfirmed, xlsx } from '../src/features/attendance/exports';
+import { AID_NOTE, DRAFT_NOTE, csv, monthLabel, monthPdfBody, monthSheet, payrollCsv, payrollHeader, payrollPdfBody, summarySheet, unconfirmed, xlsx } from '../src/features/attendance/exports';
 import { reportPdfInput } from '../src/lib/server/report-pdf';
 
 const FIVE: Track = { dayMinutes: [516, 516, 516, 516, 516, 0, 0] };   // not confirmed by the employer yet: overtime is a draft
@@ -34,9 +34,10 @@ test('attendance exports: the month for Excel — hours as numbers, every rate, 
   assert.deepEqual(head.slice(0, 4), ['תאריך', 'יום', 'סוג יום', 'שעות תקן']);
   assert.ok(head.includes('125% (טיוטה)'));
   const first = rows[3];
-  assert.equal(first[8], 11); assert.equal(first[head.indexOf('125% (טיוטה)')], 2); assert.equal(first[head.indexOf('150% (טיוטה)')], 0.4);
-  assert.equal(rows[3 + 30][8], 27, 'the total');
-  assert.equal(rows[rows.length - 1][0], DRAFT_NOTE, 'the employer did not confirm the track yet');
+  assert.equal(first[8], '11:00'); assert.equal(first[head.indexOf('125% (טיוטה)')], '2:00'); assert.equal(first[head.indexOf('150% (טיוטה)')], '0:24', 'H:MM — exact, never a rounded decimal');
+  assert.equal(rows[3 + 30][8], '27:00', 'the total');
+  assert.equal(rows[rows.length - 2][0], DRAFT_NOTE, 'the employer did not confirm the track yet');
+  assert.equal(rows[rows.length - 1][0], AID_NOTE, 'an aid to the accountant — the pay is theirs');
   assert.ok(!monthSheet({ ...report, confirmed: true }, dana).some((r) => r[0] === DRAFT_NOTE));
 });
 
@@ -52,14 +53,14 @@ test('attendance exports: the payroll report — waits for the employer\'s confi
   assert.deepEqual(head.slice(0, 7), ['מספר עובד', 'שם', 'ת.ז', 'ימי עבודה', 'שעות רגילות', '125%', '150%']);
   const v = (k: string) => row[head.indexOf(k)];
   assert.equal(v('מספר עובד'), '101'); assert.equal(v('ימי עבודה'), '3');
-  assert.equal(v('שעות רגילות'), String(Math.round(((516 + 480) / 60) * 100) / 100));
-  assert.equal(v('125%'), '2'); assert.equal(v('150%'), String(Math.round(((24 + 480) / 60) * 100) / 100));
-  assert.equal(v('שעות בימי מנוחה'), '8'); assert.equal(v('ימי חופשה'), '2');
+  assert.equal(v('שעות רגילות'), '16:36');
+  assert.equal(v('125%'), '2:00'); assert.equal(v('150%'), '8:24');
+  assert.equal(v('שעות בימי מנוחה'), '8:00'); assert.equal(v('ימי חופשה'), '2');
   const pdf = payrollPdfBody([{ employee: dana, report: ok }], '2026-09', 'מסעדת הים')!;
   assert.equal(pdf.columns.length, 10);
   assert.deepEqual(pdf.columns.map((c) => c.label), ['מספר', 'שם', 'ימים', 'רגילות', '125%', '150%', '175%', '200%', 'היעדרות', 'חסרים']);
   assert.deepEqual(pdf.rows[0].slice(0, 6), ['101', 'דנה כהן', '3', '16:36', '2:00', '8:24']);
-  assert.match(pdf.note, /דנה כהן: חופשה 2/);
+  assert.match(pdf.note, /דנה כהן: חופשה 2/); assert.ok(pdf.note.includes(AID_NOTE));
   assert.equal(reportPdfInput(pdf).ok, true);
   // an employer's own rate: its own column; more than four rates — the rest together, still 10 columns
   const many = { ...ok, totals: { ...ok.totals, pct: { ...ok.totals.pct, 130: 60, 160: 30 } } };
@@ -75,14 +76,14 @@ test('attendance exports: CSV cells — quotes, and a formula never runs in Exce
 
 test('attendance exports: the summary of all employees, and a real xlsx (read back, right to left)', async () => {
   const s = summarySheet([{ employee: dana, report }], '2026-09');
-  assert.equal(s[0][0], 'סיכום נוכחות — ספטמבר 2026'); assert.equal(s[3][4], 27);
+  assert.equal(s[0][0], 'סיכום נוכחות — ספטמבר 2026'); assert.equal(s[3][4], '27:00');
   const bytes = await xlsx([{ name: 'סיכום', rows: s }, { name: 'דנה/כהן?', rows: monthSheet(report, dana) }]);
   const zip = await JSZip.loadAsync(bytes);
   assert.match(await zip.file('xl/worksheets/sheet1.xml')!.async('string'), /rightToLeft="1"/);
   assert.match(await zip.file('xl/workbook.xml')!.async('string'), /name="דנה כהן"/);
   const grid = await parseXlsx(bytes);
   assert.equal(grid[0][0], 'סיכום נוכחות — ספטמבר 2026');
-  assert.equal(grid.find((r) => r[1] === 'דנה כהן')![4], '27');
+  assert.equal(grid.find((r) => r[1] === 'דנה כהן')![4], '27:00');
   assert.equal(monthLabel('2026-01'), 'ינואר 2026');
 });
 

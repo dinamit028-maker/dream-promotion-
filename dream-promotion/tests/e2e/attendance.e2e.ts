@@ -404,12 +404,12 @@ async function main() {
       const grid = await parseXlsx(new Uint8Array(readFileSync(await x.path())));
       const head = grid.find((r) => r[0] === 'תאריך')!;
       const total = grid.find((r) => r[0] === 'סה״כ')!;
-      assert.equal(total[head.indexOf('סה״כ יומי')], String(10 + 8 + 6), 'the month: 10 + 8 + 6 hours');
+      assert.equal(total[head.indexOf('סה״כ יומי')], '24:00', 'the month: 10 + 8 + 6 hours, exact');
       await goto('/attendance/reports');
       await page.getByRole('link', { name: 'דנה כהן' }).first().waitFor({ timeout: 120_000 });
       const [s] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'ייצוא לאקסל' }).click()]);
       const sum = await parseXlsx(new Uint8Array(readFileSync(await s.path())));
-      assert.equal(sum.find((r) => r[1] === 'דנה כהן')![4], '24');
+      assert.equal(sum.find((r) => r[1] === 'דנה כהן')![4], '24:00');
       const [c] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'קובץ לתוכנת שכר (CSV)' }).click()]);
       assert.match(readFileSync(await c.path(), 'utf8'), /^\uFEFFמספר עובד,שם/);
     });

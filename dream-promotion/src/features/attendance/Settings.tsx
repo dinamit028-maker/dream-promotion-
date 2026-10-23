@@ -205,10 +205,10 @@ function TrackEditor({ value, onClose, onActive }: { value: WorkTrack | null; on
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={r.autoBreakMin > 0} aria-label="הפסקה אוטומטית של 30 דקות"
             onChange={(e) => setR({ ...r, autoBreakMin: e.target.checked ? AUTO_BREAK.minutes : 0 })} />
-          <span><strong>הפסקה אוטומטית של 30 דקות</strong> — יורדת מכל יום עבודה ארוך מספיק, בלי שהעובד/ת מחתים/ה יציאה וכניסה להפסקה.
-            <span className="block text-xs text-muted">החוק מחייב לרשום כניסה ויציאה של העובד — ההפסקה האוטומטית לא מחליפה את רישום השעות. אם העובד/ת יצא/ה להפסקה בשעון, יורד רק מה שחסר עד 30 דקות.</span></span>
+          <span><strong>הפסקה אוטומטית של 30 דקות</strong> — בלחיצת כפתור: יורדת מכל יום עבודה של יותר מ-8 שעות, בלי שהעובד/ת מחתים/ה יציאה וכניסה להפסקה.
+            <span className="block text-xs text-muted">הדרך הרגילה — העובד/ת מחתים/ה יציאה וכניסה, וזה התיעוד שהחוק מחייב. אם ביום עם הכפתור העובד/ת גם הוחתם/ה להפסקה, ההפסקה שהוחתמה נספרת בתוך ה-30 — כדי שלא ירד פעמיים.</span></span>
         </label>
-        {r.autoBreakMin > 0 && <div className="mt-2 max-w-xs"><Field label="ביום של לפחות (שעות)"><Input value={text.breakAfter} inputMode="decimal" onChange={(e) => setText({ ...text, breakAfter: e.target.value })} /></Field></div>}
+        {r.autoBreakMin > 0 && <div className="mt-2 max-w-xs"><Field label="ביום עבודה של יותר מ- (שעות)"><Input value={text.breakAfter} inputMode="decimal" onChange={(e) => setText({ ...text, breakAfter: e.target.value })} /></Field></div>}
       </fieldset>
 
       <div className="grid gap-x-3 sm:grid-cols-2">

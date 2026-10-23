@@ -51,8 +51,8 @@ export const DEFAULT_RULES: ContractRules = {
   eveMinutes: null, autoBreakMin: 0, autoBreakAfterMin: 0,
 };
 
-/** the automatic break of the employer's button (the owner of the system, 23.10.2026): 30 minutes, off a day of 6 hours or more */
-export const AUTO_BREAK = { minutes: 30, afterMinutes: 360 } as const;
+/** the automatic break of the employer's button (the owner of the system, 23.10.2026): 30 minutes, off a work day of more than 8 hours */
+export const AUTO_BREAK = { minutes: 30, afterMinutes: 480 } as const;
 
 /** a track's row (or the snapshot a closed month keeps) → its rules; a missing value = the default */
 export function rulesOf(r: Record<string, any> | null | undefined): ContractRules {
@@ -81,9 +81,9 @@ export const RULE_NOTES: { key: keyof ContractRules | 'shiftDay' | 'rounding'; t
   { key: 'festivalPct', text: 'חג (לפי לוח השנה העברי, יום אחד בישראל): יום מנוחה, 150%', source: 'law' },
   { key: 'independencePct', text: 'יום העצמאות: יום מנוחה, עבודה בו 200%', source: 'owner' },
   { key: 'eveMinutes', text: 'ערב חג: שעות התקן של המסלול, או מספר שעות אחר שהמעסיק קובע', source: 'employer' },
-  { key: 'autoBreakMin', text: 'הפסקה אוטומטית של 30 דקות (כפתור של המעסיק). החוק מחייב רישום כניסה ויציאה — ההפסקה לא מחליפה אותו', source: 'employer' },
-  { key: 'shiftDay', text: 'משמרת שייכת כולה ליום (ולחודש) שבו התחילה, גם כשהיא חוצה חצות', source: 'owner' },
-  { key: 'rounding', text: 'בלי עיגול: הדקות כפי שנרשמו', source: 'owner' },
+  { key: 'autoBreakMin', text: 'הפסקה: העובד/ת מחתים/ה יציאה וכניסה (תיעוד לפי החוק). או כפתור של המעסיק — 30 דקות ביום עבודה של יותר מ-8 שעות; הפסקה שכבר הוחתמה נספרת בתוכן', source: 'employer' },
+  { key: 'shiftDay', text: 'משמרת שייכת כולה ליום (ולחודש) שבו התחילה — גם שישי שנמשך לתוך ערב חג או שבת נשאר כרגיל', source: 'owner' },
+  { key: 'rounding', text: 'מדויק לדקה, בלי עיגול: יציאה פחות כניסה, כפי שמוצגות (07:58 ← 16:03 = 8:05)', source: 'owner' },
 ];
 
 /** the rates that appear in reports, in order */

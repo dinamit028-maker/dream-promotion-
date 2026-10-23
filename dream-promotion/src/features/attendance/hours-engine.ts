@@ -11,7 +11,8 @@ import { PCT_COLUMNS, rulesOf, type ContractRules, type Tier } from './overtime-
  *   - a shift belongs to the day it started on, a night shift is one shift of that day;
  *   - a voided entry is out of every sum (it is shown in the history only); an open one (no clock-out) is "חסר יציאה" — red,
  *     and not paid until it is closed;
- *   - a day's minutes are its shifts' seconds, rounded once (no rounding per shift); the month = the sum of the days, so the
+ *   - exact to the minute (the owner of the system, 23.10.2026: not more, not less): a shift = its clock-out minute less its
+ *     clock-in minute, as the screen shows them (07:58 → 16:03 = 8:05) — never rounded; the month = the sum of the days, so the
  *     report's column "מצטבר" ends on the month's total exactly.
  */
 export type Method = 'link' | 'qr' | 'nfc' | 'gps' | 'manual' | 'request' | 'import';
@@ -103,6 +104,8 @@ export function pctColumns(reports: Pick<MonthReport, 'totals'>[]): number[] {
 }
 
 const MIN = 60_000;
+/** a moment's whole minute (the seconds dropped) — the minute the screen shows */
+const minuteOf = (ms: number) => Math.floor(ms / MIN);
 /** "late" only within this many minutes after the track's start (a flag on the screen — never in the pay) */
 export const LATE_WINDOW_MIN = 240;
 
@@ -218,25 +221,26 @@ export function monthReport(input: MonthInput): MonthReport {
       : type === 'erev' && rules.eveMinutes != null && trackMinutes > 0 ? rules.eveMinutes : trackMinutes;
 
     const list = (byDay.get(date) ?? []).slice().sort((a, b) => a.clockIn.localeCompare(b.clockIn));
-    let seconds = 0, gaps = 0, lastOut: number | null = null;
+    let worked = 0, gaps = 0, lastOut: number | null = null;
     const shifts: ShiftRow[] = list.map((e) => {
       const a = +new Date(e.clockIn), b = e.clockOut ? +new Date(e.clockOut) : null;
-      if (b != null) seconds += Math.max(0, Math.round((b - a) / 1000));
-      if (lastOut != null && a > lastOut) gaps += Math.round((a - lastOut) / MIN);
+      const mins = b != null ? Math.max(0, minuteOf(b) - minuteOf(a)) : 0;
+      worked += mins;
+      if (lastOut != null && a > lastOut) gaps += Math.max(0, minuteOf(a) - minuteOf(lastOut));
       if (b != null) lastOut = b;
       const pi = israelParts(a), po = b != null ? israelParts(b) : null;
       const place = (lat?: number | null, lng?: number | null) => (lat != null && lng != null ? { lat, lng } : null);
       return {
         id: e.id, in: e.clockIn, out: e.clockOut, inTime: pi.time, outTime: po?.time ?? null, outNextDay: Boolean(po && po.date !== pi.date),
-        minutes: b != null ? Math.round((b - a) / MIN) : 0, method: methodOf(e), outMethod: e.clockOut ? ((e.outMethod ?? methodOf(e)) as Method) : null,
+        minutes: mins, method: methodOf(e), outMethod: e.clockOut ? ((e.outMethod ?? methodOf(e)) as Method) : null,
         inPlace: place(e.inLat, e.inLng), outPlace: place(e.outLat, e.outLng), corrected: Boolean(e.replaces) || methodOf(e) === 'manual' || methodOf(e) === 'request',
         open: !e.clockOut,
       };
     });
-    const worked = Math.round(seconds / 60);
     // an unpaid break: taken off a long enough day, less the breaks the employee clocked out for
     const breakMin = rules.autoBreakMin;
-    const breakTaken = breakMin > 0 && worked >= rules.autoBreakAfterMin && worked > 0 ? Math.max(0, Math.min(worked, breakMin - gaps)) : 0;
+    // (the employer's button: a day of MORE than autoBreakAfterMin; a break the employee already clocked out for counts towards it)
+    const breakTaken = breakMin > 0 && worked > rules.autoBreakAfterMin ? Math.max(0, Math.min(worked, breakMin - gaps)) : 0;
     const paid = worked - breakTaken;
 
     let pct: Record<number, number>;
@@ -299,7 +303,7 @@ export function monthReport(input: MonthInput): MonthReport {
 
 /** 7:05 */
 export const hm = (min: number) => `${min < 0 ? '-' : ''}${Math.floor(Math.abs(min) / 60)}:${String(Math.abs(min) % 60).padStart(2, '0')}`;
-/** 7.08 — hours with two decimals, for payroll (rounded once, from the minutes) */
+/** 7.08 — hours with two decimals (rounded: for a chart, never for a file — files carry H:MM, exact) */
 export const hoursDec = (min: number) => Math.round((min / 60) * 100) / 100;
 
 export const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
