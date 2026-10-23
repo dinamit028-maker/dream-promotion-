@@ -18,11 +18,12 @@ test('attendance dashboard: today — working, reported, not reported, absent, l
     person('nothing', []),
     person('absent', [], true, [{ id: 'a', kind: 'sick', from: '2026-10-22', to: '2026-10-22', minutes: null, status: 'approved' }]),
     person('forgot', [S('2026-10-20', '08:00', null)]),
+    person('night', [S('2026-10-21', '22:00', null)]),   // yesterday 22:00, 15 hours on — still on shift (up to 24 hours)
     person('gone', [], false),
   ];
   const d = dailyStatus(list, '2026-10-22');
   const ids = (k: keyof typeof d) => d[k].map((e) => e.id).sort();
-  assert.deepEqual(ids('working'), ['working']);
+  assert.deepEqual(ids('working'), ['night', 'working']);
   assert.deepEqual(ids('reported'), ['late', 'reported']);
   assert.deepEqual(ids('notReported'), ['forgot', 'nothing']);
   assert.deepEqual(ids('absent'), ['absent']);

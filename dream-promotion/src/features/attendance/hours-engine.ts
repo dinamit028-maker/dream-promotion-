@@ -59,7 +59,7 @@ export interface ShiftRow {
   corrected: boolean;
   open: boolean;
 }
-export type DayStatus = 'ok' | 'missing' | 'open' | 'absence' | 'off' | 'future' | 'today';
+export type DayStatus = 'ok' | 'missing' | 'open' | 'working' | 'absence' | 'off' | 'future' | 'today';
 export interface DayRow {
   date: string;
   weekday: number;
@@ -110,6 +110,9 @@ export function pctColumns(reports: Pick<MonthReport, 'totals'>[]): number[] {
 const MIN = 60_000;
 /** a moment's whole minute (the seconds dropped) — the minute the screen shows */
 const minuteOf = (ms: number) => Math.floor(ms / MIN);
+/** an open shift is "במשמרת" for this long after its clock-in, and only then "חסרה יציאה" — shifts run up to 24 hours (the owner of
+ *  the system, 23.10.2026). Nothing ever closes a shift by itself: only the employee's clock-out, or a manager's with a reason. */
+export const OPEN_SHIFT_MIN = 24 * 60;
 /** "late" only within this many minutes after the track's start (a flag on the screen — never in the pay) */
 export const LATE_WINDOW_MIN = 240;
 
@@ -277,7 +280,9 @@ export function monthReport(input: MonthInput): MonthReport {
       // a shift that starts hours after the track's start is another shift (an evening, a night) — not a late one
       late = d > (track.lateGraceMin ?? 0) && d <= LATE_WINDOW_MIN ? d : 0;
     }
-    const status: DayStatus = open ? (date === today ? 'today' : 'open')
+    // still within 24 hours of its clock-in: on shift (not red); after that — a missing clock-out
+    const stale = shifts.some((s) => s.open && now - +new Date(s.in) >= OPEN_SHIFT_MIN * MIN);
+    const status: DayStatus = open ? (stale ? 'open' : 'working')
       : shifts.length ? 'ok'
       : abs ? 'absence'
       : date > today ? 'future'
@@ -322,5 +327,5 @@ export const METHOD_LABEL: Record<Method, string> = {
 };
 export const ABSENCE_LABEL: Record<AbsenceKind, string> = { vacation: 'חופשה', sick: 'מחלה', reserve: 'מילואים', other: 'אחר' };
 export const STATUS_LABEL: Record<DayStatus, string> = {
-  ok: 'דווח', missing: 'חסר דיווח', open: 'חסרה יציאה', absence: 'היעדרות', off: '', future: '', today: 'היום',
+  ok: 'דווח', missing: 'חסר דיווח', open: 'חסרה יציאה', working: 'במשמרת', absence: 'היעדרות', off: '', future: '', today: 'היום',
 };
