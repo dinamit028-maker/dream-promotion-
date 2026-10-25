@@ -39,7 +39,7 @@ rows() {
                   - 'last_active_at' - 'invited_at')::text, '|' order by e.id)) from public.employees e")"
   echo "entries $(q "select count(*) || ' ' || md5(string_agg((to_jsonb(t) - 'method' - 'out_method' - 'replaces' - 'voided_at' - 'voided_by' - 'void_reason'
                   - 'created_by')::text, '|' order by t.id)) from public.time_entries t")"
-  echo "settings $(q "select md5(string_agg((to_jsonb(s) - 'exports_pdf_only')::text, '|')) from public.timeclock_settings s")"
+  echo "settings $(q "select md5(string_agg((to_jsonb(s) - 'exports_pdf_only' - 'employer_deductions_file' - 'employer_phone')::text, '|')) from public.timeclock_settings s")"
 }
 seen() {
   q "begin; set local role authenticated; select set_config('request.jwt.claim.sub', '$O', true);
