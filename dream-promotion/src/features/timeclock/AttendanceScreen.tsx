@@ -10,6 +10,7 @@ import { IdentificationBadge } from '@/components/ui/Icon';
 import { waLink } from '@/features/crm/crm';
 import { dayOf, hhmm, minutesOf, monthRange, newSiteCode, newToken, reportCsv, totals, type Employee, type Entry } from './hours';
 import QRCode from 'qrcode';
+import { geoMessage, retryable } from './geo';
 
 /** Owner side of the time clock (toolbox stage 6). Runs with the owner's session — RLS separates businesses. */
 const toEmp = (r: any): Employee => ({ id: r.id, name: r.name, phone: r.phone ?? '', hourlyRate: r.hourly_rate == null ? null : Number(r.hourly_rate), active: r.active, token: r.token });
@@ -267,6 +268,7 @@ export function QrTab({ userId, business, value, onSaved, onError }: { userId: s
   const url = v.site_code && typeof window !== 'undefined' ? `${window.location.origin}/c/${v.site_code}` : '';
   const [img, setImg] = useState('');
   const [locating, setLocating] = useState(false);
+  const [geoErr, setGeoErr] = useState<string | null>(null);
   useEffect(() => { if (url) void QRCode.toDataURL(url, { width: 640, margin: 1, errorCorrectionLevel: 'M' }).then(setImg); else setImg(''); }, [url]);
   async function save(next: QrSettings, msg: string) {
     const { error } = await supabase().from('timeclock_settings').upsert({ user_id: userId, ...next }, { onConflict: 'business_id' });
@@ -282,11 +284,16 @@ export function QrTab({ userId, business, value, onSaved, onError }: { userId: s
     w.document.close();
   }
   function useHere() {
-    if (!navigator.geolocation) return onError(new Error('no geolocation'));
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    setGeoErr(null);
+    if (!navigator.geolocation) { setGeoErr(geoMessage(null, ios)); return; }
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (p) => { setLocating(false); void save({ ...v, geo_lat: p.coords.latitude, geo_lng: p.coords.longitude }, 'מיקום העסק נשמר'); },
-      () => { setLocating(false); onError(new Error('location denied')); }, { enableHighAccuracy: true, timeout: 10000 });
+    const got = (p: GeolocationPosition) => { setLocating(false); void save({ ...v, geo_lat: p.coords.latitude, geo_lng: p.coords.longitude }, 'מיקום העסק נשמר'); };
+    const failed = (e: GeolocationPositionError) => { setLocating(false); setGeoErr(geoMessage(e.code, ios)); };
+    navigator.geolocation.getCurrentPosition(got, (e) => {
+      if (!retryable(e.code)) return failed(e);
+      navigator.geolocation.getCurrentPosition(got, failed, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60_000 });
+    }, { enableHighAccuracy: true, timeout: 10000 });
   }
   if (!v.site_code) return (
     <Card className="p-5 text-center">
@@ -330,6 +337,7 @@ export function QrTab({ userId, business, value, onSaved, onError }: { userId: s
         ) : (
           <Button variant="ghost" onClick={useHere} disabled={locating}>{locating ? 'מאתר…' : 'אני בעסק עכשיו — לנעול למיקום הזה'}</Button>
         )}
+        {geoErr && <p role="alert" className="mt-3 rounded-xl bg-warn/10 p-3 text-sm text-warn">{geoErr}</p>}
       </Card>
     </div>
   );
