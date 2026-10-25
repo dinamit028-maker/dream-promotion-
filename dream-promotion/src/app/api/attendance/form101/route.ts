@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
  *   GET  ?employeeId=…     the employee's links and signed forms (every year, every version), what is missing, the form's warnings
  *   GET  ?year=YYYY        every employee's state for the tax year (the yearly renewal)
  *   GET  ?file=<id>&part=pdf|paper|attachment&n=…   a short-lived link to the file (the bucket has no browser policy)
+ *   GET  ?employer=1       חלק א as the form will show it
  *   POST {action:'send', employeeId, kind:'year'|'update', year?}   a new link (30 days) — the token once, in this answer
  *   POST {action:'cancel', requestId}
  *   POST {action:'review', submissionId, note}
@@ -32,6 +33,8 @@ export async function GET(req: Request) {
   if (!(await form101Ready())) return bad(503, 'not_ready', 'צריך להריץ את מיגרציה 20261025005900 (טופס 101).');
   const db = adminDb();
   const url = new URL(req.url);
+
+  if (url.searchParams.get('employer')) return NextResponse.json({ employer: await employerOf(c.businessId) }, { headers: { 'Cache-Control': 'no-store' } });
 
   const fileId = url.searchParams.get('file');
   if (fileId) {

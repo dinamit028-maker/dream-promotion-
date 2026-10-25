@@ -10,6 +10,7 @@ import { DAY_NAMES, hm } from './hours-engine';
 import { AUTO_BREAK, DEFAULT_RULES, RULE_NOTES, ratesValid, rulesOf, type ContractRules } from './overtime-rules';
 import { isAdmin, trackDayMinutes, trackDayText, trackSummary, type WorkTrack } from './people';
 import { Notice } from './ui';
+import { isNotReady, loadEmployer, saveEmployer } from './form101-api';
 
 /**
  * הגדרות (2.107): the hours tracks — each one a contract ("מסלול הסכם"): the standard of each weekday, the overtime threshold (by
@@ -64,6 +65,7 @@ export function Settings() {
         </Card>
 
         <div className="grid gap-4">
+          {admin && <EmployerCard />}
           <Card className="p-4">
             <h3 className="mb-1 font-bold">ייצוא שעות</h3>
             <label className="flex items-start justify-between gap-3">
@@ -216,5 +218,36 @@ function TrackEditor({ value, onClose, onActive }: { value: WorkTrack | null; on
         <Button variant="ghost" onClick={onClose}>ביטול</Button>
       </div>
     </Modal>
+  );
+}
+
+/** חלק א of טופס 101 (2.108): the name and address are the business details; the deductions file and a phone — here */
+function EmployerCard() {
+  const att = useAtt();
+  const [v, setV] = useState<{ name: string; address: string; phone: string; deductionsFile: string } | null | undefined>(undefined);
+  const [f, setF] = useState({ file: '', phone: '' });
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    loadEmployer().then(({ employer }) => { setV(employer); setF({ file: employer.deductionsFile, phone: employer.phone }); },
+      (e) => (isNotReady(e) ? setV(null) : setErr((e as Error).message)));
+  }, []);
+  if (v === null) return null;   // before migration 5900: nothing of טופס 101
+  const bad = f.file.trim() !== '' && !/^9\d{8}$/.test(f.file.replace(/\D/g, ''));
+  return (
+    <Card className="p-4">
+      <h3 className="mb-1 font-bold">טופס 101 — פרטי המעסיק</h3>
+      <p className="mb-3 text-sm text-ink-2">חלק א בטופס של כל עובד. השם והכתובת — מפרטי העסק{v ? `: ${[v.name, v.address].filter(Boolean).join(', ')}` : ''}.</p>
+      <div className="grid gap-x-3 sm:grid-cols-2">
+        <Field label="מספר תיק ניכויים"><Input value={f.file} inputMode="numeric" dir="ltr" maxLength={9} placeholder="9XXXXXXXX" onChange={(e) => setF({ ...f, file: e.target.value })} /></Field>
+        <Field label="מספר טלפון"><Input value={f.phone} inputMode="tel" dir="ltr" maxLength={20} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
+      </div>
+      {bad && <p className="text-sm text-warn">מספר תיק ניכויים: 9 ספרות, מתחיל ב-9.</p>}
+      {err && <p role="alert" className="text-sm text-warn">{err}</p>}
+      <Button size="sm" variant="primary" disabled={busy || bad || v === undefined} onClick={async () => {
+        setBusy(true); setErr(null);
+        try { const r = await saveEmployer(f.file.replace(/\D/g, ''), f.phone); setV(r.employer); att.say('פרטי המעסיק נשמרו'); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+      }}>שמירה</Button>
+    </Card>
   );
 }

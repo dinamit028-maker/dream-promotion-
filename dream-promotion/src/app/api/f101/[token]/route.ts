@@ -65,7 +65,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const storage = db.storage.from(FORM101_BUCKET);
   const sent: { kind: string; path: string; name: string; sha256: string; type: string; size: number }[] = Array.isArray(body?.attachments) ? body.attachments.slice(0, 20) : [];
   const { data: listed } = await storage.list(folder, { limit: 100 });
-  const present = new Set((listed ?? []).map((f) => `${folder}/${f.name}`));
+  const present = new Set((Array.isArray(listed) ? listed : []).map((f) => `${folder}/${f.name}`));
   const attachments = sent.filter((a) => typeof a?.path === 'string' && present.has(a.path) && a.kind in ATTACH_LABEL)
     .map((a) => ({ kind: a.kind as AttachKind, path: a.path, name: String(a.name ?? '').slice(0, 120), sha256: /^[0-9a-f]{64}$/.test(String(a.sha256)) ? a.sha256 : '',
       type: String(a.type ?? '').slice(0, 40), size: Number(a.size) || 0 }));

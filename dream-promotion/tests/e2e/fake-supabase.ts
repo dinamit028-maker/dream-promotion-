@@ -27,7 +27,7 @@ import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
 import { MANUAL_KEY, partyKey } from '../../src/features/finance/statements';
-import { ATT_FUNCTION_ONLY, ATT_TABLES, attDefaults, attendanceRpc } from './fake-attendance';
+import { ATT_FUNCTION_ONLY, ATT_TABLES, F101_TABLES, attDefaults, attendanceRpc, form101AfterInsert, form101Insert, form101Update } from './fake-attendance';
 
 type Row = Record<string, any>;
 export type Tables = Record<string, Row[]>;
@@ -115,6 +115,8 @@ export class FakeSupabase {
   /** 2.107: migration 5800 is in the database (attendance: departments, tracks, requests, absences, months, the history; the hours
    *  written by the att_* functions only) — false: as before it (the old clock screen writes time_entries itself) */
   attendanceTables = true;
+  /** 2.108: migration 5900 (טופס 101) is in the database */
+  form101Tables = true;
   /** 2.107: the signed-in person's part in attendance (att_role) */
   attendanceRole = 'admin';
   /** the moments of the history: one after another, also within the same millisecond (clock_timestamp() in the database) */
@@ -350,6 +352,7 @@ export class FakeSupabase {
     r.created_at ??= now();
     if (!['businesses', 'business_members', 'profiles'].includes(table)) r.business_id ??= this.opts.businessId;
     if (this.attendanceTables) attDefaults(table, r);
+    if (F101_TABLES.includes(table)) { const e = form101Insert(this, table, r); if (e) return e; }
     const placed = this.fillLocation(table, r);
     if (placed) return placed;
     if (table === 'appointments') { const e = this.appointmentCheck(r, null); if (e) return e; }
@@ -498,6 +501,7 @@ export class FakeSupabase {
     return out;
   }
   private afterInsert(table: string, r: Row) {
+    form101AfterInsert(this, table, r);
     if (table === 'appointments') this.appointmentLog(null, r);
     if (table === 'documents') {
       if (r.doc_type === 320 || r.doc_type === 400) for (const p of r.payments ?? []) {
@@ -542,6 +546,7 @@ export class FakeSupabase {
     if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
+    if (F101_TABLES.includes(table)) { const e = form101Update(table, old, patch); if (e) return e; }
     if (this.locationTables && FakeSupabase.LOCATED.includes(table) && 'location_id' in patch && (patch.location_id ?? null) !== (old.location_id ?? null)) {
       return 'location_fixed: a row keeps its location';
     }
@@ -2303,12 +2308,30 @@ export class FakeSupabase {
     const json = (status: number, body: any, extra: Record<string, string> = {}) => ({ status, body: body === undefined ? '' : JSON.stringify(body), headers: { 'content-type': 'application/json', ...extra } });
     // ---- storage: an upload with a signed link (the store's pictures, 2.54) — a binary body, before any JSON ----
     // 2.89: a file uploaded straight to a private bucket (an expense's file, finance-files): kept by path
-    const direct = url.pathname.match(/^\/storage\/v1\/object\/(?!upload\/|sign\/|public\/)([^/]+)\/(.+)$/);
+    const direct = url.pathname.match(/^\/storage\/v1\/object\/(?!upload\/|sign\/|public\/|list\/)([^/]+)\/(.+)$/);
     if (direct && method === 'POST') {
       const key = `${direct[1]}/${decodeURIComponent(direct[2])}`;
       if (this.files.has(key)) return json(400, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
       this.files.set(key, { size: (bodyText ?? '').length, type: headers['content-type'] ?? '' });
       return json(200, { Key: key, Id: randomUUID() });
+    }
+    // 2.108: list a folder, remove files, a short-lived link — of a private bucket (form101-files)
+    const listed = url.pathname.match(/^\/storage\/v1\/object\/list\/([^/]+)$/);
+    if (listed && method === 'POST') {
+      const prefix = String(JSON.parse(bodyText || '{}').prefix ?? '').replace(/\/$/, '');
+      const names = [...this.files.keys()].filter((k) => k.startsWith(`${listed[1]}/${prefix}/`)).map((k) => k.slice(`${listed[1]}/${prefix}/`.length)).filter((n) => !n.includes('/'));
+      return json(200, names.map((name) => ({ name, id: randomUUID(), metadata: {} })));
+    }
+    const removing = url.pathname.match(/^\/storage\/v1\/object\/([^/]+)$/);
+    if (removing && method === 'DELETE') {
+      const gone = (JSON.parse(bodyText || '{}').prefixes ?? []).filter((p: string) => this.files.delete(`${removing[1]}/${p}`));
+      return json(200, gone.map((name: string) => ({ name })));
+    }
+    const sign = url.pathname.match(/^\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/);
+    if (sign && method === 'POST') {
+      const key = `${sign[1]}/${decodeURIComponent(sign[2])}`;
+      if (!this.files.has(key)) return json(400, { statusCode: '404', error: 'not_found', message: 'Object not found' });
+      return json(200, { signedURL: `/object/sign/${sign[1]}/${sign[2]}?token=t-${randomUUID()}` });
     }
     const signed = url.pathname.match(/^\/storage\/v1\/object\/upload\/sign\/([^/]+)\/(.+)$/);
     if (signed && (method === 'PUT' || method === 'POST')) {
@@ -2374,6 +2397,7 @@ export class FakeSupabase {
     }
     // 2.107 (5800): before the migration its tables are missing; after it the hours, requests, absences, months and the history are
     // written by the att_* functions only (the old screen's direct writes of time_entries are refused)
+    if (F101_TABLES.includes(table) && !this.form101Tables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
     if (ATT_TABLES.includes(table) && !this.attendanceTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
     if (ATT_FUNCTION_ONLY.includes(table) && this.attendanceTables && method !== 'GET' && method !== 'HEAD') {
       return json(403, { code: '42501', message: `${table} is written only through the attendance functions` });

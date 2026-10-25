@@ -65,12 +65,12 @@ export const KEYWORDS: Record<string, string[]> = {
   '/store/coupons': ['הנחה', 'קוד הנחה'],
   '/store/settings': ['דומיין', 'כתובת האתר', 'סיסמה'],
   // נוכחות ועובדים (2.107)
-  '/attendance/employees': ['עובד', 'צוות', 'קישור אישי', 'זימון', 'ייבוא עובדים', 'קוד עובד'],
+  '/attendance/employees': ['עובד', 'צוות', 'קישור אישי', 'זימון', 'ייבוא עובדים', 'קוד עובד', 'טופס 101', 'כרטיס עובד', 'תיאום מס', 'נקודות זיכוי'],
   '/attendance/departments': ['מחלקה', 'מאשר', 'מאשרים', 'מנהל ישיר'],
   '/attendance/approvals': ['אישור שעות', 'בקשת השלמה', 'סגירת חודש', 'תיקון שעות'],
   '/attendance/absences': ['חופשה', 'מחלה', 'מילואים', 'אישור מחלה'],
   '/attendance/reports': ['דוח שעות', 'שכר', 'תוכנת שכר', 'אקסל', 'שעות נוספות'],
-  '/attendance/settings': ['מסלול שעות', 'שעות תקן', 'QR', 'קוד QR', 'הפסקה'],
+  '/attendance/settings': ['מסלול שעות', 'שעות תקן', 'QR', 'קוד QR', 'הפסקה', 'תיק ניכויים'],
 };
 
 /** screens inside a screen: a report of its own (2.94), the lead departments (2.99) — found by the search, not in the menu */

@@ -197,3 +197,37 @@ const DEFAULTS: Record<string, Row> = {
 export function attDefaults(table: string, r: Row) {
   for (const [k, v] of Object.entries(DEFAULTS[table] ?? {})) if (r[k] === undefined) r[k] = v;
 }
+
+// ---- 2.108 (5900): טופס 101 — what the database does (tests/sql/form101.check.sql checks the real one) ----------------------------
+export const F101_TABLES = ['form101_requests', 'form101_submissions'];
+/** before insert: the defaults; a submission only on an open link, its version from the database */
+export function form101Insert(f: AttFake, table: string, r: Row): string | null {
+  if (table === 'form101_requests') { r.status ??= 'sent'; r.kind ??= 'year'; r.opened_at ??= null; r.done_at ??= null; return null; }
+  if (table !== 'form101_submissions') return null;
+  const q = t(f, 'form101_requests').find((x) => x.id === r.request_id);
+  if (!q || !['sent', 'opened'].includes(q.status) || !(Date.parse(q.expires_at) > Date.now())) return 'form101: the link is no longer valid';
+  r.version = 1 + Math.max(0, ...t(f, 'form101_submissions').filter((s) => s.employee_id === r.employee_id && s.tax_year === r.tax_year).map((s) => s.version));
+  Object.assign(r, { submitted_at: new Date().toISOString(), paper_path: null, paper_at: null, paper_by: null, reviewed_at: null, reviewed_by: null, review_note: r.review_note ?? '' });
+  return null;
+}
+export function form101AfterInsert(f: AttFake, table: string, r: Row) {
+  if (table !== 'form101_submissions') return;
+  const q = t(f, 'form101_requests').find((x) => x.id === r.request_id);
+  if (q) Object.assign(q, { status: 'submitted', done_at: new Date().toISOString() });
+}
+/** before update: a link only moves forward; a signed form is never changed — the paper and the review once each */
+export function form101Update(table: string, old: Row, patch: Row): string | null {
+  if (table === 'form101_requests') {
+    if (['submitted', 'cancelled', 'expired'].includes(old.status) && patch.status && patch.status !== old.status) return 'form101: the link is closed';
+    if (patch.status === 'opened' && old.status === 'sent') patch.opened_at = new Date().toISOString();
+    if (['cancelled', 'expired'].includes(patch.status)) patch.done_at = new Date().toISOString();
+    return null;
+  }
+  if (table !== 'form101_submissions') return null;
+  const allowed = ['paper_path', 'paper_at', 'paper_by', 'reviewed_at', 'reviewed_by', 'review_note'];
+  if (Object.keys(patch).some((k) => !allowed.includes(k))) return 'form101: a signed form is never changed — send a new one';
+  if (old.paper_path && 'paper_path' in patch) return 'form101: the signed paper was already received';
+  if (old.reviewed_at && 'reviewed_at' in patch) return 'form101: already reviewed';
+  if (patch.paper_path) patch.paper_at = new Date().toISOString();
+  return null;
+}
