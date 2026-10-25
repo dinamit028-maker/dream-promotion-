@@ -6,13 +6,15 @@ import { Button, Card, Chip, Field, Input, PageHead, Select } from '@/components
 import { EmptyState, Modal } from '@/components/ui/feedback';
 import { IdentificationBadge, WhatsappLogo } from '@/components/ui/Icon';
 import { cx } from '@/lib/utils';
-import { formatIL } from '@/lib/il-time';
+import { formatIL, israelParts } from '@/lib/il-time';
 import { useAtt } from './AttendanceLayout';
 import { addDepartment, addEmployee, attError, loadSetup, markInvited, newLink, saveEmployee, savePrivate, setEmployeeActive, type EmployeeForm } from './api';
 import { detectImportColumns, planImport, readSheet, type ImportPlan } from './import';
 import { agorotOf, inviteLink, isAdmin, seesPrivate, shekels, trackSummary, validIsraeliId, type Employee, type PrivateDetails } from './people';
 import { employeeMonthHref } from './routes';
 import { xlsx } from './exports';
+import { taxYearOf, withoutForm } from './form101';
+import { isNotReady, loadYear, sendForm, type YearState } from './form101-api';
 import { saveFile, today, XLSX_TYPE } from './ui';
 
 /**
@@ -41,6 +43,14 @@ export function Employees() {
     .filter((e) => !q.trim() || `${e.name} ${e.code} ${e.phone} ${e.title}`.toLowerCase().includes(q.trim().toLowerCase()));
   const admin = isAdmin(role);
   const close = () => { setEditing(null); if (params.get('new')) router.replace('/attendance/employees'); };
+  // טופס 101 of the tax year (2.108): who has one, who was sent one — the admin and payroll; nothing before migration 5900
+  const year = taxYearOf(israelParts(Date.now()).date);
+  const [forms, setForms] = useState<YearState | null>(null);
+  const reloadForms = () => { if (seesPrivate(role)) loadYear(year).then(setForms, (e) => { if (!isNotReady(e)) setErr((e as Error).message); }); };
+  useEffect(reloadForms, [role, year, setup.employees.length]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const formOf = (e: Employee): 'signed' | 'sent' | 'none' | null => (!forms ? null : forms.submitted.some((x) => x.employee_id === e.id) ? 'signed'
+    : forms.open.some((x) => x.employee_id === e.id) ? 'sent' : 'none');
+  const missingForms = forms ? withoutForm(setup.employees, forms.submitted.map((x) => ({ employeeId: x.employee_id, taxYear: year })), year) : [];
 
   async function invite(e: Employee) {
     const url = inviteLink(e, att.businessName, clockLink(e));
@@ -66,6 +76,10 @@ export function Employees() {
           </div>
         )} />
       {err && <p role="alert" className="mb-4 rounded-2xl bg-warn/10 p-3 text-sm text-warn">{err}</p>}
+      {forms && missingForms.length > 0 && (
+        <p className="mb-4 rounded-2xl bg-module-soft p-3 text-sm">טופס 101 לשנת המס {year}: {missingForms.length === 1 ? 'עובד/ת אחד/ת' : `${missingForms.length} עובדים`} עוד בלי טופס חתום
+          ({missingForms.slice(0, 5).map((e) => e.name).join(', ')}{missingForms.length > 5 ? '…' : ''}). כל שנה — טופס חדש; שולחים מהעמודה "טופס 101".</p>
+      )}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {([['active', 'פעילים'], ['archived', 'ארכיון'], ['all', 'הכול']] as const).map(([k, l]) => <Chip key={k} on={filter === k} onClick={() => setFilter(k)} className="min-h-10">{l}</Chip>)}
         <Input type="search" placeholder="חיפוש לפי שם, קוד או טלפון" aria-label="חיפוש עובד" value={q} onChange={(e) => setQ(e.target.value)} className="h-10 max-w-xs py-1" />
@@ -88,6 +102,7 @@ export function Employees() {
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   <Link href={employeeMonthHref(e.id)}><Button size="sm" variant="soft">דוח חודשי</Button></Link>
+                  {formOf(e) && <Form101Cell state={formOf(e)!} href={`/attendance/employees/${encodeURIComponent(e.id)}?tab=form101`} />}
                   {admin && e.active && <Button size="sm" variant="soft" onClick={() => void invite(e)}><WhatsappLogo size={16} aria-hidden />זימון</Button>}
                   {admin && <Button size="sm" variant="ghost" onClick={() => setEditing(e)}>עריכה</Button>}
                 </div>
@@ -98,7 +113,7 @@ export function Employees() {
           <Card className="hidden overflow-x-auto p-0 md:block">
             <table className="w-full min-w-[960px] text-sm">
               <thead><tr className="border-b border-line text-muted">
-                {['קוד', 'שם', 'מחלקה', 'תואר', 'טלפון', 'מסלול', 'נוצר', 'פעיל לאחרונה', 'סטטוס', ''].map((h) => <th key={h} className="p-3 text-start font-semibold">{h}</th>)}
+                {['קוד', 'שם', 'מחלקה', 'תואר', 'טלפון', 'מסלול', 'נוצר', 'פעיל לאחרונה', 'סטטוס', ...(forms ? ['טופס 101'] : []), ''].map((h) => <th key={h} className="p-3 text-start font-semibold">{h}</th>)}
               </tr></thead>
               <tbody>
                 {list.map((e) => (
@@ -113,6 +128,7 @@ export function Employees() {
                     <td className="p-3 tabular-nums">{e.lastActiveAt ? formatIL(e.lastActiveAt) : ''}</td>
                     <td className="p-3"><span className={cx('rounded-full px-2 py-0.5 text-xs font-bold', e.active ? 'bg-(--ok-soft) text-ok' : 'bg-surface-2 text-muted')}>{e.active ? 'פעיל' : 'לא פעיל'}</span>
                       {e.invitedAt && <span className="ms-1 text-xs text-muted">זומן</span>}</td>
+                    {forms && <td className="p-3">{formOf(e) && <Form101Cell state={formOf(e)!} href={`/attendance/employees/${encodeURIComponent(e.id)}?tab=form101`} />}</td>}
                     <td className="p-3"><div className="flex gap-1">
                       <Link href={employeeMonthHref(e.id)}><Button size="sm" variant="soft">דוח</Button></Link>
                       {admin && e.active && <Button size="sm" variant="soft" aria-label={`זימון ${e.name} בוואטסאפ`} onClick={() => void invite(e)}><WhatsappLogo size={16} aria-hidden /></Button>}
@@ -125,7 +141,7 @@ export function Employees() {
           </Card>
         </>
       )}
-      {editing && <EmployeeEditor value={editing === 'new' ? null : editing} onClose={close} onInvite={invite} />}
+      {editing && <EmployeeEditor value={editing === 'new' ? null : editing} onClose={() => { close(); reloadForms(); }} onInvite={invite} form101={Boolean(forms) && admin} year={year} />}
       {importing && <ImportDialog onClose={() => setImporting(false)} />}
     </>
   );
@@ -133,7 +149,12 @@ export function Employees() {
 
 const emptyForm = (): EmployeeForm => ({ name: '', phone: '', code: '', departmentId: null, title: '', trackId: null, startDate: today(), endDate: null });
 
-function EmployeeEditor({ value, onClose, onInvite }: { value: Employee | null; onClose: () => void; onInvite: (e: Employee) => void }) {
+const FORM_STATE = { signed: { label: 'נחתם', cls: 'bg-(--ok-soft) text-ok' }, sent: { label: 'נשלח', cls: 'bg-(--warn-soft) text-warn' }, none: { label: 'חסר', cls: 'bg-surface-2 text-ink-2' } } as const;
+function Form101Cell({ state, href }: { state: keyof typeof FORM_STATE; href: string }) {
+  return <Link href={href} className={cx('inline-flex min-h-8 items-center rounded-full px-2.5 text-xs font-bold', FORM_STATE[state].cls)}>טופס 101: {FORM_STATE[state].label}</Link>;
+}
+
+function EmployeeEditor({ value, onClose, onInvite, form101, year }: { value: Employee | null; onClose: () => void; onInvite: (e: Employee) => void; form101: boolean; year: number }) {
   const att = useAtt();
   const { setup, role } = att;
   const priv = value ? setup.privates.get(value.id) : undefined;
@@ -142,12 +163,16 @@ function EmployeeEditor({ value, onClose, onInvite }: { value: Employee | null; 
   const [p, setP] = useState({ idNumber: priv?.idNumber ?? '', payKind: priv?.payKind ?? '', hourly: shekels(priv?.hourlyAgorot ?? null), monthly: shekels(priv?.monthlyAgorot ?? null) });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // a new employee: send טופס 101 for the year right after saving (the owner of the system, 24.10.2026 — "בכל פתיחה של עובד")
+  const [send101, setSend101] = useState(true);
   const showPrivate = seesPrivate(role);
   const idBad = p.idNumber.trim() !== '' && !validIsraeliId(p.idNumber);
   const hourly = agorotOf(p.hourly), monthly = agorotOf(p.monthly);
   const payBad = hourly === undefined || monthly === undefined;
 
   async function save() {
+    // the WhatsApp window opens now, in the tap — after the saving it would be blocked on a phone
+    const w = !value && form101 && send101 && f.phone.trim() ? window.open('', '_blank') : null;
     setBusy(true); setErr(null);
     try {
       const id = value ? value.id : await addEmployee(att.userId, f);
@@ -157,8 +182,15 @@ function EmployeeEditor({ value, onClose, onInvite }: { value: Employee | null; 
           payKind: p.payKind as PrivateDetails['payKind'], hourlyAgorot: hourly ?? null, monthlyAgorot: monthly ?? null };
         await savePrivate(att.businessId, row);
       }
-      await att.reload(); att.say(value ? 'נשמר' : 'העובד/ת נוסף/ה'); onClose();
-    } catch (e) { setErr(attError(e)); } finally { setBusy(false); }
+      let note = '';
+      if (!value && form101 && send101) {
+        try {
+          const how = await sendForm({ id, name: f.name, phone: f.phone }, att.businessName, 'year', year, w);
+          note = how === 'whatsapp' ? ' · טופס 101 נשלח' : ' · אין טלפון — ההודעה עם הקישור לטופס 101 הועתקה';
+        } catch (e) { note = ` · טופס 101 לא נשלח (${(e as Error).message}) — שולחים מתיק העובד/ת`; }
+      }
+      await att.reload(); att.say(value ? 'נשמר' : `העובד/ת נוסף/ה${note}`); onClose();
+    } catch (e) { w?.close(); setErr(attError(e)); } finally { setBusy(false); }
   }
   async function act(fn: () => Promise<unknown>, msg: string) {
     setBusy(true); setErr(null);
@@ -203,6 +235,13 @@ function EmployeeEditor({ value, onClose, onInvite }: { value: Employee | null; 
           {idBad && <p className="text-sm text-warn">מספר תעודת הזהות לא תקין (ספרת ביקורת).</p>}
           {payBad && <p className="text-sm text-warn">סכום לא תקין — מספר, עד שתי ספרות אחרי הנקודה.</p>}
         </fieldset>
+      )}
+      {!value && form101 && (
+        <label className="mt-3 flex items-start gap-3 rounded-2xl border border-line p-3">
+          <input type="checkbox" className="mt-1 h-5 w-5" checked={send101} onChange={(e) => setSend101(e.target.checked)} aria-label="לשלוח טופס 101" />
+          <span><strong className="block text-sm">לשלוח טופס 101 לשנת המס {year}</strong>
+            <span className="text-xs text-muted">אחרי השמירה נפתח וואטסאפ עם קישור אישי לטופס. העובד/ת ממלא/ת בטלפון וחותם/ת, והטופס חוזר לתיק העובד/ת.</span></span>
+        </label>
       )}
       {err && <p role="alert" className="mt-3 text-sm text-warn">{err}</p>}
       <div className="mt-4 flex flex-wrap gap-2">

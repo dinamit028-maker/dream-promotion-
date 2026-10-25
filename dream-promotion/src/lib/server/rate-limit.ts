@@ -35,6 +35,6 @@ export function resetRateLimits() { buckets.clear(); }
 /** the limits of the public links, per address per minute */
 export const PUBLIC_LIMITS = {
   quoteRead: 60, quoteAnswer: 10, docRead: 60, docPdf: 20, bookRead: 120, bookPost: 10, declarationRead: 60, declarationSign: 10,
-  payRead: 60, payStart: 10, payCheck: 30,
+  payRead: 60, payStart: 10, payCheck: 30, form101Read: 60, form101File: 30, form101Sign: 10,
 } as const;
 export const MINUTE = 60_000;
