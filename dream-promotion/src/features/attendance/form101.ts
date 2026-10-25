@@ -275,3 +275,96 @@ export type RequestStatus = 'sent' | 'opened' | 'submitted' | 'cancelled' | 'exp
 export const REQUEST_LABEL: Record<RequestStatus, string> = { sent: 'נשלח', opened: 'נפתח', submitted: 'מולא ונחתם', cancelled: 'בוטל', expired: 'פג תוקף' };
 /** a link is good for this long */
 export const LINK_DAYS = 30;
+
+// ---- חלק ח — the form's words for each item (shortened only where the form explains in a note under it) -----------------------
+type CreditFlag = { [K in keyof Form101Data['credits']]: Form101Data['credits'][K] extends boolean ? K : never }[keyof Form101Data['credits']];
+export const CREDIT_TEXT: { key: CreditFlag; n: string; text: string; note?: string }[] = [
+  { key: 'resident', n: '1', text: 'אני תושב/ת ישראל.' },
+  { key: 'disabled', n: '2א', text: 'אני נכה 100% / עיוור/ת לצמיתות. מצורף אישור משרד הביטחון/האוצר/פקיד השומה/תעודת עיוור שהוצאה לאחר 1.1.94.' },
+  { key: 'disabledAllowance', n: '2ב', text: 'בנוסף, אני מקבל תגמול חודשי לפי חוק הנכים (תגמולים ושיקום) או לפי חוק התגמולים לנפגעי פעולות איבה. יש לצרף אישור על קבלת תגמול זה.' },
+  { key: 'settlement', n: '3', text: 'אני תושב/ת קבוע/ה בישוב מזכה, ואין לי "מרכז חיים" נוסף. מצורף אישור של הרשות ע"ג טופס 1312א.' },
+  { key: 'immigrant', n: '4', text: 'אני עולה חדש/ה. חובה לצרף: תעודת עולה.', note: 'מי שתקופת זכאותו אינה רצופה בשל שירות חובה בצה"ל, לימודים על תיכוניים או יציאה לחו"ל — יפנה לפקיד השומה.' },
+  { key: 'spouseNoIncome', n: '5', text: 'בגין בן/בת זוגי המתגורר/ת עימי ואין לו/לה הכנסות בשנת המס.', note: 'רק אם העובד/ת או בן/בת הזוג הגיע/ה לגיל פרישה או שהוא/היא נכה או עיוור/ת עפ"י סעיף 9(5) לפקודה.' },
+  { key: 'singleParentFamily', n: '6', text: 'אני הורה במשפחה חד הורית החי בנפרד.', note: 'ימולא רק ע"י הורה כאמור החי בנפרד ומבקש נקודות זיכוי עבור ילדיו, הנמצאים בחזקתו ובגינם מקבל קצבת ילדים מהמוסד לביטוח לאומי (בהתאם לסעיף 7 להלן) ואינו מנהל משק בית משותף עם יחיד/ה אחר/ת.' },
+  { key: 'childrenInCustody', n: '7', text: 'בגין ילדיי שבחזקתי המפורטים בחלק ג.', note: 'ימולא רק ע"י הורה במשפחה חד הורית שמקבל את קצבת הילדים בגינם, או ע"י אשה נשואה או ע"י הורה יחיד.' },
+  { key: 'childrenOther', n: '8', text: 'בגין ילדיי המפורטים בחלק ג.', note: 'ימולא ע"י הורה (למעט הורה אשר סימן בפסקה 7 לעיל), אשה לא נשואה שילדיה אינם בחזקתה וכן הורה יחיד.' },
+  { key: 'singleParent', n: '9', text: 'אני הורה יחיד לילדיי שבחזקתי (המפורטים בחלק ג ובהתאם לסעיף 7 ו-8 לעיל).' },
+  { key: 'childrenNotInCustody', n: '10', text: 'בגין ילדיי שאינם בחזקתי המפורטים בחלק ג ואני משתתף/ת בכלכלתם.', note: 'ימולא ע"י הורה החי בנפרד, שאינו זכאי לנקודות זיכוי בגין ילדיו, אשר המציא פס"ד המחייב אותו בתשלום מזונות.' },
+  { key: 'disabledChildren', n: '11', text: 'אני הורה לילדים עם מוגבלות שטרם מלאו להם 19 שנים, בגינם אני מקבל/ת גמלת ילד נכה מהמוסד לביטוח לאומי. מצורף אישור גמלת ילד נכה מהמוסד לביטוח לאומי לשנה נוכחית. בן זוגי אינו מקבל נקודות זיכוי אלה. לילדיי, בגינם אני מבקש את נקודות הזיכוי, אין הכנסות בשנה הנוכחית.' },
+  { key: 'alimony', n: '12', text: 'בגין מזונות לבן/בת זוגי לשעבר. ימולא ע"י מי שנישא בשנית. מצורף פסק דין.' },
+  { key: 'age16to18', n: '13', text: 'מלאו לי או לבן/בת זוגי 16 שנים וטרם מלאו לי או לבן/בת זוגי 18 שנים בשנת המס.' },
+  { key: 'discharged', n: '14', text: 'אני חייל/ת משוחרר/ת / שירתתי בשירות לאומי. מצורף צילום של תעודת שחרור/סיום שירות.' },
+  { key: 'degree', n: '15', text: 'בגין סיום לימודים לתואר אקדמי, סיום התמחות או סיום לימודי מקצוע. מצורפת הצהרה בטופס 119.' },
+  { key: 'reserveCombat', n: '16', text: 'שירתתי כלוחם/לוחמת מילואים בשנת המס הקודמת. מצורף אישור מצה"ל על זכאות בעד שירות מילואים כלוחם.' },
+];
+export const COUNT_LABEL: Record<keyof ChildCounts, string> = {
+  born: 'מספר ילדים שנולדו בשנת המס', age1to2: 'מספר ילדים שימלאו להם שנה אחת עד שנתיים בשנת המס', age3: 'מספר ילדים שימלאו להם 3 שנים בשנת המס',
+  age4to5: 'מספר ילדים שימלאו להם 4 שנים עד 5 שנים בשנת המס', age6to17: 'מספר ילדים שימלאו להם 6 שנים עד 17 שנים בשנת המס', age18: 'מספר ילדים שימלאו להם 18 שנים בשנת המס',
+};
+/** סעיף 8 has no "18" line in the form */
+export const COUNTS_OF: Record<'custodyCounts' | 'otherCounts', (keyof ChildCounts)[]> = {
+  custodyCounts: ['born', 'age1to2', 'age3', 'age4to5', 'age6to17', 'age18'], otherCounts: ['born', 'age1to2', 'age3', 'age4to5', 'age6to17'],
+};
+
+// ---- the PDF's content: the form's sections in order, every value as text (lib/server/form101-pdf.ts only draws it) -------------
+export interface Employer { name: string; address: string; phone: string; deductionsFile: string }
+export interface PdfSection { title: string; rows: [string, string][]; notes?: string[] }
+const dmy = (d: string) => (d ? d.split('-').reverse().join('/') : '');
+const yn = (v: boolean | null) => (v === true ? 'כן' : v === false ? 'לא' : '');
+export function pdfSections(d: Form101Data, employer: Employer, attached: AttachKind[]): PdfSection[] {
+  const e = d.employee, s = d.spouse, c = d.credits;
+  const sections: PdfSection[] = [
+    { title: 'א. פרטי המעסיק', rows: [['שם', employer.name], ['כתובת', employer.address], ['מספר טלפון', employer.phone], ['מספר תיק ניכויים', employer.deductionsFile]] },
+    { title: 'ב. פרטי העובד/ת', rows: [
+      ['מספר זהות (9 ספרות)', e.idNumber], ...(e.passport ? [['מספר דרכון', e.passport] as [string, string]] : []),
+      ['שם משפחה', e.lastName], ['שם פרטי', e.firstName], ['תאריך לידה', dmy(e.birthDate)], ['תאריך עליה', dmy(e.aliyahDate)],
+      ['כתובת פרטית', [e.street, e.houseNumber].filter(Boolean).join(' ') + (e.city ? `, ${e.city}` : '') + (e.zip ? ` ${e.zip}` : '')],
+      ['מספר טלפון', e.phone], ['מספר טלפון נייד', e.mobile], ['כתובת דואר אלקטרוני', e.email],
+      ['מין', e.gender ? GENDER_LABEL[e.gender] : ''], ['מצב משפחתי', e.marital ? MARITAL_LABEL[e.marital] : ''], ['תושב ישראל', yn(e.resident)],
+      ['חבר קיבוץ/מושב שיתופי', e.kibbutz ? KIBBUTZ_LABEL[e.kibbutz] : ''], ['חבר בקופת חולים', e.hmo ? `כן, ${e.hmoName}` : yn(e.hmo)],
+    ] },
+    { title: 'ג. פרטים על ילדיי שבשנת המס טרם מלאו להם 19 שנה', rows: d.children.length
+      ? d.children.map((k, i) => [`${i + 1}. ${k.name}`, [k.idNumber && `ת״ז ${k.idNumber}`, dmy(k.birthDate), k.inCustody && 'בחזקתי (טור 1)', k.allowance && 'מקבל/ת בגינו קצבת ילדים (טור 2)'].filter(Boolean).join(' · ')])
+      : [['', 'אין']] },
+    { title: 'ד. פרטים על הכנסותיי ממעסיק זה', rows: [['אני מקבל/ת', d.income.kinds.map((k) => INCOME_LABEL[k]).join(', ')], ['תאריך תחילת העבודה בשנת המס', dmy(d.income.startDate)]] },
+    { title: 'ה. פרטים על הכנסות אחרות', rows: d.other.has === false ? [['', 'אין לי הכנסות אחרות ממשכורת (משכורת חודש, בעד משרה נוספת, משכורת חלקית, שכר עבודה), מקצבה וממלגה']]
+      : [['יש לי הכנסות אחרות', d.other.kinds.map((k) => INCOME_LABEL[k]).join(', ')],
+        ...(d.other.creditsHere ? [['', 'אבקש לקבל נקודות זיכוי ומדרגות מס כנגד הכנסתי זו (סעיף ד). איני מקבל/ת אותן בהכנסה אחרת']] as [string, string][] : []),
+        ...(d.other.creditsElsewhere ? [['', 'אני מקבל/ת נקודות זיכוי ומדרגות מס בהכנסה אחרת ועל כן איני זכאי/ת להן כנגד הכנסה זו']] as [string, string][] : []),
+        ...(d.other.noStudyFund ? [['', 'אין מפרישים עבורי לקרן השתלמות בגין הכנסתי האחרת, או שכל הפרשות המעסיק לקרן השתלמות בגין הכנסתי האחרת מצורפות להכנסתי האחרת']] as [string, string][] : []),
+        ...(d.other.noPension ? [['', 'אין מפרישים עבורי לקצבה/לביטוח אובדן כושר עבודה/פיצויים בגין הכנסתי האחרת, או שכל הפרשות המעסיק לקצבה/לביטוח אובדן כושר עבודה/פיצויים בגין הכנסתי האחרת מצורפות להכנסתי האחרת']] as [string, string][] : [])] },
+  ];
+  if (married(d)) sections.push({ title: 'ו. פרטים על בן/בת הזוג', rows: [
+    ['מספר זהות', s.idNumber], ...(s.passport ? [['מספר דרכון', s.passport] as [string, string]] : []), ['שם משפחה', s.lastName], ['שם פרטי', s.firstName],
+    ['תאריך לידה', dmy(s.birthDate)], ['תאריך עליה', dmy(s.aliyahDate)],
+    ['הכנסה', s.hasIncome === false ? 'אין לבן/בת הזוג כל הכנסה' : s.hasIncome ? `יש לבן/בת הזוג הכנסה מ: ${[s.incomeWork && 'עבודה/קצבה/עסק', s.incomeOther && 'הכנסה אחרת'].filter(Boolean).join(', ')}` : ''],
+  ] });
+  if (d.changeNote) sections.push({ title: 'ז. שינויים במהלך השנה', rows: [['פרטי השינוי', d.changeNote]] });
+  const marked = CREDIT_TEXT.filter((x) => c[x.key]);
+  const extra = (k: CreditFlag): string => {
+    if (k === 'settlement') return [c.settlementName && `ישוב: ${c.settlementName}`, c.settlementFrom && `מתאריך ${dmy(c.settlementFrom)}`].filter(Boolean).join(' · ');
+    if (k === 'immigrant') return [c.immigrantFrom && `מתאריך ${dmy(c.immigrantFrom)}`, c.immigrantNoIncomeUntil && `לא היתה לי הכנסה בישראל מתחילת שנת המס הנוכחית עד תאריך ${dmy(c.immigrantNoIncomeUntil)}`].filter(Boolean).join(' · ');
+    if (k === 'childrenInCustody' || k === 'childrenOther') {
+      const key = k === 'childrenInCustody' ? 'custodyCounts' : 'otherCounts';
+      return COUNTS_OF[key].filter((x) => c[key][x]).map((x) => `${COUNT_LABEL[x]}: ${c[key][x]}`).join(' · ');
+    }
+    if (k === 'disabledChildren') return c.disabledChildrenCount ? `מספר הילדים: ${c.disabledChildrenCount}` : '';
+    if (k === 'discharged') return [c.serviceFrom && `תאריך תחילת השירות ${dmy(c.serviceFrom)}`, c.serviceTo && `תאריך סיום השירות ${dmy(c.serviceTo)}`].filter(Boolean).join(' · ');
+    if (k === 'reserveCombat') return c.reserveDays ? `סה"כ ${c.reserveDays} ימי מילואים בשנת המס הקודמת` : '';
+    return '';
+  };
+  sections.push({ title: 'ח. אני מבקש/ת פטור או זיכוי ממס מהסיבות הבאות', rows: marked.length ? marked.map((x) => [x.n, [x.text, extra(x.key)].filter(Boolean).join(' — ')]) : [['', 'לא סומן']] });
+  const t = d.coordination;
+  sections.push({ title: 'ט. אני מבקש/ת תיאום מס מהסיבות הבאות', rows: [
+    ...(t.noIncomeSinceYearStart ? [['1', 'לא היתה לי הכנסה מתחילת שנת המס הנוכחית עד לתחילת עבודתי אצל מעסיק זה.']] as [string, string][] : []),
+    ...(t.hasOthers ? [['2', 'יש לי הכנסות נוספות ממשכורת כמפורט להלן:'] as [string, string], ...t.others.map((o): [string, string] =>
+      ['', [o.name, o.address, o.fileNumber && `תיק ניכויים ${o.fileNumber}`, o.kind, o.monthly && `הכנסה חודשית ${o.monthly}`, o.taxDeducted && `המס שנוכה ${o.taxDeducted}`].filter(Boolean).join(' · ')])] : []),
+    ...(t.assessorApproved ? [['3', 'פקיד השומה אישר תיאום לפי אישור מצורף.']] as [string, string][] : []),
+    ...(!t.noIncomeSinceYearStart && !t.hasOthers && !t.assessorApproved ? [['', 'לא סומן']] as [string, string][] : []),
+  ] });
+  const asked = attachmentsAsked(d);
+  sections.push({ title: 'נספחים', rows: [...new Set([...asked, ...attached])].map((k): [string, string] => [ATTACH_LABEL[k], attached.includes(k) ? 'צורף' : 'לא צורף']) });
+  const w = warnings(d);
+  if (w.length) sections[sections.length - 1].notes = w;
+  return sections;
+}

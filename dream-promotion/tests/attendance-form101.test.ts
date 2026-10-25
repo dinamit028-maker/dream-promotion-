@@ -90,3 +90,37 @@ test('form 101: the WhatsApp message — the link, nothing of Dream', () => {
   assert.ok(!/dream/i.test(t));
   assert.match(form101Text('דנה', '', 'L', 2026, true), /עדכון פרטים/);
 });
+
+test('form 101: the PDF\'s content — the official sections in order, only what was marked, the attachments, the warnings', async () => {
+  const { pdfSections } = await import('../src/features/attendance/form101');
+  const d = filled();
+  d.children = [{ name: 'נועה', idNumber: '', birthDate: '2020-03-04', inCustody: true, allowance: true }];
+  d.credits.resident = true; d.credits.reserveCombat = true; d.credits.reserveDays = '30';
+  d.other = { has: true, kinds: ['partial'], creditsHere: false, creditsElsewhere: false, noStudyFund: true, noPension: true };
+  const s = pdfSections(d, { name: 'מסעדת הים', address: 'הנמל 1, חיפה', phone: '04-1234567', deductionsFile: '912345678' }, ['id']);
+  assert.deepEqual(s.map((x) => x.title.slice(0, 2)), ['א.', 'ב.', 'ג.', 'ד.', 'ה.', 'ח.', 'ט.', 'נס'], 'not married: no ו; no change: no ז');
+  assert.deepEqual(s[0].rows[3], ['מספר תיק ניכויים', '912345678']);
+  assert.match(s[2].rows[0][1], /04\/03\/2020 · בחזקתי \(טור 1\) · מקבל\/ת בגינו קצבת ילדים \(טור 2\)/);
+  const credits = s.find((x) => x.title.startsWith('ח.'))!;
+  assert.deepEqual(credits.rows.map((r) => r[0]), ['1', '16'], 'only what was marked');
+  assert.match(credits.rows[1][1], /סה"כ 30 ימי מילואים/);
+  const att = s[s.length - 1];
+  assert.deepEqual(att.rows, [['צילום תעודת זהות כולל ספח', 'צורף'], ['אישור מצה"ל על זכאות בעד שירות מילואים כלוחם', 'לא צורף']]);
+  assert.ok(att.notes?.some((n) => n.startsWith('(7)')), 'the form\'s explanation (7)');
+});
+
+test('form 101: the signed form as a real PDF — Hebrew, the year in the title, the server\'s time', async () => {
+  const sharp = (await import('sharp')).default;
+  const { PDFDocument } = await import('pdf-lib');
+  const { buildForm101Pdf } = await import('../src/lib/server/form101');
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="300"><path d="M50 200 C 200 50, 350 250, 600 120" stroke="#111" stroke-width="6" fill="none"/></svg>';
+  const png = await sharp(Buffer.from(svg)).png().toBuffer();
+  const d = filled(); d.credits.resident = true;
+  const doc = await buildForm101Pdf({ data: d, employer: { name: 'מסעדת הים', address: 'הנמל 1, חיפה', phone: '', deductionsFile: '912345678' }, attached: ['id'],
+    taxYear: 2026, version: 1, number: 'f-1', requestId: 'r-1', signerName: 'דנה כהן', signaturePng: png, signedAt: '2026-10-25T08:00:00Z',
+    ip: '10.0.0.1', userAgent: 'TestPhone/1', software: 'Dream Promotion test' });
+  const back = await PDFDocument.load(await doc.save());
+  assert.ok(back.getPageCount() >= 1);
+  assert.equal(back.getTitle(), 'טופס 101 — דנה כהן — 2026');
+  assert.equal(back.getCreationDate()?.toISOString(), '2026-10-25T08:00:00.000Z');
+});
