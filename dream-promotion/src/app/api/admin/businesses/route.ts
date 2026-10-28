@@ -187,7 +187,8 @@ export async function PATCH(req: Request) {
       if (await signedUpUser(db, email)) return bad(`${email} כבר רשום/ה — מוסיפים בכפתור "+ אדם".`);
       const { data: made, error } = await db.auth.admin.createUser({ email, password, email_confirm: true });
       const uid = made?.user?.id;
-      if (error || !uid) return bad(/already|registered|exists/i.test(error?.message ?? '') ? `${email} כבר רשום/ה — מוסיפים בכפתור "+ אדם".` : 'לא הצלחנו ליצור את המשתמש. נסו שוב.');
+      // one who signed up and never confirmed the address: there is a sign-in already — not a second one
+      if (error || !uid) return bad(/already|registered|exists/i.test(error?.message ?? '') ? `${email} כבר נרשם/ה, אבל עוד לא אישר/ה את כתובת המייל — אחרי האישור מוסיפים בלי "חשבון חדש".` : 'לא הצלחנו ליצור את המשתמש. נסו שוב.');
       // the profile row comes from the sign-up trigger; it is written here too, in case the trigger is late
       await db.from('profiles').upsert({ id: uid, email }, { onConflict: 'id' });
       return joinBusiness(db, id, uid, accessOf(body.access));
