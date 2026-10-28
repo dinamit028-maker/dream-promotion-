@@ -1,5 +1,5 @@
 import { adminDb, userFromRequest } from './admin';
-import { LOCKED, REGISTER_ONLY, VIEW_ONLY, businessOf, canUseBusiness, isSuperAdmin, memberAccess } from './business';
+import { LOCKED, VIEW_ONLY, businessOf, canUseBusiness, isSuperAdmin, limitedRefusal, memberAccess } from './business';
 
 /**
  * Money routes on the server (service role — row-level security does not apply, so the same rules are checked here):
@@ -15,7 +15,8 @@ export async function financeCaller(req: Request, opts: { write?: boolean } = {}
   const businessId = await businessOf(userId);
   if (!businessId) return { ok: false, status: 403, body: { code: 'no_business', message: 'אין עסק פעיל לחשבון הזה.' } };
   if (!(await canUseBusiness(userId, businessId))) return { ok: false, status: 403, body: LOCKED };
-  if ((await memberAccess(userId, businessId)) === 'register') return { ok: false, status: 403, body: REGISTER_ONLY };
+  const access = await memberAccess(userId, businessId);
+  if (access !== 'full') return { ok: false, status: 403, body: limitedRefusal(access) };
   const db = adminDb();
   const { data: m } = await db.from('business_members').select('user_id, role').eq('business_id', businessId).eq('user_id', userId).maybeSingle();
   if (m && opts.write && (m as { role?: string }).role === 'viewer') return { ok: false, status: 403, body: VIEW_ONLY };

@@ -10,6 +10,7 @@ import type { Lead, LeadStatus } from '@/types';
 import { UsersThree } from '@/components/ui/Icon';
 import { STAGES, followupState, matches, parseTags, stageOf, telLink, waLink } from '@/features/crm/crm';
 import { ContactSheet } from '@/features/crm/ContactSheet';
+import { customerProblem } from '@/features/booking/new-customer';
 import { MetaLeadsSettings } from '@/features/crm/MetaLeadsSettings';
 import { InboxSettings } from '@/features/crm/InboxSettings';
 import { INBOX_FILTERS, channelOf } from '@/features/crm/meta-inbox';
@@ -32,6 +33,8 @@ export default function LeadsPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [settings, setSettings] = useState(false);
+  // 2.109: a calendar member ("יומן ולידים") — the contacts only: no settings, departments or money; a new one only with a phone
+  const calendarOnly = useApp((x) => x.access === 'calendar');
   const [form, setForm] = useState({ name: '', phone: '', email: '', source: '', tags: '' });
   // where a contact came from: paid leads (Meta forms) / Messenger / Facebook comments / Instagram comments
   const [channel, setChannel] = useState<'all' | 'leads' | 'messenger' | 'fb' | 'ig'>('all');
@@ -60,8 +63,9 @@ export default function LeadsPage() {
   const customers = leads.filter((l) => l.status === 'נסגר');
   const revenue = customers.reduce((a, l) => a + (Number(l.value) || 0), 0);
 
+  const newProblem = customerProblem([], form, calendarOnly);
   function create() {
-    if (!form.name.trim()) return;
+    if (newProblem) return;
     const id = addLead({
       name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(), source: form.source.trim() || 'ידני',
       tags: parseTags(form.tags), date: today(), status: 'חדש', value: 0,
@@ -95,12 +99,12 @@ export default function LeadsPage() {
 
   return (
     <>
-      <PageHead title="לקוחות" sub={`${leads.length} אנשי קשר · ${customers.length} לקוחות${revenue ? ` · ₪${revenue.toLocaleString('he-IL')}` : ''}`}
+      <PageHead title="לקוחות" sub={`${leads.length} אנשי קשר · ${customers.length} לקוחות${revenue && !calendarOnly ? ` · ₪${revenue.toLocaleString('he-IL')}` : ''}`}
         action={<div className="flex flex-wrap gap-2">
-          {routing && (routing.owner || routing.departments.length > 0) && (
+          {!calendarOnly && routing && (routing.owner || routing.departments.length > 0) && (
             <Link href="/leads/departments" className="inline-flex min-h-10 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">🏷️ מחלקות</Link>
           )}
-          <Button variant="ghost" onClick={() => setSettings(true)} aria-label="הגדרות לקוחות">⚙️ הגדרות</Button>
+          {!calendarOnly && <Button variant="ghost" onClick={() => setSettings(true)} aria-label="הגדרות לקוחות">⚙️ הגדרות</Button>}
           <Button variant="primary" onClick={() => setAdding(true)}>+ איש קשר</Button>
         </div>} />
 
@@ -196,7 +200,7 @@ export default function LeadsPage() {
         </>
       )}
 
-      <Modal open={settings} onClose={() => setSettings(false)}>
+      <Modal open={settings && !calendarOnly} onClose={() => setSettings(false)}>
         <MetaLeadsSettings />
         <hr className="my-5 border-line" />
         <InboxSettings />
@@ -206,12 +210,12 @@ export default function LeadsPage() {
       <Modal open={adding} onClose={() => setAdding(false)}>
         <h3 className="mb-4 font-display text-xl font-extrabold">איש קשר חדש</h3>
         <Field label="שם"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus /></Field>
-        <Field label="טלפון"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} inputMode="tel" dir="ltr" /></Field>
+        <Field label={calendarOnly ? 'טלפון (חובה)' : 'טלפון'}><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} inputMode="tel" dir="ltr" /></Field>
         <Field label="אימייל (לא חובה)"><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} inputMode="email" dir="ltr" /></Field>
         <Field label="מאיפה הגיע/ה"><Input value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} placeholder="אינסטגרם, המלצה, אתר…" /></Field>
         <Field label="תגיות (לא חובה)"><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="VIP, לייזר" /></Field>
         <div className="flex gap-3">
-          <Button variant="primary" onClick={create} disabled={!form.name.trim()}>הוספה</Button>
+          <Button variant="primary" onClick={create} disabled={Boolean(newProblem)}>הוספה</Button>
           <Button variant="ghost" onClick={() => setAdding(false)}>ביטול</Button>
         </div>
       </Modal>

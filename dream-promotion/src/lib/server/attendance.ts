@@ -10,7 +10,7 @@ export interface MemberRow { role: string; access?: string | null; attendance_ro
 
 export function attRoleOf(m: MemberRow | null, superAdmin: boolean): AttRole {
   if (superAdmin) return 'admin';
-  if (!m || m.access === 'register') return 'none';
+  if (!m || m.access === 'register' || m.access === 'calendar') return 'none';
   if (m.attendance_role === 'admin' || m.attendance_role === 'approver' || m.attendance_role === 'payroll') return m.attendance_role;
   return m.role === 'owner' || m.role === 'editor' ? 'admin' : 'viewer';
 }

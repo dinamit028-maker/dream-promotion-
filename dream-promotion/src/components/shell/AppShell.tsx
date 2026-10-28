@@ -27,6 +27,7 @@ import { multiLocation } from '@/features/locations/locations';
 import { NAV, NAV_ADMIN, NAV_BOTTOM_ALL, NAV_STOCK, withStock, type NavItem } from './app-nav';
 import { FavoritesList, MenuSearch, SearchButton, SearchDialog, StarButton, useMenuEntries, useSearchShortcut } from './MenuTools';
 import { useFavorites } from './favorites-store';
+import { LIMITED_SCREENS, accessOf, limitedTarget } from './limited-access';
 
 export { NAV } from './app-nav';
 // phones: the four screens opened daily sit in the tab bar; "עוד" opens a sheet with every other screen
@@ -49,8 +50,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const userId = useApp((s) => s.userId);
   const businessId = useApp((s) => s.businessId);
   const hydrate = useApp((s) => s.hydrate);
-  // a cashier ("קופאי/ת") works in the register only; the database refuses everything else anyway
-  const cashier = useApp((s) => s.access === 'register');
+  // a cashier ("קופאי/ת") works in the register only, a calendar member (2.109) in the appointments and the leads only — the
+  // database refuses everything else anyway. `cashier` = either of them: no search, favorites, AI, "יצירה" or wizard
+  const access = useApp((s) => s.access);
+  const cashier = access !== 'full';
   const kiosk = useApp((s) => s.kiosk);
   const [checking, setChecking] = useState(isCloudConfigured);
   // the business this user works in (banner when locked) and the ones they may switch to
@@ -84,7 +87,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         const j = await r.json();
         if (r.ok) {
           current = j.business?.id ?? null; setBiz({ current: j.business, list: j.businesses ?? [], superAdmin: Boolean(j.superAdmin) });
-          useApp.getState().setAccess(j.access === 'register' ? 'register' : 'full');
+          useApp.getState().setAccess(accessOf(j.access));
           if (Array.isArray(j.modules)) setModules(j.modules);
         }
       } catch { /* the app still opens; data comes from row-level security anyway */ }
@@ -138,11 +141,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // a business without the attendance module (2.107) has no "נוכחות" in the menu
   const NAV_ALL = withStock(multi).filter((n) => n.href !== '/attendance' || !modules || modules.includes('attendance'));
   const NAV_BOTTOM = cashier ? [] : isAdmin ? [...NAV_BOTTOM_ALL, NAV_ADMIN] : NAV_BOTTOM_ALL;
-  const NAV_MAIN = cashier ? NAV.filter((n) => n.href === '/register') : NAV_ALL;
+  const NAV_MAIN = access === 'full' ? NAV_ALL : NAV.filter((n) => LIMITED_SCREENS[access].includes(n.href));
   // every screen the person may open — for the search and the favorites (a cashier gets neither)
   const entries = useMenuEntries({ admin: isAdmin });
-  // a cashier opening any other screen lands in the register
-  useEffect(() => { if (cashier && !checking && path !== '/register') router.replace('/register'); }, [cashier, checking, path, router]);
+  // a cashier opening any other screen lands in the register; a calendar member in the appointments
+  const elsewhere = limitedTarget(access, path);
+  useEffect(() => { if (elsewhere && !checking) router.replace(elsewhere); }, [elsewhere, checking, router]);
   useEffect(() => { setMoreOpen(false); setSearchOpen(false); }, [path]);
   useEffect(() => {
     if (!moreOpen) return;
@@ -355,6 +359,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SquaresFour size={23} weight={moreOpen ? 'fill' : 'regular'} aria-hidden />
           עוד
         </button>
+      </nav>}
+
+      {access === 'calendar' && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-(--glass) px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
+        {NAV_MAIN.map(tabItem)}
       </nav>}
 
       {/* phone: every screen, one tap away */}

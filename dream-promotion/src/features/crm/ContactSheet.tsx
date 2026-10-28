@@ -26,6 +26,10 @@ const LOG_KINDS: LeadActivityKind[] = ['note', 'call', 'whatsapp', 'meeting', 'p
 /** One contact: details, stage, next follow-up, timeline, quick actions and an AI follow-up message. */
 export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClose: () => void }) {
   const { leads, activities, brand, updateLead, deleteLead, addActivity, deleteActivity } = useApp();
+  // 2.109: a calendar member ("יומן ולידים") — the card, its stage, follow-up and log only: no money, client file, AI, inbox,
+  // routing or deleting (the database and the server refuse them anyway)
+  const calendarOnly = useApp((x) => x.access === 'calendar');
+  const full = isCloudConfigured && !calendarOnly;
   const lead = leads.find((l) => l.id === leadId) ?? null;
   const history = useMemo(() => activities.filter((a) => a.leadId === leadId), [activities, leadId]);
 
@@ -68,6 +72,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
 
   function save() {
     if (!draft || !draft.name.trim()) return;
+    if (calendarOnly && lead!.phone.trim() && !draft.phone.trim()) return; // a phone is not taken away (the database refuses it too)
     updateLead(lead!.id, { name: draft.name.trim(), phone: draft.phone, email: draft.email, source: draft.source, notes: draft.notes, value: Number(draft.value) || 0, tags: parseTags(tagsText) });
   }
   function setStage(s: LeadStatus) {
@@ -140,20 +145,20 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         {lead.phone && <a href={telLink(lead.phone)} onClick={() => addActivity(lead.id, 'call', 'התקשרתי')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">📞 התקשרות</a>}
         {waLink(lead.phone) && <a href={waLink(lead.phone)} target="_blank" rel="noopener" onClick={() => addActivity(lead.id, 'whatsapp', 'פתחתי שיחת וואטסאפ')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">💬 וואטסאפ</a>}
         {lead.email && <a href={`mailto:${lead.email}`} onClick={() => addActivity(lead.id, 'email', 'שלחתי מייל')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">✉️ מייל</a>}
-        <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>
+        {!calendarOnly && <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>}
       </div>
 
       {/* its department and the person responsible, and the WhatsApp messages about it (2.99) */}
-      {isCloudConfigured && <LeadRoutingPanel lead={lead} />}
+      {full && <LeadRoutingPanel lead={lead} />}
 
       {/* the contact's money (2.51; T7 — 2.97): what is owed, documents, payments, a plan's payments, quotes, recurring charges,
           links — and their packages (2.87), shown in the same box also while it is closed */}
-      {isCloudConfigured && <CrmFinance leadId={lead.id} />}
+      {full && <CrmFinance leadId={lead.id} />}
 
       {/* the client file: declarations and photos (owner and marked practitioners only — nothing is shown to anyone else) */}
-      {isCloudConfigured && <ClientDeclarations leadId={lead.id} />}
-      {isCloudConfigured && <ClientSessions leadId={lead.id} />}
-      {isCloudConfigured && <ClientPhotos leadId={lead.id} />}
+      {full && <ClientDeclarations leadId={lead.id} />}
+      {full && <ClientSessions leadId={lead.id} />}
+      {full && <ClientPhotos leadId={lead.id} />}
 
       {posts.length > 0 && (
         <div className="mb-4">
@@ -171,7 +176,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         </div>
       )}
 
-      {inbox && (
+      {inbox && !calendarOnly && (
         <div className="mb-4 rounded-2xl border border-line p-3">
           <p className="mb-1.5 text-sm font-semibold">↩️ {REPLY_IN[inbox]}</p>
           <Textarea value={reply.text} onChange={(e) => setReply({ ...reply, text: e.target.value, sent: false })} className="min-h-[70px]"
@@ -224,7 +229,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
       {/* log something */}
       <div className="mb-4 rounded-2xl border border-line p-3">
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {LOG_KINDS.map((k) => <Chip key={k} on={logKind === k} onClick={() => setLogKind(k)}>{ACTIVITY_HE[k].icon} {ACTIVITY_HE[k].label}</Chip>)}
+          {LOG_KINDS.filter((k) => !calendarOnly || k !== 'purchase').map((k) => <Chip key={k} on={logKind === k} onClick={() => setLogKind(k)}>{ACTIVITY_HE[k].icon} {ACTIVITY_HE[k].label}</Chip>)}
         </div>
         <Textarea value={logText} onChange={(e) => setLogText(e.target.value)} className="min-h-[64px]"
           placeholder={logKind === 'purchase' ? 'מה נקנה (לא חובה)' : 'מה קרה? למשל: מתעניינת בטיפול לייזר, ביקשה מחיר'} aria-label="תיעוד" />
@@ -235,7 +240,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
       </div>
 
       {/* timeline: CRM activities + the client file and appointments (§6) */}
-      {isCloudConfigured
+      {full
         ? <ClientTimeline leadId={lead.id} history={history} onDelete={deleteActivity} />
         : history.length > 0 && (
           <div className="mb-5">
@@ -248,7 +253,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
                     <span className="text-xs text-muted">{ACTIVITY_HE[a.kind].label} · {formatIL(a.at)}</span>
                     {a.body && <span className="block whitespace-pre-wrap" dir="auto">{a.body}</span>}
                   </span>
-                  <button type="button" onClick={() => deleteActivity(a.id)} className="text-xs text-muted hover:text-(--danger)" aria-label="מחיקה">✕</button>
+                  {!calendarOnly && <button type="button" onClick={() => deleteActivity(a.id)} className="text-xs text-muted hover:text-(--danger)" aria-label="מחיקה">✕</button>}
                 </li>
               ))}
             </ol>
@@ -264,15 +269,15 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
           <Field label="אימייל"><Input value={draft.email ?? ''} onChange={(e) => setDraft({ ...draft, email: e.target.value })} inputMode="email" dir="ltr" /></Field>
           <Field label="מקור"><Input value={draft.source} onChange={(e) => setDraft({ ...draft, source: e.target.value })} placeholder="אינסטגרם, המלצה, אתר…" /></Field>
           <Field label="תגיות (מופרדות בפסיק)"><Input value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="VIP, לייזר" /></Field>
-          <Field label="ערך לקוח ₪"><Input type="number" inputMode="decimal" value={draft.value ?? 0} onChange={(e) => setDraft({ ...draft, value: Number(e.target.value) })} /></Field>
+          {!calendarOnly && <Field label="ערך לקוח ₪"><Input type="number" inputMode="decimal" value={draft.value ?? 0} onChange={(e) => setDraft({ ...draft, value: Number(e.target.value) })} /></Field>}
         </div>
         <Field label="הערות"><Textarea value={draft.notes ?? ''} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} className="min-h-[70px]" /></Field>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button size="sm" variant="primary" onClick={save} disabled={!dirty}>{dirty ? 'שמירת פרטים' : 'נשמר'}</Button>
-          <button type="button" className="text-xs text-(--danger) hover:underline"
+          {!calendarOnly && <button type="button" className="text-xs text-(--danger) hover:underline"
             onClick={() => { if (window.confirm(`למחוק את ${lead.name} וכל ההיסטוריה שלו/ה?`)) { deleteLead(lead.id); onClose(); } }}>
             מחיקת איש הקשר
-          </button>
+          </button>}
         </div>
       </details>
       <p className={cx('text-xs text-muted')}>כל מה שנרשם כאן גלוי רק לכם.</p>
