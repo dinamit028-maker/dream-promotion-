@@ -14,6 +14,8 @@
  *   a week and a month on the computer: the title, the days, Saturday open (2.106), the next / previous / "היום", one practitioner
  *   or "רק שלי"; the list as before, with the practitioner;
  *   a member who is not the owner (Gal): sees everyone, moves Karin's appointment — the history says Gal; "מטפלות" read only;
+ *   2.109 — Karin, "יומן ולידים": any other screen opens the calendar, two tabs, everyone's appointments, no settings or money;
+ *   a new customer only with a phone (in the calendar and in the leads); the card without money, AI or deleting;
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
  *   same views, no practitioner, no history, and "מטפלות" says what is missing;
  *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed to customers by the business —
@@ -199,7 +201,7 @@ async function main() {
   const contexts: any[] = [];
 
   /** a browser for one person, on a fake that may be shared (the same tables, another account) */
-  async function open(viewport: { width: number; height: number }, tables: Tables, who: { userId: string; email: string; owner: boolean }, calendar = true) {
+  async function open(viewport: { width: number; height: number }, tables: Tables, who: { userId: string; email: string; owner: boolean; access?: 'full' | 'calendar' }, calendar = true) {
     const fake = new FakeSupabase(tables, { businessId: BIZ, userId: who.userId, email: who.email, today: TODAY, clock: () => clock.getTime() });
     fake.calendarTables = calendar;
     const phone = viewport.width < 600;
@@ -222,12 +224,15 @@ async function main() {
       }
     });
     await ctx.route(`${BASE}/api/business/me`, (r: any) => r.fulfill({ json: { business: { id: BIZ, name: 'קליניקה לייט', state: 'active' },
-      businesses: [{ id: BIZ, name: 'קליניקה לייט', state: 'active' }], superAdmin: false, access: 'full' } }));
+      businesses: [{ id: BIZ, name: 'קליניקה לייט', state: 'active' }], superAdmin: false, access: who.access ?? 'full' } }));
     await ctx.route(`${BASE}/api/admin/me`, (r: any) => r.fulfill({ json: { admin: false } }));
     await ctx.route(`${BASE}/api/meta/**`, (r: any) => r.fulfill({ json: { pages: [], connected: false } }));
     await ctx.route(`${BASE}/api/client-file/**`, (r: any) => r.fulfill({ status: 403, json: { code: 'no_access', message: 'אין גישה' } }));
     await ctx.route(`${BASE}/api/finance/**`, (r: any) => r.fulfill({ status: 403, json: { code: 'no_access', message: 'אין גישה' } }));
-    await ctx.route(`${BASE}/api/leads/departments**`, teamRoute(fake, who.owner, who.userId, posts));
+    // a calendar member (2.109): the real route refuses her (leadsCaller) — as here
+    await ctx.route(`${BASE}/api/leads/departments**`, who.access === 'calendar'
+      ? (r: any) => r.fulfill({ status: 403, json: { code: 'calendar_only', message: 'ההרשאה שלך היא ליומן וללידים בלבד.' } })
+      : teamRoute(fake, who.owner, who.userId, posts));
     ctx.setDefaultTimeout(30_000); ctx.setDefaultNavigationTimeout(180_000);
     const page = await ctx.newPage();
     page.on('pageerror', (e: Error) => errors.push(e.message));
@@ -714,6 +719,79 @@ async function main() {
       assert.equal(await g.page.getByText('050-1111111').count(), 0, 'no numbers for a member');
     });
     await g.ctx.close();
+
+    // --------------------------------------------------- 2.109: Karin — "יומן ולידים": the calendar and the leads only --
+    const k = await open(PHONE, tables, { userId: KARIN_USER, email: 'karin@clinic.test', owner: false, access: 'calendar' });
+    current = k.page;
+    await step('Karin ("יומן ולידים"): any other screen opens the calendar; two tabs; everyone\'s appointments; no settings', async () => {
+      await tick('13:10');
+      await goto(k.page, '/dashboard');
+      await k.page.waitForURL(/\/appointments$/, { timeout: 120_000 });
+      await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+      await expectHeads(k.page, ['שגית 5 תורים', 'קרין 4 תורים', 'גל 7 תורים'], 'she sees everyone');
+      const bar = k.page.getByRole('navigation', { name: 'ניווט' });
+      assert.deepEqual((await bar.locator('a').allInnerTexts()).map((x: string) => x.trim()), ['לקוחות', 'תורים'], 'the phone\'s tabs: hers only');
+      assert.equal(await k.page.getByRole('button', { name: 'עוד' }).count(), 0, 'no "עוד"');
+      assert.equal(await k.page.getByRole('link', { name: 'יצירת תוכן חדש' }).count(), 0, 'no "יצירה"');
+      for (const t of ['מטפלות', 'שירותים', 'שעות פעילות', 'דף הזמנה']) assert.equal(await k.page.getByRole('button', { name: t, exact: true }).count(), 0, `no "${t}"`);
+      assert.equal(await k.page.getByText(/AI פעיל|AI לא מוגדר/).count(), 0, 'no AI');
+      await fits(k.page, 'her calendar');
+      await shot(k.page, 'cal-9-calendar-member-phone.png', false);
+      for (const to of ['/finance', '/register', '/settings', '/attendance', '/media']) {
+        await goto(k.page, to);
+        await k.page.waitForURL(/\/appointments$/, { timeout: 120_000 });
+      }
+    });
+
+    await step('Karin books — a new customer only with a phone', async () => {
+      await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+      await k.page.getByRole('button', { name: '+ תור' }).click();
+      const d = dialog(k.page);
+      await d.getByRole('heading', { name: 'תור חדש' }).waitFor();
+      await d.getByLabel('או שעה אחרת').fill('19:30');
+      await d.locator('input[list="crm-names"]').fill('רוני ח.');
+      const book = d.getByRole('button', { name: 'קביעת התור' });
+      await d.getByText('טלפון (חובה ללקוח/ה חדש/ה)').waitFor();
+      assert.equal(await book.isDisabled(), true, 'no phone — not opened');
+      await d.getByLabel('טלפון').fill('052');
+      assert.equal(await book.isDisabled(), true, 'a phone that is not whole');
+      await d.getByLabel('טלפון').fill('052-7654321');
+      assert.equal(await book.isDisabled(), false);
+      await shot(k.page, 'cal-10-new-customer-phone.png', false);
+      await book.click();
+      await d.waitFor({ state: 'detached' });
+      const lead = (k.fake.tables.leads as Row[]).find((l) => l.name === 'רוני ח.')!;
+      assert.equal(lead.phone, '052-7654321', 'the customer has her phone');
+      assert.equal(appt(k.fake, 'רוני ח.').lead_id, lead.id);
+      assert.deepEqual(events(k.fake, appt(k.fake, 'רוני ח.').id).map((e) => [e.kind, e.actor]), [['created', KARIN_USER]], 'the history says Karin');
+      // no charge, no deposit, no money in the appointment
+      await block(k.page, /רוני ח\./).click();
+      assert.equal(await dialog(k.page).getByText('💳 חיוב').count(), 0, 'no "חיוב"');
+      await k.page.keyboard.press('Escape');
+    });
+
+    await step('Karin\'s leads: the contacts, a new one only with a phone; the card without money, AI or deleting', async () => {
+      await k.page.getByRole('navigation', { name: 'ניווט' }).getByRole('link', { name: 'לקוחות' }).click();
+      await k.page.getByRole('heading', { name: 'לקוחות' }).waitFor({ timeout: 120_000 });
+      assert.equal(await k.page.getByRole('button', { name: 'הגדרות לקוחות' }).count(), 0, 'no settings');
+      assert.equal(await k.page.getByRole('link', { name: /מחלקות/ }).count(), 0, 'no departments');
+      await k.page.getByRole('button', { name: '+ איש קשר' }).click();
+      const d = dialog(k.page);
+      await d.getByLabel('שם').fill('מאיה ש.');
+      const add = d.getByRole('button', { name: 'הוספה' });
+      assert.equal(await add.isDisabled(), true, 'no phone — not opened');
+      await d.getByLabel('טלפון (חובה)').fill('0541239876');
+      await add.click();
+      const card = dialog(k.page);
+      await card.getByText('מאיה ש.').first().waitFor();
+      assert.ok((k.fake.tables.leads as Row[]).some((l) => l.name === 'מאיה ש.' && l.phone === '0541239876'));
+      assert.equal(await card.getByRole('button', { name: /הצעת הודעת המשך/ }).count(), 0, 'no AI');
+      assert.equal(await card.getByText('מחיקת איש הקשר').count(), 0, 'no deleting');
+      assert.equal(await card.getByLabel('ערך לקוח ₪').count(), 0, 'no money');
+      await shot(k.page, 'cal-11-calendar-member-lead-phone.png', false);
+      await k.page.keyboard.press('Escape');
+    });
+    await k.ctx.close();
     await p.ctx.close();
 
     // ------------------------------------------------------------------------- no practitioners / before the migration --

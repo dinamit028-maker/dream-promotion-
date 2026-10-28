@@ -142,6 +142,56 @@ test('admin API: a cashier ("קופה בלבד") joins a business, works in it, 
   assert.equal(tables.profiles.find((p) => p.id === 'noa').current_business_id, null);
 });
 
+test('admin API (2.109): "יומן ולידים" — a new sign-in opened by the super admin, the calendar and the leads only', async () => {
+  const api = await import('../src/app/api/admin/businesses/route');
+  const me = await import('../src/app/api/business/me/route');
+  const { businessManagers, blockedFor, memberAccess } = await import('../src/lib/server/business');
+  const { financeCaller } = await import('../src/lib/server/finance');
+  const { attRoleOf } = await import('../src/lib/server/attendance');
+  const db = (globalThis as any).__DP_TEST_ADMIN_DB__;
+  const made: { email: string; password: string; email_confirm: boolean }[] = [];
+  db.auth.admin.createUser = async (u: { email: string; password: string; email_confirm: boolean }) => {
+    made.push(u);
+    if (Object.values(signIns).includes(u.email)) return { data: { user: null }, error: { message: 'A user with this email address has already been registered' } };
+    const id = `u-${u.email.split('@')[0]}`;
+    signIns[id] = u.email;
+    return { data: { user: { id, email: u.email } }, error: null };
+  };
+  const create = (who: string, body: object) => api.PATCH(req(who, 'PATCH', { id: 'sg', action: 'create_user', ...body }));
+  assert.equal((await create('sagit', { email: 'gal@x.com', password: 'Gal12345', access: 'calendar' })).status, 403, 'only the super admin');
+  assert.match((await (await create('aviv', { email: 'gal@x.com', password: '1234567', access: 'calendar' })).json()).message, /8 תווים/);
+  assert.match((await (await create('aviv', { email: 'gal@x.com', password: '12345678', access: 'calendar' })).json()).message, /אותיות וגם מספרים/);
+  assert.match((await (await create('aviv', { email: 'not-an-email', password: 'Gal12345', access: 'calendar' })).json()).message, /מייל תקין/);
+  assert.equal(made.length, 0, 'nothing is created before the checks pass');
+  assert.match((await (await create('aviv', { email: 'sagit@x.com', password: 'Gal12345', access: 'calendar' })).json()).message, /כבר רשום/, 'one who signed up is added, not created');
+
+  const ok = await create('aviv', { email: ' Gal@X.com ', password: 'Gal12345', access: 'calendar' });
+  assert.equal(ok.status, 200);
+  const body = await ok.json();
+  assert.ok(!JSON.stringify(body).includes('Gal12345'), 'the password is never sent back');
+  assert.deepEqual(made.at(-1), { email: 'gal@x.com', password: 'Gal12345', email_confirm: true }, 'confirmed at once — no sign-up mail');
+  const row = tables.business_members.find((m) => m.business_id === 'sg' && m.user_id === 'u-gal');
+  assert.deepEqual([row.access, row.role], ['calendar', 'editor'], 'an editor — never the owner (departments, routing and settings stay the owner\'s)');
+  assert.equal(tables.profiles.find((p) => p.id === 'u-gal').current_business_id, 'sg', 'she works in SaGabot from now on');
+
+  db.rpc = async (_fn: string, a: { uid: string }) => ({ data: tables.profiles.find((p) => p.id === a.uid)?.current_business_id ?? null });
+  db.auth.getUser = async (t: string) => ({ data: { user: signIns[t] ? { id: t, email: signIns[t] } : null } });
+  const j = await (await me.GET(new Request('http://x/api/business/me', { headers: { authorization: 'Bearer u-gal' } }))).json();
+  assert.equal(j.access, 'calendar', 'the app opens the calendar and the leads only');
+  assert.equal(await memberAccess('u-gal', 'sg'), 'calendar');
+  assert.equal((await blockedFor('u-gal'))?.code, 'calendar_only', 'AI, publishing and Meta refuse her');
+  const fin = await financeCaller(new Request('http://x', { headers: { authorization: 'Bearer u-gal' } }));
+  assert.equal(fin.ok, false); assert.equal((fin as any).body.code, 'calendar_only', 'no money');
+  assert.equal(attRoleOf({ role: 'editor', access: 'calendar' }, false), 'none', 'no attendance — by her role she would be its admin');
+  assert.ok(!(await businessManagers('sg')).includes('u-gal'), 'no sale notifications');
+
+  // an existing person is added the same way, with the access chosen (an unknown access is "full", as before)
+  const card = (await (await api.GET(req('aviv'))).json()).businesses.find((b: any) => b.id === 'sg');
+  assert.ok(card.members.some((m: any) => m.email === 'gal@x.com' && m.access === 'calendar'));
+  assert.equal((await api.PATCH(req('aviv', 'PATCH', { id: 'sg', action: 'remove_member', email: 'gal@x.com' }))).status, 200);
+  assert.ok(!tables.business_members.some((m) => m.user_id === 'u-gal'));
+});
+
 test('admin API: a profile\'s email is not proof — the sign-in record decides who is added', async () => {
   const api = await import('../src/app/api/admin/businesses/route');
   // mallory wrote the owner-to-be's address into her own profile row (a user may edit her profile)

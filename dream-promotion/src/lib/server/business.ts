@@ -72,19 +72,26 @@ export async function businessOf(userId: string): Promise<string | null> {
 /**
  * Register-only members ("קופאי/ת", business_members.access = 'register') sell in the register and nothing
  * else: no AI, publishing, rendering or Meta. The database enforces the same (migration 20261004003000).
+ * Calendar members ("יומן ולידים", access = 'calendar', 2.109) work in the appointments calendar and the leads only — every
+ * refusal of a cashier is theirs too, as in the database (migration 20261028006000: my_access() answers 'register' for them).
  */
 export const REGISTER_ONLY = { code: 'register_only', message: 'ההרשאה שלך היא לקופה בלבד.' } as const;
-export type Access = 'full' | 'register';
+export const CALENDAR_ONLY = { code: 'calendar_only', message: 'ההרשאה שלך היא ליומן וללידים בלבד.' } as const;
+export type Access = 'full' | 'register' | 'calendar';
+export const accessOf = (v: unknown): Access => (v === 'register' || v === 'calendar' ? v : 'full');
+/** the refusal for a member who is not 'full' */
+export const limitedRefusal = (a: Access) => (a === 'calendar' ? CALENDAR_ONLY : REGISTER_ONLY);
 
 /** the access of a member in a business; the super admin, and rows from before 2.50, are 'full' */
 export async function memberAccess(userId: string, businessId: string | null): Promise<Access> {
   if (!businessId || await isSuperAdmin(userId)) return 'full';
   const { data, error } = await adminDb().from('business_members').select('access').eq('business_id', businessId).eq('user_id', userId).maybeSingle();
   if (error) return 'full'; // before the migration there is no access column — nobody is register-only yet
-  return (data as { access?: string } | null)?.access === 'register' ? 'register' : 'full';
+  return accessOf((data as { access?: string } | null)?.access);
 }
+/** a cashier or a calendar member — everything a cashier may not do (the name is from before 2.109) */
 export async function registerOnly(userId: string): Promise<boolean> {
-  return (await memberAccess(userId, await businessOf(userId))) === 'register';
+  return (await memberAccess(userId, await businessOf(userId))) !== 'full';
 }
 
 /**
@@ -102,10 +109,11 @@ export async function memberRole(userId: string, businessId: string | null): Pro
   return r === 'viewer' ? 'viewer' : r === 'editor' ? 'editor' : 'owner';
 }
 
-/** one check for routes that spend or publish: a locked business, a register-only member or a viewer → the refusal to send */
-export async function blockedFor(userId: string): Promise<typeof LOCKED | typeof REGISTER_ONLY | typeof VIEW_ONLY | null> {
+/** one check for routes that spend or publish: a locked business, a cashier, a calendar member or a viewer → the refusal to send */
+export async function blockedFor(userId: string): Promise<typeof LOCKED | typeof REGISTER_ONLY | typeof CALENDAR_ONLY | typeof VIEW_ONLY | null> {
   if (await userLocked(userId)) return LOCKED;
-  if (await registerOnly(userId)) return REGISTER_ONLY;
+  const access = await memberAccess(userId, await businessOf(userId));
+  if (access !== 'full') return limitedRefusal(access);
   if ((await memberRole(userId, await businessOf(userId))) === 'viewer') return VIEW_ONLY;
   return null;
 }
@@ -118,5 +126,5 @@ export async function businessManagers(businessId: string): Promise<string[]> {
     const { data: owners } = await db.from('business_members').select('user_id').eq('business_id', businessId).eq('role', 'owner');
     return (owners ?? []).map((r: any) => r.user_id);
   }
-  return ((data ?? []) as { user_id: string; access?: string }[]).filter((r) => r.access !== 'register').map((r) => r.user_id);
+  return ((data ?? []) as { user_id: string; access?: string }[]).filter((r) => accessOf(r.access) === 'full').map((r) => r.user_id);
 }

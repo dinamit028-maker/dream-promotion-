@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { adminDb, userFromRequest } from './admin';
-import { LOCKED, REGISTER_ONLY, businessOf, canUseBusiness, memberRole, registerOnly } from './business';
+import { LOCKED, businessOf, canUseBusiness, limitedRefusal, memberAccess, memberRole } from './business';
 import { whatsappConfigured } from './whatsapp';
 import { staffPhoneShow, type NoticeView, type RoutingView, type RuleView } from '@/features/crm/lead-routing';
 
 /**
- * The screens of lead departments (2.99) on the server: who may see them (a member of the business, not a cashier) and change
+ * The screens of lead departments (2.99) on the server: who may see them (a member of the business, not a cashier or a calendar member) and change
  * them (its owner only — the team's phones, the rules, moving a lead to another person), and the view they get.
  * The tables are the server's only (migration 20261012005300): the browser reaches them through these routes.
  */
@@ -18,7 +18,8 @@ export async function leadsCaller(req: Request, write: boolean): Promise<LeadsCa
   if (!userId) return { res: NextResponse.json({ code: 'no_session', message: 'צריך להתחבר מחדש.' }, { status: 401 }) };
   const biz = await businessOf(userId);
   if (!biz || !(await canUseBusiness(userId, biz))) return { res: NextResponse.json(LOCKED, { status: 403 }) };
-  if (await registerOnly(userId)) return { res: NextResponse.json(REGISTER_ONLY, { status: 403 }) };
+  const access = await memberAccess(userId, biz);
+  if (access !== 'full') return { res: NextResponse.json(limitedRefusal(access), { status: 403 }) };
   const owner = (await memberRole(userId, biz)) === 'owner';
   if (write && !owner) return { res: NextResponse.json(OWNER_ONLY, { status: 403 }) };
   return { userId, biz, owner };

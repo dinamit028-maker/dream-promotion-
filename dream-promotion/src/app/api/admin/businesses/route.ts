@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/server/admin';
 import { requireAdmin } from '@/lib/server/admin-auth';
-import { isSuperAdmin } from '@/lib/server/business';
+import { accessOf, isSuperAdmin, type Access } from '@/lib/server/business';
 import { signedUpUser } from '@/lib/server/admin-users';
 import { israelToIso } from '@/lib/il-time';
-import { bizView, extendMonth, todayIL, validSlug } from '@/features/admin/business-state';
+import { bizView, extendMonth, passwordProblem, todayIL, validSlug } from '@/features/admin/business-state';
 import { FIRST_OF, type Milestones } from '@/features/admin/milestones';
 
 export const runtime = 'nodejs';
@@ -17,8 +17,12 @@ export const dynamic = 'force-dynamic';
  *          pilot milestones (dates only: opened, onboarded, first customer / appointment / sale / document / expense / quote)
  *  POST  { name, slug, ownerEmail?, paidUntil? } → a new business (+ its owner, who must already have signed up)
  *  PATCH { id, action: 'extend' | 'paid_until' | 'lock' | 'unlock' | 'enter', paidUntil?, reason? }
- *  PATCH { id, action: 'add_member', email, access: 'full' | 'register' } — a person who already signed up joins the
- *        business (register = "קופאי/ת": the register only) and starts working in it; 'remove_member' { email }
+ *  PATCH { id, action: 'add_member', email, access: 'full' | 'register' | 'calendar' } — a person who already signed up joins
+ *        the business (register = "קופאי/ת": the register only; calendar = "יומן ולידים", 2.109: the appointments calendar and
+ *        the leads only) and starts working in it; 'remove_member' { email }
+ *  PATCH { id, action: 'create_user', email, password, access } — 2.109: the super admin opens the sign-in for a person who
+ *        did not sign up (an email and a password the super admin chose, confirmed at once) and adds them as above. The
+ *        password is never stored here, logged or sent back.
  *  PATCH { id, action: 'member_locations', email, locations: string[] | null } — a member works only in these locations of the
  *        business (T12א, migration 4600; null = all of them). The database checks them and logs the change (member.locations).
  */
@@ -33,6 +37,17 @@ const bad = (message: string, status = 400) => NextResponse.json({ code: 'bad_re
 const NO_LOCATIONS = 'צריך להריץ את מיגרציה 20261010004600 (סניפים וקופות).';
 const NO_ATTENDANCE = 'צריך להריץ את מיגרציה 20261023005800 (נוכחות ועובדים).';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** the person joins the business with this access and works in it from now on (a full member is its owner, as before) */
+async function joinBusiness(db: ReturnType<typeof adminDb>, id: string, uid: string, access: Access) {
+  const { error } = await db.from('business_members').upsert(
+    { business_id: id, user_id: uid, role: access === 'full' ? 'owner' : 'editor', access }, { onConflict: 'business_id,user_id' });
+  if (error) return bad(!/access/.test(error.message) ? error.message
+    : access === 'calendar' ? 'צריך להריץ את מיגרציה 20261028006000 (יומן ולידים).' : 'צריך להריץ את מיגרציה 20261004003000 (הרשאות קופה).');
+  // a new member works in this business from now on (a cashier or a calendar member has nowhere else to work)
+  await db.from('profiles').update({ current_business_id: id }).eq('id', uid);
+  return NextResponse.json({ ok: true });
+}
 
 export async function GET(req: Request) {
   const userId = await superAdminOnly(req);
@@ -83,7 +98,7 @@ export async function GET(req: Request) {
         lockReason: b.lock_reason, ...bizView(b),
         modules: mods.error ? null : ((mods.data ?? []).find((x: any) => x.id === b.id) as any)?.modules ?? null,
         members: (members.data ?? []).filter((m) => m.business_id === b.id)
-          .map((m: any) => ({ role: m.role, access: m.access === 'register' ? 'register' : 'full', attendanceRole: m.attendance_role ?? null,
+          .map((m: any) => ({ role: m.role, access: accessOf(m.access), attendanceRole: m.attendance_role ?? null,
             email: person.get(m.user_id)?.email ?? '', name: person.get(m.user_id)?.full_name ?? '',
             locations: Array.isArray(m.locations) ? m.locations.map(String) : null })),
         // the main location first (its id is the business's)
@@ -158,17 +173,25 @@ export async function PATCH(req: Request) {
     }
     case 'add_member': {
       const email = String(body.email ?? '').trim().toLowerCase();
-      const access = body.access === 'register' ? 'register' : 'full';
       if (!email) return bad('נא לכתוב מייל');
       const uid = await signedUpUser(db, email);
       if (!uid) return bad(`${email} עוד לא נרשם/ה לאפליקציה (או שלא אישר/ה את כתובת המייל). אחרי ההרשמה אפשר להוסיף.`);
-      const p = { id: uid };
-      const { error } = await db.from('business_members').upsert(
-        { business_id: id, user_id: p.id, role: access === 'register' ? 'editor' : 'owner', access }, { onConflict: 'business_id,user_id' });
-      if (error) return bad(/access/.test(error.message) ? 'צריך להריץ את מיגרציה 20261004003000 (הרשאות קופה).' : error.message);
-      // a new member works in this business from now on (a cashier has nowhere else to work)
-      await db.from('profiles').update({ current_business_id: id }).eq('id', p.id);
-      return NextResponse.json({ ok: true });
+      return joinBusiness(db, id, uid, accessOf(body.access));
+    }
+    case 'create_user': {
+      const email = String(body.email ?? '').trim().toLowerCase();
+      const password = typeof body.password === 'string' ? body.password : '';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return bad('נא לכתוב מייל תקין');
+      const weak = passwordProblem(password);
+      if (weak) return bad(weak);
+      if (await signedUpUser(db, email)) return bad(`${email} כבר רשום/ה — מוסיפים בכפתור "+ אדם".`);
+      const { data: made, error } = await db.auth.admin.createUser({ email, password, email_confirm: true });
+      const uid = made?.user?.id;
+      // one who signed up and never confirmed the address: there is a sign-in already — not a second one
+      if (error || !uid) return bad(/already|registered|exists/i.test(error?.message ?? '') ? `${email} כבר נרשם/ה, אבל עוד לא אישר/ה את כתובת המייל — אחרי האישור מוסיפים בלי "חשבון חדש".` : 'לא הצלחנו ליצור את המשתמש. נסו שוב.');
+      // the profile row comes from the sign-up trigger; it is written here too, in case the trigger is late
+      await db.from('profiles').upsert({ id: uid, email }, { onConflict: 'id' });
+      return joinBusiness(db, id, uid, accessOf(body.access));
     }
     case 'remove_member': {
       const email = String(body.email ?? '').trim().toLowerCase();

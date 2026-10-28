@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 /**
  * The business this user works in now, and the ones they may switch to.
  *  GET  → { business, businesses[], superAdmin, access, modules } — drives the "העסק נעול" banner, the business switcher
- *         and the register-only screen of a cashier (access 'register')
+ *         and the register-only screen of a cashier (access 'register'), the calendar-and-leads screens (access 'calendar')
  *  POST { id } → work in that business from now on (super admin: any; others: one they are a member of).
  *        Row-level security then shows only that business's data (migration 20261004002500).
  */

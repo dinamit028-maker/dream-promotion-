@@ -18,7 +18,7 @@ export async function GET(req: Request) {
   const ids = (m ?? []).map((r: any) => r.user_id);
   const { data: p } = ids.length ? await db.from('profiles').select('id, full_name, email').in('id', ids) : { data: [] };
   const person = new Map((p ?? []).map((r: any) => [r.id, r]));
-  const members = (m ?? []).filter((r: any) => r.access !== 'register').map((r: any) => ({
+  const members = (m ?? []).filter((r: any) => r.access !== 'register' && r.access !== 'calendar').map((r: any) => ({
     userId: r.user_id, role: r.role, attendanceRole: r.attendance_role ?? null,
     name: person.get(r.user_id)?.full_name ?? '', email: person.get(r.user_id)?.email ?? '',
   }));

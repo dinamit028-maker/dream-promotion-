@@ -54,3 +54,11 @@ export const STATE_HE: Record<BizState, string> = { active: 'פעיל', locked: 
 
 /** a URL-safe id for a new business (latin letters, digits, dashes — same check as the database) */
 export const validSlug = (s: string) => /^[a-z0-9][a-z0-9-]{1,40}$/.test(s);
+
+/** 2.109: a password the super admin types for another person — long enough, and not only one kind of character */
+export function passwordProblem(p: string): string | null {
+  if (p.length < 8) return 'סיסמה של 8 תווים לפחות.';
+  if (p.length > 72) return 'סיסמה של עד 72 תווים.';
+  if (/^\d+$/.test(p) || /^[a-zA-Z]+$/.test(p)) return 'סיסמה עם אותיות וגם מספרים.';
+  return null;
+}

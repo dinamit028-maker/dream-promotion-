@@ -1,6 +1,6 @@
 import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { cleanRoot } from '@/features/store/store';
-import { LOCKED, REGISTER_ONLY, registerOnly, userLocked, workBusiness } from '@/lib/server/business';
+import { LOCKED, limitedRefusal, memberAccess, userLocked, workBusiness } from '@/lib/server/business';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
 import { isUuid } from '@/features/catalog/images';
 import { makePreviewToken, previewUrl, PREVIEW_SECONDS } from '@/features/store/preview-token';
@@ -20,13 +20,14 @@ export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return json(401, { code: 'no_session', message: 'צריך להתחבר מחדש.' });
   if (await userLocked(userId)) return json(403, LOCKED);
-  if (await registerOnly(userId)) return json(403, REGISTER_ONLY);
   const secret = process.env.STOREFRONT_PREVIEW_SECRET;
   if (!secret || secret.length < 16) {
     return json(503, { code: 'not_configured', message: 'תצוגה מקדימה עוד לא מוגדרת: חסר STOREFRONT_PREVIEW_SECRET בהגדרות של שני הפרויקטים ב-Vercel.' });
   }
   const business = await workBusiness(userId);
   if (!isUuid(business)) return json(403, { code: 'no_business', message: 'החשבון לא משויך לעסק.' });
+  const access = await memberAccess(userId, business);
+  if (access !== 'full') return json(403, limitedRefusal(access));
   const db = adminDb();
   const { data: store } = await db.from('stores').select('*').eq('business_id', business).maybeSingle();
   if (!store) return json(404, { code: 'no_store', message: 'עוד אין חנות לעסק הזה.' });

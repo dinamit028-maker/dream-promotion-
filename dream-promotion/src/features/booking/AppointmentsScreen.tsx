@@ -7,7 +7,7 @@ import { EmptyState, Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL, israelParts, israelToIso } from '@/lib/il-time';
 import { CalendarPlus } from '@/components/ui/Icon';
-import { phoneDigits, telLink, waLink } from '@/features/crm/crm';
+import { telLink, waLink } from '@/features/crm/crm';
 import { ContactSheet } from '@/features/crm/ContactSheet';
 import { freeSlots, reminderText, type Hours } from './slots';
 import { authHeaders } from '@/lib/services/http';
@@ -26,6 +26,7 @@ import { DayView, HolidayLine, MonthView, WeekView } from './CalendarViews';
 import { chagDay, festivalDays, holidaysIn, type Holiday } from './holidays';
 import { AppointmentSheet } from './AppointmentSheet';
 import { StaffTab } from './StaffTab';
+import { customerProblem, matchLead } from './new-customer';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
@@ -50,6 +51,8 @@ const hm = (iso: string) => israelParts(new Date(iso)).time;
  */
 export function AppointmentsScreen() {
   const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
+  // 2.109: a calendar member ("יומן ולידים") — the calendar only: no team, services, hours or booking page, no money, no client file
+  const calendarOnly = useApp((x) => x.access === 'calendar');
   // T12א: with several locations and "כל הסניפים" picked, every appointment says where it is
   const locState = useLocations((x) => x.state);
   const where = (a: Appointment) => (locState.businessId ? locationTag(locState, a, locState.businessId) : '');
@@ -100,13 +103,13 @@ export function AppointmentsScreen() {
       setStaff(ok ? await BookingAPI.staff() : []);
       setSettings(s.slug ? s : { ...s, title: s.title || brand.name, address: s.address || brand.city || '' });
       setServices(sv); setAppts(ap);
-      const ids = ap.filter((a) => (sv.find((x) => x.id === a.serviceId)?.deposit ?? 0) > 0).map((a) => a.id);
-      const d = await loadDeposits(ids);
+      const ids = calendarOnly ? [] : ap.filter((a) => (sv.find((x) => x.id === a.serviceId)?.deposit ?? 0) > 0).map((a) => a.id);
+      const d = ids.length ? await loadDeposits(ids) : new Map();
       setDeposits(Object.fromEntries([...d].map(([id, x]) => [id, x.amount])));
       setDepositDocs(Object.fromEntries([...d].map(([id, x]) => [id, x.docs])));
     } catch (e) { setError(bookingError(e)); }
     finally { setLoading(false); setLoaded(true); }
-  }, [userId, showPast, brand.name, brand.city, view, date]);
+  }, [userId, showPast, brand.name, brand.city, view, date, calendarOnly]);
   useEffect(() => { void load(); }, [load]);
   const reloadStaff = useCallback(async () => { if (ready) setStaff(await BookingAPI.staff()); }, [ready]);
 
@@ -115,7 +118,7 @@ export function AppointmentsScreen() {
   // owner and the practitioners the owner marked — anyone else gets nothing back, and nothing is shown.
   const [gaps, setGaps] = useState<Record<string, { type: string | null }>>({});
   useEffect(() => {
-    if (contactId) return;
+    if (contactId || calendarOnly) return;
     const today = israelParts(Date.now()).date;
     const list = appts.filter((a) => a.leadId && (a.status === 'booked' || a.status === 'confirmed'))
       .map((a) => ({ id: a.id, leadId: a.leadId!, service: a.serviceName, day: israelParts(new Date(a.start)).date }))
@@ -131,9 +134,9 @@ export function AppointmentsScreen() {
       } catch { if (live) setGaps({}); }
     })();
     return () => { live = false; };
-  }, [appts, contactId]);
+  }, [appts, contactId, calendarOnly]);
 
-  const depositOf = (a: Appointment) => services.find((x) => x.id === a.serviceId)?.deposit ?? 0;
+  const depositOf = (a: Appointment) => (calendarOnly ? 0 : services.find((x) => x.id === a.serviceId)?.deposit ?? 0);
   const depositIds = useMemo(() => appts.filter((a) => depositOf(a) > 0).map((a) => a.id), [appts, services]); // eslint-disable-line react-hooks/exhaustive-deps
   const depLinks = usePaylinks(depositIds.length ? { appointmentIds: depositIds } : null);
   const linksOf = (id: string) => (depLinks.links ?? []).filter((l) => l.appointmentId === id);
@@ -219,7 +222,7 @@ export function AppointmentsScreen() {
       <div className="mt-2 flex flex-wrap gap-1.5">
         {waLink(a.phone) && a.status !== 'done' && <Button size="sm" variant="ghost" onClick={() => remind(a)}>💬 תזכורת</Button>}
         {a.phone && <a href={telLink(a.phone)} className="rounded-full border border-line px-3 py-1 text-sm">📞</a>}
-        {a.status !== 'cancelled' && a.status !== 'no_show' && (() => {
+        {!calendarOnly && a.status !== 'cancelled' && a.status !== 'no_show' && (() => {
           const price = services.find((x) => x.id === a.serviceId)?.price;
           // a deposit that was really paid comes off the final payment (its own document is issued already)
           const line = afterDeposit(a.serviceName || 'טיפול', price ?? 0, deposits[a.id] ?? 0, depositDocs[a.id] ?? []);
@@ -242,7 +245,7 @@ export function AppointmentsScreen() {
         action={<Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>} />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
-        {([['agenda', 'יומן תורים'], ['staff', 'מטפלות'], ['services', 'שירותים'], ['hours', 'שעות פעילות'], ['page', 'דף הזמנה']] as const).map(([k, l]) => (
+        {!calendarOnly && ([['agenda', 'יומן תורים'], ['staff', 'מטפלות'], ['services', 'שירותים'], ['hours', 'שעות פעילות'], ['page', 'דף הזמנה']] as const).map(([k, l]) => (
           <Chip key={k} on={tab === k} onClick={() => setTab(k)} className="shrink-0 whitespace-nowrap">{l}</Chip>
         ))}
       </div>
@@ -253,7 +256,7 @@ export function AppointmentsScreen() {
       {!first && tab === 'agenda' && (
         !services.length ? (
           <EmptyState icon={<CalendarPlus />} title="מתחילים בשירותים" body="הוסיפו את מה שאפשר לקבוע (למשל: טיפול לייזר · 45 דקות), ואז קבעו שעות פעילות."
-            action={<Button variant="primary" onClick={() => setTab('services')}>הוספת שירות</Button>} />
+            action={calendarOnly ? undefined : <Button variant="primary" onClick={() => setTab('services')}>הוספת שירות</Button>} />
         ) : (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -375,11 +378,12 @@ export function AppointmentsScreen() {
       )}
 
       <NewAppointment open={adding} onClose={() => { setAdding(false); setPrefill(null); }} services={services.filter((s) => s.active)} settings={settings} busy={active}
-        staff={staff} ready={ready} prefill={prefill}
+        staff={staff} ready={ready} prefill={prefill} phoneRequired={calendarOnly}
         onCreate={async (a, customer) => {
           if (!userId) return 'אין חיבור';
-          let leadId = leads.find((l) => customer.phone && phoneDigits(l.phone) === phoneDigits(customer.phone))?.id
-            ?? leads.find((l) => !customer.phone && l.name === customer.name)?.id;
+          const problem = customerProblem(leads, customer, calendarOnly);
+          if (problem) return problem;
+          let leadId = matchLead(leads, customer)?.id;
           // a new customer is saved first: the appointment points to it (before 2.52.1 the first appointment of a new
           // customer could reach the server before the customer did, and fail)
           if (!leadId) leadId = await addLeadNow({ name: customer.name, phone: customer.phone, source: 'תור', date: todayIL, status: 'נקבע תור', value: 0 });
@@ -555,10 +559,12 @@ function HoursTab({ settings, onChange, onSave }: { settings: BookingSettings; o
   );
 }
 
-function NewAppointment({ open, onClose, services, settings, busy, staff, ready, prefill, onCreate }: {
+function NewAppointment({ open, onClose, services, settings, busy, staff, ready, prefill, phoneRequired, onCreate }: {
   open: boolean; onClose: () => void; services: BookingServiceRow[]; settings: BookingSettings; busy: Appointment[];
   /** 2.105: the team for the calendar, whether migration 5700 is there, and the day / hour / practitioner tapped on the calendar */
   staff: CalStaff[]; ready: boolean; prefill: { date: string; time: string; staffId: string } | null;
+  /** 2.109: a calendar member — a new customer only with a phone */
+  phoneRequired: boolean;
   onCreate: (a: { serviceId: string; serviceName: string; start: string; end: string; locationId?: string; staffId?: string | null }, customer: { name: string; phone: string; note: string }) => Promise<string | null>;
 }) {
   const { userId, leads } = useApp();
@@ -648,11 +654,11 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
         }} />
         <datalist id="crm-names">{leads.slice(0, 300).map((l) => <option key={l.id} value={l.name} />)}</datalist>
       </Field>
-      <Field label="טלפון"><Input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} inputMode="tel" dir="ltr" /></Field>
+      <Field label={phoneRequired && !matchLead(leads, customer) ? 'טלפון (חובה ללקוח/ה חדש/ה)' : 'טלפון'}><Input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} inputMode="tel" dir="ltr" /></Field>
       <Field label="הערה (לא חובה)"><Input value={customer.note} onChange={(e) => setCustomer({ ...customer, note: e.target.value })} /></Field>
       {err && <p className="mb-3 text-sm text-warn">{err}</p>}
       <div className="flex gap-3">
-        <Button variant="primary" onClick={create} disabled={saving || !time || !customer.name.trim()}>{saving ? 'שומר…' : 'קביעת התור'}</Button>
+        <Button variant="primary" onClick={create} disabled={saving || !time || Boolean(customerProblem(leads, customer, phoneRequired))}>{saving ? 'שומר…' : 'קביעת התור'}</Button>
         <Button variant="ghost" onClick={onClose}>ביטול</Button>
       </div>
     </Modal>
