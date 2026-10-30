@@ -76,12 +76,19 @@ export const BookingAPI = {
       // before migration 4300 there is no such column: left out, so saving a service never names it
       deposit: !('deposit' in r) ? undefined : r.deposit == null ? null : Number(r.deposit) }));
   },
-  async saveService(userId: string, s: Omit<BookingServiceRow, 'id'> & { id?: string }) {
+  /** the service's id (a new one's, from the database) */
+  async saveService(userId: string, s: Omit<BookingServiceRow, 'id'> & { id?: string }): Promise<string | undefined> {
     const row: Record<string, unknown> = { user_id: userId, name: s.name.trim(), minutes: s.minutes, price: s.price, active: s.active, sort: s.sort };
     // the deposit column comes with migration 4300: sent only when there is one to set or to clear
     if (s.deposit !== undefined) row.deposit = s.deposit;
-    const { error } = s.id ? await supabase().from('booking_services').update(row).eq('id', s.id) : await supabase().from('booking_services').insert(row);
+    if (s.id) {
+      const { error } = await supabase().from('booking_services').update(row).eq('id', s.id);
+      if (error) throw error;
+      return s.id;
+    }
+    const { data, error } = await supabase().from('booking_services').insert(row).select('id').single();
     if (error) throw error;
+    return (data as { id?: string } | null)?.id;
   },
   async deleteService(id: string) {
     const { error } = await supabase().from('booking_services').delete().eq('id', id);

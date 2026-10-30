@@ -17,7 +17,7 @@
  *   2.109 — Karin, "יומן ולידים": any other screen opens the calendar, two tabs, everyone's appointments, no settings or money;
  *   a new customer only with a phone (in the calendar and in the leads); the card without money, AI or deleting;
  *   2.110 — her treatments (a new one, a name and a length changed, never a price), and "סיום": an appointment from hour to hour —
- *   typed, or a tap on "שעה וחצי" / "שעתיים";
+ *   typed, or a tap on "שעה וחצי" / "שעתיים"; 2.110.2 — "+ שירות חדש" from the appointment itself;
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
  *   same views, no practitioner, no history, and "מטפלות" says what is missing;
  *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed to customers by the business —
@@ -735,7 +735,7 @@ async function main() {
       assert.deepEqual((await bar.locator('a').allInnerTexts()).map((x: string) => x.trim()), ['לקוחות', 'תורים'], 'the phone\'s tabs: hers only');
       assert.equal(await k.page.getByRole('button', { name: 'עוד' }).count(), 0, 'no "עוד"');
       assert.equal(await k.page.getByRole('link', { name: 'יצירת תוכן חדש' }).count(), 0, 'no "יצירה"');
-      for (const t of ['מטפלות', 'שירותים', 'שעות פעילות', 'דף הזמנה']) assert.equal(await k.page.getByRole('button', { name: t, exact: true }).count(), 0, `no "${t}"`);
+      for (const t of ['מטפלות', 'שעות פעילות', 'דף הזמנה']) assert.equal(await k.page.getByRole('button', { name: t, exact: true }).count(), 0, `no "${t}"`);
       assert.equal(await k.page.getByText(/AI פעיל|AI לא מוגדר/).count(), 0, 'no AI');
       await fits(k.page, 'her calendar');
       await shot(k.page, 'cal-9-calendar-member-phone.png', false);
@@ -773,7 +773,7 @@ async function main() {
     });
 
     await step('2.110 — Karin\'s treatments: a new one ("לייזר — ידיים", 40 minutes), a name and a length changed; never a price', async () => {
-      await k.page.getByRole('button', { name: 'טיפולים', exact: true }).click();
+      await k.page.getByRole('button', { name: 'שירותים', exact: true }).click();
       await k.page.getByText('המשך הוא ברירת המחדל של תור חדש').waitFor();
       assert.equal(await k.page.getByText(/₪/).count(), 0, 'no prices or deposits');
       assert.equal(await k.page.getByRole('button', { name: 'מחיקה' }).count(), 0, 'no deleting — hiding');
@@ -804,6 +804,17 @@ async function main() {
       await k.page.getByRole('button', { name: '+ תור' }).click();
       const d = dialog(k.page);
       await d.getByRole('heading', { name: 'תור חדש' }).waitFor();
+      // 2.110.2: "+ שירות חדש" from the appointment itself — saved, chosen, no price
+      await d.getByRole('button', { name: '+ שירות חדש' }).click();
+      const ns = d.getByRole('group', { name: 'שירות חדש' });
+      await ns.getByLabel('שם השירות').fill('לייזר — גב');
+      await ns.getByLabel('משך (דקות)').fill('50');
+      await ns.getByRole('button', { name: 'שמירת השירות' }).click();
+      await ns.waitFor({ state: 'detached' });
+      const back = (k.fake.tables.booking_services as Row[]).find((x) => x.name === 'לייזר — גב')!;
+      assert.deepEqual([back.minutes, back.price ?? null], [50, null], 'a new service: 50 minutes, no price');
+      assert.equal(await d.getByLabel('שירות').inputValue(), back.id, 'and chosen for this appointment');
+      await shot(k.page, 'cal-14-quick-service-phone.png', false);
       await d.getByLabel('שירות').selectOption({ label: 'לייזר — ידיים · 40 דק׳' });
       await d.getByLabel('או שעה אחרת').fill('21:00');
       assert.equal(await d.getByLabel('סיום').inputValue(), '21:40', 'by the treatment: 40 minutes');

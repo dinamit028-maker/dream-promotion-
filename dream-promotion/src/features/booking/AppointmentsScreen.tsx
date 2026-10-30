@@ -247,7 +247,7 @@ export function AppointmentsScreen() {
         action={<Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>} />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
-        {(calendarOnly ? [['agenda', 'יומן תורים'], ['services', 'טיפולים']] as const
+        {(calendarOnly ? [['agenda', 'יומן תורים'], ['services', 'שירותים']] as const
           : [['agenda', 'יומן תורים'], ['staff', 'מטפלות'], ['services', 'שירותים'], ['hours', 'שעות פעילות'], ['page', 'דף הזמנה']] as const).map(([k, l]) => (
           <Chip key={k} on={tab === k} onClick={() => setTab(k)} className="shrink-0 whitespace-nowrap">{l}</Chip>
         ))}
@@ -382,6 +382,14 @@ export function AppointmentsScreen() {
 
       <NewAppointment open={adding} onClose={() => { setAdding(false); setPrefill(null); }} services={services.filter((s) => s.active)} settings={settings} busy={active}
         staff={staff} ready={ready} prefill={prefill} phoneRequired={calendarOnly}
+        onAddService={async (name, minutes) => {
+          if (!userId) return { error: 'אין חיבור' };
+          try {
+            const id = await BookingAPI.saveService(userId, { name, minutes, price: null, active: true, sort: services.length });
+            await load();
+            return id ? { id } : { error: 'השירות נשמר — בחרו אותו מהרשימה.' };
+          } catch (e) { return { error: bookingError(e) }; }
+        }}
         onCreate={async (a, customer) => {
           if (!userId) return 'אין חיבור';
           const problem = customerProblem(leads, customer, calendarOnly);
@@ -463,6 +471,18 @@ function ServicesTab({ userId, services, money, onChange, onError }: { userId: s
   return (
     <div className="grid gap-3">
       {err && <p className="rounded-2xl bg-warn/10 p-3 text-sm text-warn">{err}</p>}
+      <datalist id="svc-lengths">{LENGTHS.map((m) => <option key={m} value={m} />)}</datalist>
+      <Card className="p-3">
+        <p className="mb-2 text-sm font-semibold">+ שירות חדש</p>
+        <div className={cx('grid gap-2', money ? 'sm:grid-cols-[1fr_120px_120px_120px_auto]' : 'sm:grid-cols-[1fr_140px_auto]')}>
+          <Input value={draft.name} maxLength={80} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="למשל: לייזר — ידיים" aria-label="שם הטיפול" />
+          <Input type="number" inputMode="numeric" min={5} max={480} step={5} value={draft.minutes} onChange={(e) => setDraft({ ...draft, minutes: e.target.value })} list="svc-lengths" aria-label="משך (דקות)" />
+          {money && <Input type="number" inputMode="decimal" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="מחיר ₪ (לא חובה)" />}
+          {money && <Input type="number" inputMode="decimal" value={draft.deposit} onChange={(e) => setDraft({ ...draft, deposit: e.target.value })} placeholder="מקדמה ₪ (לא חובה)" aria-label="מקדמה" />}
+          <Button variant="primary" onClick={add} disabled={Boolean(draftProblem)}>הוספה</Button>
+        </div>
+        {draft.name.trim() && draftProblem && <p className="mt-1 text-xs text-warn">{draftProblem}</p>}
+      </Card>
       <p className="text-xs text-muted">המשך הוא ברירת המחדל של תור חדש. בכל תור אפשר לקבוע שעת סיום אחרת.</p>
       {services.map((s) => (
         <Card key={s.id} className="min-w-0 p-3">
@@ -490,18 +510,6 @@ function ServicesTab({ userId, services, money, onChange, onError }: { userId: s
           )}
         </Card>
       ))}
-      <datalist id="svc-lengths">{LENGTHS.map((m) => <option key={m} value={m} />)}</datalist>
-      <Card className="p-3">
-        <p className="mb-2 text-sm font-semibold">{money ? 'שירות חדש' : 'טיפול חדש'}</p>
-        <div className={cx('grid gap-2', money ? 'sm:grid-cols-[1fr_120px_120px_120px_auto]' : 'sm:grid-cols-[1fr_140px_auto]')}>
-          <Input value={draft.name} maxLength={80} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="למשל: לייזר — ידיים" aria-label="שם הטיפול" />
-          <Input type="number" inputMode="numeric" min={5} max={480} step={5} value={draft.minutes} onChange={(e) => setDraft({ ...draft, minutes: e.target.value })} list="svc-lengths" aria-label="משך (דקות)" />
-          {money && <Input type="number" inputMode="decimal" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="מחיר ₪ (לא חובה)" />}
-          {money && <Input type="number" inputMode="decimal" value={draft.deposit} onChange={(e) => setDraft({ ...draft, deposit: e.target.value })} placeholder="מקדמה ₪ (לא חובה)" aria-label="מקדמה" />}
-          <Button variant="primary" onClick={add} disabled={Boolean(draftProblem)}>הוספה</Button>
-        </div>
-        {draft.name.trim() && draftProblem && <p className="mt-1 text-xs text-warn">{draftProblem}</p>}
-      </Card>
     </div>
   );
 }
@@ -586,12 +594,14 @@ function HoursTab({ settings, onChange, onSave }: { settings: BookingSettings; o
   );
 }
 
-function NewAppointment({ open, onClose, services, settings, busy, staff, ready, prefill, phoneRequired, onCreate }: {
+function NewAppointment({ open, onClose, services, settings, busy, staff, ready, prefill, phoneRequired, onAddService, onCreate }: {
   open: boolean; onClose: () => void; services: BookingServiceRow[]; settings: BookingSettings; busy: Appointment[];
   /** 2.105: the team for the calendar, whether migration 5700 is there, and the day / hour / practitioner tapped on the calendar */
   staff: CalStaff[]; ready: boolean; prefill: { date: string; time: string; staffId: string } | null;
   /** 2.109: a calendar member — a new customer only with a phone */
   phoneRequired: boolean;
+  /** 2.110.2: "+ שירות חדש" from the appointment itself — a name and a length (no price: the owner sets it in "שירותים") */
+  onAddService: (name: string, minutes: number) => Promise<{ id: string } | { error: string }>;
   onCreate: (a: { serviceId: string; serviceName: string; start: string; end: string; locationId?: string; staffId?: string | null }, customer: { name: string; phone: string; note: string }) => Promise<string | null>;
 }) {
   const { userId, leads } = useApp();
@@ -621,6 +631,16 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
     const atHere = locState.businessId ? atLocation(taken, at, locState.businessId) : taken;
     return ready ? atHere.filter((b) => !b.staffId) : atHere;
   }, [taken, at, locState.businessId, ready, staffId]);
+  const [newService, setNewService] = useState<{ name: string; minutes: string; busy: boolean; error: string | null } | null>(null);
+  async function addService() {
+    if (!newService) return;
+    const bad = !newService.name.trim() ? 'חסר שם לשירות.' : lengthProblem(Number(newService.minutes));
+    if (bad) { setNewService({ ...newService, error: bad }); return; }
+    setNewService({ ...newService, busy: true, error: null });
+    const r = await onAddService(newService.name.trim(), Number(newService.minutes));
+    if ('id' in r) { setServiceId(r.id); setTime(''); setNewService(null); }
+    else setNewService({ ...newService, busy: false, error: r.error });
+  }
   const [time, setTime] = useState('');
   // 2.110: until what hour — the treatment's length, unless set by hand for this appointment
   const [endTime, setEndTime] = useState('');
@@ -640,6 +660,7 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
     setDate(prefill?.date || israelParts(Date.now()).date);
     setTime(prefill?.time ?? '');
     setEndTouched(false);
+    setNewService(null);
     setStaffId(prefill?.staffId ?? '');
     setStaffTouched(Boolean(prefill?.staffId));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -664,6 +685,22 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
           {services.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.minutes} דק׳</option>)}
         </Select>
       </Field>
+      {!newService ? (
+        <button type="button" className="-mt-2 mb-3 text-sm font-semibold text-primary" onClick={() => setNewService({ name: '', minutes: '30', busy: false, error: null })}>+ שירות חדש</button>
+      ) : (
+        <div className="mb-3 rounded-2xl border border-line p-3" role="group" aria-label="שירות חדש">
+          <div className="grid gap-2 sm:grid-cols-[1fr_120px]">
+            <Field label="שם השירות"><Input value={newService.name} maxLength={80} autoFocus placeholder="למשל: לייזר — גב" onChange={(e) => setNewService({ ...newService, name: e.target.value, error: null })} /></Field>
+            <Field label="משך (דקות)"><Input type="number" inputMode="numeric" min={5} max={480} step={5} list="new-svc-lengths" value={newService.minutes} onChange={(e) => setNewService({ ...newService, minutes: e.target.value, error: null })} /></Field>
+          </div>
+          <datalist id="new-svc-lengths">{[15, 20, 30, 40, 45, 60, 75, 90, 120].map((m) => <option key={m} value={m} />)}</datalist>
+          {newService.error && <p className="mb-2 text-sm text-warn">{newService.error}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" variant="primary" disabled={newService.busy || !newService.name.trim()} onClick={() => void addService()}>{newService.busy ? 'שומר…' : 'שמירת השירות'}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setNewService(null)}>ביטול</Button>
+          </div>
+        </div>
+      )}
       <LocationField value={locationId} onChange={(id) => { setLocationId(id); setTime(''); }} />
       {ready && pract.length > 0 && (
         <Field label="מטפל/ת">
