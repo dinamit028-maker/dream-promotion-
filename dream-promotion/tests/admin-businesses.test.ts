@@ -185,6 +185,22 @@ test('admin API (2.109): "יומן ולידים" — a new sign-in opened by the
   assert.equal(attRoleOf({ role: 'editor', access: 'calendar' }, false), 'none', 'no attendance — by her role she would be its admin');
   assert.ok(!(await businessManagers('sg')).includes('u-gal'), 'no sale notifications');
 
+  // 2.109.2: a new password — only the super admin, only a member of that business, never a super admin's own account
+  const updated: { id: string; password: string }[] = [];
+  db.auth.admin.updateUserById = async (id: string, u: { password: string }) => { updated.push({ id, password: u.password }); return { data: { user: { id } }, error: null }; };
+  const setPw = (who: string, body: object) => api.PATCH(req(who, 'PATCH', { id: 'sg', action: 'set_password', ...body }));
+  assert.equal((await setPw('sagit', { email: 'gal@x.com', password: 'Gal2026x' })).status, 403, 'not an owner');
+  assert.match((await (await setPw('aviv', { email: 'gal@x.com', password: '12345678' })).json()).message, /אותיות וגם מספרים/);
+  assert.match((await (await setPw('aviv', { email: 'aviv@x.com', password: 'Gal2026x' })).json()).message, /לא חבר/, 'not of this business');
+  tables.business_members.push({ business_id: 'sg', user_id: 'aviv', role: 'owner', access: 'full' });
+  assert.match((await (await setPw('aviv', { email: 'aviv@x.com', password: 'Gal2026x' })).json()).message, /מנהל-על/, 'never a super admin');
+  tables.business_members.pop();
+  assert.equal(updated.length, 0, 'nothing changed before the checks pass');
+  const okPw = await setPw('aviv', { email: 'Gal@x.com', password: 'Gal2026x' });
+  assert.equal(okPw.status, 200);
+  assert.ok(!JSON.stringify(await okPw.json()).includes('Gal2026x'), 'never sent back');
+  assert.deepEqual(updated, [{ id: 'u-gal', password: 'Gal2026x' }]);
+
   // an existing person is added the same way, with the access chosen (an unknown access is "full", as before)
   const card = (await (await api.GET(req('aviv'))).json()).businesses.find((b: any) => b.id === 'sg');
   assert.ok(card.members.some((m: any) => m.email === 'gal@x.com' && m.access === 'calendar'));

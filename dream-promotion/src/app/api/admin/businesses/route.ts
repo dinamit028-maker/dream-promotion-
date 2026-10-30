@@ -23,6 +23,8 @@ export const dynamic = 'force-dynamic';
  *  PATCH { id, action: 'create_user', email, password, access } — 2.109: the super admin opens the sign-in for a person who
  *        did not sign up (an email and a password the super admin chose, confirmed at once) and adds them as above. The
  *        password is never stored here, logged or sent back.
+ *  PATCH { id, action: 'set_password', email, password } — 2.109.2: a new password for a member of the business (one the
+ *        super admin gave, mistyped or forgotten). Never for a super admin's account. The same rules, never sent back.
  *  PATCH { id, action: 'member_locations', email, locations: string[] | null } — a member works only in these locations of the
  *        business (T12א, migration 4600; null = all of them). The database checks them and logs the change (member.locations).
  */
@@ -192,6 +194,19 @@ export async function PATCH(req: Request) {
       // the profile row comes from the sign-up trigger; it is written here too, in case the trigger is late
       await db.from('profiles').upsert({ id: uid, email }, { onConflict: 'id' });
       return joinBusiness(db, id, uid, accessOf(body.access));
+    }
+    case 'set_password': {
+      const email = String(body.email ?? '').trim().toLowerCase();
+      const password = typeof body.password === 'string' ? body.password : '';
+      const weak = passwordProblem(password);
+      if (weak) return bad(weak);
+      const uid = await signedUpUser(db, email);
+      if (!uid) return bad('המשתמש לא נמצא');
+      const { data: m } = await db.from('business_members').select('user_id').eq('business_id', id).eq('user_id', uid).maybeSingle();
+      if (!m) return bad(`${email} לא חבר/ה בעסק הזה.`);
+      if (await isSuperAdmin(uid)) return bad('סיסמה של מנהל-על לא משנים מכאן.');
+      const { error } = await db.auth.admin.updateUserById(uid, { password });
+      return error ? bad('לא הצלחנו לשמור את הסיסמה. נסו שוב.') : NextResponse.json({ ok: true });
     }
     case 'remove_member': {
       const email = String(body.email ?? '').trim().toLowerCase();
