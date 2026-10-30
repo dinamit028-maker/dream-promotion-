@@ -16,7 +16,8 @@
  *   a member who is not the owner (Gal): sees everyone, moves Karin's appointment — the history says Gal; "מטפלות" read only;
  *   2.109 — Karin, "יומן ולידים": any other screen opens the calendar, two tabs, everyone's appointments, no settings or money;
  *   a new customer only with a phone (in the calendar and in the leads); the card without money, AI or deleting;
- *   2.110 — her treatments (a new one, a name and a length changed, never a price), and "סיום": an appointment from hour to hour;
+ *   2.110 — her treatments (a new one, a name and a length changed, never a price), and "סיום": an appointment from hour to hour —
+ *   typed, or a tap on "שעה וחצי" / "שעתיים";
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
  *   same views, no practitioner, no history, and "מטפלות" says what is missing;
  *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed to customers by the business —
@@ -806,6 +807,10 @@ async function main() {
       await d.getByLabel('שירות').selectOption({ label: 'לייזר — ידיים · 40 דק׳' });
       await d.getByLabel('או שעה אחרת').fill('21:00');
       assert.equal(await d.getByLabel('סיום').inputValue(), '21:40', 'by the treatment: 40 minutes');
+      // "שעה וחצי" — a tap, and the end follows: 21:00 → 22:30
+      await d.getByRole('group', { name: 'משך התור' }).getByRole('button', { name: 'שעה וחצי', exact: true }).click();
+      assert.equal(await d.getByLabel('סיום').inputValue(), '22:30', '21:00 and an hour and a half');
+      await d.getByText('משך: שעה וחצי').waitFor();
       await d.getByLabel('סיום').fill('20:50');
       await d.getByText('שעת הסיום חייבת להיות אחרי שעת ההתחלה.').waitFor();
       assert.equal(await d.getByRole('button', { name: 'קביעת התור' }).isDisabled(), true);
@@ -824,6 +829,11 @@ async function main() {
       await sh.getByText('שעת הסיום שונתה מ-22:15 ל-22:30').waitFor();
       const b = (k.fake.tables.appointments as Row[]).find((x) => x.id === a.id)!;
       assert.equal(israelTime(b.end_at), '22:30');
+      await sh.getByRole('group', { name: 'משך התור' }).getByRole('button', { name: 'שעתיים', exact: true }).click();
+      assert.equal(await sh.getByLabel('סיום').inputValue(), '23:00', 'two hours from 21:00');
+      await sh.getByRole('button', { name: 'שמירת השינוי' }).click();
+      await sh.getByText('שעת הסיום שונתה מ-22:30 ל-23:00').waitFor();
+      assert.equal(israelTime((k.fake.tables.appointments as Row[]).find((x) => x.id === a.id)!.end_at), '23:00');
       await shot(k.page, 'cal-13-end-time-phone.png', false);
       await k.page.keyboard.press('Escape');
     });

@@ -28,3 +28,16 @@ export function apptRange(day: string, start: string, end: string): { start: str
 
 /** a treatment's default length: 5 minutes to 8 hours (booking_services_minutes_check) */
 export const lengthProblem = (m: number) => (!Number.isInteger(m) || m < 5 || m > 480 ? 'משך של 5 עד 480 דקות.' : null);
+
+/** 2.110: "how long" — tapped, the end moves to the start plus it (11:00 + שעה וחצי → 12:30) */
+export const DURATIONS = [15, 30, 40, 45, 60, 75, 90, 120, 150, 180] as const;
+export function durationLabel(m: number): string {
+  if (m <= 0) return '';
+  const h = Math.floor(m / 60), r = m % 60;
+  const hours = h === 0 ? '' : h === 1 ? 'שעה' : h === 2 ? 'שעתיים' : `${h} שעות`;
+  if (!r) return hours;
+  if (!h) return r === 30 ? 'חצי שעה' : r === 15 ? 'רבע שעה' : `${r} דק׳`;
+  return r === 30 ? `${hours} וחצי` : r === 15 ? `${hours} ורבע` : r === 45 ? `${hours} ו-45 דק׳` : `${hours} ו-${r} דק׳`;
+}
+/** the length between two hours of a day, in minutes (0 when not a range) */
+export const lengthOf = (start: string, end: string) => (timesProblem(start, end) ? 0 : toMinutes(end) - toMinutes(start));

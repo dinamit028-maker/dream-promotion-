@@ -28,6 +28,7 @@ import { AppointmentSheet } from './AppointmentSheet';
 import { StaffTab } from './StaffTab';
 import { customerProblem, matchLead } from './new-customer';
 import { apptRange, defaultEnd, lengthProblem, timesProblem } from './appt-times';
+import { DurationPicker } from './DurationPicker';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
@@ -682,6 +683,7 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
         <Field label="או שעה אחרת"><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-auto" /></Field>
         <Field label="סיום"><Input type="time" value={endTime} step={300} onChange={(e) => { setEndTime(e.target.value); setEndTouched(true); }} className="w-auto" disabled={!time} /></Field>
       </div>
+      <DurationPicker start={time} end={endTime} onPick={(e) => { setEndTime(e); setEndTouched(true); }} disabled={!time} />
       {time && timeProblem && <p className="mb-2 text-sm text-warn">{timeProblem}</p>}
       <Field label="שם הלקוח/ה">
         <Input list="crm-names" value={customer.name} onChange={(e) => {

@@ -5,6 +5,7 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { BookingAPI, bookingError, type Appointment } from './booking.service';
 import { apptRange, defaultEnd, timesProblem } from './appt-times';
+import { DurationPicker } from './DurationPicker';
 import { apptColor, dayOf, eventLine, eventWhen, eventWho, minuteOfDay, practitioners, shortDay, type ApptEvent, type CalStaff } from './calendar';
 
 /**
@@ -100,6 +101,7 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
         <Field label="שעה"><Input type="time" value={time} step={300} onChange={(e) => pickTime(e.target.value)} disabled={!open} /></Field>
         <Field label="סיום"><Input type="time" value={endTime} step={300} onChange={(e) => { setEndTime(e.target.value); setEndTouched(true); }} disabled={!open} /></Field>
       </div>
+      {open && <DurationPicker start={time} end={endTime} onPick={(e) => { setEndTime(e); setEndTouched(true); }} />}
       {ready && (choices.length > 0 || appt.staffId) && (
         <Field label="מטפל/ת">
           <Select value={staffId} onChange={(e) => setStaffId(e.target.value)} disabled={!open}>

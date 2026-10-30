@@ -31,3 +31,15 @@ test('a treatment\'s length', () => {
   assert.equal(lengthProblem(480), null);
   for (const m of [0, 4, 481, 12.5, NaN]) assert.ok(lengthProblem(m), String(m));
 });
+
+test('how long: a tap sets the end — 11:00 and "שעה וחצי" end at 12:30', async () => {
+  const { DURATIONS, durationLabel, lengthOf } = await import('../src/features/booking/appt-times');
+  assert.equal(defaultEnd('11:00', 90), '12:30');
+  assert.equal(lengthOf('11:00', '12:30'), 90);
+  assert.equal(lengthOf('11:00', '10:00'), 0);
+  assert.deepEqual([15, 30, 40, 45, 60, 75, 90, 120, 150, 180].map(durationLabel),
+    ['רבע שעה', 'חצי שעה', '40 דק׳', '45 דק׳', 'שעה', 'שעה ורבע', 'שעה וחצי', 'שעתיים', 'שעתיים וחצי', '3 שעות']);
+  assert.equal(durationLabel(105), 'שעה ו-45 דק׳');
+  assert.equal(durationLabel(70), 'שעה ו-10 דק׳');
+  assert.ok(DURATIONS.every((m) => m >= 5 && m <= 480));
+});
