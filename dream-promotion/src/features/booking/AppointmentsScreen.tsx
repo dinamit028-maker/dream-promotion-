@@ -27,6 +27,8 @@ import { chagDay, festivalDays, holidaysIn, type Holiday } from './holidays';
 import { AppointmentSheet } from './AppointmentSheet';
 import { StaffTab } from './StaffTab';
 import { customerProblem, matchLead } from './new-customer';
+import { apptRange, defaultEnd, lengthProblem, timesProblem } from './appt-times';
+import { DurationPicker } from './DurationPicker';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
@@ -245,7 +247,8 @@ export function AppointmentsScreen() {
         action={<Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>} />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
-        {!calendarOnly && ([['agenda', 'יומן תורים'], ['staff', 'מטפלות'], ['services', 'שירותים'], ['hours', 'שעות פעילות'], ['page', 'דף הזמנה']] as const).map(([k, l]) => (
+        {(calendarOnly ? [['agenda', 'יומן תורים'], ['services', 'טיפולים']] as const
+          : [['agenda', 'יומן תורים'], ['staff', 'מטפלות'], ['services', 'שירותים'], ['hours', 'שעות פעילות'], ['page', 'דף הזמנה']] as const).map(([k, l]) => (
           <Chip key={k} on={tab === k} onClick={() => setTab(k)} className="shrink-0 whitespace-nowrap">{l}</Chip>
         ))}
       </div>
@@ -256,7 +259,7 @@ export function AppointmentsScreen() {
       {!first && tab === 'agenda' && (
         !services.length ? (
           <EmptyState icon={<CalendarPlus />} title="מתחילים בשירותים" body="הוסיפו את מה שאפשר לקבוע (למשל: טיפול לייזר · 45 דקות), ואז קבעו שעות פעילות."
-            action={calendarOnly ? undefined : <Button variant="primary" onClick={() => setTab('services')}>הוספת שירות</Button>} />
+            action={<Button variant="primary" onClick={() => setTab('services')}>הוספת שירות</Button>} />
         ) : (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -342,7 +345,7 @@ export function AppointmentsScreen() {
 
       {!first && tab === 'staff' && <StaffTab ready={ready} onChanged={() => void reloadStaff()} />}
 
-      {!first && tab === 'services' && <ServicesTab userId={userId} services={services} onChange={load} onError={(e) => setError(bookingError(e))} />}
+      {!first && tab === 'services' && <ServicesTab userId={userId} services={services} money={!calendarOnly} onChange={load} onError={(e) => setError(bookingError(e))} />}
 
       {!first && tab === 'hours' && (
         <HoursTab settings={settings} onChange={setSettings} onSave={() => saveSettings()} />
@@ -420,20 +423,28 @@ export function depositError(raw: string, price: number | null): string | null {
   return null;
 }
 
-function ServicesTab({ userId, services, onChange, onError }: { userId: string; services: BookingServiceRow[]; onChange: () => void; onError: (e: unknown) => void }) {
-  const [draft, setDraft] = useState({ name: '', minutes: 30, price: '', deposit: '' });
+/**
+ * The treatments (services): a name and a default length each — an appointment may still end at another hour ("סיום").
+ * 2.110: a calendar member ("יומן ולידים") adds and changes them too, never the price or the deposit (`money` = false) and
+ * never deletes — hides (the database: b_booking_services_calendar_money, migration 20261030006100).
+ */
+const LENGTHS = [10, 15, 20, 30, 40, 45, 60, 75, 90, 120, 180];
+function ServicesTab({ userId, services, money, onChange, onError }: { userId: string; services: BookingServiceRow[]; money: boolean; onChange: () => void; onError: (e: unknown) => void }) {
+  const [draft, setDraft] = useState({ name: '', minutes: '30', price: '', deposit: '' });
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; name: string; minutes: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const draftProblem = !draft.name.trim() ? 'שם הטיפול' : lengthProblem(Number(draft.minutes));
   async function add() {
-    if (!draft.name.trim()) return;
-    const price = draft.price === '' ? null : Number(draft.price);
-    const bad = depositError(draft.deposit, price);
+    if (draftProblem) return;
+    const price = !money || draft.price === '' ? null : Number(draft.price);
+    const bad = money ? depositError(draft.deposit, price) : null;
     if (bad) { setErr(bad); return; }
     setErr(null);
     try {
-      await BookingAPI.saveService(userId, { name: draft.name, minutes: draft.minutes, price, active: true, sort: services.length,
-        ...(draft.deposit.trim() ? { deposit: Number(draft.deposit) } : {}) });
-      setDraft({ name: '', minutes: 30, price: '', deposit: '' }); onChange();
+      await BookingAPI.saveService(userId, { name: draft.name, minutes: Number(draft.minutes), price, active: true, sort: services.length,
+        ...(money && draft.deposit.trim() ? { deposit: Number(draft.deposit) } : {}) });
+      setDraft({ name: '', minutes: '30', price: '', deposit: '' }); onChange();
     } catch (e) { onError(e); }
   }
   async function saveDeposit(s: BookingServiceRow, value: string) {
@@ -442,19 +453,35 @@ function ServicesTab({ userId, services, onChange, onError }: { userId: string; 
     setErr(null);
     try { await BookingAPI.saveService(userId, { ...s, deposit: value.trim() ? Number(value) : null }); setEditing(null); onChange(); } catch (e) { onError(e); }
   }
+  async function saveName(s: BookingServiceRow) {
+    if (!renaming) return;
+    const bad = !renaming.name.trim() ? 'חסר שם לטיפול.' : lengthProblem(Number(renaming.minutes));
+    if (bad) { setErr(bad); return; }
+    setErr(null);
+    try { await BookingAPI.saveService(userId, { ...s, name: renaming.name, minutes: Number(renaming.minutes) }); setRenaming(null); onChange(); } catch (e) { onError(e); }
+  }
   return (
     <div className="grid gap-3">
       {err && <p className="rounded-2xl bg-warn/10 p-3 text-sm text-warn">{err}</p>}
+      <p className="text-xs text-muted">המשך הוא ברירת המחדל של תור חדש. בכל תור אפשר לקבוע שעת סיום אחרת.</p>
       {services.map((s) => (
         <Card key={s.id} className="min-w-0 p-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="min-w-0 flex-1"><strong className={cx('block truncate', !s.active && 'text-muted line-through')}>{s.name}</strong>
-              <span className="text-xs text-muted">{s.minutes} דק׳{s.price != null ? ` · ₪${s.price}` : ''}{s.deposit ? ` · מקדמה ₪${s.deposit}` : ''}</span></span>
-            {s.deposit !== undefined && <Button size="sm" variant="ghost" onClick={() => setEditing(editing?.id === s.id ? null : { id: s.id, value: s.deposit ? String(s.deposit) : '' })}>מקדמה</Button>}
+              <span className="text-xs text-muted">{s.minutes} דק׳{money && s.price != null ? ` · ₪${s.price}` : ''}{money && s.deposit ? ` · מקדמה ₪${s.deposit}` : ''}</span></span>
+            <Button size="sm" variant="ghost" onClick={() => setRenaming(renaming?.id === s.id ? null : { id: s.id, name: s.name, minutes: String(s.minutes) })}>עריכה</Button>
+            {money && s.deposit !== undefined && <Button size="sm" variant="ghost" onClick={() => setEditing(editing?.id === s.id ? null : { id: s.id, value: s.deposit ? String(s.deposit) : '' })}>מקדמה</Button>}
             <Button size="sm" variant="ghost" onClick={async () => { try { await BookingAPI.saveService(userId, { ...s, active: !s.active }); onChange(); } catch (e) { onError(e); } }}>{s.active ? 'הסתרה' : 'הצגה'}</Button>
-            <Button size="sm" variant="ghost" onClick={async () => { if (!window.confirm(`למחוק את "${s.name}"? תורים קיימים יישארו.`)) return; try { await BookingAPI.deleteService(s.id); onChange(); } catch (e) { onError(e); } }}>מחיקה</Button>
+            {money && <Button size="sm" variant="ghost" onClick={async () => { if (!window.confirm(`למחוק את "${s.name}"? תורים קיימים יישארו.`)) return; try { await BookingAPI.deleteService(s.id); onChange(); } catch (e) { onError(e); } }}>מחיקה</Button>}
           </div>
-          {editing?.id === s.id && (
+          {renaming?.id === s.id && (
+            <form className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px_auto] sm:items-end" onSubmit={(e) => { e.preventDefault(); void saveName(s); }}>
+              <Field label="שם הטיפול"><Input value={renaming.name} maxLength={80} onChange={(e) => setRenaming({ ...renaming, name: e.target.value })} /></Field>
+              <Field label="משך (דקות)"><Input type="number" inputMode="numeric" min={5} max={480} step={5} value={renaming.minutes} onChange={(e) => setRenaming({ ...renaming, minutes: e.target.value })} list="svc-lengths" /></Field>
+              <Button size="sm" variant="primary" type="submit">שמירה</Button>
+            </form>
+          )}
+          {money && editing?.id === s.id && (
             <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); void saveDeposit(s, editing.value); }}>
               <Field label="מקדמה ₪ (ריק = בלי מקדמה)"><Input value={editing.value} onChange={(e) => setEditing({ id: s.id, value: e.target.value })} inputMode="decimal" dir="ltr" className="w-32" /></Field>
               <Button size="sm" variant="primary" type="submit">שמירה</Button>
@@ -463,17 +490,17 @@ function ServicesTab({ userId, services, onChange, onError }: { userId: string; 
           )}
         </Card>
       ))}
+      <datalist id="svc-lengths">{LENGTHS.map((m) => <option key={m} value={m} />)}</datalist>
       <Card className="p-3">
-        <p className="mb-2 text-sm font-semibold">שירות חדש</p>
-        <div className="grid gap-2 sm:grid-cols-[1fr_120px_120px_120px_auto]">
-          <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="למשל: הסרת שיער בלייזר — פנים" />
-          <Select value={draft.minutes} onChange={(e) => setDraft({ ...draft, minutes: Number(e.target.value) })} aria-label="משך">
-            {[10, 15, 20, 30, 45, 60, 75, 90, 120, 180].map((m) => <option key={m} value={m}>{m} דקות</option>)}
-          </Select>
-          <Input type="number" inputMode="decimal" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="מחיר ₪ (לא חובה)" />
-          <Input type="number" inputMode="decimal" value={draft.deposit} onChange={(e) => setDraft({ ...draft, deposit: e.target.value })} placeholder="מקדמה ₪ (לא חובה)" aria-label="מקדמה" />
-          <Button variant="primary" onClick={add} disabled={!draft.name.trim()}>הוספה</Button>
+        <p className="mb-2 text-sm font-semibold">{money ? 'שירות חדש' : 'טיפול חדש'}</p>
+        <div className={cx('grid gap-2', money ? 'sm:grid-cols-[1fr_120px_120px_120px_auto]' : 'sm:grid-cols-[1fr_140px_auto]')}>
+          <Input value={draft.name} maxLength={80} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="למשל: לייזר — ידיים" aria-label="שם הטיפול" />
+          <Input type="number" inputMode="numeric" min={5} max={480} step={5} value={draft.minutes} onChange={(e) => setDraft({ ...draft, minutes: e.target.value })} list="svc-lengths" aria-label="משך (דקות)" />
+          {money && <Input type="number" inputMode="decimal" value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="מחיר ₪ (לא חובה)" />}
+          {money && <Input type="number" inputMode="decimal" value={draft.deposit} onChange={(e) => setDraft({ ...draft, deposit: e.target.value })} placeholder="מקדמה ₪ (לא חובה)" aria-label="מקדמה" />}
+          <Button variant="primary" onClick={add} disabled={Boolean(draftProblem)}>הוספה</Button>
         </div>
+        {draft.name.trim() && draftProblem && <p className="mt-1 text-xs text-warn">{draftProblem}</p>}
       </Card>
     </div>
   );
@@ -595,6 +622,9 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
     return ready ? atHere.filter((b) => !b.staffId) : atHere;
   }, [taken, at, locState.businessId, ready, staffId]);
   const [time, setTime] = useState('');
+  // 2.110: until what hour — the treatment's length, unless set by hand for this appointment
+  const [endTime, setEndTime] = useState('');
+  const [endTouched, setEndTouched] = useState(false);
   const [customer, setCustomer] = useState({ name: '', phone: '', note: '' });
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -609,15 +639,19 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
     setErr(null);
     setDate(prefill?.date || israelParts(Date.now()).date);
     setTime(prefill?.time ?? '');
+    setEndTouched(false);
     setStaffId(prefill?.staffId ?? '');
     setStaffTouched(Boolean(prefill?.staffId));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the end follows the start and the treatment until it is set by hand
+  useEffect(() => { if (!endTouched) setEndTime(service && time ? defaultEnd(time, service.minutes) : ''); }, [time, service?.id, service?.minutes, endTouched]); // eslint-disable-line react-hooks/exhaustive-deps
+  const timeProblem = time ? timesProblem(time, endTime) : null;
   async function create() {
     if (!service || !time || !customer.name.trim()) return;
+    if (timeProblem) { setErr(timeProblem); return; }
     setSaving(true);
-    const start = israelToIso(date, time);
-    const end = new Date(new Date(start).getTime() + service.minutes * 60_000).toISOString();
+    const { start, end } = apptRange(date, time, endTime);
     const e = await onCreate({ serviceId: service.id, serviceName: service.name, start, end, ...(at ? { locationId: at } : {}), ...(ready && staffId ? { staffId } : {}) }, { ...customer, name: customer.name.trim() });
     setSaving(false);
     if (e) setErr(e); else { setCustomer({ name: '', phone: '', note: '' }); onClose(); }
@@ -645,7 +679,12 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
         {slots.slice(0, 40).map((s) => <Chip key={s.start} on={time === s.time} onClick={() => setTime(s.time)}>{s.time}</Chip>)}
         {!slots.length && <span className="text-sm text-muted">אין שעות פנויות לפי שעות הפעילות.</span>}
       </div>
-      <Field label="או שעה אחרת"><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-auto" /></Field>
+      <div className="flex flex-wrap gap-x-3">
+        <Field label="או שעה אחרת"><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-auto" /></Field>
+        <Field label="סיום"><Input type="time" value={endTime} step={300} onChange={(e) => { setEndTime(e.target.value); setEndTouched(true); }} className="w-auto" disabled={!time} /></Field>
+      </div>
+      <DurationPicker start={time} end={endTime} onPick={(e) => { setEndTime(e); setEndTouched(true); }} disabled={!time} />
+      {time && timeProblem && <p className="mb-2 text-sm text-warn">{timeProblem}</p>}
       <Field label="שם הלקוח/ה">
         <Input list="crm-names" value={customer.name} onChange={(e) => {
           const name = e.target.value; const l = leads.find((x) => x.name === name);
@@ -658,7 +697,7 @@ function NewAppointment({ open, onClose, services, settings, busy, staff, ready,
       <Field label="הערה (לא חובה)"><Input value={customer.note} onChange={(e) => setCustomer({ ...customer, note: e.target.value })} /></Field>
       {err && <p className="mb-3 text-sm text-warn">{err}</p>}
       <div className="flex gap-3">
-        <Button variant="primary" onClick={create} disabled={saving || !time || Boolean(customerProblem(leads, customer, phoneRequired))}>{saving ? 'שומר…' : 'קביעת התור'}</Button>
+        <Button variant="primary" onClick={create} disabled={saving || !time || Boolean(timeProblem) || Boolean(customerProblem(leads, customer, phoneRequired))}>{saving ? 'שומר…' : 'קביעת התור'}</Button>
         <Button variant="ghost" onClick={onClose}>ביטול</Button>
       </div>
     </Modal>

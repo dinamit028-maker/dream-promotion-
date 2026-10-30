@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button, Field, Input, Select } from '@/components/ui/primitives';
 import { Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
-import { israelToIso } from '@/lib/il-time';
 import { BookingAPI, bookingError, type Appointment } from './booking.service';
+import { apptRange, defaultEnd, timesProblem } from './appt-times';
+import { DurationPicker } from './DurationPicker';
 import { apptColor, dayOf, eventLine, eventWhen, eventWho, minuteOfDay, practitioners, shortDay, type ApptEvent, type CalStaff } from './calendar';
 
 /**
@@ -26,6 +27,9 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
 }) {
   const [day, setDay] = useState('');
   const [time, setTime] = useState('');
+  // 2.110: until what hour — by the appointment's length; set by hand, it stays where it was put
+  const [endTime, setEndTime] = useState('');
+  const [endTouched, setEndTouched] = useState(false);
   const [staffId, setStaffId] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -33,7 +37,7 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
 
   useEffect(() => {
     if (!appt) return;
-    setDay(dayOf(appt.start)); setTime(hm(minuteOfDay(appt.start))); setStaffId(appt.staffId ?? ''); setErr(null);
+    reset();
   }, [appt?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -51,18 +55,26 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
     return own && !act.some((s) => s.id === own.id) ? [...act, own] : act;
   }, [staff, appt?.staffId]);
 
+  function reset() {
+    if (!appt) return;
+    setDay(dayOf(appt.start)); setTime(hm(minuteOfDay(appt.start))); setEndTime(hm(minuteOfDay(appt.end))); setEndTouched(false);
+    setStaffId(appt.staffId ?? ''); setErr(null);
+  }
   if (!appt) return <Modal open={false} onClose={onClose}>{null}</Modal>;
   const minutes = Math.round((new Date(appt.end).getTime() - new Date(appt.start).getTime()) / 60000);
-  const changed = day !== dayOf(appt.start) || time !== hm(minuteOfDay(appt.start)) || (ready && (staffId || null) !== (appt.staffId ?? null));
+  const changed = day !== dayOf(appt.start) || time !== hm(minuteOfDay(appt.start)) || endTime !== hm(minuteOfDay(appt.end))
+    || (ready && (staffId || null) !== (appt.staffId ?? null));
+  const problem = timesProblem(time, endTime);
+  const pickTime = (t: string) => { setTime(t); if (!endTouched) setEndTime(defaultEnd(t, minutes)); };
   const open = appt.status === 'booked' || appt.status === 'confirmed';
   const color = apptColor(staff, appt.staffId);
 
   async function save() {
-    if (!appt || !day || !/^\d{2}:\d{2}$/.test(time)) return;
+    if (!appt || !day) return;
+    if (problem) { setErr(problem); return; }
     setSaving(true); setErr(null);
     try {
-      const start = israelToIso(day, time);
-      const end = new Date(new Date(start).getTime() + minutes * 60000).toISOString();
+      const { start, end } = apptRange(day, time, endTime);
       const next = await BookingAPI.move(appt.id, { start, end, ...(ready ? { staffId: staffId || null } : {}) });
       onSaved(next);
     } catch (e) { setErr(bookingError(e)); }
@@ -85,9 +97,11 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-x-3">
-        <Field label="יום"><Input type="date" value={day} onChange={(e) => setDay(e.target.value)} disabled={!open} /></Field>
-        <Field label="שעה"><Input type="time" value={time} step={300} onChange={(e) => setTime(e.target.value)} disabled={!open} /></Field>
+        <div className="col-span-2"><Field label="יום"><Input type="date" value={day} onChange={(e) => setDay(e.target.value)} disabled={!open} /></Field></div>
+        <Field label="שעה"><Input type="time" value={time} step={300} onChange={(e) => pickTime(e.target.value)} disabled={!open} /></Field>
+        <Field label="סיום"><Input type="time" value={endTime} step={300} onChange={(e) => { setEndTime(e.target.value); setEndTouched(true); }} disabled={!open} /></Field>
       </div>
+      {open && <DurationPicker start={time} end={endTime} onPick={(e) => { setEndTime(e); setEndTouched(true); }} />}
       {ready && (choices.length > 0 || appt.staffId) && (
         <Field label="מטפל/ת">
           <Select value={staffId} onChange={(e) => setStaffId(e.target.value)} disabled={!open}>
@@ -98,9 +112,9 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
       )}
       {changed && open && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Button variant="primary" onClick={save} disabled={saving}>{saving ? 'שומר…' : 'שמירת השינוי'}</Button>
-          <Button variant="ghost" onClick={() => { setDay(dayOf(appt.start)); setTime(hm(minuteOfDay(appt.start))); setStaffId(appt.staffId ?? ''); setErr(null); }}>ביטול השינוי</Button>
-          <span className="text-xs text-muted">{shortDay(day || dayOf(appt.start))} · {time} · {minutes} דק׳</span>
+          <Button variant="primary" onClick={save} disabled={saving || Boolean(problem)}>{saving ? 'שומר…' : 'שמירת השינוי'}</Button>
+          <Button variant="ghost" onClick={reset}>ביטול השינוי</Button>
+          <span className="text-xs text-muted">{shortDay(day || dayOf(appt.start))} · {time}–{endTime}{problem ? ` · ${problem}` : ''}</span>
         </div>
       )}
       {err && <p className="mb-3 rounded-2xl bg-warn/10 p-3 text-sm text-warn">{err}</p>}

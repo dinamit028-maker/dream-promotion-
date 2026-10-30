@@ -16,6 +16,8 @@
  *   a member who is not the owner (Gal): sees everyone, moves Karin's appointment — the history says Gal; "מטפלות" read only;
  *   2.109 — Karin, "יומן ולידים": any other screen opens the calendar, two tabs, everyone's appointments, no settings or money;
  *   a new customer only with a phone (in the calendar and in the leads); the card without money, AI or deleting;
+ *   2.110 — her treatments (a new one, a name and a length changed, never a price), and "סיום": an appointment from hour to hour —
+ *   typed, or a tap on "שעה וחצי" / "שעתיים";
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
  *   same views, no practitioner, no history, and "מטפלות" says what is missing;
  *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed to customers by the business —
@@ -430,7 +432,7 @@ async function main() {
       await block(p.page, /^16:00–17:00 מיכל ו\./).click();
       d = dialog(p.page);
       await d.getByLabel('שעה').fill('16:30');
-      await d.getByText('א׳ 18.10 · 16:30 · 60 דק׳').waitFor();
+      await d.getByText('א׳ 18.10 · 16:30–17:30').waitFor();
       await d.getByRole('button', { name: 'שמירת השינוי' }).click();
       await d.getByText('הוזז מ-16:00 ל-16:30').waitFor();
       assert.deepEqual([israelTime(mic().start_at), israelTime(mic().end_at)], ['16:30', '17:30'], 'the same length');
@@ -767,6 +769,72 @@ async function main() {
       // no charge, no deposit, no money in the appointment
       await block(k.page, /רוני ח\./).click();
       assert.equal(await dialog(k.page).getByText('💳 חיוב').count(), 0, 'no "חיוב"');
+      await k.page.keyboard.press('Escape');
+    });
+
+    await step('2.110 — Karin\'s treatments: a new one ("לייזר — ידיים", 40 minutes), a name and a length changed; never a price', async () => {
+      await k.page.getByRole('button', { name: 'טיפולים', exact: true }).click();
+      await k.page.getByText('המשך הוא ברירת המחדל של תור חדש').waitFor();
+      assert.equal(await k.page.getByText(/₪/).count(), 0, 'no prices or deposits');
+      assert.equal(await k.page.getByRole('button', { name: 'מחיקה' }).count(), 0, 'no deleting — hiding');
+      assert.equal(await k.page.getByPlaceholder(/מחיר/).count(), 0, 'no price field');
+      await k.page.getByLabel('שם הטיפול').fill('לייזר — ידיים');
+      await k.page.getByLabel('משך (דקות)').fill('40');
+      await k.page.getByRole('button', { name: 'הוספה', exact: true }).click();
+      await k.page.getByText('לייזר — ידיים').waitFor();
+      const hands = (k.fake.tables.booking_services as Row[]).find((x) => x.name === 'לייזר — ידיים')!;
+      assert.deepEqual([hands.minutes, hands.price ?? null, hands.deposit ?? null], [40, null, null], 'her treatment: 40 minutes, no money');
+      // "לייזר פנים" → "לייזר — פנים", 30 → 20 minutes; its price stays the owner's
+      await k.page.locator('div', { has: k.page.getByText('לייזר פנים', { exact: true }) })
+        .filter({ has: k.page.getByRole('button', { name: 'עריכה' }) }).last().getByRole('button', { name: 'עריכה' }).click();
+      const form = k.page.locator('form').filter({ has: k.page.getByRole('button', { name: 'שמירה' }) }).first();
+      await form.getByLabel('שם הטיפול').fill('לייזר — פנים');
+      await form.getByLabel('משך (דקות)').fill('20');
+      await form.getByRole('button', { name: 'שמירה' }).click();
+      await k.page.getByText('לייזר — פנים').waitFor();
+      const face = (k.fake.tables.booking_services as Row[]).find((x) => x.id === SVC.face.id)!;
+      assert.deepEqual([face.name, face.minutes, face.price], ['לייזר — פנים', 20, 250], 'renamed, 20 minutes — the price as it was');
+      await fits(k.page, 'her treatments');
+      await shot(k.page, 'cal-12-treatments-phone.png', false);
+      await k.page.getByRole('button', { name: 'יומן תורים', exact: true }).click();
+    });
+
+    await step('2.110 — "סיום": a new appointment ends by its treatment, or at an hour set by hand; the sheet changes the end', async () => {
+      await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+      await k.page.getByRole('button', { name: '+ תור' }).click();
+      const d = dialog(k.page);
+      await d.getByRole('heading', { name: 'תור חדש' }).waitFor();
+      await d.getByLabel('שירות').selectOption({ label: 'לייזר — ידיים · 40 דק׳' });
+      await d.getByLabel('או שעה אחרת').fill('21:00');
+      assert.equal(await d.getByLabel('סיום').inputValue(), '21:40', 'by the treatment: 40 minutes');
+      // "שעה וחצי" — a tap, and the end follows: 21:00 → 22:30
+      await d.getByRole('group', { name: 'משך התור' }).getByRole('button', { name: 'שעה וחצי', exact: true }).click();
+      assert.equal(await d.getByLabel('סיום').inputValue(), '22:30', '21:00 and an hour and a half');
+      await d.getByText('משך: שעה וחצי').waitFor();
+      await d.getByLabel('סיום').fill('20:50');
+      await d.getByText('שעת הסיום חייבת להיות אחרי שעת ההתחלה.').waitFor();
+      assert.equal(await d.getByRole('button', { name: 'קביעת התור' }).isDisabled(), true);
+      await d.getByLabel('סיום').fill('22:15');
+      await d.locator('input[list="crm-names"]').fill('רוני ח.');
+      await d.getByRole('button', { name: 'קביעת התור' }).click();
+      await d.waitFor({ state: 'detached' });
+      const a = (k.fake.tables.appointments as Row[]).find((x) => x.name === 'רוני ח.' && israelTime(x.start_at) === '21:00')!;
+      assert.deepEqual([israelTime(a.start_at), israelTime(a.end_at)], ['21:00', '22:15'], 'from hour to hour, as set');
+      // the sheet: the end alone
+      await k.page.getByRole('button', { name: /21:00 · רוני ח\./ }).click();   // no practitioner: in the strip above the day
+      const sh = dialog(k.page);
+      assert.equal(await sh.getByLabel('סיום').inputValue(), '22:15');
+      await sh.getByLabel('סיום').fill('22:30');
+      await sh.getByRole('button', { name: 'שמירת השינוי' }).click();
+      await sh.getByText('שעת הסיום שונתה מ-22:15 ל-22:30').waitFor();
+      const b = (k.fake.tables.appointments as Row[]).find((x) => x.id === a.id)!;
+      assert.equal(israelTime(b.end_at), '22:30');
+      await sh.getByRole('group', { name: 'משך התור' }).getByRole('button', { name: 'שעתיים', exact: true }).click();
+      assert.equal(await sh.getByLabel('סיום').inputValue(), '23:00', 'two hours from 21:00');
+      await sh.getByRole('button', { name: 'שמירת השינוי' }).click();
+      await sh.getByText('שעת הסיום שונתה מ-22:30 ל-23:00').waitFor();
+      assert.equal(israelTime((k.fake.tables.appointments as Row[]).find((x) => x.id === a.id)!.end_at), '23:00');
+      await shot(k.page, 'cal-13-end-time-phone.png', false);
       await k.page.keyboard.press('Escape');
     });
 
