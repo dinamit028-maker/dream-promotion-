@@ -245,9 +245,14 @@ export function eventLine(e: Pick<ApptEvent, 'kind' | 'before' | 'after'>): stri
     case 'moved': {
       const from = str(b.start), to = str(a.start);
       if (!from || !to) return 'השעה שונתה';
+      // 2.110: an end set by hand — only the end changed, or the length changed with the move
+      const len = (s: string, e: string) => (e ? new Date(e).getTime() - new Date(s).getTime() : 0);
+      const endFrom = str(b.end), endTo = str(a.end);
+      if (from === to) return endFrom && endTo && endFrom !== endTo ? `שעת הסיום שונתה מ-${hm(endFrom)} ל-${hm(endTo)}` : 'השעה שונתה';
       const sameDay = dayOf(from) === dayOf(to);
       const at = (iso: string) => (sameDay ? hm(iso) : `${shortDay(dayOf(iso))} ${hm(iso)}`);
-      return `הוזז מ-${at(from)} ל-${at(to)}`;
+      const longer = endFrom && endTo && len(from, endFrom) !== len(to, endTo) ? `, עד ${hm(endTo)}` : '';
+      return `הוזז מ-${at(from)} ל-${at(to)}${longer}`;
     }
     case 'staff': {
       const from = str(b.staff), to = str(a.staff);

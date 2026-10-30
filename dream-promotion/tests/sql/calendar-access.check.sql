@@ -97,8 +97,9 @@ select pg_temp.check((select status = 'cancelled' from public.appointments where
 select pg_temp.check(pg_temp.seen('appointment_events') >= 3, 'the history of every change is there');
 delete from public.appointments where id = '00000000-0000-0000-0000-00000060e001';
 select pg_temp.check(pg_temp.seen('appointments') = 2, 'deleting an appointment does nothing — cancel only');
-select pg_temp.refused_with($$insert into public.booking_services (user_id, business_id, name, minutes) values
-  ('00000000-0000-0000-0000-0000000600a3', '00000000-0000-0000-0000-00000060b001', 'x', 30)$$, 'policy', 'services are read only');
+-- the services: 6100 (2.110) lets her add and change them, never their price (calendar-services.check.sql)
+select pg_temp.refused_with($$insert into public.booking_services (user_id, business_id, name, minutes, price) values
+  ('00000000-0000-0000-0000-0000000600a3', '00000000-0000-0000-0000-00000060b001', 'x', 30, 100)$$, 'רק בעלי העסק', 'a service''s price is not hers');
 update public.booking_settings set phone = '1' where business_id = '00000000-0000-0000-0000-00000060b001';
 commit;
 
