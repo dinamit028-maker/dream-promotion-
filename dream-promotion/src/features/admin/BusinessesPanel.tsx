@@ -31,6 +31,10 @@ type Data = { businesses: Biz[]; current: string | null; unassignedAssets: numbe
 type Access = 'full' | 'register' | 'calendar';
 const ACCESS_HE: Record<Access, string> = { full: 'גישה מלאה (בעלים)', register: 'קופה בלבד (קופאי/ת)', calendar: 'יומן ולידים בלבד' };
 const limited = (m: { access?: Access }) => m.access === 'register' || m.access === 'calendar';
+/** 2.109.2: a password typed here for another person — the phone may not fill, suggest, capitalise or correct it (an iPhone put
+ *  its own "strong password" in the field, and the person could not sign in) */
+const PASSWORD_FIELD = { dir: 'ltr', type: 'text', name: 'dp-person-password', autoComplete: 'off', autoCapitalize: 'none', autoCorrect: 'off',
+  spellCheck: false, 'data-1p-ignore': true, 'data-lpignore': 'true' } as const;
 
 const fmtDate = (d: string | null) => (d ? d.split('-').reverse().join('.') : '');
 const TONE: Record<BizState, string> = {
@@ -84,10 +88,15 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
   }
   // 2.109: "+ אדם" — the person who signed up, or a new sign-in (an email and a password chosen here); and their access
   const [person, setPerson] = useState<{ biz: string; email: string; access: Access; create: boolean; password: string } | null>(null);
+  const [pw, setPw] = useState<{ biz: string; email: string; password: string } | null>(null);
+  async function savePassword(b: Biz) {
+    if (!pw) return;
+    if (await act(b, 'set_password', { email: pw.email, password: pw.password }, `${pw.email}: הסיסמה החדשה נשמרה — ${pw.password}`)) setPw(null);
+  }
   async function addPerson(b: Biz) {
     if (!person) return;
     const email = person.email.trim().toLowerCase();
-    const done = `${email} נוסף/ה ל"${b.name}" — ${ACCESS_HE[person.access]}.${person.create ? ' אפשר להיכנס עכשיו עם המייל והסיסמה.' : ''}`;
+    const done = `${email} נוסף/ה ל"${b.name}" — ${ACCESS_HE[person.access]}.${person.create ? ` אפשר להיכנס עכשיו עם המייל והסיסמה: ${person.password}` : ''}`;
     const ok = person.create
       ? await act(b, 'create_user', { email, password: person.password, access: person.access }, done)
       : await act(b, 'add_member', { email, access: person.access }, done);
@@ -181,9 +190,33 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                 ? <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => act(b, 'unlock', {}, `"${b.name}" נפתח.`)}>פתיחה</Button>
                 : <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => lock(b)}>נעילה</Button>}
               <Button size="sm" variant="ghost" disabled={!!busy} onClick={onAssets}>שיוך נכסים</Button>
-              <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => setPerson({ biz: b.id, email: '', access: 'calendar', create: true, password: '' })}>+ אדם</Button>
+              <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => { setPw(null); setPerson({ biz: b.id, email: '', access: 'calendar', create: true, password: '' }); }}>+ אדם</Button>
+              {b.members.some((m) => m.email) && <Button size="sm" variant="ghost" disabled={!!busy}
+                onClick={() => { setPerson(null); setPw({ biz: b.id, email: b.members.find((m) => m.access === 'calendar')?.email || b.members.find((m) => m.email)!.email, password: '' }); }}>🔑 סיסמה חדשה</Button>}
               <Button size="sm" variant="ghost" disabled={!!busy || data.current === b.id} onClick={() => enter(b)}>כניסה לעסק</Button>
             </div>
+            {pw?.biz === b.id && (() => {
+              const weak = passwordProblem(pw.password);
+              return (
+                <div className="mt-3 rounded-2xl border border-line p-3" role="group" aria-label={`סיסמה חדשה ב${b.name}`}>
+                  <Field label="למי">
+                    <Select value={pw.email} onChange={(e) => setPw({ ...pw, email: e.target.value })}>
+                      {b.members.filter((m) => m.email).map((m) => <option key={m.email} value={m.email}>{m.email}{m.access && m.access !== 'full' ? ` (${ACCESS_HE[m.access]})` : ''}</option>)}
+                    </Select>
+                  </Field>
+                  <Field label="סיסמה חדשה (8 תווים לפחות, אותיות ומספרים)">
+                    <Input {...PASSWORD_FIELD} value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} />
+                  </Field>
+                  {pw.password && weak && <p className="mb-2 text-xs text-warn">{weak}</p>}
+                  <p className="mb-2 text-xs text-muted">הסיסמה הקודמת מפסיקה לעבוד מיד. שלחו את החדשה לאדם עצמו בלבד.</p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="primary" disabled={!!busy || Boolean(weak)} onClick={() => void savePassword(b)}>
+                      {busy === `${b.id}:set_password` ? <Spinner /> : null}שמירת הסיסמה</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setPw(null)}>ביטול</Button>
+                  </div>
+                </div>
+              );
+            })()}
             {person?.biz === b.id && (() => {
               const weak = person.create ? passwordProblem(person.password) : null;
               const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(person.email.trim());
@@ -202,7 +235,7 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                   </label>
                   {person.create && (
                     <Field label="סיסמה (8 תווים לפחות, אותיות ומספרים)">
-                      <Input dir="ltr" type="text" autoComplete="new-password" spellCheck={false} value={person.password} onChange={(e) => setPerson({ ...person, password: e.target.value })} />
+                      <Input {...PASSWORD_FIELD} value={person.password} onChange={(e) => setPerson({ ...person, password: e.target.value })} />
                     </Field>
                   )}
                   {person.create && person.password && weak && <p className="mb-2 text-xs text-warn">{weak}</p>}
