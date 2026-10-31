@@ -30,6 +30,12 @@
 
 /* what Tailwind 3 did by default, kept (the official upgrade guide): a border without a color is gray-200, a placeholder gray-400 */
 @layer base {
+  /* 2.112: an iPhone gives date and time fields a width of their own — in a narrow grid they ran past the card's edge (the
+     appointment's sheet). They fit their cell like any field; only iOS Safari drops its own look (it has -webkit-touch-callout). */
+  input[type="date"], input[type="time"] { min-width: 0; max-width: 100%; }
+  @supports (-webkit-touch-callout: none) {
+    input[type="date"], input[type="time"] { -webkit-appearance: none; appearance: none; }
+  }
   *, ::after, ::before, ::backdrop, ::file-selector-button { border-color: var(--color-gray-200, currentcolor); }
   input::placeholder, textarea::placeholder { color: var(--color-gray-400); }
   /* Tailwind 4 zeroes every element's padding; 3 left a table cell the browser's 1px (the DNS records, a document's table) */

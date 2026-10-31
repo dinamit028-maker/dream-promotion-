@@ -18,7 +18,8 @@
  *   a new customer only with a phone (in the calendar and in the leads); the card without money or deleting (2.111: with the
  *   client file, the AI follow-up and the messages);
  *   2.110 — her treatments (a new one, a name and a length changed, never a price), and "סיום": an appointment from hour to hour —
- *   typed, or a tap on "שעה וחצי" / "שעתיים"; 2.110.2 — "+ שירות חדש" from the appointment itself;
+ *   typed, or a tap on "שעה וחצי" / "שעתיים"; 2.110.2 — "+ שירות חדש" from the appointment itself; 2.112 — 🔔 the phone's
+ *   notifications, and the day's reminders list a notification opens (one WhatsApp per customer);
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
  *   same views, no practitioner, no history, and "מטפלות" says what is missing;
  *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed to customers by the business —
@@ -848,6 +849,34 @@ async function main() {
       assert.equal(israelTime((k.fake.tables.appointments as Row[]).find((x) => x.id === a.id)!.end_at), '23:00');
       await shot(k.page, 'cal-13-end-time-phone.png', false);
       await k.page.keyboard.press('Escape');
+    });
+
+    await step('2.112 — 🔔 the phone\'s notifications; a notification of the day before opens its reminders, one WhatsApp each', async () => {
+      await goto(k.page, '/appointments');
+      await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+      await k.page.getByRole('button', { name: 'התראות בטלפון' }).click();
+      const d = dialog(k.page);
+      await d.getByRole('heading', { name: '🔔 התראות בטלפון' }).waitFor();
+      await d.getByText('15 דקות לפני כל תור').waitFor();
+      await d.getByText('ב-10:00 ביום שלפני').waitFor();
+      await fits(k.page, 'the notifications');
+      await shot(k.page, 'cal-15-phone-alerts-phone.png', false);
+      await d.getByRole('button', { name: 'סגירה' }).click();
+      // the notification's link: /appointments?reminders=<day> — the day's customers, each with a WhatsApp reminder
+      await goto(k.page, `/appointments?reminders=${TODAY}`);
+      const r = dialog(k.page);
+      await r.getByText('כל לחיצה פותחת וואטסאפ עם הודעה מוכנה').waitFor({ timeout: 120_000 });
+      await r.getByText(/נגה ת\./).first().waitFor();
+      assert.ok(await r.getByRole('button', { name: '💬 תזכורת' }).count() >= 3, 'a reminder for each customer with a phone');
+      await k.page.evaluate(`(() => { window.__opened = []; window.open = function (u) { window.__opened.push(String(u)); return null; }; })()`);
+      await r.getByRole('button', { name: '💬 תזכורת' }).first().click();
+      const opened: string[] = await k.page.evaluate('window.__opened');
+      assert.equal(opened.length, 1);
+      assert.match(opened[0], /wa\.me/, 'WhatsApp opens with the message');
+      assert.match(decodeURIComponent(opened[0]), /תזכורת לתור/, 'the reminder\'s words');
+      await r.getByRole('button', { name: '✓ נשלח — שוב' }).first().waitFor();
+      await shot(k.page, 'cal-16-reminders-tomorrow-phone.png', false);
+      await r.getByRole('button', { name: 'סגירה' }).click();
     });
 
     await step('Karin\'s leads: the contacts, a new one only with a phone; the card — with the AI follow-up, without money or deleting', async () => {
