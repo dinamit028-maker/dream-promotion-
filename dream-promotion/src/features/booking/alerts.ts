@@ -34,7 +34,7 @@ export function soonAlerts(appts: AlertAppt[], now: number, staffUser: Map<strin
     const left = Math.max(1, Math.round((new Date(a.start).getTime() - now) / 60_000));
     const what = [a.name, a.service].filter(Boolean).join(' · ');
     return peopleOf(a, staffUser, owners).map((userId) => ({
-      businessId: a.businessId, userId, key: `soon:${a.id}:${userId}`,
+      businessId: a.businessId, userId, key: `soon:${a.id}:${new Date(a.start).toISOString()}:${userId}`,  // 2.112.1: a moved appointment — again, at its new hour
       title: `תור ב-${hm(a.start)} — בעוד ${left} דק׳`, body: `${what} — להכין את הקליניקה`,
       url: `/appointments?appt=${a.id}`, tag: `appt-soon-${a.id}`,
     }));
