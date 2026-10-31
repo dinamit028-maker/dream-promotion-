@@ -26,7 +26,12 @@ test('the words: the hour, how long until it, who and what', () => {
   const [g, s] = soonAlerts([appt({})], at('2026-10-31T08:01:00Z'), staffUser, owners);
   assert.equal(g.title, 'תור ב-10:15 — בעוד 14 דק׳');
   assert.equal(g.body, 'פרלה · קרבון — להכין את הקליניקה');
-  assert.deepEqual([g.userId, g.key, s.userId, s.key], ['u-gal', 'soon:a1:u-gal', 'u-sagit', 'soon:a1:u-sagit']);
+  assert.deepEqual([g.userId, g.key, s.userId, s.key],
+    ['u-gal', 'soon:a1:2026-10-31T08:15:00.000Z:u-gal', 'u-sagit', 'soon:a1:2026-10-31T08:15:00.000Z:u-sagit']);
+  // 2.112.1: moved to another hour — a notification again (another key); the same hour — the same key, once
+  const [moved] = soonAlerts([appt({ start: '2026-10-31T08:20:00Z' })], at('2026-10-31T08:06:00Z'), staffUser, owners);
+  assert.notEqual(moved.key, g.key);
+  assert.equal(soonAlerts([appt({ start: '2026-10-31T08:15:00.000Z' })], at('2026-10-31T08:02:00Z'), staffUser, owners)[0].key, g.key);
   assert.equal(g.url, '/appointments?appt=a1');
 });
 
