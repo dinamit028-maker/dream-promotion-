@@ -29,6 +29,8 @@ import { StaffTab } from './StaffTab';
 import { customerProblem, matchLead } from './new-customer';
 import { apptRange, defaultEnd, lengthProblem, timesProblem } from './appt-times';
 import { DurationPicker } from './DurationPicker';
+import { PhoneAlerts } from './PhoneAlerts';
+import { dayRange } from './alerts';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const STATUS: Record<ApptStatus, { label: string; tone: string }> = {
@@ -87,6 +89,26 @@ export function AppointmentsScreen() {
   const [saved, setSaved] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [contactId, setContactId] = useState<string | null>(null);
+  // 2.112: the phone's notifications, and the day whose reminders a notification opened (/appointments?reminders=<day>)
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [remindDay, setRemindDay] = useState<string | null>(null);
+  const [remindList, setRemindList] = useState<Appointment[] | null>(null);
+  const [reminded, setReminded] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const day = q.get('reminders'), appt = q.get('appt');
+    if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) setRemindDay(day);
+    if (appt) setOpenId(appt);
+  }, []);
+  useEffect(() => {
+    if (!remindDay || !userId) return;
+    let live = true;
+    setRemindList(null);
+    const { from, to } = dayRange(remindDay);
+    BookingAPI.appointments(userId, from, to).then((l) => { if (live) setRemindList(l.filter((a) => a.status === 'booked' || a.status === 'confirmed')); },
+      () => { if (live) setRemindList([]); });
+    return () => { live = false; };
+  }, [remindDay, userId]);
   const [showPast, setShowPast] = useState(false);
   // deposits (2.88): what was really paid per appointment (the register offsets it), and the links of the appointments that ask one
   const [deposits, setDeposits] = useState<Record<string, number>>({});
@@ -120,7 +142,7 @@ export function AppointmentsScreen() {
   // owner and the practitioners the owner marked — anyone else gets nothing back, and nothing is shown.
   const [gaps, setGaps] = useState<Record<string, { type: string | null }>>({});
   useEffect(() => {
-    if (contactId || calendarOnly) return;
+    if (contactId) return;
     const today = israelParts(Date.now()).date;
     const list = appts.filter((a) => a.leadId && (a.status === 'booked' || a.status === 'confirmed'))
       .map((a) => ({ id: a.id, leadId: a.leadId!, service: a.serviceName, day: israelParts(new Date(a.start)).date }))
@@ -136,7 +158,7 @@ export function AppointmentsScreen() {
       } catch { if (live) setGaps({}); }
     })();
     return () => { live = false; };
-  }, [appts, contactId, calendarOnly]);
+  }, [appts, contactId]);
 
   const depositOf = (a: Appointment) => (calendarOnly ? 0 : services.find((x) => x.id === a.serviceId)?.deposit ?? 0);
   const depositIds = useMemo(() => appts.filter((a) => depositOf(a) > 0).map((a) => a.id), [appts, services]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -244,7 +266,10 @@ export function AppointmentsScreen() {
   return (
     <>
       <PageHead title="תורים" sub={tab === 'agenda' ? viewSub : undefined}
-        action={<Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>} />
+        action={<div className="flex gap-2">
+          <Button variant="ghost" onClick={() => setAlertsOpen(true)} aria-label="התראות בטלפון">🔔</Button>
+          <Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>
+        </div>} />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
         {(calendarOnly ? [['agenda', 'יומן תורים'], ['services', 'שירותים']] as const
@@ -409,6 +434,26 @@ export function AppointmentsScreen() {
         }} />
 
       <ContactSheet leadId={contactId} onClose={() => setContactId(null)} />
+      {userId && <PhoneAlerts open={alertsOpen} onClose={() => setAlertsOpen(false)} userId={userId} />}
+      <Modal open={Boolean(remindDay)} onClose={() => setRemindDay(null)}>
+        <h3 className="mb-1 font-display text-xl font-extrabold">תזכורות ל{remindDay ? formatIL(israelToIso(remindDay, '12:00'), { weekday: 'long', day: 'numeric', month: 'long' }) : ''}</h3>
+        <p className="mb-3 text-sm text-muted">כל לחיצה פותחת וואטסאפ עם הודעה מוכנה — מהוואטסאפ שלכם.</p>
+        {!remindList ? <div className="py-6 text-center"><Spinner /></div> : !remindList.length ? <p className="text-sm text-muted">אין תורים ביום הזה.</p> : (
+          <ul className="grid gap-2">
+            {remindList.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line p-3">
+                <span className="min-w-0"><strong className="block">{formatIL(a.start, { hour: '2-digit', minute: '2-digit' })} · {a.name}</strong>
+                  <span className="text-xs text-muted">{a.serviceName}{a.phone ? ` · ${a.phone}` : ' · אין טלפון'}</span></span>
+                {waLink(a.phone)
+                  ? <Button size="sm" variant={reminded.has(a.id) ? 'ghost' : 'primary'} onClick={() => { remind(a); setReminded((x) => new Set(x).add(a.id)); }}>
+                      {reminded.has(a.id) ? '✓ נשלח — שוב' : '💬 תזכורת'}</Button>
+                  : <span className="text-xs text-warn">אין טלפון</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4 flex justify-end"><Button variant="ghost" onClick={() => setRemindDay(null)}>סגירה</Button></div>
+      </Modal>
       <AppointmentSheet appt={openAppt} staff={staff} ready={ready} version={version} extras={extras} where={where}
         onClose={() => setOpenId(null)} onContact={(id) => { setOpenId(null); setContactId(id); }}
         onSaved={(a) => { setAppts((all) => all.map((x) => (x.id === a.id ? a : x)).sort((x, y) => x.start.localeCompare(y.start))); setVersion((v) => v + 1); flash('נשמר'); }} />

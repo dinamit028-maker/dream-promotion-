@@ -15,9 +15,11 @@
  *   or "רק שלי"; the list as before, with the practitioner;
  *   a member who is not the owner (Gal): sees everyone, moves Karin's appointment — the history says Gal; "מטפלות" read only;
  *   2.109 — Karin, "יומן ולידים": any other screen opens the calendar, two tabs, everyone's appointments, no settings or money;
- *   a new customer only with a phone (in the calendar and in the leads); the card without money, AI or deleting;
+ *   a new customer only with a phone (in the calendar and in the leads); the card without money or deleting (2.111: with the
+ *   client file, the AI follow-up and the messages);
  *   2.110 — her treatments (a new one, a name and a length changed, never a price), and "סיום": an appointment from hour to hour —
- *   typed, or a tap on "שעה וחצי" / "שעתיים"; 2.110.2 — "+ שירות חדש" from the appointment itself;
+ *   typed, or a tap on "שעה וחצי" / "שעתיים"; 2.110.2 — "+ שירות חדש" from the appointment itself; 2.112 — 🔔 the phone's
+ *   notifications, and the day's reminders list a notification opens (one WhatsApp per customer);
  *   after the migration, a business with no practitioners: one column, as before, and the history; before the migration: the
  *   same views, no practitioner, no history, and "מטפלות" says what is missing;
  *   2.106 — the holidays of Israel: the week of Sukkot (Chol HaMoed, Hoshana Raba — closed to customers by the business —
@@ -849,7 +851,35 @@ async function main() {
       await k.page.keyboard.press('Escape');
     });
 
-    await step('Karin\'s leads: the contacts, a new one only with a phone; the card without money, AI or deleting', async () => {
+    await step('2.112 — 🔔 the phone\'s notifications; a notification of the day before opens its reminders, one WhatsApp each', async () => {
+      await goto(k.page, '/appointments');
+      await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+      await k.page.getByRole('button', { name: 'התראות בטלפון' }).click();
+      const d = dialog(k.page);
+      await d.getByRole('heading', { name: '🔔 התראות בטלפון' }).waitFor();
+      await d.getByText('15 דקות לפני כל תור').waitFor();
+      await d.getByText('ב-10:00 ביום שלפני').waitFor();
+      await fits(k.page, 'the notifications');
+      await shot(k.page, 'cal-15-phone-alerts-phone.png', false);
+      await d.getByRole('button', { name: 'סגירה' }).click();
+      // the notification's link: /appointments?reminders=<day> — the day's customers, each with a WhatsApp reminder
+      await goto(k.page, `/appointments?reminders=${TODAY}`);
+      const r = dialog(k.page);
+      await r.getByText('כל לחיצה פותחת וואטסאפ עם הודעה מוכנה').waitFor({ timeout: 120_000 });
+      await r.getByText(/נגה ת\./).first().waitFor();
+      assert.ok(await r.getByRole('button', { name: '💬 תזכורת' }).count() >= 3, 'a reminder for each customer with a phone');
+      await k.page.evaluate(`(() => { window.__opened = []; window.open = function (u) { window.__opened.push(String(u)); return null; }; })()`);
+      await r.getByRole('button', { name: '💬 תזכורת' }).first().click();
+      const opened: string[] = await k.page.evaluate('window.__opened');
+      assert.equal(opened.length, 1);
+      assert.match(opened[0], /wa\.me/, 'WhatsApp opens with the message');
+      assert.match(decodeURIComponent(opened[0]), /תזכורת לתור/, 'the reminder\'s words');
+      await r.getByRole('button', { name: '✓ נשלח — שוב' }).first().waitFor();
+      await shot(k.page, 'cal-16-reminders-tomorrow-phone.png', false);
+      await r.getByRole('button', { name: 'סגירה' }).click();
+    });
+
+    await step('Karin\'s leads: the contacts, a new one only with a phone; the card — with the AI follow-up, without money or deleting', async () => {
       await k.page.getByRole('navigation', { name: 'ניווט' }).getByRole('link', { name: 'לקוחות' }).click();
       await k.page.getByRole('heading', { name: 'לקוחות' }).waitFor({ timeout: 120_000 });
       assert.equal(await k.page.getByRole('button', { name: 'הגדרות לקוחות' }).count(), 0, 'no settings');
@@ -864,7 +894,7 @@ async function main() {
       const card = dialog(k.page);
       await card.getByText('מאיה ש.').first().waitFor();
       assert.ok((k.fake.tables.leads as Row[]).some((l) => l.name === 'מאיה ש.' && l.phone === '0541239876'));
-      assert.equal(await card.getByRole('button', { name: /הצעת הודעת המשך/ }).count(), 0, 'no AI');
+      await card.getByRole('button', { name: /הצעת הודעת המשך/ }).waitFor();   // 2.111: the whole card but money — the AI follow-up too
       assert.equal(await card.getByText('מחיקת איש הקשר').count(), 0, 'no deleting');
       assert.equal(await card.getByLabel('ערך לקוח ₪').count(), 0, 'no money');
       await shot(k.page, 'cal-11-calendar-member-lead-phone.png', false);

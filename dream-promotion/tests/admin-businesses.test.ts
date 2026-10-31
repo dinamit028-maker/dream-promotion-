@@ -185,6 +185,20 @@ test('admin API (2.109): "יומן ולידים" — a new sign-in opened by the
   assert.equal(attRoleOf({ role: 'editor', access: 'calendar' }, false), 'none', 'no attendance — by her role she would be its admin');
   assert.ok(!(await businessManagers('sg')).includes('u-gal'), 'no sale notifications');
 
+  // 2.111: the client's card — the AI follow-up is hers; any other paid call is not
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'http://sb.test'; process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'anon';
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: any, init: any) => String(url).endsWith('/auth/v1/user')
+    ? new Response(JSON.stringify({ id: String(init?.headers?.Authorization ?? '').replace('Bearer ', '') }), { status: 200 })
+    : realFetch(url, init)) as typeof fetch;
+  try {
+    const { accessDenied } = await import('../src/lib/server/access');
+    const ask = () => new Request('http://x/api/ai', { method: 'POST', headers: { authorization: 'Bearer u-gal' } });
+    assert.equal((await accessDenied(ask()))?.status, 403, 'a paid call: refused');
+    assert.equal(await accessDenied(ask(), { calendar: true }), null, 'the card\'s follow-up: hers');
+    assert.equal(await accessDenied(new Request('http://x', { headers: { authorization: 'Bearer aviv' } })), null, 'the super admin as before');
+  } finally { globalThis.fetch = realFetch; }
+
   // 2.109.2: a new password — only the super admin, only a member of that business, never a super admin's own account
   const updated: { id: string; password: string }[] = [];
   db.auth.admin.updateUserById = async (id: string, u: { password: string }) => { updated.push({ id, password: u.password }); return { data: { user: { id } }, error: null }; };

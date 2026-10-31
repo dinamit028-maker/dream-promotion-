@@ -1,6 +1,6 @@
 {
   "name": "dream-promotion",
-  "version": "2.110.2",
+  "version": "2.112.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -1,8 +1,7 @@
 'use client';
-import { supabase } from '@/lib/supabase/client';
 import { authHeaders } from '@/lib/services/http';
 
-/** The owner's phones get a notification on every sale (Web Push via /sw.js). */
+/** The owner's phones get a notification on every sale (Web Push via /sw.js); 2.112 — and the calendar's (alerts.ts). */
 const KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '';
 export const pushSupported = () => typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 export const pushKeyReady = () => Boolean(KEY);
@@ -22,12 +21,15 @@ export async function enablePush(userId: string): Promise<{ ok: boolean; message
   await navigator.serviceWorker.ready;
   const sub = (await reg.pushManager.getSubscription()) ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(KEY) });
   const j = sub.toJSON();
-  const { error } = await supabase().from('push_subscriptions').upsert({ user_id: userId, endpoint: j.endpoint, keys: j.keys, label: deviceLabel() }, { onConflict: 'endpoint' });
-  if (error) return { ok: false, message: /relation .* does not exist|schema cache/i.test(error.message) ? 'צריך להריץ את מיגרציה 20261003001600 ב-Supabase.' : 'לא נשמר. נסו שוב.' };
+  // 2.112: through the server — the same for the owner and a calendar member (whose browser reads no push table)
+  void userId;
+  const r = await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+    body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys, label: deviceLabel() }) }).catch(() => null);
+  if (!r?.ok) return { ok: false, message: ((await r?.json().catch(() => null)) as { message?: string } | null)?.message || 'לא נשמר. נסו שוב.' };
   return { ok: true, message: 'ההתראות הופעלו במכשיר הזה.' };
 }
-export async function sendTest() {
-  const r = await fetch('/api/notify/test', { method: 'POST', headers: await authHeaders() });
+export async function sendTest(from: 'register' | 'calendar' = 'register') {
+  const r = await fetch('/api/notify/test', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ from }) });
   const j = await r.json().catch(() => ({}));
   return r.ok ? (j.sent ? `נשלחה התראת ניסיון ל-${j.sent} מכשירים.` : 'אין מכשירים מחוברים.') : (j.message || 'לא נשלח.');
 }
