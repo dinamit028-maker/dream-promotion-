@@ -66,14 +66,17 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  const denied = await accessDenied(req);
+  // the task is read first: a calendar member ("יומן ולידים") may ask only for the client card's follow-up message (2.111)
+  const raw = await req.text();
+  // a cap on what one request may send (brand profile + brief + script fit easily in 60k characters)
+  if (raw.length > 60_000) return NextResponse.json({ code: 'too_large', message: 'request too large' }, { status: 413 });
+  let parsed: { task?: string; payload?: any };
+  try { parsed = JSON.parse(raw); } catch { return NextResponse.json({ code: 'bad_request', message: 'invalid JSON' }, { status: 400 }); }
+  const denied = await accessDenied(req, { calendar: parsed?.task === 'followup' });
   if (denied) return denied;
   let slot: Reservation | null = null;
   try {
-    const raw = await req.text();
-    // a cap on what one request may send (brand profile + brief + script fit easily in 60k characters)
-    if (raw.length > 60_000) return NextResponse.json({ code: 'too_large', message: 'request too large' }, { status: 413 });
-    const { task, payload } = JSON.parse(raw);
+    const { task, payload } = parsed as { task: string; payload: any };
     const userId0 = await requestUser(req);
     const store = task === 'storePage' || task === 'storeText';
     const facts = store && userId0 ? await pageFacts(userId0, task === 'storePage' ? payload ?? {} : { kind: 'page' }) : null;

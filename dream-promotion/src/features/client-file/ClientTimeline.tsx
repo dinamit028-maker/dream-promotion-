@@ -23,7 +23,7 @@ const FILTERS: { id: 'all' | Kind; label: string }[] = [
   { id: 'declaration', label: 'הצהרות' }, { id: 'appointment', label: 'תורים' }, { id: 'crm', label: 'CRM' },
 ];
 
-export function ClientTimeline({ leadId, history, onDelete }: { leadId: string; history: LeadActivity[]; onDelete: (id: string) => void }) {
+export function ClientTimeline({ leadId, history, onDelete }: { leadId: string; history: LeadActivity[]; onDelete?: (id: string) => void }) {
   const [events, setEvents] = useState<Ev[] | null>(null);
   const [filter, setFilter] = useState<'all' | Kind>('all');
 
@@ -75,7 +75,7 @@ export function ClientTimeline({ leadId, history, onDelete }: { leadId: string; 
                 </button>
               )}
             </span>
-            {r.activityId && <button type="button" onClick={() => onDelete(r.activityId!)} className="text-xs text-muted hover:text-(--danger)" aria-label="מחיקה">✕</button>}
+            {r.activityId && onDelete && <button type="button" onClick={() => onDelete(r.activityId!)} className="text-xs text-muted hover:text-(--danger)" aria-label="מחיקה">✕</button>}
           </li>
         ))}
         {!shown.length && <li className="text-xs text-muted">אין אירועים מהסוג הזה.</li>}

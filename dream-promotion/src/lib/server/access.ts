@@ -12,9 +12,10 @@ const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
  * leaving APP_ACCESS_CODE empty left these endpoints open to anyone on the internet, spending
  * the owner's AI credit. Only a local copy without Supabase and without a code stays open.
  * A signed-in user whose business is locked is refused (403 business_locked), and so is a register-only
- * member ("קופאי/ת" — 403 register_only).
+ * member ("קופאי/ת" — 403 register_only). A calendar member ("יומן ולידים", 2.109) too — but for `calendar` calls: the ones
+ * of the client's card (2.111: the follow-up message), which the owner of the system opened for them (31.10.2026).
  */
-export async function accessDenied(req: Request) {
+export async function accessDenied(req: Request, opts: { calendar?: boolean } = {}) {
   const code = process.env.APP_ACCESS_CODE;
   if (code && req.headers.get('x-access-code') === code) return null;
   if (!code && !(SB_URL && SB_ANON)) return null; // local demo: no accounts, no code
@@ -27,7 +28,7 @@ export async function accessDenied(req: Request) {
         const id = (await r.json().catch(() => null))?.id;
         // a locked business spends nothing (stage 5) — the super admin is never locked out; a cashier sells only
         const blocked = id ? await blockedFor(String(id)) : null;
-        if (blocked) return NextResponse.json(blocked, { status: 403 });
+        if (blocked && !(opts.calendar && blocked.code === 'calendar_only')) return NextResponse.json(blocked, { status: 403 });
         return null;
       }
     } catch { /* fall through to 401 */ }

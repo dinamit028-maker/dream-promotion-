@@ -120,7 +120,7 @@ export function AppointmentsScreen() {
   // owner and the practitioners the owner marked — anyone else gets nothing back, and nothing is shown.
   const [gaps, setGaps] = useState<Record<string, { type: string | null }>>({});
   useEffect(() => {
-    if (contactId || calendarOnly) return;
+    if (contactId) return;
     const today = israelParts(Date.now()).date;
     const list = appts.filter((a) => a.leadId && (a.status === 'booked' || a.status === 'confirmed'))
       .map((a) => ({ id: a.id, leadId: a.leadId!, service: a.serviceName, day: israelParts(new Date(a.start)).date }))
@@ -136,7 +136,7 @@ export function AppointmentsScreen() {
       } catch { if (live) setGaps({}); }
     })();
     return () => { live = false; };
-  }, [appts, contactId, calendarOnly]);
+  }, [appts, contactId]);
 
   const depositOf = (a: Appointment) => (calendarOnly ? 0 : services.find((x) => x.id === a.serviceId)?.deposit ?? 0);
   const depositIds = useMemo(() => appts.filter((a) => depositOf(a) > 0).map((a) => a.id), [appts, services]); // eslint-disable-line react-hooks/exhaustive-deps

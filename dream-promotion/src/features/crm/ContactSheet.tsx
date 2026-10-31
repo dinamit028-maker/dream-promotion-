@@ -26,8 +26,8 @@ const LOG_KINDS: LeadActivityKind[] = ['note', 'call', 'whatsapp', 'meeting', 'p
 /** One contact: details, stage, next follow-up, timeline, quick actions and an AI follow-up message. */
 export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClose: () => void }) {
   const { leads, activities, brand, updateLead, deleteLead, addActivity, deleteActivity } = useApp();
-  // 2.109: a calendar member ("יומן ולידים") — the card, its stage, follow-up and log only: no money, client file, AI, inbox,
-  // routing or deleting (the database and the server refuse them anyway)
+  // 2.109: a calendar member ("יומן ולידים") — 2.111: the whole card but money (the owner of the system, 31.10.2026): the
+  // client file, the AI follow-up and the messages are theirs too; no money, routing (the owner's) or deleting
   const calendarOnly = useApp((x) => x.access === 'calendar');
   const full = isCloudConfigured && !calendarOnly;
   const lead = leads.find((l) => l.id === leadId) ?? null;
@@ -145,7 +145,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         {lead.phone && <a href={telLink(lead.phone)} onClick={() => addActivity(lead.id, 'call', 'התקשרתי')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">📞 התקשרות</a>}
         {waLink(lead.phone) && <a href={waLink(lead.phone)} target="_blank" rel="noopener" onClick={() => addActivity(lead.id, 'whatsapp', 'פתחתי שיחת וואטסאפ')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">💬 וואטסאפ</a>}
         {lead.email && <a href={`mailto:${lead.email}`} onClick={() => addActivity(lead.id, 'email', 'שלחתי מייל')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">✉️ מייל</a>}
-        {!calendarOnly && <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>}
+        <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>
       </div>
 
       {/* its department and the person responsible, and the WhatsApp messages about it (2.99) */}
@@ -156,9 +156,9 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
       {full && <CrmFinance leadId={lead.id} />}
 
       {/* the client file: declarations and photos (owner and marked practitioners only — nothing is shown to anyone else) */}
-      {full && <ClientDeclarations leadId={lead.id} />}
-      {full && <ClientSessions leadId={lead.id} />}
-      {full && <ClientPhotos leadId={lead.id} />}
+      {isCloudConfigured && <ClientDeclarations leadId={lead.id} />}
+      {isCloudConfigured && <ClientSessions leadId={lead.id} />}
+      {isCloudConfigured && <ClientPhotos leadId={lead.id} />}
 
       {posts.length > 0 && (
         <div className="mb-4">
@@ -176,7 +176,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         </div>
       )}
 
-      {inbox && !calendarOnly && (
+      {inbox && (
         <div className="mb-4 rounded-2xl border border-line p-3">
           <p className="mb-1.5 text-sm font-semibold">↩️ {REPLY_IN[inbox]}</p>
           <Textarea value={reply.text} onChange={(e) => setReply({ ...reply, text: e.target.value, sent: false })} className="min-h-[70px]"
@@ -240,8 +240,8 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
       </div>
 
       {/* timeline: CRM activities + the client file and appointments (§6) */}
-      {full
-        ? <ClientTimeline leadId={lead.id} history={history} onDelete={deleteActivity} />
+      {isCloudConfigured
+        ? <ClientTimeline leadId={lead.id} history={history} onDelete={calendarOnly ? undefined : deleteActivity} />
         : history.length > 0 && (
           <div className="mb-5">
             <p className="mb-2 text-sm font-semibold">היסטוריה</p>

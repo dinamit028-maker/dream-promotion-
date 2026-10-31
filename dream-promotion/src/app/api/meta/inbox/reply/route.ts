@@ -9,8 +9,9 @@ export const runtime = 'nodejs';
 export async function POST(req: Request) {
   const userId = await userFromRequest(req);
   if (!userId) return NextResponse.json({ code: 'no_session' }, { status: 401 });
+  // 2.111: a calendar member ("יומן ולידים") answers the contacts too — the card is theirs (31.10.2026)
   const blocked = await blockedFor(userId);
-  if (blocked) return NextResponse.json(blocked, { status: 403 });
+  if (blocked && blocked.code !== 'calendar_only') return NextResponse.json(blocked, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const r = await sendReply(await workBusiness(userId), userId, String(body.leadId ?? ''), String(body.text ?? ''));
   return r.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ code: 'reply_failed', message: r.message }, { status: r.status });
