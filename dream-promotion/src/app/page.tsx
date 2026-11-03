@@ -62,8 +62,8 @@ export default function Landing() {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full border border-line bg-(--glass-bg) px-2 py-2 shadow-[0_10px_40px_rgba(0,0,0,.4)] backdrop-blur-xl sm:gap-4 sm:px-4">
           <Link href="/" className="flex min-w-0 items-center gap-2 ps-1">
             <span aria-hidden className="relative h-8 w-8 shrink-0 rounded-[11px] bg-[#8B66FF]"><span className="absolute inset-[27%] rounded-[5px] bg-white/90" /></span>
-            {/* on the smallest phones the name shrinks instead of pushing the buttons off screen */}
-            <span className="truncate whitespace-nowrap font-display text-base font-bold min-[380px]:text-lg">Dream Promotion</span>
+            {/* on the smallest phones the name shrinks instead of pushing the buttons off screen — 2.112.2: whole from 360px */}
+            <span className="truncate whitespace-nowrap font-display text-[14px] font-bold min-[380px]:text-base min-[440px]:text-lg">Dream Promotion</span>
           </Link>
           <nav aria-label="ניווט" className="hidden gap-6 text-[14px] font-semibold text-ink-2 lg:flex">
             {NAV.map((n) => <a key={n.h} href={n.h} className="transition-colors hover:text-ink">{n.t}</a>)}
