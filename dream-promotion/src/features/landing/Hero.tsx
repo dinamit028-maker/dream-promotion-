@@ -65,6 +65,8 @@ export function Hero() {
         <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-ink-2 sm:text-xl">
           תארו את העסק פעם אחת.<br />מכאן ה-AI כבר יודע מה לעשות.
         </p>
+        {/* 2.112.2: everything the business gets — not only the marketing */}
+        <p className="mx-auto mt-4 max-w-xl text-[15px] font-semibold leading-relaxed text-muted">שיווק · תורים · לקוחות · קופה וכספים · נוכחות עובדים<br />הכול במקום אחד.</p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <AuthButton mode="up" size="lg"><Sparkle size={20} weight="fill" aria-hidden />נסו עכשיו בחינם</AuthButton>
           <a href="#brain"><Button variant="ghost" size="lg">ראו איך זה עובד</Button></a>
