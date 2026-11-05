@@ -205,7 +205,7 @@ async function main() {
   const contexts: any[] = [];
 
   /** a browser for one person, on a fake that may be shared (the same tables, another account) */
-  async function open(viewport: { width: number; height: number }, tables: Tables, who: { userId: string; email: string; owner: boolean; access?: 'full' | 'calendar' }, calendar = true) {
+  async function open(viewport: { width: number; height: number }, tables: Tables, who: { userId: string; email: string; owner: boolean; access?: 'full' | 'calendar' | 'agenda' }, calendar = true) {
     const fake = new FakeSupabase(tables, { businessId: BIZ, userId: who.userId, email: who.email, today: TODAY, clock: () => clock.getTime() });
     fake.calendarTables = calendar;
     const phone = viewport.width < 600;
@@ -234,8 +234,9 @@ async function main() {
     await ctx.route(`${BASE}/api/client-file/**`, (r: any) => r.fulfill({ status: 403, json: { code: 'no_access', message: 'אין גישה' } }));
     await ctx.route(`${BASE}/api/finance/**`, (r: any) => r.fulfill({ status: 403, json: { code: 'no_access', message: 'אין גישה' } }));
     // a calendar member (2.109): the real route refuses her (leadsCaller) — as here
-    await ctx.route(`${BASE}/api/leads/departments**`, who.access === 'calendar'
-      ? (r: any) => r.fulfill({ status: 403, json: { code: 'calendar_only', message: 'ההרשאה שלך היא ליומן וללידים בלבד.' } })
+    await ctx.route(`${BASE}/api/leads/departments**`, who.access === 'calendar' || who.access === 'agenda'
+      ? (r: any) => r.fulfill({ status: 403, json: who.access === 'agenda' ? { code: 'agenda_only', message: 'ההרשאה שלך היא ליומן בלבד.' }
+        : { code: 'calendar_only', message: 'ההרשאה שלך היא ליומן וללידים בלבד.' } })
       : teamRoute(fake, who.owner, who.userId, posts));
     ctx.setDefaultTimeout(30_000); ctx.setDefaultNavigationTimeout(180_000);
     const page = await ctx.newPage();
@@ -901,6 +902,63 @@ async function main() {
       await k.page.keyboard.press('Escape');
     });
     await k.ctx.close();
+
+    // ------------------------------------------------- 2.113: Karin — "יומן בלבד": the calendar only, no clients, no card --
+    const a = await open(PHONE, tables, { userId: KARIN_USER, email: 'karin@clinic.test', owner: false, access: 'agenda' });
+    current = a.page;
+    await step('Karin ("יומן בלבד"): the calendar only — the clients\' screen opens the calendar; an appointment has no card', async () => {
+      await goto(a.page, '/leads');
+      await a.page.waitForURL(/\/appointments$/, { timeout: 120_000 });
+      await block(a.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+      const bar = a.page.getByRole('navigation', { name: 'ניווט' });
+      assert.deepEqual((await bar.locator('a').allInnerTexts()).map((x: string) => x.trim()), ['תורים'], 'the phone\'s tab: the calendar only');
+      assert.equal(await a.page.getByRole('button', { name: 'עוד' }).count(), 0, 'no "עוד"');
+      await block(a.page, /^18:30–19:30 נגה ת\./).click();
+      const sheet = dialog(a.page);
+      const name = sheet.getByRole('button', { name: /נגה ת\./ }).first();
+      await name.waitFor();
+      assert.equal(await name.isDisabled(), true, 'the client\'s name opens no card');
+      assert.equal(await a.page.getByRole('dialog').count(), 1, 'only the appointment');
+      await fits(a.page, 'the calendar only');
+      await shot(a.page, 'cal-15-agenda-only-phone.png', false);
+      await a.page.keyboard.press('Escape');
+      await a.page.getByRole('button', { name: '+ תור' }).click();
+      await dialog(a.page).getByText('טלפון (חובה ללקוח/ה חדש/ה)').waitFor();   // a new customer only with a phone, as "יומן ולידים"
+      await a.page.keyboard.press('Escape');
+    });
+
+    await step('2.114 — the invitation by link: the page shows the business; "כניסה" signs in once; she chooses her password; her calendar', async () => {
+      const tok = 'c'.repeat(64);
+      let taps = 0;
+      await a.ctx.route(`${BASE}/api/join/${tok}`, (r: any) => {
+        if (r.request().method() === 'GET') return r.fulfill({ json: { business: 'קליניקה לייט', email: 'karin@clinic.test', expiresAt: at(TODAY, '23:00') } });
+        taps++;
+        return taps === 1 ? r.fulfill({ json: { tokenHash: 'h', email: 'karin@clinic.test', home: '/appointments' } }) : r.fulfill({ status: 410, json: { code: 'used' } });
+      });
+      await goto(a.page, `/join/${tok}`);
+      await a.page.getByRole('heading', { name: 'הוזמנת לקליניקה לייט' }).waitFor({ timeout: 120_000 });
+      assert.equal(taps, 0, 'opening the page uses nothing');
+      await fits(a.page, 'the invitation');
+      await shot(a.page, 'cal-16-invite-phone.png', false);
+      await a.page.getByRole('button', { name: 'כניסה' }).click();
+      await a.page.getByRole('heading', { name: 'בחירת סיסמה' }).waitFor();
+      assert.equal(taps, 1);
+      assert.ok(a.fake.calls.some((c: any) => c.path.startsWith('/auth/v1/verify') && c.body?.token_hash === 'h'), 'the one-time sign-in');
+      const field = a.page.locator('input[autocomplete="new-password"]');
+      assert.equal(await a.page.locator('input[autocomplete="username"]').inputValue(), 'karin@clinic.test', 'the phone saves it under her email');
+      await field.fill('1234');
+      await a.page.getByRole('button', { name: 'שמירת הסיסמה' }).click();
+      await a.page.getByRole('alert').getByText('סיסמה של 8 תווים לפחות.').waitFor();
+      await field.fill('Karin2026x');
+      await a.page.getByRole('button', { name: 'שמירת הסיסמה' }).click();
+      await a.page.getByRole('heading', { name: 'הכול מוכן ✓' }).waitFor();
+      assert.ok(a.fake.calls.some((c: any) => c.method === 'PUT' && c.path === '/auth/v1/user' && c.body?.password === 'Karin2026x'), 'her own password');
+      await shot(a.page, 'cal-17-invite-done-phone.png', false);
+      await a.page.getByRole('button', { name: 'כניסה' }).click();
+      await a.page.waitForURL(/\/appointments$/, { timeout: 120_000 });
+      await block(a.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+    });
+    await a.ctx.close();
     await p.ctx.close();
 
     // ------------------------------------------------------------------------- no practitioners / before the migration --
