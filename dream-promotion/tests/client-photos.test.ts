@@ -15,16 +15,16 @@ import {
   type PhotoRow, type TreatmentRow,
 } from '../src/features/client-file/photos';
 
-const OWN = 'user-own', PRAC = 'user-prac', STAFF = 'user-staff', CASH = 'user-cash', VIEW = 'user-view', OTHER = 'user-other';
+const OWN = 'user-own', PRAC = 'user-prac', STAFF = 'user-staff', CASH = 'user-cash', VIEW = 'user-view', OTHER = 'user-other', AGENDA = 'user-agenda';
 const B1 = '00000000-0000-4000-8000-00000000c001', B2 = '00000000-0000-4000-8000-00000000c002';
 const NOA = '00000000-0000-4000-8000-0000000000a1', DANA = '00000000-0000-4000-8000-0000000000a2', MICHAL = '00000000-0000-4000-8000-0000000000b1';
 const T_NOA = '00000000-0000-4000-8000-0000000000e1', T_DANA = '00000000-0000-4000-8000-0000000000e2';
-const UP = '00000000-0000-4000-8000-0000000000f1';
+const UP = '00000000-0000-4000-8000-0000000000f1', DANA_PH = '00000000-0000-4000-8000-0000000000f2';
 const tables: Record<string, any[]> = {};
 const files = new Map<string, { bytes: Uint8Array; contentType: string }>();
-const current: Record<string, string> = { [OWN]: B1, [PRAC]: B1, [STAFF]: B1, [CASH]: B1, [VIEW]: B1, [OTHER]: B2 };
+const current: Record<string, string> = { [OWN]: B1, [PRAC]: B1, [STAFF]: B1, [CASH]: B1, [VIEW]: B1, [OTHER]: B2, [AGENDA]: B1 };
 /** who client_files_allowed_for says yes to (the database's rule: owner or marked, full access) */
-const allowed = new Set([`${OWN}:${B1}`, `${PRAC}:${B1}`, `${VIEW}:${B1}`, `${OTHER}:${B2}`]);
+const allowed = new Set([`${OWN}:${B1}`, `${PRAC}:${B1}`, `${VIEW}:${B1}`, `${OTHER}:${B2}`, `${AGENDA}:${B1}`]);
 let installed = true;
 let logFails = false;
 const views: { user: string; business: string; id: string }[] = [];
@@ -35,12 +35,15 @@ function reset() {
   files.clear(); views.length = 0; events.length = 0; installed = true; logFails = false;
   resetRateLimits();
   Object.assign(tables, {
-    profiles: [OWN, PRAC, STAFF, CASH, VIEW, OTHER].map((id) => ({ id, is_super_admin: false })),
+    profiles: [OWN, PRAC, STAFF, CASH, VIEW, OTHER, AGENDA].map((id) => ({ id, is_super_admin: false })),
     businesses: [{ id: B1, status: 'active', paid_until: null, grace_days: 0 }, { id: B2, status: 'active', paid_until: null, grace_days: 0 }],
     business_members: [
       { business_id: B1, user_id: OWN, role: 'owner', access: 'full' }, { business_id: B1, user_id: PRAC, role: 'editor', access: 'full' },
       { business_id: B1, user_id: STAFF, role: 'editor', access: 'full' }, { business_id: B1, user_id: CASH, role: 'editor', access: 'register' },
-      { business_id: B1, user_id: VIEW, role: 'viewer', access: 'full' }, { business_id: B2, user_id: OTHER, role: 'owner', access: 'full' }],
+      { business_id: B1, user_id: VIEW, role: 'viewer', access: 'full' }, { business_id: B2, user_id: OTHER, role: 'owner', access: 'full' },
+      { business_id: B1, user_id: AGENDA, role: 'editor', access: 'agenda' }],
+    // 2.115: Noa has an appointment (any one's), Dana has none
+    appointments: [{ id: 'ap-1', business_id: B1, lead_id: NOA, status: 'booked' }],
     leads: [{ id: NOA, business_id: B1, name: 'נועה' }, { id: DANA, business_id: B1, name: 'דנה' }, { id: MICHAL, business_id: B2, name: 'מיכל' }],
     client_treatments: [
       { id: T_NOA, business_id: B1, lead_id: NOA, title: 'לייזר', area: 'רגליים', started_at: '2026-10-01', status: 'active', treatment_type_id: null },
@@ -244,4 +247,18 @@ test('changing a photo: its stage and treatment — of the same customer only', 
   assert.equal(tables.client_treatments.at(-1).business_id, B1);
   assert.equal((await call(PRAC, { action: 'treatment', leadId: NOA, title: ' ' })).status, 400);
   assert.equal((await call(OTHER, { action: 'treatment', leadId: NOA, title: 'x' })).status, 404);
+});
+
+test('2.115 — "יומן בלבד": the card of a client with an appointment only; never another', async () => {
+  tables.client_photos.push(
+    { id: UP, business_id: B1, lead_id: NOA, path: photoPath(B1, NOA, UP), stage: 'before', taken_at: '2026-10-01T00:00:00Z' },
+    { id: DANA_PH, business_id: B1, lead_id: DANA, path: photoPath(B1, DANA, DANA_PH), stage: 'before', taken_at: '2026-10-01T00:00:00Z' });
+  const noa = await call(AGENDA, { action: 'list', leadId: NOA });
+  assert.equal(noa.status, 200, 'Noa is in the calendar');
+  assert.deepEqual(noa.body.treatments.map((t: any) => t.id), [T_NOA]);
+  assert.equal((await call(AGENDA, { action: 'list', leadId: DANA })).status, 404, 'Dana has no appointment');
+  const open = await call(AGENDA, { action: 'open', photoIds: [UP, DANA_PH] });
+  assert.deepEqual(Object.keys(open.body.urls), [UP], 'only Noa\'s photo is signed');
+  assert.equal((await call(AGENDA, { action: 'update', photoId: DANA_PH, stage: 'after' })).status, 404);
+  assert.equal((await call(PRAC, { action: 'list', leadId: DANA })).status, 200, 'a practitioner as before');
 });

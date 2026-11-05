@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { adminDb, userFromRequest } from './admin';
-import { isSuperAdmin, memberRole, userLocked, workBusiness, LOCKED, VIEW_ONLY } from './business';
+import { isSuperAdmin, memberAccess, memberRole, userLocked, workBusiness, LOCKED, VIEW_ONLY } from './business';
 import { MAX_PHOTO_BYTES, MAX_PHOTO_SIDE, isUuid, sniffImage } from '@/features/client-file/photos';
 
 /**
@@ -11,8 +11,11 @@ import { MAX_PHOTO_BYTES, MAX_PHOTO_SIDE, isUuid, sniffImage } from '@/features/
 export const NO_ACCESS = { code: 'no_access', message: 'תיק הלקוח פתוח רק לבעלי העסק ולמטפלים שהבעלים סימן.' } as const;
 export const NOT_READY = { code: 'not_ready', message: 'תיק הלקוח עוד לא הופעל במערכת.' } as const;
 
+/** 2.115 (migration 6600): "יומן בלבד" — the card of a client with an appointment in the calendar only (calendar_lead) */
+export const NOT_IN_CALENDAR = { code: 'not_in_calendar', message: 'הכרטיס נפתח רק ללקוחות שיש להם תור ביומן.' } as const;
+
 export type ClientFileCaller =
-  | { ok: true; userId: string; business: string }
+  | { ok: true; userId: string; business: string; agenda: boolean }
   | { ok: false; status: number; body: { code: string; message: string } };
 
 /** a missing table or function: the migration of the client file is not in this database yet */
@@ -32,7 +35,19 @@ export async function clientFileCaller(req: Request, opts: { write?: boolean } =
   if (opts.write && !(await isSuperAdmin(userId)) && (await memberRole(userId, business)) === 'viewer') {
     return { ok: false, status: 403, body: VIEW_ONLY };
   }
-  return { ok: true, userId, business };
+  return { ok: true, userId, business, agenda: (await memberAccess(userId, business)) === 'agenda' };
+}
+
+/** the leads of this business that have an appointment (any status, anyone's) — the clients an agenda member may open */
+export async function calendarLeads(business: string, leads: string[]): Promise<Set<string>> {
+  const ids = [...new Set(leads.filter(isUuid))];
+  if (!ids.length) return new Set();
+  const { data } = await adminDb().from('appointments').select('lead_id').eq('business_id', business).in('lead_id', ids);
+  return new Set(((data ?? []) as { lead_id: string }[]).map((r) => r.lead_id));
+}
+/** may this caller open this client's card: everyone the database lets in — an agenda member only a calendar client */
+export async function leadOpenTo(c: { agenda: boolean; business: string }, lead: string): Promise<boolean> {
+  return !c.agenda || (await calendarLeads(c.business, [lead])).has(lead);
 }
 
 export class PhotoError extends Error {

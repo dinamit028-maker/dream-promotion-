@@ -1,6 +1,6 @@
 import { adminDb } from '@/lib/server/admin';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
-import { businessName, clientFileCaller, isClientFileOwner, notInstalled, NOT_READY } from '@/lib/server/client-file';
+import { businessName, clientFileCaller, isClientFileOwner, notInstalled, NOT_READY, calendarLeads, leadOpenTo } from '@/lib/server/client-file';
 import { newToken } from '@/lib/server/declarations';
 import { canApprove, cleanAcks, cleanFields, declarationGap, firstName, flagged, LIMITS, type Field } from '@/features/client-file/declarations';
 import { CLIENT_BUCKET, PHOTO_LINK_SECONDS, isUuid } from '@/features/client-file/photos';
@@ -45,7 +45,9 @@ export async function POST(req: Request) {
   const ownLead = async (id: unknown) => {
     if (!isUuid(id)) return null;
     const { data } = await db.from('leads').select('id, name, phone').eq('id', id).eq('business_id', business).maybeSingle();
-    return data as { id: string; name: string; phone: string } | null;
+    const found = data as { id: string; name: string; phone: string } | null;
+    // 2.115: "יומן בלבד" — only a client with an appointment in the calendar
+    return found && (await leadOpenTo(caller, found.id)) ? found : null;
   };
   const ownTemplate = async (id: unknown) => {
     if (!isUuid(id)) return null;
@@ -297,7 +299,9 @@ export async function POST(req: Request) {
         .filter((a: any) => a && isUuid(a.leadId) && typeof a.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(a.day)))
         .slice(0, 300).map((a: any) => ({ id: String(a.id).slice(0, 80), leadId: a.leadId, service: String(a.service ?? '').slice(0, 200), day: a.day }));
       if (!list.length) return json(200, { gaps: {} });
-      const leads = [...new Set(list.map((a) => a.leadId))];
+      const open = caller.agenda ? await calendarLeads(business, list.map((a) => a.leadId)) : null;
+      const leads = [...new Set(list.map((a) => a.leadId))].filter((l) => !open || open.has(l));
+      if (!leads.length) return json(200, { gaps: {} });
       const [d, t, y] = await Promise.all([
         db.from('declarations').select('lead_id, template_id, valid_until').eq('business_id', business).in('lead_id', leads),
         db.from('declaration_templates').select('id, treatment_type_ids').eq('business_id', business),
@@ -312,6 +316,7 @@ export async function POST(req: Request) {
       const types = (y.data ?? []) as { id: string; name: string }[];
       const gaps: Record<string, { type: string | null }> = {};
       for (const a of list) {
+        if (open && !open.has(a.leadId)) continue;
         const g = declarationGap(a.service, a.day, types, byLead.get(a.leadId) ?? []);
         if (!g.ok) gaps[a.id] = { type: g.type };
       }
@@ -322,7 +327,7 @@ export async function POST(req: Request) {
       if (!isUuid(body.declarationId)) return bad('הצהרה לא מוכרת.');
       const { data: d } = await db.from('declarations').select('id, lead_id, pdf_path').eq('id', body.declarationId).eq('business_id', business).maybeSingle();
       const row = d as { id: string; lead_id: string; pdf_path: string } | null;
-      if (!row || !row.pdf_path.startsWith(`${business}/${row.lead_id}/`)) return bad('ההצהרה לא נמצאה.', 'not_found', 404);
+      if (!row || !row.pdf_path.startsWith(`${business}/${row.lead_id}/`) || !(await leadOpenTo(caller, row.lead_id))) return bad('ההצהרה לא נמצאה.', 'not_found', 404);
       const { error: logErr } = await db.rpc('client_file_log_view', { p_user: userId, p_business: business, p_object: 'declaration', p_id: row.id });
       if (logErr) return bad('לא הצלחנו לרשום את הצפייה ביומן, ולכן ההצהרה לא נפתחה. נסו שוב.', 'log_failed', 500);
       const { data } = await db.storage.from(CLIENT_BUCKET).createSignedUrl(row.pdf_path, PHOTO_LINK_SECONDS);

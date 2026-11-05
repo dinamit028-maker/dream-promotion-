@@ -1,6 +1,6 @@
 import { adminDb } from '@/lib/server/admin';
 import { MINUTE, rateLimited } from '@/lib/server/rate-limit';
-import { PhotoError, cleanPhoto, clientFileCaller, israelDayStart, notInstalled, NOT_READY } from '@/lib/server/client-file';
+import { PhotoError, cleanPhoto, clientFileCaller, israelDayStart, notInstalled, NOT_READY, calendarLeads, leadOpenTo } from '@/lib/server/client-file';
 import {
   CLIENT_BUCKET, DAILY_PHOTO_LIMIT, MAX_PHOTO_BYTES, PHOTO_LINK_SECONDS, cleanTakenAt, inLead, incomingPath, isStage, isUuid, photoPath,
 } from '@/features/client-file/photos';
@@ -43,7 +43,9 @@ export async function POST(req: Request) {
   const ownLead = async (id: unknown) => {
     if (!isUuid(id)) return null;
     const { data } = await db.from('leads').select('id').eq('id', id).eq('business_id', business).maybeSingle();
-    return (data as { id: string } | null)?.id ?? null;
+    const found = (data as { id: string } | null)?.id ?? null;
+    // 2.115: "יומן בלבד" — only a client with an appointment in the calendar
+    return found && (await leadOpenTo(caller, found)) ? found : null;
   };
   /** a treatment / session of this customer, or null; undefined when none was asked */
   const ownOf = async (table: 'client_treatments' | 'client_sessions', id: unknown, lead: string) => {
@@ -140,8 +142,10 @@ export async function POST(req: Request) {
       if (!ids.length || ids.length > 40 || !ids.every(isUuid)) return bad('תמונות לא מוכרות.');
       const { data: rows } = await db.from('client_photos').select('id, lead_id, path').eq('business_id', business).in('id', ids as string[]);
       const urls: Record<string, string> = {};
-      for (const r of (rows ?? []) as { id: string; lead_id: string; path: string }[]) {
-        if (!inLead(r.path, business, r.lead_id)) continue;
+      const list = (rows ?? []) as { id: string; lead_id: string; path: string }[];
+      const open = caller.agenda ? await calendarLeads(business, list.map((r) => r.lead_id)) : null;
+      for (const r of list) {
+        if (!inLead(r.path, business, r.lead_id) || (open && !open.has(r.lead_id))) continue;
         // the log first: no link without a line in it
         const { error: logErr } = await db.rpc('client_file_log_view', { p_user: userId, p_business: business, p_object: 'photo', p_id: r.id });
         if (logErr) continue;
@@ -154,7 +158,7 @@ export async function POST(req: Request) {
     if (action === 'update') {
       if (!isUuid(body.photoId)) return bad('תמונה לא מוכרת.');
       const { data: p } = await db.from('client_photos').select('id, lead_id').eq('id', body.photoId).eq('business_id', business).maybeSingle();
-      if (!p) return bad('התמונה לא נמצאה בעסק הזה.', 'not_found', 404);
+      if (!p || !(await leadOpenTo(caller, (p as { lead_id: string }).lead_id))) return bad('התמונה לא נמצאה בעסק הזה.', 'not_found', 404);
       const lead = (p as { lead_id: string }).lead_id;
       const patch: Record<string, unknown> = {};
       if (body.stage !== undefined) { if (!isStage(body.stage)) return bad('בחרו לפני, אחרי או תהליך.'); patch.stage = body.stage; }
