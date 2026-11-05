@@ -101,6 +101,11 @@ export const BookingAPI = {
     return (data ?? []).map(fromRow);
   },
   /** 2.105: is migration 5700 there (a practitioner for an appointment, its history)? Asked once a session */
+  /** 2.115 (migration 6600): "יומן בלבד" — the lead of this business with this phone, which they do not see (its id only), or null */
+  async findClient(phone: string): Promise<string | null> {
+    const { data, error } = await supabase().rpc('calendar_find_client', { p_phone: phone });
+    return error ? null : ((data as string | null) ?? null);
+  },
   async calendarReady(): Promise<boolean> {
     calendarProbe ??= (async () => {
       const { error } = await supabase().from('appointments').select('staff_id').limit(1);

@@ -1,4 +1,4 @@
--- "יומן בלבד" (2.113, migration 6400) on a real Postgres (tests/sql/run.sh): Karin (agenda) works in the calendar as Gal
+-- "יומן בלבד" (2.113, migration 6400; the card from 6600) on a real Postgres (tests/sql/run.sh): Karin (agenda) works in the calendar as Gal
 -- (calendar) does — adds and moves appointments, sees the leads' names for them — and never the client file or the messages;
 -- every cashier rule is hers; no part in attendance.
 --   "Salon" A: owner a1, Gal a2 (calendar), Karin a3 (agenda).
@@ -28,7 +28,8 @@ insert into public.client_treatments (id, business_id, lead_id, title) values
 insert into public.social_messages (business_id, channel, external_id, lead_id, body) values
   ('00000000-0000-0000-0000-00000064b001', 'ig_comment', 'c-64-1', '00000000-0000-0000-0000-00000064f001', 'כמה עולה?');
 
-select pg_temp.check(not public.client_files_allowed_for('00000000-0000-0000-0000-0000000640a3', '00000000-0000-0000-0000-00000064b001'), 'Karin: no client file');
+-- 6600: the card of a calendar client is hers (per client — agenda-client-card.check.sql)
+select pg_temp.check(public.client_files_allowed_for('00000000-0000-0000-0000-0000000640a3', '00000000-0000-0000-0000-00000064b001'), 'Karin: the card, per client');
 select pg_temp.check(public.client_files_allowed_for('00000000-0000-0000-0000-0000000640a2', '00000000-0000-0000-0000-00000064b001'), 'Gal: as before');
 
 begin;
@@ -37,14 +38,16 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000640a3');
 select pg_temp.check(public.calendar_member(), 'every rule of the calendar is hers');
 select pg_temp.check(public.my_access() = 'register', 'and every cashier rule');
 select pg_temp.check(public.att_role() = 'none', 'no part in attendance');
-select pg_temp.check(pg_temp.seen('leads') = 1, 'the client''s name for the appointment');
+select pg_temp.check(pg_temp.seen('leads') = 0, '6600: a lead with no appointment — not hers');
+select pg_temp.check(pg_temp.seen('client_treatments') = 0, 'no appointment yet — not her card');
 insert into public.appointments (user_id, business_id, lead_id, name, start_at, end_at)
   values ('00000000-0000-0000-0000-0000000640a3', '00000000-0000-0000-0000-00000064b001', '00000000-0000-0000-0000-00000064f001',
           'מרים', now() + interval '1 day', now() + interval '1 day 1 hour');
 select pg_temp.check(pg_temp.seen('appointments') = 1, 'she adds an appointment');
+select pg_temp.check(pg_temp.seen('leads') = 1, 'now in the calendar — the client''s name for the appointment');
 update public.appointments set start_at = start_at + interval '2 hours', end_at = end_at + interval '2 hours';
-select pg_temp.check(pg_temp.seen('client_treatments') = 0 and pg_temp.seen('client_photos') = 0 and pg_temp.seen('declarations') = 0, 'never the client file');
-select pg_temp.check(pg_temp.seen('social_messages') = 0, 'never the messages');
+select pg_temp.check(pg_temp.seen('client_treatments') = 1, '6600: now in the calendar — her card');
+select pg_temp.check(pg_temp.seen('social_messages') = 1, '6600: the messages of her calendar client');
 select pg_temp.check(pg_temp.seen('documents') = 0 and pg_temp.seen('payments') = 0 and pg_temp.seen('content') = 0, 'nothing else');
 commit;
 

@@ -906,7 +906,7 @@ async function main() {
     // ------------------------------------------------- 2.113: Karin — "יומן בלבד": the calendar only, no clients, no card --
     const a = await open(PHONE, tables, { userId: KARIN_USER, email: 'karin@clinic.test', owner: false, access: 'agenda' });
     current = a.page;
-    await step('Karin ("יומן בלבד"): the calendar only — the clients\' screen opens the calendar; an appointment has no card', async () => {
+    await step('Karin ("יומן בלבד"): the calendar only — the clients\' screen opens the calendar; 2.115: the card of a calendar client, as Gal\'s', async () => {
       await goto(a.page, '/leads');
       await a.page.waitForURL(/\/appointments$/, { timeout: 120_000 });
       await block(a.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
@@ -917,10 +917,16 @@ async function main() {
       const sheet = dialog(a.page);
       const name = sheet.getByRole('button', { name: /נגה ת\./ }).first();
       await name.waitFor();
-      assert.equal(await name.isDisabled(), true, 'the client\'s name opens no card');
-      assert.equal(await a.page.getByRole('dialog').count(), 1, 'only the appointment');
       await fits(a.page, 'the calendar only');
       await shot(a.page, 'cal-15-agenda-only-phone.png', false);
+      await name.click();   // 2.115: her card — the client file and the history
+      const card = dialog(a.page);
+      await card.getByText('פרטים').waitFor();
+      // the card as Gal's ("יומן ולידים") — the client file, the follow-up, the AI; never money or deleting
+      await card.getByRole('button', { name: /הצעת הודעת המשך/ }).waitFor();
+      assert.equal(await card.getByLabel('ערך לקוח ₪').count(), 0, 'no money');
+      assert.equal(await card.getByText('מחיקת איש הקשר').count(), 0, 'no deleting');
+      await shot(a.page, 'cal-18-agenda-card-phone.png', false);
       await a.page.keyboard.press('Escape');
       await a.page.getByRole('button', { name: '+ תור' }).click();
       await dialog(a.page).getByText('טלפון (חובה ללקוח/ה חדש/ה)').waitFor();   // a new customer only with a phone, as "יומן ולידים"
