@@ -62,3 +62,11 @@ export function passwordProblem(p: string): string | null {
   if (/^\d+$/.test(p) || /^[a-zA-Z]+$/.test(p)) return 'סיסמה עם אותיות וגם מספרים.';
   return null;
 }
+
+/**
+ * 2.112.3: an email typed on a phone — without the invisible marks a Hebrew keyboard adds (right-to-left marks, zero-width
+ * characters, a no-break space) and without spaces; the sign-in server refuses such an address as "invalid format".
+ */
+export const cleanEmail = (v: unknown) =>
+  String(v ?? '').replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\u00a0\s]/g, '').toLowerCase();
+export const emailOk = (e: string) => /^[^@]+@[^@]+\.[^@]+$/.test(e) && e.length <= 200;

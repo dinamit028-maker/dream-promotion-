@@ -185,6 +185,24 @@ test('admin API (2.109): "יומן ולידים" — a new sign-in opened by the
   assert.equal(attRoleOf({ role: 'editor', access: 'calendar' }, false), 'none', 'no attendance — by her role she would be its admin');
   assert.ok(!(await businessManagers('sg')).includes('u-gal'), 'no sale notifications');
 
+  // 2.112.3: an address typed on an iPhone (a right-to-left mark, a space) is cleaned; one who signed up and never confirmed
+  // is confirmed with the super admin's password — never a second sign-in
+  const realGet = db.auth.admin.getUserById;
+  const updates: { id: string; attrs: any }[] = [];
+  tables.profiles.push({ id: 'u-meitar', email: 'meitar@x.com', is_super_admin: false });
+  db.auth.admin.getUserById = async (uid: string) => uid === 'u-meitar'
+    ? { data: { user: { id: uid, email: 'meitar@x.com', email_confirmed_at: null } } } : realGet(uid);
+  db.auth.admin.updateUserById = async (uid: string, attrs: any) => { updates.push({ id: uid, attrs }); return { data: { user: { id: uid } }, error: null }; };
+  const before = made.length;
+  const m = await create('aviv', { email: '\u200f Meitar@X.com\u00a0', password: 'Mei2026x', access: 'calendar' });
+  assert.equal(m.status, 200, 'cleaned and found');
+  assert.equal(made.length, before, 'no second sign-in');
+  assert.deepEqual(updates, [{ id: 'u-meitar', attrs: { password: 'Mei2026x', email_confirm: true } }], 'confirmed, with the password');
+  assert.deepEqual(['calendar', 'editor'].join(), (({ access, role }) => [access, role].join())(tables.business_members.find((x) => x.user_id === 'u-meitar' && x.business_id === 'sg')));
+  db.auth.admin.getUserById = realGet;
+  const { cleanEmail } = await import('../src/features/admin/business-state');
+  assert.equal(cleanEmail('\u202bgal.shahar4@Gmail.com \u200e'), 'gal.shahar4@gmail.com');
+
   // 2.111: the client's card — the AI follow-up is hers; any other paid call is not
   process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'http://sb.test'; process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'anon';
   const realFetch = globalThis.fetch;
