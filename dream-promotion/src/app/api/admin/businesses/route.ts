@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/server/admin';
 import { requireAdmin } from '@/lib/server/admin-auth';
 import { accessOf, isSuperAdmin, type Access } from '@/lib/server/business';
-import { signedUpUser } from '@/lib/server/admin-users';
+import { likeExact, signedUpUser } from '@/lib/server/admin-users';
 import { israelToIso } from '@/lib/il-time';
-import { bizView, extendMonth, passwordProblem, todayIL, validSlug } from '@/features/admin/business-state';
+import { bizView, cleanEmail, emailOk, extendMonth, passwordProblem, todayIL, validSlug } from '@/features/admin/business-state';
 import { FIRST_OF, type Milestones } from '@/features/admin/milestones';
 
 export const runtime = 'nodejs';
@@ -39,6 +39,17 @@ const bad = (message: string, status = 400) => NextResponse.json({ code: 'bad_re
 const NO_LOCATIONS = 'צריך להריץ את מיגרציה 20261010004600 (סניפים וקופות).';
 const NO_ATTENDANCE = 'צריך להריץ את מיגרציה 20261023005800 (נוכחות ועובדים).';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** a sign-in with this exact address that was never confirmed (the sign-in record decides, as in signedUpUser) */
+async function unconfirmedUser(db: ReturnType<typeof adminDb>, email: string): Promise<string | null> {
+  const { data } = await db.from('profiles').select('id').ilike('email', likeExact(email)).limit(10);
+  for (const row of (data ?? []) as { id: string }[]) {
+    const { data: found } = await db.auth.admin.getUserById(row.id);
+    const u = found?.user;
+    if (u && (u.email ?? '').toLowerCase() === email && !(u.email_confirmed_at || u.confirmed_at)) return u.id;
+  }
+  return null;
+}
 
 /** the person joins the business with this access and works in it from now on (a full member is its owner, as before) */
 async function joinBusiness(db: ReturnType<typeof adminDb>, id: string, uid: string, access: Access) {
@@ -123,7 +134,7 @@ export async function POST(req: Request) {
   const name = String(body.name ?? '').trim().slice(0, 80);
   const slug = String(body.slug ?? '').trim().toLowerCase();
   const paidUntil = body.paidUntil ? String(body.paidUntil) : null;
-  const ownerEmail = String(body.ownerEmail ?? '').trim().toLowerCase();
+  const ownerEmail = cleanEmail(body.ownerEmail);
   if (!name) return bad('נא לכתוב שם לעסק');
   if (!validSlug(slug)) return bad('מזהה באנגלית: אותיות קטנות, ספרות ומקפים (לפחות 2 תווים)');
   if (paidUntil && !DATE.test(paidUntil)) return bad('תאריך לא תקין');
@@ -174,29 +185,40 @@ export async function PATCH(req: Request) {
       return error ? bad(error.message) : NextResponse.json({ ok: true });
     }
     case 'add_member': {
-      const email = String(body.email ?? '').trim().toLowerCase();
+      const email = cleanEmail(body.email);
       if (!email) return bad('נא לכתוב מייל');
       const uid = await signedUpUser(db, email);
       if (!uid) return bad(`${email} עוד לא נרשם/ה לאפליקציה (או שלא אישר/ה את כתובת המייל). אחרי ההרשמה אפשר להוסיף.`);
       return joinBusiness(db, id, uid, accessOf(body.access));
     }
     case 'create_user': {
-      const email = String(body.email ?? '').trim().toLowerCase();
+      const email = cleanEmail(body.email);
       const password = typeof body.password === 'string' ? body.password : '';
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return bad('נא לכתוב מייל תקין');
+      if (!emailOk(email)) return bad('נא לכתוב מייל תקין');
       const weak = passwordProblem(password);
       if (weak) return bad(weak);
-      if (await signedUpUser(db, email)) return bad(`${email} כבר רשום/ה — מוסיפים בכפתור "+ אדם".`);
+      if (await signedUpUser(db, email)) return bad(`${email} כבר רשום/ה — מוסיפים בלי "חשבון חדש".`);
+      // 2.112.3: one who signed up and never confirmed the address — the super admin's password and the confirmation make it
+      // theirs (whatever was typed at the sign-up stops working); never a second sign-in for the same address
+      const pending = await unconfirmedUser(db, email);
+      if (pending) {
+        const { error } = await db.auth.admin.updateUserById(pending, { password, email_confirm: true });
+        if (error) return bad('לא הצלחנו לשמור את הסיסמה. נסו שוב.');
+        return joinBusiness(db, id, pending, accessOf(body.access));
+      }
       const { data: made, error } = await db.auth.admin.createUser({ email, password, email_confirm: true });
       const uid = made?.user?.id;
-      // one who signed up and never confirmed the address: there is a sign-in already — not a second one
-      if (error || !uid) return bad(/already|registered|exists/i.test(error?.message ?? '') ? `${email} כבר נרשם/ה, אבל עוד לא אישר/ה את כתובת המייל — אחרי האישור מוסיפים בלי "חשבון חדש".` : 'לא הצלחנו ליצור את המשתמש. נסו שוב.');
+      if (error || !uid) {
+        const m = error?.message ?? '';
+        return bad(/invalid format|validate email/i.test(m) ? 'כתובת המייל לא תקינה — בדקו שאין בה רווח או תו מיותר.'
+          : /already|registered|exists/i.test(m) ? `${email} כבר רשום/ה — מוסיפים בלי "חשבון חדש".` : 'לא הצלחנו ליצור את המשתמש. נסו שוב.');
+      }
       // the profile row comes from the sign-up trigger; it is written here too, in case the trigger is late
       await db.from('profiles').upsert({ id: uid, email }, { onConflict: 'id' });
       return joinBusiness(db, id, uid, accessOf(body.access));
     }
     case 'set_password': {
-      const email = String(body.email ?? '').trim().toLowerCase();
+      const email = cleanEmail(body.email);
       const password = typeof body.password === 'string' ? body.password : '';
       const weak = passwordProblem(password);
       if (weak) return bad(weak);
@@ -209,7 +231,7 @@ export async function PATCH(req: Request) {
       return error ? bad('לא הצלחנו לשמור את הסיסמה. נסו שוב.') : NextResponse.json({ ok: true });
     }
     case 'remove_member': {
-      const email = String(body.email ?? '').trim().toLowerCase();
+      const email = cleanEmail(body.email);
       const uid = await signedUpUser(db, email);
       if (!uid) return bad('המשתמש לא נמצא');
       const p = { id: uid };
@@ -227,7 +249,7 @@ export async function PATCH(req: Request) {
     }
     // 2.107: a person's part in attendance — by the role (empty), or the attendance admin / an approver / payroll (the accountant)
     case 'member_attendance_role': {
-      const email = String(body.email ?? '').trim().toLowerCase();
+      const email = cleanEmail(body.email);
       const r = body.role == null || body.role === '' ? null : String(body.role);
       if (r && !['admin', 'approver', 'payroll'].includes(r)) return bad('תפקיד לא מוכר');
       const uid = await signedUpUser(db, email);
@@ -238,7 +260,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: true });
     }
     case 'member_locations': {
-      const email = String(body.email ?? '').trim().toLowerCase();
+      const email = cleanEmail(body.email);
       const uid = await signedUpUser(db, email);
       if (!uid) return bad('המשתמש לא נמצא');
       // null = every location; else at least one, each of this business

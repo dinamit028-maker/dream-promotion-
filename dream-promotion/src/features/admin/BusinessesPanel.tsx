@@ -4,7 +4,7 @@ import { authHeaders } from '@/lib/services/http';
 import { Button, Card, Field, Input, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
-import { STATE_HE, passwordProblem, validSlug, type BizState } from './business-state';
+import { STATE_HE, cleanEmail, emailOk, passwordProblem, validSlug, type BizState } from './business-state';
 import { MILESTONES, milestoneCount, type Milestones } from './milestones';
 
 /**
@@ -95,7 +95,7 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
   }
   async function addPerson(b: Biz) {
     if (!person) return;
-    const email = person.email.trim().toLowerCase();
+    const email = cleanEmail(person.email);
     const done = `${email} נוסף/ה ל"${b.name}" — ${ACCESS_HE[person.access]}.${person.create ? ` אפשר להיכנס עכשיו עם המייל והסיסמה: ${person.password}` : ''}`;
     const ok = person.create
       ? await act(b, 'create_user', { email, password: person.password, access: person.access }, done)
@@ -219,7 +219,7 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
             })()}
             {person?.biz === b.id && (() => {
               const weak = person.create ? passwordProblem(person.password) : null;
-              const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(person.email.trim());
+              const okEmail = emailOk(cleanEmail(person.email));
               return (
                 <div className="mt-3 rounded-2xl border border-line p-3" role="group" aria-label={`הוספת אדם ל${b.name}`}>
                   <Field label="מייל"><Input dir="ltr" type="email" autoComplete="off" value={person.email} onChange={(e) => setPerson({ ...person, email: e.target.value })} /></Field>
