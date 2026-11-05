@@ -38,15 +38,16 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000640a3');
 select pg_temp.check(public.calendar_member(), 'every rule of the calendar is hers');
 select pg_temp.check(public.my_access() = 'register', 'and every cashier rule');
 select pg_temp.check(public.att_role() = 'none', 'no part in attendance');
-select pg_temp.check(pg_temp.seen('leads') = 1, 'the client''s name for the appointment');
+select pg_temp.check(pg_temp.seen('leads') = 0, '6600: a lead with no appointment — not hers');
 select pg_temp.check(pg_temp.seen('client_treatments') = 0, 'no appointment yet — not her card');
 insert into public.appointments (user_id, business_id, lead_id, name, start_at, end_at)
   values ('00000000-0000-0000-0000-0000000640a3', '00000000-0000-0000-0000-00000064b001', '00000000-0000-0000-0000-00000064f001',
           'מרים', now() + interval '1 day', now() + interval '1 day 1 hour');
 select pg_temp.check(pg_temp.seen('appointments') = 1, 'she adds an appointment');
+select pg_temp.check(pg_temp.seen('leads') = 1, 'now in the calendar — the client''s name for the appointment');
 update public.appointments set start_at = start_at + interval '2 hours', end_at = end_at + interval '2 hours';
 select pg_temp.check(pg_temp.seen('client_treatments') = 1, '6600: now in the calendar — her card');
-select pg_temp.check(pg_temp.seen('social_messages') = 0, 'never the messages');
+select pg_temp.check(pg_temp.seen('social_messages') = 1, '6600: the messages of her calendar client');
 select pg_temp.check(pg_temp.seen('documents') = 0 and pg_temp.seen('payments') = 0 and pg_temp.seen('content') = 0, 'nothing else');
 commit;
 

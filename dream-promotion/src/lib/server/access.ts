@@ -28,7 +28,8 @@ export async function accessDenied(req: Request, opts: { calendar?: boolean } = 
         const id = (await r.json().catch(() => null))?.id;
         // a locked business spends nothing (stage 5) — the super admin is never locked out; a cashier sells only
         const blocked = id ? await blockedFor(String(id)) : null;
-        if (blocked && !(opts.calendar && blocked.code === 'calendar_only')) return NextResponse.json(blocked, { status: 403 });
+        // 2.115: "יומן בלבד" — the same calls as "יומן ולידים" (the card's follow-up)
+        if (blocked && !(opts.calendar && (blocked.code === 'calendar_only' || blocked.code === 'agenda_only'))) return NextResponse.json(blocked, { status: 403 });
         return null;
       }
     } catch { /* fall through to 401 */ }

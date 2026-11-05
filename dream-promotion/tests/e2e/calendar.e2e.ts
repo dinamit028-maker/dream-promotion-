@@ -906,7 +906,7 @@ async function main() {
     // ------------------------------------------------- 2.113: Karin — "יומן בלבד": the calendar only, no clients, no card --
     const a = await open(PHONE, tables, { userId: KARIN_USER, email: 'karin@clinic.test', owner: false, access: 'agenda' });
     current = a.page;
-    await step('Karin ("יומן בלבד"): the calendar only — the clients\' screen opens the calendar; 2.115: the card of a calendar client, nothing of the leads', async () => {
+    await step('Karin ("יומן בלבד"): the calendar only — the clients\' screen opens the calendar; 2.115: the card of a calendar client, as Gal\'s', async () => {
       await goto(a.page, '/leads');
       await a.page.waitForURL(/\/appointments$/, { timeout: 120_000 });
       await block(a.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
@@ -922,10 +922,10 @@ async function main() {
       await name.click();   // 2.115: her card — the client file and the history
       const card = dialog(a.page);
       await card.getByText('פרטים').waitFor();
-      assert.equal(await card.getByText('שלב', { exact: true }).count(), 0, 'no stage of a lead');
-      assert.equal(await card.getByText('תזכורת לחזור אליו/ה').count(), 0, 'no follow-up of a lead');
-      assert.equal(await card.getByRole('button', { name: /הצעת הודעת המשך/ }).count(), 0, 'no AI');
+      // the card as Gal's ("יומן ולידים") — the client file, the follow-up, the AI; never money or deleting
+      await card.getByRole('button', { name: /הצעת הודעת המשך/ }).waitFor();
       assert.equal(await card.getByLabel('ערך לקוח ₪').count(), 0, 'no money');
+      assert.equal(await card.getByText('מחיקת איש הקשר').count(), 0, 'no deleting');
       await shot(a.page, 'cal-18-agenda-card-phone.png', false);
       await a.page.keyboard.press('Escape');
       await a.page.getByRole('button', { name: '+ תור' }).click();

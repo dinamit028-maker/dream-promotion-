@@ -58,6 +58,7 @@ export function AppointmentsScreen() {
   const { userId, brand, leads, addLeadNow, addActivity, updateLead } = useApp();
   // 2.109: a calendar member ("יומן ולידים") — the calendar only: no team, services, hours or booking page, no money, no client file
   const calendarOnly = useApp((x) => calendarAccess(x.access));
+  const agendaOnly = useApp((x) => x.access === 'agenda');
   // T12א: with several locations and "כל הסניפים" picked, every appointment says where it is
   const locState = useLocations((x) => x.state);
   const where = (a: Appointment) => (locState.businessId ? locationTag(locState, a, locState.businessId) : '');
@@ -421,6 +422,10 @@ export function AppointmentsScreen() {
           const problem = customerProblem(leads, customer, calendarOnly);
           if (problem) return problem;
           let leadId = matchLead(leads, customer)?.id;
+          // 2.115: "יומן בלבד" sees only the clients of the calendar — a phone that is a lead's makes that lead the client
+          // (the database finds it: calendar_find_client); it is in the calendar from this appointment on
+          const found = !leadId && agendaOnly && customer.phone.trim() ? await BookingAPI.findClient(customer.phone) : null;
+          if (found) leadId = found;
           // a new customer is saved first: the appointment points to it (before 2.52.1 the first appointment of a new
           // customer could reach the server before the customer did, and fail)
           if (!leadId) leadId = await addLeadNow({ name: customer.name, phone: customer.phone, source: 'תור', date: todayIL, status: 'נקבע תור', value: 0 });
@@ -430,6 +435,7 @@ export function AppointmentsScreen() {
             addActivity(leadId, 'meeting', `נקבע תור: ${a.serviceName} · ${formatIL(a.start)}`);
             const l = leads.find((x) => x.id === leadId);
             if (l && l.status !== 'נסגר') updateLead(leadId, { status: 'נקבע תור' });
+            if (found) { const { userId: u, businessId, hydrate } = useApp.getState(); if (u) void hydrate(u, businessId); }   // now hers: its card
             return null;
           } catch (e) { return bookingError(e); }
         }} />

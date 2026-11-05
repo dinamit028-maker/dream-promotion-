@@ -31,9 +31,6 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
   // client file, the AI follow-up and the messages are theirs too; no money, routing (the owner's) or deleting
   const calendarOnly = useApp((x) => calendarAccess(x.access));
   const full = isCloudConfigured && !calendarOnly;
-  // 2.115: "יומן בלבד" — the card of a calendar client: the client file and the history; nothing of the leads (the stage, the
-  // follow-up, the AI's message, the posts and the replies) — the server and the database refuse those to them too
-  const agendaOnly = useApp((x) => x.access === 'agenda');
   const lead = leads.find((l) => l.id === leadId) ?? null;
   const history = useMemo(() => activities.filter((a) => a.leadId === leadId), [activities, leadId]);
 
@@ -56,7 +53,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
     setAi({ busy: false, text: '', error: null }); setLogText(''); setAmount('');
     setReply({ text: '', busy: false, error: null, sent: false });
     setPosts([]);
-    if (leadId && isCloudConfigured && !agendaOnly && channelOfSource(lead?.source)) {
+    if (leadId && isCloudConfigured && channelOfSource(lead?.source)) {
       supabase().from('social_messages').select('thread_id, post_url, post_text, post_image, sent_at').eq('lead_id', leadId).neq('post_url', '')
         .order('sent_at', { ascending: true }).then(({ data }) => {
           const byPost = new Map<string, { url: string; text: string; image: string }>();
@@ -149,7 +146,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         {lead.phone && <a href={telLink(lead.phone)} onClick={() => addActivity(lead.id, 'call', 'התקשרתי')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">📞 התקשרות</a>}
         {waLink(lead.phone) && <a href={waLink(lead.phone)} target="_blank" rel="noopener" onClick={() => addActivity(lead.id, 'whatsapp', 'פתחתי שיחת וואטסאפ')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">💬 וואטסאפ</a>}
         {lead.email && <a href={`mailto:${lead.email}`} onClick={() => addActivity(lead.id, 'email', 'שלחתי מייל')} className="rounded-full border border-line px-3 py-1.5 text-sm font-semibold hover:border-primary">✉️ מייל</a>}
-        {!agendaOnly && <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>}
+        <Button size="sm" variant="ghost" onClick={suggest} disabled={ai.busy}>{ai.busy ? <><Spinner />מנסח…</> : '✨ הצעת הודעת המשך'}</Button>
       </div>
 
       {/* its department and the person responsible, and the WhatsApp messages about it (2.99) */}
@@ -180,7 +177,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         </div>
       )}
 
-      {inbox && !agendaOnly && (
+      {inbox && (
         <div className="mb-4 rounded-2xl border border-line p-3">
           <p className="mb-1.5 text-sm font-semibold">↩️ {REPLY_IN[inbox]}</p>
           <Textarea value={reply.text} onChange={(e) => setReply({ ...reply, text: e.target.value, sent: false })} className="min-h-[70px]"
@@ -209,7 +206,6 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         </div>
       )}
 
-      {!agendaOnly && (<>
       {/* stage */}
       <p className="mb-1.5 text-sm font-semibold">שלב</p>
       <div className="mb-4 flex flex-wrap gap-2">
@@ -230,8 +226,6 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
         <Chip on={false} onClick={() => quick(7)}>בעוד שבוע</Chip>
         {lead.nextFollowup && <button type="button" className="text-xs text-muted underline" onClick={() => setFollowup('', fu.time)}>ביטול</button>}
       </div>
-
-      </>)}
 
       {/* log something */}
       <div className="mb-4 rounded-2xl border border-line p-3">

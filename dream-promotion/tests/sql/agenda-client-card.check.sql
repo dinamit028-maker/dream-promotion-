@@ -1,6 +1,6 @@
--- "יומן בלבד" opens the card of a calendar client (2.115, migration 6600) on a real Postgres (tests/sql/run.sh): Karin (agenda)
--- reads and writes the client file and the history of Miriam, who has an appointment; never of Dana, who has none; never the
--- messages. Gal (calendar) sees both, as before.
+-- "יומן בלבד" (2.115, migration 6600) on a real Postgres (tests/sql/run.sh): Karin (agenda) sees and works on Miriam, who has an
+-- appointment — the lead, the client file, the history, the messages — never Dana (a lead with no appointment) until an appointment
+-- of Dana's is booked (by her phone: calendar_find_client); a client she opens herself is hers. Gal (calendar) sees both, as before.
 --   "Salon" A: owner a1, Gal a2 (calendar), Karin a3 (agenda); Miriam f001 (an appointment — booked by the owner), Dana f002 (none).
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
@@ -53,7 +53,20 @@ do $$ begin
     ('00000000-0000-0000-0000-00000066b001', '00000000-0000-0000-0000-00000066c002', '00000000-0000-0000-0000-00000066f002', now() - interval '1 hour', 'x');
   raise exception 'CHECK FAILED: a session for Dana';
 exception when insufficient_privilege then null; end $$;
-select pg_temp.check(pg_temp.seen('social_messages') = 0, 'never the messages');
+select pg_temp.check(pg_temp.seen('social_messages') = 1, 'Miriam''s messages');
+select pg_temp.check((select array_agg(name) from public.leads) = array['מרים'], 'the leads: Miriam only — never Dana');
+-- a new client of hers: saved before its appointment (as the app does — an upsert), and it is hers
+insert into public.leads (id, user_id, business_id, name, phone) values
+  ('00000000-0000-0000-0000-00000066f003', '00000000-0000-0000-0000-0000000660a3', '00000000-0000-0000-0000-00000066b001', 'רוני', '0521112222')
+  on conflict (id) do update set name = excluded.name;
+select pg_temp.check(pg_temp.seen('leads') = 2, 'her new client too');
+-- Dana's phone for a new appointment: her lead, by its id only — and once booked, Dana is in the calendar
+select pg_temp.check(public.calendar_find_client('+972 50-765-4321') = '00000000-0000-0000-0000-00000066f002', 'Dana found by her phone');
+select pg_temp.check(public.calendar_find_client('050') is null, 'never by a part of a phone');
+insert into public.appointments (user_id, business_id, lead_id, name, start_at, end_at) values
+  ('00000000-0000-0000-0000-0000000660a3', '00000000-0000-0000-0000-00000066b001', '00000000-0000-0000-0000-00000066f002', 'דנה',
+   now() + interval '2 days', now() + interval '2 days 1 hour');
+select pg_temp.check(pg_temp.seen('leads') = 3 and pg_temp.seen('client_treatments') = 2, 'Dana is a calendar client now — her card');
 select pg_temp.check(pg_temp.seen('documents') = 0 and pg_temp.seen('payments') = 0 and pg_temp.seen('client_packages') = 0, 'never money');
 commit;
 
