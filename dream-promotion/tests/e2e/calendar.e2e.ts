@@ -926,6 +926,38 @@ async function main() {
       await dialog(a.page).getByText('טלפון (חובה ללקוח/ה חדש/ה)').waitFor();   // a new customer only with a phone, as "יומן ולידים"
       await a.page.keyboard.press('Escape');
     });
+
+    await step('2.114 — the invitation by link: the page shows the business; "כניסה" signs in once; she chooses her password; her calendar', async () => {
+      const tok = 'c'.repeat(64);
+      let taps = 0;
+      await a.ctx.route(`${BASE}/api/join/${tok}`, (r: any) => {
+        if (r.request().method() === 'GET') return r.fulfill({ json: { business: 'קליניקה לייט', email: 'karin@clinic.test', expiresAt: at(TODAY, '23:00') } });
+        taps++;
+        return taps === 1 ? r.fulfill({ json: { tokenHash: 'h', email: 'karin@clinic.test', home: '/appointments' } }) : r.fulfill({ status: 410, json: { code: 'used' } });
+      });
+      await goto(a.page, `/join/${tok}`);
+      await a.page.getByRole('heading', { name: 'הוזמנת לקליניקה לייט' }).waitFor({ timeout: 120_000 });
+      assert.equal(taps, 0, 'opening the page uses nothing');
+      await fits(a.page, 'the invitation');
+      await shot(a.page, 'cal-16-invite-phone.png', false);
+      await a.page.getByRole('button', { name: 'כניסה' }).click();
+      await a.page.getByRole('heading', { name: 'בחירת סיסמה' }).waitFor();
+      assert.equal(taps, 1);
+      assert.ok(a.fake.calls.some((c: any) => c.path.startsWith('/auth/v1/verify') && c.body?.token_hash === 'h'), 'the one-time sign-in');
+      const field = a.page.locator('input[autocomplete="new-password"]');
+      assert.equal(await a.page.locator('input[autocomplete="username"]').inputValue(), 'karin@clinic.test', 'the phone saves it under her email');
+      await field.fill('1234');
+      await a.page.getByRole('button', { name: 'שמירת הסיסמה' }).click();
+      await a.page.getByRole('alert').getByText('סיסמה של 8 תווים לפחות.').waitFor();
+      await field.fill('Karin2026x');
+      await a.page.getByRole('button', { name: 'שמירת הסיסמה' }).click();
+      await a.page.getByRole('heading', { name: 'הכול מוכן ✓' }).waitFor();
+      assert.ok(a.fake.calls.some((c: any) => c.method === 'PUT' && c.path === '/auth/v1/user' && c.body?.password === 'Karin2026x'), 'her own password');
+      await shot(a.page, 'cal-17-invite-done-phone.png', false);
+      await a.page.getByRole('button', { name: 'כניסה' }).click();
+      await a.page.waitForURL(/\/appointments$/, { timeout: 120_000 });
+      await block(a.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
+    });
     await a.ctx.close();
     await p.ctx.close();
 

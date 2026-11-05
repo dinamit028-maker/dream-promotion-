@@ -88,7 +88,26 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
     if (await act(b, 'enter', {}, `עברת לעבוד בעסק "${b.name}".`)) window.location.href = '/dashboard';
   }
   // 2.109: "+ אדם" — the person who signed up, or a new sign-in (an email and a password chosen here); and their access
-  const [person, setPerson] = useState<{ biz: string; email: string; access: Access; create: boolean; password: string } | null>(null);
+  // 2.114: three ways — a link on WhatsApp (they choose their password), a password chosen here, or one who already signed up
+  type How = 'invite' | 'create' | 'add';
+  const [person, setPerson] = useState<{ biz: string; email: string; access: Access; how: How; password: string; phone: string } | null>(null);
+  const [invited, setInvited] = useState<{ biz: string; email: string; link: string; whatsapp: string; expiresAt: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  async function invitePerson(b: Biz) {
+    if (!person) return;
+    const email = cleanEmail(person.email);
+    setBusy(`${b.id}:invite`); setNotice(null); setInvited(null); setCopied(false);
+    try {
+      const r = await fetch('/api/admin/businesses', { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ id: b.id, action: 'invite', email, phone: person.phone, access: person.access }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || j.code || 'לא הצלחנו ליצור את הקישור.');
+      setInvited({ biz: b.id, email: j.email ?? email, link: j.link, whatsapp: j.whatsapp ?? '', expiresAt: j.expiresAt });
+      setPerson(null);
+      await load();
+    } catch (e: any) { setNotice({ ok: false, text: e.message }); }
+    finally { setBusy(null); }
+  }
   const [pw, setPw] = useState<{ biz: string; email: string; password: string } | null>(null);
   async function savePassword(b: Biz) {
     if (!pw) return;
@@ -97,8 +116,9 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
   async function addPerson(b: Biz) {
     if (!person) return;
     const email = cleanEmail(person.email);
-    const done = `${email} נוסף/ה ל"${b.name}" — ${ACCESS_HE[person.access]}.${person.create ? ` אפשר להיכנס עכשיו עם המייל והסיסמה: ${person.password}` : ''}`;
-    const ok = person.create
+    if (person.how === 'invite') return invitePerson(b);
+    const done = `${email} נוסף/ה ל"${b.name}" — ${ACCESS_HE[person.access]}.${person.how === 'create' ? ` אפשר להיכנס עכשיו עם המייל והסיסמה: ${person.password}` : ''}`;
+    const ok = person.how === 'create'
       ? await act(b, 'create_user', { email, password: person.password, access: person.access }, done)
       : await act(b, 'add_member', { email, access: person.access }, done);
     if (ok) setPerson(null);
@@ -191,7 +211,7 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                 ? <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => act(b, 'unlock', {}, `"${b.name}" נפתח.`)}>פתיחה</Button>
                 : <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => lock(b)}>נעילה</Button>}
               <Button size="sm" variant="ghost" disabled={!!busy} onClick={onAssets}>שיוך נכסים</Button>
-              <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => { setPw(null); setPerson({ biz: b.id, email: '', access: 'calendar', create: true, password: '' }); }}>+ אדם</Button>
+              <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => { setPw(null); setInvited(null); setPerson({ biz: b.id, email: '', access: 'agenda', how: 'invite', password: '', phone: '' }); }}>+ אדם</Button>
               {b.members.some((m) => m.email) && <Button size="sm" variant="ghost" disabled={!!busy}
                 onClick={() => { setPerson(null); setPw({ biz: b.id, email: b.members.find(inCalendar)?.email || b.members.find((m) => m.email)!.email, password: '' }); }}>🔑 סיסמה חדשה</Button>}
               <Button size="sm" variant="ghost" disabled={!!busy || data.current === b.id} onClick={() => enter(b)}>כניסה לעסק</Button>
@@ -218,8 +238,21 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                 </div>
               );
             })()}
+            {invited?.biz === b.id && (
+              <div className="mt-3 rounded-2xl border border-line bg-surface-2 p-3" role="group" aria-label="הקישור נוצר">
+                <p className="mb-1 text-sm font-semibold">📩 הקישור של {invited.email} מוכן — {ACCESS_HE[(b.members.find((m) => m.email === invited.email)?.access ?? 'full') as Access]}</p>
+                <p className="mb-2 break-all text-xs text-muted" dir="ltr">{invited.link}</p>
+                <div className="flex flex-wrap gap-2">
+                  {invited.whatsapp && <a href={invited.whatsapp} target="_blank" rel="noopener noreferrer"><Button size="sm" variant="primary">שליחה בוואטסאפ</Button></a>}
+                  <Button size="sm" variant="ghost" onClick={() => { void navigator.clipboard?.writeText(invited.link).then(() => setCopied(true), () => setCopied(false)); }}>{copied ? 'הועתק ✓' : 'העתקת הקישור'}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setInvited(null)}>סגירה</Button>
+                </div>
+                <p className="mt-2 text-xs text-muted">עובד פעם אחת, עד {new Date(invited.expiresAt).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}. קישור חדש מבטל את הקודם.</p>
+              </div>
+            )}
             {person?.biz === b.id && (() => {
-              const weak = person.create ? passwordProblem(person.password) : null;
+              const weak = person.how === 'create' ? passwordProblem(person.password) : null;
+              const key = `${b.id}:${person.how === 'invite' ? 'invite' : person.how === 'create' ? 'create_user' : 'add_member'}`;
               const okEmail = emailOk(cleanEmail(person.email));
               return (
                 <div className="mt-3 rounded-2xl border border-line p-3" role="group" aria-label={`הוספת אדם ל${b.name}`}>
@@ -230,21 +263,31 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                     </Select>
                   </Field>
                   {person.access === 'calendar' && <p className="mb-3 text-xs text-muted">רואה רק את התורים (של כל הצוות — מוסיף/ה, מזיז/ה ומבטל/ת, עם היסטוריה) ואת הלקוחות. לקוח חדש — רק עם טלפון. בלי כספים, תוכן, הגדרות או נוכחות.</p>}
-                  {person.access === 'agenda' && <p className="mb-3 text-xs text-muted">רואה רק את התורים (של כל הצוות — מוסיף/ה, מזיז/ה ומבטל/ת, עם היסטוריה). בלי מסך הלקוחות ובלי כרטיס לקוח. לקוח חדש — רק עם טלפון. בלי כספים, תוכן, הגדרות או נוכחות. למי שכבר בעסק — אותו מייל, בלי &quot;חשבון חדש&quot;, משנה את ההרשאה.</p>}
-                  <label className="mb-3 flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={person.create} onChange={(e) => setPerson({ ...person, create: e.target.checked, password: '' })} />
-                    חשבון חדש — אני קובע/ת סיסמה (בלי הרשמה)
-                  </label>
-                  {person.create && (
+                  {person.access === 'agenda' && <p className="mb-3 text-xs text-muted">רואה רק את התורים (של כל הצוות — מוסיף/ה, מזיז/ה ומבטל/ת, עם היסטוריה). בלי מסך הלקוחות ובלי כרטיס לקוח. לקוח חדש — רק עם טלפון. בלי כספים, תוכן, הגדרות או נוכחות. למי שכבר בעסק — אותו מייל עם &quot;כבר רשום/ה&quot; (או הזמנה בלינק) משנה את ההרשאה.</p>}
+                  <div className="mb-3 stack-y-1.5 text-sm" role="radiogroup" aria-label="איך נכנסים">
+                    {([['invite', '📩 הזמנה בלינק — בוחר/ת סיסמה לבד (מומלץ)'], ['create', 'חשבון חדש — אני קובע/ת סיסמה'],
+                       ['add', 'כבר רשום/ה — רק הוספה או שינוי הרשאה']] as const).map(([h, l]) => (
+                      <label key={h} className="flex items-center gap-2">
+                        <input type="radio" name={`how-${b.id}`} checked={person.how === h} onChange={() => setPerson({ ...person, how: h, password: '' })} />{l}
+                      </label>
+                    ))}
+                  </div>
+                  {person.how === 'invite' && (<>
+                    <Field label="טלפון לוואטסאפ (לא חובה — בלי טלפון מעתיקים את הקישור)">
+                      <Input dir="ltr" inputMode="tel" autoComplete="off" value={person.phone} onChange={(e) => setPerson({ ...person, phone: e.target.value })} placeholder="050-1234567" />
+                    </Field>
+                    <p className="mb-2 text-xs text-muted">נוצר קישור אישי (פעם אחת, 48 שעות). לוחצים עליו בטלפון, בוחרים סיסמה — והטלפון שומר אותה. גם למי ששכח/ה סיסמה.</p>
+                  </>)}
+                  {person.how === 'create' && (
                     <Field label="סיסמה (8 תווים לפחות, אותיות ומספרים)">
                       <Input {...PASSWORD_FIELD} value={person.password} onChange={(e) => setPerson({ ...person, password: e.target.value })} />
                     </Field>
                   )}
-                  {person.create && person.password && weak && <p className="mb-2 text-xs text-warn">{weak}</p>}
-                  {!person.create && <p className="mb-2 text-xs text-muted">בלי חשבון חדש — האדם צריך להיות רשום/ה כבר לאפליקציה עם המייל הזה.</p>}
+                  {person.how === 'create' && person.password && weak && <p className="mb-2 text-xs text-warn">{weak}</p>}
+                  {person.how === 'add' && <p className="mb-2 text-xs text-muted">האדם צריך להיות רשום/ה כבר לאפליקציה עם המייל הזה. מי שכבר בעסק — ההרשאה מתעדכנת.</p>}
                   <div className="flex gap-2">
-                    <Button size="sm" variant="primary" disabled={!!busy || !okEmail || Boolean(weak)} onClick={() => void addPerson(b)}>
-                      {busy === `${b.id}:${person.create ? 'create_user' : 'add_member'}` ? <Spinner /> : null}{person.create ? 'יצירה והוספה' : 'הוספה'}</Button>
+                    <Button size="sm" variant="primary" disabled={!!busy || !okEmail || Boolean(weak) || (person.how === 'create' && !person.password)} onClick={() => void addPerson(b)}>
+                      {busy === key ? <Spinner /> : null}{person.how === 'invite' ? 'יצירת קישור' : person.how === 'create' ? 'יצירה והוספה' : 'הוספה'}</Button>
                     <Button size="sm" variant="ghost" onClick={() => setPerson(null)}>ביטול</Button>
                   </div>
                 </div>

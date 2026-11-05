@@ -6,6 +6,10 @@ import { likeExact, signedUpUser } from '@/lib/server/admin-users';
 import { israelToIso } from '@/lib/il-time';
 import { bizView, cleanEmail, emailOk, extendMonth, passwordProblem, todayIL, validSlug } from '@/features/admin/business-state';
 import { FIRST_OF, type Milestones } from '@/features/admin/milestones';
+import { inviteWhatsapp } from '@/features/admin/invite';
+import { phoneDigits } from '@/features/crm/crm';
+import { createInvite, invitesMissing, NO_INVITES } from '@/lib/server/invites';
+import { appOrigin } from '@/lib/server/paylinks';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +27,10 @@ export const dynamic = 'force-dynamic';
  *  PATCH { id, action: 'create_user', email, password, access } — 2.109: the super admin opens the sign-in for a person who
  *        did not sign up (an email and a password the super admin chose, confirmed at once) and adds them as above. The
  *        password is never stored here, logged or sent back.
+ *  PATCH { id, action: 'invite', email, phone?, access } — 2.114 (migration 6500): the person joins as above (a new sign-in with no
+ *        password when there is none; an unconfirmed one is confirmed) and gets a link: /join/<token>, 48 hours, once — they choose
+ *        their own password there. The answer: the link, and wa.me with the message when a phone was given (sent by a tap).
+ *        Also for a member who forgot the password. Never for a super admin's account.
  *  PATCH { id, action: 'set_password', email, password } — 2.109.2: a new password for a member of the business (one the
  *        super admin gave, mistyped or forgotten). Never for a super admin's account. The same rules, never sent back.
  *  PATCH { id, action: 'member_locations', email, locations: string[] | null } — a member works only in these locations of the
@@ -53,6 +61,10 @@ async function unconfirmedUser(db: ReturnType<typeof adminDb>, email: string): P
 
 /** the person joins the business with this access and works in it from now on (a full member is its owner, as before) */
 async function joinBusiness(db: ReturnType<typeof adminDb>, id: string, uid: string, access: Access) {
+  return (await joinOnly(db, id, uid, access)) ?? NextResponse.json({ ok: true });
+}
+/** the same, the refusal or null */
+async function joinOnly(db: ReturnType<typeof adminDb>, id: string, uid: string, access: Access): Promise<Response | null> {
   const { error } = await db.from('business_members').upsert(
     { business_id: id, user_id: uid, role: access === 'full' ? 'owner' : 'editor', access }, { onConflict: 'business_id,user_id' });
   if (error) return bad(!/access/.test(error.message) ? error.message
@@ -60,7 +72,7 @@ async function joinBusiness(db: ReturnType<typeof adminDb>, id: string, uid: str
     : access === 'calendar' ? 'צריך להריץ את מיגרציה 20261028006000 (יומן ולידים).' : 'צריך להריץ את מיגרציה 20261004003000 (הרשאות קופה).');
   // a new member works in this business from now on (a cashier or a calendar member has nowhere else to work)
   await db.from('profiles').update({ current_business_id: id }).eq('id', uid);
-  return NextResponse.json({ ok: true });
+  return null;
 }
 
 export async function GET(req: Request) {
@@ -217,6 +229,42 @@ export async function PATCH(req: Request) {
       // the profile row comes from the sign-up trigger; it is written here too, in case the trigger is late
       await db.from('profiles').upsert({ id: uid, email }, { onConflict: 'id' });
       return joinBusiness(db, id, uid, accessOf(body.access));
+    }
+    case 'invite': {
+      const email = cleanEmail(body.email);
+      if (!emailOk(email)) return bad('נא לכתוב מייל תקין');
+      const rawPhone = String(body.phone ?? '').trim();
+      const phone = rawPhone ? phoneDigits(rawPhone) : '';
+      if (rawPhone && !/^[1-9]\d{8,14}$/.test(phone)) return bad('מספר הטלפון לא תקין.');
+      const access = accessOf(body.access);
+      // the sign-in: theirs if confirmed; one never confirmed — confirmed now (whatever was typed at the sign-up stays theirs
+      // until they choose a password); none — a new one with no password (only the link signs it in)
+      let uid = await signedUpUser(db, email);
+      if (!uid) {
+        const pending = await unconfirmedUser(db, email);
+        if (pending) {
+          const { error } = await db.auth.admin.updateUserById(pending, { email_confirm: true });
+          if (error) return bad('לא הצלחנו לאשר את החשבון. נסו שוב.');
+          uid = pending;
+        } else {
+          const { data: made, error } = await db.auth.admin.createUser({ email, email_confirm: true });
+          if (error || !made?.user?.id) {
+            const m = error?.message ?? '';
+            return bad(/invalid format|validate email/i.test(m) ? 'כתובת המייל לא תקינה — בדקו שאין בה רווח או תו מיותר.' : 'לא הצלחנו ליצור את המשתמש. נסו שוב.');
+          }
+          uid = made.user.id;
+          await db.from('profiles').upsert({ id: uid, email }, { onConflict: 'id' });
+        }
+      }
+      if (await isSuperAdmin(uid)) return bad('מנהל-על לא מזמינים מכאן.');
+      const refused = await joinOnly(db, id, uid, access);
+      if (refused) return refused;
+      const made = await createInvite(db, { business: id, user: uid, access, phone: phone || null, by: userId });
+      if ('error' in made) return bad(invitesMissing(made.error) ? NO_INVITES : 'לא הצלחנו ליצור את הקישור. נסו שוב.', invitesMissing(made.error) ? 409 : 500);
+      const { data: biz } = await db.from('businesses').select('name').eq('id', id).maybeSingle();
+      const link = `${appOrigin(req)}/join/${made.token}`;
+      return NextResponse.json({ ok: true, email, link, expiresAt: made.expiresAt,
+        whatsapp: phone ? inviteWhatsapp(phone, (biz as { name?: string } | null)?.name ?? '', access, link) : '' });
     }
     case 'set_password': {
       const email = cleanEmail(body.email);

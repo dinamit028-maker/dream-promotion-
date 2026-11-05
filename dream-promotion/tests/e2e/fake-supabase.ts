@@ -2349,6 +2349,8 @@ export class FakeSupabase {
       const user = { id: this.opts.userId, aud: 'authenticated', role: 'authenticated', email: this.opts.email, app_metadata: {}, user_metadata: { ...this.userMeta }, created_at: now() };
       if (url.pathname === '/auth/v1/user') return json(200, user);
       if (url.pathname === '/auth/v1/token') return json(200, session(this.opts.userId, this.opts.email));
+      // 2.114: the invitation's one-time sign-in (verifyOtp with the server's hashed token)
+      if (url.pathname === '/auth/v1/verify') return json(200, session(this.opts.userId, this.opts.email));
       if (url.pathname === '/auth/v1/logout') return { status: 204 };
       return json(200, {});
     }
