@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
+import { calendarAccess } from '@/components/shell/limited-access';
 import { AIService } from '@/lib/services';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
@@ -28,7 +29,7 @@ export function ContactSheet({ leadId, onClose }: { leadId: string | null; onClo
   const { leads, activities, brand, updateLead, deleteLead, addActivity, deleteActivity } = useApp();
   // 2.109: a calendar member ("יומן ולידים") — 2.111: the whole card but money (the owner of the system, 31.10.2026): the
   // client file, the AI follow-up and the messages are theirs too; no money, routing (the owner's) or deleting
-  const calendarOnly = useApp((x) => x.access === 'calendar');
+  const calendarOnly = useApp((x) => calendarAccess(x.access));
   const full = isCloudConfigured && !calendarOnly;
   const lead = leads.find((l) => l.id === leadId) ?? null;
   const history = useMemo(() => activities.filter((a) => a.leadId === leadId), [activities, leadId]);

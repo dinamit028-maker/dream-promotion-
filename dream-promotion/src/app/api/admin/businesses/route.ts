@@ -17,9 +17,9 @@ export const dynamic = 'force-dynamic';
  *          pilot milestones (dates only: opened, onboarded, first customer / appointment / sale / document / expense / quote)
  *  POST  { name, slug, ownerEmail?, paidUntil? } → a new business (+ its owner, who must already have signed up)
  *  PATCH { id, action: 'extend' | 'paid_until' | 'lock' | 'unlock' | 'enter', paidUntil?, reason? }
- *  PATCH { id, action: 'add_member', email, access: 'full' | 'register' | 'calendar' } — a person who already signed up joins
+ *  PATCH { id, action: 'add_member', email, access: 'full' | 'register' | 'calendar' | 'agenda' } — a person who already signed up joins
  *        the business (register = "קופאי/ת": the register only; calendar = "יומן ולידים", 2.109: the appointments calendar and
- *        the leads only) and starts working in it; 'remove_member' { email }
+ *        the leads only; agenda = "יומן בלבד", 2.113: the calendar only) and starts working in it; 'remove_member' { email }
  *  PATCH { id, action: 'create_user', email, password, access } — 2.109: the super admin opens the sign-in for a person who
  *        did not sign up (an email and a password the super admin chose, confirmed at once) and adds them as above. The
  *        password is never stored here, logged or sent back.
@@ -56,6 +56,7 @@ async function joinBusiness(db: ReturnType<typeof adminDb>, id: string, uid: str
   const { error } = await db.from('business_members').upsert(
     { business_id: id, user_id: uid, role: access === 'full' ? 'owner' : 'editor', access }, { onConflict: 'business_id,user_id' });
   if (error) return bad(!/access/.test(error.message) ? error.message
+    : access === 'agenda' ? 'צריך להריץ את מיגרציה 20261105006400 (יומן בלבד).'
     : access === 'calendar' ? 'צריך להריץ את מיגרציה 20261028006000 (יומן ולידים).' : 'צריך להריץ את מיגרציה 20261004003000 (הרשאות קופה).');
   // a new member works in this business from now on (a cashier or a calendar member has nowhere else to work)
   await db.from('profiles').update({ current_business_id: id }).eq('id', uid);

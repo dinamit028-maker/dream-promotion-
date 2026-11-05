@@ -28,9 +28,10 @@ type Biz = {
   milestones?: Milestones;
 };
 type Data = { businesses: Biz[]; current: string | null; unassignedAssets: number };
-type Access = 'full' | 'register' | 'calendar';
-const ACCESS_HE: Record<Access, string> = { full: 'גישה מלאה (בעלים)', register: 'קופה בלבד (קופאי/ת)', calendar: 'יומן ולידים בלבד' };
-const limited = (m: { access?: Access }) => m.access === 'register' || m.access === 'calendar';
+type Access = 'full' | 'register' | 'calendar' | 'agenda';
+const ACCESS_HE: Record<Access, string> = { full: 'גישה מלאה (בעלים)', register: 'קופה בלבד (קופאי/ת)', calendar: 'יומן ולידים בלבד', agenda: 'יומן בלבד' };
+const limited = (m: { access?: Access }) => m.access === 'register' || m.access === 'calendar' || m.access === 'agenda';
+const inCalendar = (m: { access?: Access }) => m.access === 'calendar' || m.access === 'agenda';
 /** 2.109.2: a password typed here for another person — the phone may not fill, suggest, capitalise or correct it (an iPhone put
  *  its own "strong password" in the field, and the person could not sign in) */
 const PASSWORD_FIELD = { dir: 'ltr', type: 'text', name: 'dp-person-password', autoComplete: 'off', autoCapitalize: 'none', autoCorrect: 'off',
@@ -132,11 +133,11 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                 <strong className="text-[18px]">{b.name}</strong>
                 {data.current === b.id && <span className="ms-2 text-xs text-muted">(את/ה עובד/ת בו עכשיו)</span>}
                 <p className="text-xs text-muted">{b.members.filter((m) => !limited(m)).map((m) => m.email || m.name).join(' · ') || 'אין בעלים'}</p>
-                {b.members.some((m) => m.access === 'calendar') && (
-                  <p className="mt-0.5 text-xs text-muted">📅 יומן ולידים: {b.members.filter((m) => m.access === 'calendar').map((m) => (
+                {(['calendar', 'agenda'] as const).map((acc) => b.members.some((m) => m.access === acc) && (
+                  <p key={acc} className="mt-0.5 text-xs text-muted">📅 {acc === 'agenda' ? 'יומן בלבד' : 'יומן ולידים'}: {b.members.filter((m) => m.access === acc).map((m) => (
                     <button key={m.email} type="button" className="me-1 underline decoration-dotted" title="הסרה" onClick={() => removeMember(b, m.email)}>{m.email || m.name}</button>
                   ))}</p>
-                )}
+                ))}
                 {b.members.some((m) => m.access === 'register') && (
                   <p className="mt-0.5 text-xs text-muted">🧾 קופה בלבד: {b.members.filter((m) => m.access === 'register').map((m) => (
                     <button key={m.email} type="button" className="me-1 underline decoration-dotted" title="הסרה" onClick={() => removeMember(b, m.email)}>{m.email || m.name}</button>
@@ -192,7 +193,7 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
               <Button size="sm" variant="ghost" disabled={!!busy} onClick={onAssets}>שיוך נכסים</Button>
               <Button size="sm" variant="ghost" disabled={!!busy} onClick={() => { setPw(null); setPerson({ biz: b.id, email: '', access: 'calendar', create: true, password: '' }); }}>+ אדם</Button>
               {b.members.some((m) => m.email) && <Button size="sm" variant="ghost" disabled={!!busy}
-                onClick={() => { setPerson(null); setPw({ biz: b.id, email: b.members.find((m) => m.access === 'calendar')?.email || b.members.find((m) => m.email)!.email, password: '' }); }}>🔑 סיסמה חדשה</Button>}
+                onClick={() => { setPerson(null); setPw({ biz: b.id, email: b.members.find(inCalendar)?.email || b.members.find((m) => m.email)!.email, password: '' }); }}>🔑 סיסמה חדשה</Button>}
               <Button size="sm" variant="ghost" disabled={!!busy || data.current === b.id} onClick={() => enter(b)}>כניסה לעסק</Button>
             </div>
             {pw?.biz === b.id && (() => {
@@ -225,10 +226,11 @@ export function BusinessesPanel({ onAssets }: { onAssets: () => void }) {
                   <Field label="מייל"><Input dir="ltr" type="email" autoComplete="off" value={person.email} onChange={(e) => setPerson({ ...person, email: e.target.value })} /></Field>
                   <Field label="הרשאה">
                     <Select value={person.access} onChange={(e) => setPerson({ ...person, access: e.target.value as Access })}>
-                      {(['calendar', 'register', 'full'] as const).map((a) => <option key={a} value={a}>{ACCESS_HE[a]}</option>)}
+                      {(['calendar', 'agenda', 'register', 'full'] as const).map((a) => <option key={a} value={a}>{ACCESS_HE[a]}</option>)}
                     </Select>
                   </Field>
                   {person.access === 'calendar' && <p className="mb-3 text-xs text-muted">רואה רק את התורים (של כל הצוות — מוסיף/ה, מזיז/ה ומבטל/ת, עם היסטוריה) ואת הלקוחות. לקוח חדש — רק עם טלפון. בלי כספים, תוכן, הגדרות או נוכחות.</p>}
+                  {person.access === 'agenda' && <p className="mb-3 text-xs text-muted">רואה רק את התורים (של כל הצוות — מוסיף/ה, מזיז/ה ומבטל/ת, עם היסטוריה). בלי מסך הלקוחות ובלי כרטיס לקוח. לקוח חדש — רק עם טלפון. בלי כספים, תוכן, הגדרות או נוכחות. למי שכבר בעסק — אותו מייל, בלי &quot;חשבון חדש&quot;, משנה את ההרשאה.</p>}
                   <label className="mb-3 flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={person.create} onChange={(e) => setPerson({ ...person, create: e.target.checked, password: '' })} />
                     חשבון חדש — אני קובע/ת סיסמה (בלי הרשמה)
@@ -324,7 +326,7 @@ function MemberLocations({ b, busy, onSave }: { b: Biz; busy: boolean; onSave: (
       <ul className="mt-1 grid gap-1">
         {b.members.map((m) => (
           <li key={m.email || m.name} className="flex flex-wrap items-center justify-between gap-2">
-            <span className="min-w-0 break-words">{m.email || m.name}{m.access === 'register' ? ' (קופה)' : m.access === 'calendar' ? ' (יומן ולידים)' : ''}: <strong>{m.locations?.length ? m.locations.map(nameOf).join(', ') : 'כל הסניפים'}</strong></span>
+            <span className="min-w-0 break-words">{m.email || m.name}{m.access === 'register' ? ' (קופה)' : m.access === 'calendar' ? ' (יומן ולידים)' : m.access === 'agenda' ? ' (יומן בלבד)' : ''}: <strong>{m.locations?.length ? m.locations.map(nameOf).join(', ') : 'כל הסניפים'}</strong></span>
             {m.email && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEdit({ email: m.email, picked: m.locations?.length ? [...m.locations] : null })}>שינוי</Button>}
           </li>
         ))}

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useApp } from '@/lib/store';
+import { calendarAccess } from '@/components/shell/limited-access';
 import { Button, Card, Chip, Field, Input, PageHead } from '@/components/ui/primitives';
 import { EmptyState, Modal } from '@/components/ui/feedback';
 import { cx, today } from '@/lib/utils';
@@ -34,7 +35,7 @@ export default function LeadsPage() {
   const [adding, setAdding] = useState(false);
   const [settings, setSettings] = useState(false);
   // 2.109: a calendar member ("יומן ולידים") — the contacts only: no settings, departments or money; a new one only with a phone
-  const calendarOnly = useApp((x) => x.access === 'calendar');
+  const calendarOnly = useApp((x) => calendarAccess(x.access));
   const [form, setForm] = useState({ name: '', phone: '', email: '', source: '', tags: '' });
   // where a contact came from: paid leads (Meta forms) / Messenger / Facebook comments / Instagram comments
   const [channel, setChannel] = useState<'all' | 'leads' | 'messenger' | 'fb' | 'ig'>('all');

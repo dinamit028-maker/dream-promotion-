@@ -1,13 +1,13 @@
 /** "יומן ולידים" (2.109): which screens a limited member opens, and a new customer only with a phone. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accessOf, limitedAllows, limitedTarget } from '../src/components/shell/limited-access';
-import { accessOf as serverAccessOf } from '../src/lib/server/business';
+import { accessOf, calendarAccess, limitedAllows, limitedTarget } from '../src/components/shell/limited-access';
+import { accessOf as serverAccessOf, limitedRefusal } from '../src/lib/server/business';
 import { customerProblem, matchLead } from '../src/features/booking/new-customer';
 import { passwordProblem } from '../src/features/admin/business-state';
 
 test('the screens of each access', () => {
-  for (const v of ['full', 'register', 'calendar', 'x', null, undefined]) assert.equal(accessOf(v), serverAccessOf(v), 'the app and the server read it alike');
+  for (const v of ['full', 'register', 'calendar', 'agenda', 'x', null, undefined]) assert.equal(accessOf(v), serverAccessOf(v), 'the app and the server read it alike');
   assert.equal(accessOf('kiosk'), 'full');
   for (const p of ['/appointments', '/leads', '/leads/departments']) assert.equal(limitedTarget('calendar', p), null, `${p} is hers`);
   for (const p of ['/dashboard', '/finance', '/register', '/attendance', '/settings', '/admin', '/calendar', '/leadsx', '/create', '/store/products'])
@@ -16,6 +16,19 @@ test('the screens of each access', () => {
   assert.equal(limitedTarget('register', '/register'), null);
   assert.equal(limitedTarget('full', '/finance'), null);
   assert.ok(limitedAllows('full', '/anything'));
+});
+
+test('"יומן בלבד" (2.113): the calendar only — never the clients\' screen; every calendar rule, its own refusal', () => {
+  assert.equal(accessOf('agenda'), 'agenda');
+  assert.equal(limitedTarget('agenda', '/appointments'), null);
+  for (const p of ['/leads', '/leads/departments', '/dashboard', '/finance', '/register', '/attendance', '/settings'])
+    assert.equal(limitedTarget('agenda', p), '/appointments', `${p} → the calendar`);
+  assert.ok(calendarAccess('agenda') && calendarAccess('calendar'));
+  assert.ok(!calendarAccess('register') && !calendarAccess('full'));
+  // the openings of "יומן ולידים" (the card's AI, the messages' reply) are by the code 'calendar_only' — never hers
+  assert.equal(limitedRefusal('agenda').code, 'agenda_only');
+  assert.equal(limitedRefusal('calendar').code, 'calendar_only');
+  assert.equal(limitedRefusal('register').code, 'register_only');
 });
 
 test('a new customer: only with a phone for a calendar member; everyone else as before', () => {

@@ -36,8 +36,8 @@ interface AppState {
   businessId: string | null;
   /** this user's access in that business: 'register' = a cashier — the register only; 'calendar' = the appointments and the
    *  leads only (2.109). The database enforces it too. */
-  access: 'full' | 'register' | 'calendar';
-  setAccess: (a: 'full' | 'register' | 'calendar') => void;
+  access: 'full' | 'register' | 'calendar' | 'agenda';
+  setAccess: (a: 'full' | 'register' | 'calendar' | 'agenda') => void;
   /** the register fills the whole screen (no menus) — a tablet / POS at the counter */
   kiosk: boolean;
   setKiosk: (k: boolean) => void;

@@ -77,10 +77,12 @@ export async function businessOf(userId: string): Promise<string | null> {
  */
 export const REGISTER_ONLY = { code: 'register_only', message: 'ההרשאה שלך היא לקופה בלבד.' } as const;
 export const CALENDAR_ONLY = { code: 'calendar_only', message: 'ההרשאה שלך היא ליומן וללידים בלבד.' } as const;
-export type Access = 'full' | 'register' | 'calendar';
-export const accessOf = (v: unknown): Access => (v === 'register' || v === 'calendar' ? v : 'full');
+/** 2.113 (migration 6400): "יומן בלבד" — the calendar only: no clients' screen, no card, no messages (never CALENDAR_ONLY's openings) */
+export const AGENDA_ONLY = { code: 'agenda_only', message: 'ההרשאה שלך היא ליומן בלבד.' } as const;
+export type Access = 'full' | 'register' | 'calendar' | 'agenda';
+export const accessOf = (v: unknown): Access => (v === 'register' || v === 'calendar' || v === 'agenda' ? v : 'full');
 /** the refusal for a member who is not 'full' */
-export const limitedRefusal = (a: Access) => (a === 'calendar' ? CALENDAR_ONLY : REGISTER_ONLY);
+export const limitedRefusal = (a: Access) => (a === 'calendar' ? CALENDAR_ONLY : a === 'agenda' ? AGENDA_ONLY : REGISTER_ONLY);
 
 /** the access of a member in a business; the super admin, and rows from before 2.50, are 'full' */
 export async function memberAccess(userId: string, businessId: string | null): Promise<Access> {
@@ -110,7 +112,7 @@ export async function memberRole(userId: string, businessId: string | null): Pro
 }
 
 /** one check for routes that spend or publish: a locked business, a cashier, a calendar member or a viewer → the refusal to send */
-export async function blockedFor(userId: string): Promise<typeof LOCKED | typeof REGISTER_ONLY | typeof CALENDAR_ONLY | typeof VIEW_ONLY | null> {
+export async function blockedFor(userId: string): Promise<typeof LOCKED | typeof REGISTER_ONLY | typeof CALENDAR_ONLY | typeof AGENDA_ONLY | typeof VIEW_ONLY | null> {
   if (await userLocked(userId)) return LOCKED;
   const access = await memberAccess(userId, await businessOf(userId));
   if (access !== 'full') return limitedRefusal(access);

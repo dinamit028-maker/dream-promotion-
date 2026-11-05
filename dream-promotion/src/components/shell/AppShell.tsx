@@ -27,7 +27,7 @@ import { multiLocation } from '@/features/locations/locations';
 import { NAV, NAV_ADMIN, NAV_BOTTOM_ALL, NAV_STOCK, withStock, type NavItem } from './app-nav';
 import { FavoritesList, MenuSearch, SearchButton, SearchDialog, StarButton, useMenuEntries, useSearchShortcut } from './MenuTools';
 import { useFavorites } from './favorites-store';
-import { LIMITED_SCREENS, accessOf, limitedTarget } from './limited-access';
+import { LIMITED_SCREENS, accessOf, calendarAccess, limitedTarget } from './limited-access';
 
 export { NAV } from './app-nav';
 // phones: the four screens opened daily sit in the tab bar; "עוד" opens a sheet with every other screen
@@ -361,7 +361,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </nav>}
 
-      {access === 'calendar' && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-(--glass) px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
+      {calendarAccess(access) && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-(--glass) px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
         {NAV_MAIN.map(tabItem)}
       </nav>}
 

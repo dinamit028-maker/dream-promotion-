@@ -22,7 +22,7 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
   /** a change made outside the sheet (a status): read the history again */
   version: number;
   extras: (a: Appointment) => ReactNode;
-  onClose: () => void; onSaved: (a: Appointment) => void; onContact: (leadId: string) => void;
+  onClose: () => void; onSaved: (a: Appointment) => void; onContact?: (leadId: string) => void;
   where: (a: Appointment) => string;
 }) {
   const [day, setDay] = useState('');
@@ -86,7 +86,7 @@ export function AppointmentSheet({ appt, staff, ready, version, extras, onClose,
       <div className="flex items-start gap-3">
         <span className={cx('cal-dot mt-1.5 h-3 w-3 shrink-0 rounded-full', `cal-${color}`)} aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <button type="button" className="text-start font-display text-xl font-extrabold" onClick={() => appt.leadId && onContact(appt.leadId)} disabled={!appt.leadId}>
+          <button type="button" className="text-start font-display text-xl font-extrabold" onClick={() => appt.leadId && onContact?.(appt.leadId)} disabled={!appt.leadId || !onContact}>
             {appt.name}
           </button>
           <p className="text-sm text-muted">
