@@ -78,3 +78,13 @@ commit;
 
 \i supabase/migrations/20261105006600_agenda_client_card.sql
 select pg_temp.check(public.client_files_allowed_for('00000000-0000-0000-0000-0000000660a3', '00000000-0000-0000-0000-00000066b001'), 'idempotent');
+
+-- the first draft (live, 5.11.2026) had closed the messages with social_messages_agenda_none: running this file opens it to the rule
+create policy social_messages_agenda_none on public.social_messages as restrictive for all to authenticated
+  using (not (select public.agenda_member())) with check (not (select public.agenda_member()));
+\i supabase/migrations/20261105006600_agenda_client_card.sql
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000660a3');
+select pg_temp.check(pg_temp.seen('social_messages') = 1, 'after the first draft: Miriam''s messages again');
+commit;

@@ -78,6 +78,13 @@ begin
                      'with check (not (select public.agenda_member()) or public.calendar_lead(lead_id))', t || '_agenda_lead', t);
     end if;
   end loop;
+  -- a first draft of this file (run on the live database on 5.11.2026) closed the messages to them altogether — it is opened to
+  -- the same rule (the policy stays, its rule changes)
+  if exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'social_messages' and policyname = 'social_messages_agenda_none') then
+    alter policy social_messages_agenda_none on public.social_messages
+      using (not (select public.agenda_member()) or public.calendar_lead(lead_id))
+      with check (not (select public.agenda_member()) or public.calendar_lead(lead_id));
+  end if;
   -- the leads: a calendar client, or one she opened herself (a new client is saved before its appointment); a new one — hers
   foreach op in array array['select', 'update', 'delete'] loop
     if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'leads' and policyname = 'leads_agenda_' || op) then

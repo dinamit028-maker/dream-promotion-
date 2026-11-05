@@ -7,7 +7,7 @@
 
 ## מצב מיגרציות (נכון ל-5 בנובמבר 2026, אחרי 6500; 6600 ממתינה)
 
-**6600 `agenda_client_card` (2.115.0) — עוד לא הוחלה על המסד החי (ממתינה להרצה של בעל המערכת ב-SQL Editor).** `agenda_member()`, `calendar_lead()`, `calendar_find_client()`; מחליפה את `client_files_allowed_for()` של 6200 (גם `'agenda'`; במסד החי — בדיוק של 6200, md5 32d778be…); restrictive `<טבלה>_agenda_lead` על תיק הלקוח, `lead_activities` ו-`social_messages`, ו-`leads_agenda_select/update/delete` (לקוח/ה ביומן, או מי שהיא פתחה בעצמה).
+**6600 `agenda_client_card` (2.115.0) — הגרסה הראשונה הוחלה על המסד החי ב-5.11.2026 (בלי `calendar_find_client` ו-`leads_agenda_*`, ועם `social_messages_agenda_none` הסוגר); הגרסה המלאה ממתינה להרצה — היא פותחת את המדיניות הזו לאותו כלל (alter policy).** `agenda_member()`, `calendar_lead()`, `calendar_find_client()`; מחליפה את `client_files_allowed_for()` של 6200 (גם `'agenda'`; במסד החי — בדיוק של 6200, md5 32d778be…); restrictive `<טבלה>_agenda_lead` על תיק הלקוח, `lead_activities` ו-`social_messages`, ו-`leads_agenda_select/update/delete` (לקוח/ה ביומן, או מי שהיא פתחה בעצמה).
 - **נבדקה:** `tests/sql/agenda-client-card.check.sql` (ו-`agenda-access.check.sql` עודכנה).
 
 
