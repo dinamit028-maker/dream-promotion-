@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { toIso88598 } from '../src/features/documents/openformat';
 
@@ -92,9 +93,22 @@ t('size: at least 2000 records, BKMVDATA under 4MB, unzipped copy equals the pac
 });
 
 t('no real identifiers: none of the old demo numbers as a whole field, nor as text, in any produced file', () => {
-  const old = ['301911202', '58000001', '55000006', '517000055', '311111116', '1234501'];
+  // the old demo numbers (maybe of real people / companies) are kept here only as sha256 — never as text in the repo
+  const old = [
+    'c6d2661a48451286dbcffa1fc87f016d44d03d4764b05cb9ae3369d1883d7ccb', 'a97abef82a2eb15282682eb8f563c2a46c5260777eb7ecf5f65a371a1eb8cd29',
+    '8afa4e78a34111a7606ccd288880f3caf8466d65cb7369f60e2eb0d4a67ec66b', '1bbdb065c94b1470c853541dad86ba3ead8be953cf20e5d1b024692fd4dd3c86',
+    'dfb3cc9a97153d00f18db21f4d077d78378f77786713e3fa9323c621fe52504f', '7c91b1ae2586d75d65db878e12e40c0bd714565d81a66177eef6cf3405022424',
+  ];
+  const oldPhone = '7052dbb338c98feed51644bff74e9706bd7849003b1d172e6debcacecde08c82';   // the old office phone — checked in INI only (in BKMVDATA the same digits occur inside amounts)
+  const oldIn = (s: string, hashes: Set<string>) => {   // every 7-, 8- and 9-digit window of every digit run
+    for (const m of s.matchAll(/\d{7,}/g)) for (const n of [7, 8, 9]) for (let i = 0; i + n <= m[0].length; i++) {
+      if (hashes.has(createHash('sha256').update(m[0].slice(i, i + n)).digest('hex'))) return true;
+    }
+    return false;
+  };
   const files = ['INI.TXT', 'BKMVDATA.TXT', 'דוח-מסמכים-לפי-סוג.html', 'סיכום-הפקה-ממשק-פתוח.html'];
-  for (const f of files) { const s = read(f).toString('latin1'); for (const n of old) assert.ok(!s.includes(n), `${f} has ${n}`); }
+  for (const f of files) assert.ok(!oldIn(read(f).toString('latin1'), new Set(old)), `${f} has an old demo number`);
+  assert.ok(!oldIn(read('INI.TXT').toString('latin1'), new Set([oldPhone])), 'INI.TXT has the old office phone');
   // positive check of every identifying field: the issuer is the fictitious 000000109 everywhere; customers' ids and phones are the fictitious shapes
   const ini = lines(read('INI.TXT')), bk = lines(read('BKMVDATA.TXT'));
   assert.equal(ini[0].slice(24, 33), '000000109', '1003');
@@ -104,5 +118,4 @@ t('no real identifiers: none of the old demo numbers as a whole field, nor as te
     assert.ok(dealer === '000000000' || /^0{6}\d{3}$/.test(dealer), `1215 ${dealer}`);
     assert.ok(phone.trim() === '' || /^0[35]0?-0{5}\d\d\s*$/.test(phone), `1214 ${phone}`);
   }
-  assert.ok(!read('INI.TXT').toString('latin1').includes('5550000'));
 });
