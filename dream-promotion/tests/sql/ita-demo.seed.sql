@@ -155,8 +155,8 @@ create or replace function pg_temp.ita_balance(p_doc uuid) returns numeric langu
 
 -- ---- the documents, as the demo owner ----------------------------------------------------------------------------------
 set local role authenticated;
-select set_config('request.jwt.claim.sub', 'd3e00000-0000-4000-8000-0000000000a1', true),
-       set_config('request.jwt.claim.role', 'authenticated', true);
+set local "request.jwt.claim.sub" = 'd3e00000-0000-4000-8000-0000000000a1';
+set local "request.jwt.claim.role" = 'authenticated';
 
 do $$
 declare
@@ -252,9 +252,10 @@ begin
     end loop;
 
     -- ======== what follows earlier documents (credits, receipts, cancellations) ========
+    -- (only documents of the last 60 days are looked at: every follow-up comes within 20 days, a receipt issued again a day later)
     -- 330 on a 320: about 1 in 11 — a full mirror (creditFor) or half of it (one line, VAT inside), 1–4 days later
     for r in select x.* from public.documents x
-              where x.business_id = B and x.doc_type = 320 and x.paid_document_id is null
+              where x.business_id = B and x.doc_date >= d - 60 and x.doc_type = 320 and x.paid_document_id is null
                 and pg_temp.ita_h(x.idempotency_key || ':credit') % 100 < 9
                 and x.doc_date + 1 + pg_temp.ita_h(x.idempotency_key || ':credit') / 100 % 4 <= d
                 and not exists (select 1 from public.documents c where c.business_id = B and c.doc_type = 330
@@ -277,7 +278,7 @@ begin
 
     -- 330 on a 305: about 1 in 12 — a fifth of it (a discount after the fact), two days later, before it is paid
     for r in select x.* from public.documents x
-              where x.business_id = B and x.doc_type = 305 and pg_temp.ita_h(x.idempotency_key) % 100 < 8 and x.doc_date + 2 <= d
+              where x.business_id = B and x.doc_date >= d - 60 and x.doc_type = 305 and pg_temp.ita_h(x.idempotency_key) % 100 < 8 and x.doc_date + 2 <= d
                 and not exists (select 1 from public.documents c where c.business_id = B and c.doc_type = 330
                                   and c.base_doc_type = 305 and c.base_doc_number = x.doc_number)
               order by x.doc_number loop
@@ -292,14 +293,14 @@ begin
 
     -- 300: 15% cancelled the next day (issued by mistake, never paid); 55% paid whole by a 320 (composeReceipt) 3–12 days later
     for r in select x.* from public.documents x
-              where x.business_id = B and x.doc_type = 300 and pg_temp.ita_h(x.idempotency_key) % 100 between 55 and 69 and x.doc_date + 1 <= d
+              where x.business_id = B and x.doc_date >= d - 60 and x.doc_type = 300 and pg_temp.ita_h(x.idempotency_key) % 100 between 55 and 69 and x.doc_date + 1 <= d
                 and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)
               order by x.doc_number loop
       insert into public.document_cancellations (document_id, business_id, user_id, reason)
         values (r.id, B, U, 'הופקה בטעות - העסקה לא בוצעה');
     end loop;
     for r in select x.* from public.documents x
-              where x.business_id = B and x.doc_type = 300 and pg_temp.ita_h(x.idempotency_key) % 100 < 55
+              where x.business_id = B and x.doc_date >= d - 60 and x.doc_type = 300 and pg_temp.ita_h(x.idempotency_key) % 100 < 55
                 and x.doc_date + 3 + pg_temp.ita_h(x.idempotency_key) / 100 % 10 <= d
                 and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)
                 and not exists (select 1 from public.documents p where p.paid_document_id = x.id)
@@ -321,7 +322,7 @@ begin
                                       when pg_temp.ita_h(x.idempotency_key) % 100 < 85 then 5 + pg_temp.ita_h(x.idempotency_key) / 100 % 15
                                       else 18 end as final_day
                from public.documents x
-              where x.business_id = B and x.doc_type = 305 and pg_temp.ita_h(x.idempotency_key) % 100 < 95 and x.doc_date + 4 <= d
+              where x.business_id = B and x.doc_date >= d - 60 and x.doc_type = 305 and pg_temp.ita_h(x.idempotency_key) % 100 < 95 and x.doc_date + 4 <= d
               order by x.doc_number loop
       bal := pg_temp.ita_balance(r.id);
       continue when bal <= 0;
