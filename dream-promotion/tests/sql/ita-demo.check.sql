@@ -6,6 +6,14 @@
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
 
+do $$
+begin
+  -- never on a real Supabase project (the live database): it has auth.identities and is called "postgres"; the local shim has neither
+  if to_regclass('auth.identities') is not null or current_database() = 'postgres' then
+    raise exception 'ita-demo: this is local test data only — refusing to run on % (a Supabase / live database?)', current_database();
+  end if;
+end $$;
+
 create or replace function pg_temp.check(ok boolean, msg text) returns void language plpgsql as $$
 begin if ok is not true then raise exception 'CHECK FAILED: %', msg; end if; end $$;
 -- a 9-digit number with its check digit (validIsraeliId, src/features/register/billing.ts)
@@ -20,7 +28,7 @@ insert into public.business_members (business_id, user_id, role, access)
   values ('d3e00000-0000-4000-8000-000000000002', 'd3e00000-0000-4000-8000-0000000000b1', 'owner', 'full') on conflict do nothing;
 update public.profiles set current_business_id = 'd3e00000-0000-4000-8000-000000000002' where id = 'd3e00000-0000-4000-8000-0000000000b1';
 insert into public.register_settings (user_id, business_id, business_type, vat_rate, dealer_number, legal_name, street, city, entity_type)
-  values ('d3e00000-0000-4000-8000-0000000000b1', 'd3e00000-0000-4000-8000-000000000002', 'licensed', 18, '516000015', 'עסק אחר בע"מ',
+  values ('d3e00000-0000-4000-8000-0000000000b1', 'd3e00000-0000-4000-8000-000000000002', 'licensed', 18, '000000992', 'עסק אחר בע"מ',
           'הרצל', 'חולון', 'company') on conflict (business_id) do nothing;
 begin;
 set local role authenticated;
@@ -32,7 +40,7 @@ begin
   if exists (select 1 from public.documents where business_id = 'd3e00000-0000-4000-8000-000000000002') then return; end if;
   insert into public.documents (user_id, doc_type, doc_number, doc_date, customer_name, customer_dealer, lines, payments,
                                 before_discount, discount, after_discount, vat_amount, total, vat_rate, idempotency_key)
-  values ('d3e00000-0000-4000-8000-0000000000b1', 305, 0, public.il_today(), 'לקוח של עסק אחר', '516000023',
+  values ('d3e00000-0000-4000-8000-0000000000b1', 305, 0, public.il_today(), 'לקוח של עסק אחר', '000000026',
           '[{"name":"שירות","qty":1,"unitPriceExVat":1000,"discountExVat":0,"totalExVat":1000,"vatRate":18,"kind":1}]', '[]',
           1000, 0, 1000, 180, 1180, 18, 'direct:other-1') returning id into inv;
   insert into public.documents (user_id, doc_type, doc_number, doc_date, customer_name, paid_document_id, lines, payments,
@@ -89,7 +97,7 @@ select pg_temp.others(1);
 
 -- ---- what it made ----------------------------------------------------------------------------------------------------
 create temp view ita_docs as select * from public.documents where business_id = 'd3e00000-0000-4000-8000-000000000001';
-select pg_temp.check((select register_settings.entity_type = 'licensed_dealer' and dealer_number = '301911202' and pg_temp.valid_id(dealer_number)
+select pg_temp.check((select register_settings.entity_type = 'licensed_dealer' and dealer_number = '000000109' and pg_temp.valid_id(dealer_number)
                         and legal_name <> '' and street <> '' and city <> '' and zip <> ''
                         from public.register_settings where business_id = 'd3e00000-0000-4000-8000-000000000001'),
   'the demo is a licensed dealer with a valid dealer number and full issuer details');
@@ -106,7 +114,7 @@ select pg_temp.check((select bool_and(doc_date between date '2026-06-01' and dat
                         from ita_docs), 'dated June–October 2026, in the past, no Saturday');
 select pg_temp.check((select count(distinct date_trunc('month', doc_date)) from ita_docs) = 5, 'five months of documents');
 select pg_temp.check(public.finance_locked_until('d3e00000-0000-4000-8000-000000000001') is null, 'no closed period in the demo');
-select pg_temp.check((select bool_and(issuer->>'dealerNumber' = '301911202' and issuer->>'name' = 'עסק דמו - רישום תוכנה' and issuer->>'entityType' = 'licensed_dealer')
+select pg_temp.check((select bool_and(issuer->>'dealerNumber' = '000000109' and issuer->>'name' = 'עסק דמו - רישום תוכנה' and issuer->>'entityType' = 'licensed_dealer')
                         from ita_docs), 'every document carries the issuer snapshot of the demo');
 select pg_temp.check((select bool_and(user_id = 'd3e00000-0000-4000-8000-0000000000a1' and print_count = 0 and idempotency_key is not null) from ita_docs),
   'every document issued by the demo owner, with its key, never printed');

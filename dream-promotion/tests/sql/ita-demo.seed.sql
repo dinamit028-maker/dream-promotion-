@@ -1,7 +1,8 @@
 -- ita-demo.seed.sql — demo data for the Tax Authority software registration (מרשם התוכנות), LOCAL Postgres ONLY.
--- Never run on the live database. Not a migration (it is not in supabase/migrations and run.sh does not load it as one).
+-- Never run on the live database (it stops at the top on a Supabase project). Not a migration (not in supabase/migrations);
+-- tests/sql/ita-demo.check.sql loads it twice, so it runs on every tests/sql/run.sh.
 --
--- What it makes: one separate demo business, "עסק דמו — רישום תוכנה" (licensed dealer, dealer number 301911202 — a valid
+-- What it makes: one separate demo business, "עסק דמו — רישום תוכנה" (licensed dealer, dealer number 000000109 — fictional (leading zeros), a valid
 -- check digit), with its issuer details in register_settings + business_finance_profile, and about five months of documents
 -- (1.6.2026 – 31.10.2026, no Saturdays) of every type the software issues for a licensed dealer:
 --   320 (sales, several lines, cash / card / transfer / cheque / Bit / other / split), 305 (to business customers, with ע.מ / ח.פ),
@@ -22,6 +23,14 @@
 -- Usage (repo dream-promotion/, after the migrations):  psql -X -v ON_ERROR_STOP=1 -d <db> -f tests/sql/ita-demo.seed.sql
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
+
+do $$
+begin
+  -- never on a real Supabase project (the live database): it has auth.identities and is called "postgres"; the local shim has neither
+  if to_regclass('auth.identities') is not null or current_database() = 'postgres' then
+    raise exception 'ita-demo: this is local test data only — refusing to run on % (a Supabase / live database?)', current_database();
+  end if;
+end $$;
 
 begin;
 
@@ -49,12 +58,12 @@ update public.profiles set current_business_id = 'd3e00000-0000-4000-8000-000000
 -- the issuer: legal name with a plain hyphen (the unified file writes ISO-8859-8: an em dash would become '?')
 insert into public.register_settings (user_id, business_id, business_type, vat_rate, dealer_number, company_number, legal_name,
                                       street, house_no, city, zip, entity_type)
-  values ('d3e00000-0000-4000-8000-0000000000a1', 'd3e00000-0000-4000-8000-000000000001', 'licensed', 18, '301911202', '',
+  values ('d3e00000-0000-4000-8000-0000000000a1', 'd3e00000-0000-4000-8000-000000000001', 'licensed', 18, '000000109', '',
           'עסק דמו - רישום תוכנה', 'הרצל', '10', 'תל אביב-יפו', '6107001', 'licensed_dealer')
   on conflict (business_id) do nothing;
 insert into public.business_finance_profile (business_id, user_id, trading_name, phone, email, bank_name, bank_branch, bank_account,
                                              payment_terms, doc_note, vat_period)
-  values ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-0000000000a1', 'דמו רישום', '03-5550000',
+  values ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-0000000000a1', 'דמו רישום', '03-0000000',
           'ita-demo@example.test', 'בנק דמו', '123', '123456', 'net_30', 'מסמך לדוגמה - נתוני דמו בלבד', 'bimonthly')
   on conflict (business_id) do nothing;
 
@@ -175,20 +184,20 @@ declare
     {"name":"ערכת מוצרים לסלון","unit":125000},{"name":"הרצאה","unit":300000},{"name":"שעת עבודה","unit":28000},
     {"name":"ערכת דוגמיות","unit":8550},{"name":"אחזקה חודשית","unit":90000}]';
   people constant jsonb := '[
-    {"n":"נועה לוי","p":"050-1234501"},{"n":"מיכל כהן","p":"052-2345602"},{"n":"שירה אברהם","p":"054-3456703"},
-    {"n":"רונית פרץ","p":"053-4567804"},{"n":"יעל מזרחי","p":"058-5678905"},{"n":"אורית ביטון","p":"050-6789006"},
-    {"n":"תמר דהן","p":"052-7890107"},{"n":"הילה אוחיון","p":"054-8901208"},{"n":"גלית שלום","p":"055-9012309"},
-    {"n":"דניאל חדד","p":"050-1122310"},{"n":"עדי גבאי","p":"052-3344511"},{"n":"ליאת אזולאי","p":"054-5566712"}]';
+    {"n":"נועה לוי","p":"050-0000001"},{"n":"מיכל כהן","p":"050-0000002"},{"n":"שירה אברהם","p":"050-0000003"},
+    {"n":"רונית פרץ","p":"050-0000004"},{"n":"יעל מזרחי","p":"050-0000005"},{"n":"אורית ביטון","p":"050-0000006"},
+    {"n":"תמר דהן","p":"050-0000007"},{"n":"הילה אוחיון","p":"050-0000008"},{"n":"גלית שלום","p":"050-0000009"},
+    {"n":"דניאל חדד","p":"050-0000010"},{"n":"עדי גבאי","p":"050-0000011"},{"n":"ליאת אזולאי","p":"050-0000012"}]';
   firms constant jsonb := '[
-    {"n":"סטודיו אור בע\"מ","d":"516000015","s":"הנביאים 12","c":"ירושלים","p":"02-6200001"},
-    {"n":"מרכז יופי השרון בע\"מ","d":"516000023","s":"ויצמן 40","c":"כפר סבא","p":"09-7600002"},
-    {"n":"קליניקה גליל בע\"מ","d":"516000031","s":"החרושת 5","c":"כרמיאל","p":"04-9900003"},
-    {"n":"רשת ספא דרום בע\"מ","d":"516000049","s":"שדרות רגר 100","c":"באר שבע","p":"08-6200004"},
-    {"n":"עמותת נשים למען נשים","d":"580000016","s":"הרצל 7","c":"רחובות","p":"08-9400005"},
-    {"n":"דנה כהן עיצוב שיער","d":"200000016","s":"הגפן 3","c":"חיפה","p":"04-8100006"},
-    {"n":"יוסי מזרחי עיצובים","d":"311111116","s":"העצמאות 22","c":"אשדוד","p":"08-8500007"},
-    {"n":"אחים לוי שותפות","d":"550000061","s":"המלאכה 9","c":"נתניה","p":"09-8800008"},
-    {"n":"פארם פלוס בע\"מ","d":"517000055","s":"דרך השלום 53","c":"תל אביב-יפו","p":"03-6900009"}]';
+    {"n":"סטודיו אור בע\"מ","d":"000000018","s":"הנביאים 12","c":"ירושלים","p":"03-0000001"},
+    {"n":"מרכז יופי השרון בע\"מ","d":"000000026","s":"ויצמן 40","c":"כפר סבא","p":"03-0000002"},
+    {"n":"קליניקה גליל בע\"מ","d":"000000034","s":"החרושת 5","c":"כרמיאל","p":"03-0000003"},
+    {"n":"רשת ספא דרום בע\"מ","d":"000000042","s":"שדרות רגר 100","c":"באר שבע","p":"03-0000004"},
+    {"n":"עמותת נשים למען נשים","d":"000000059","s":"הרצל 7","c":"רחובות","p":"03-0000005"},
+    {"n":"דנה כהן עיצוב שיער","d":"000000067","s":"הגפן 3","c":"חיפה","p":"03-0000006"},
+    {"n":"יוסי מזרחי עיצובים","d":"000000075","s":"העצמאות 22","c":"אשדוד","p":"03-0000007"},
+    {"n":"אחים לוי שותפות","d":"000000083","s":"המלאכה 9","c":"נתניה","p":"03-0000008"},
+    {"n":"פארם פלוס בע\"מ","d":"000000091","s":"דרך השלום 53","c":"תל אביב-יפו","p":"03-0000009"}]';
   rate constant numeric := 18;
   d date; k int; j int; nn int; hh int; c int; key text; items jsonb; cust jsonb; calc jsonb; pay jsonb; row jsonb; kind text;
   r record; bal numeric; amt bigint; nrec int; fin date; ref text;
