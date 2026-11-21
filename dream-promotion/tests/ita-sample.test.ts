@@ -102,4 +102,17 @@ t('no real identifiers: every identifying field holds a fictitious value', () =>
     assert.ok(dealer === '000000000' || /^0{6}\d{3}$/.test(dealer), `1215 ${dealer}`);
     assert.ok(phone.trim() === '' || /^0[35]0?-0{5}\d\d\s*$/.test(phone), `1214 ${phone}`);
   }
+  // free-text fields: no run of 7+ digits that is not a fictitious one (a phone's 00000NN, an id starting with 000000)
+  const fictitious = (s: string) => (s.match(/\d{7,}/g) ?? []).every((r) => (r.length === 7 ? /^0{5}/ : /^0{6}/).test(r));
+  for (const l of bk) {
+    const text = l.startsWith('C100') ? [l.slice(57, 237), l.slice(374, 389), l.slice(415, 424)]   // 1207–1213 name and address, 1225 customer key, 1233
+      : l.startsWith('D110') ? [l.slice(93, 123)] : [];                                            // 1260 line description
+    for (const s of text) assert.ok(fictitious(s), `${l.slice(0, 13)}: ${s.trim()}`);
+  }
+  // the printed outputs: the only 9+-digit number is the fictitious dealer number
+  for (const f of ['דוח-מסמכים-לפי-סוג.html', 'סיכום-הפקה-ממשק-פתוח.html']) {
+    const s = read(f).toString('utf8');
+    assert.ok(s.includes('000000109'), `${f}: dealer number`);
+    assert.deepEqual([...new Set(s.match(/\d{9,}/g) ?? [])].filter((r) => r !== '000000109'), [], f);
+  }
 });
