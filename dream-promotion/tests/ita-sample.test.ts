@@ -95,12 +95,14 @@ t('no real identifiers: none of the old demo numbers as a whole field, nor as te
   const old = ['301911202', '58000001', '55000006', '517000055', '311111116', '1234501'];
   const files = ['INI.TXT', 'BKMVDATA.TXT', 'דוח-מסמכים-לפי-סוג.html', 'סיכום-הפקה-ממשק-פתוח.html'];
   for (const f of files) { const s = read(f).toString('latin1'); for (const n of old) assert.ok(!s.includes(n), `${f} has ${n}`); }
-  // the short ones (51600, 200000016, 5550000, and 200000016 again) also occur inside zero-padded record numbers and amounts, so they are checked per field
-  const bk = lines(read('BKMVDATA.TXT'));
-  const bad = new Set(['200000016', '000051600', '005550000']);
-  for (const l of bk) {
-    assert.ok(!bad.has(l.slice(13, 22)), 'dealer number field');                                 // 1203 / 1103
-    if (l.startsWith('C100')) { assert.ok(!bad.has(l.slice(252, 261)) , 'customer dealer'); assert.ok(!l.slice(237, 252).includes('5550000'), 'phone'); }
+  // positive check of every identifying field: the issuer is the fictitious 000000109 everywhere; customers' ids and phones are the fictitious shapes
+  const ini = lines(read('INI.TXT')), bk = lines(read('BKMVDATA.TXT'));
+  assert.equal(ini[0].slice(24, 33), '000000109', '1003');
+  for (const l of bk) assert.equal(l.slice(13, 22), '000000109', `${l.slice(0, 4)} ${l.slice(4, 13)}: 1103/1153/1203/1253/1303`);
+  for (const l of bk.filter((x) => x.startsWith('C100'))) {
+    const dealer = l.slice(252, 261), phone = l.slice(237, 252);   // 1215 (after 1214), 1214
+    assert.ok(dealer === '000000000' || /^0{6}\d{3}$/.test(dealer), `1215 ${dealer}`);
+    assert.ok(phone.trim() === '' || /^0[35]0?-0{5}\d\d\s*$/.test(phone), `1214 ${phone}`);
   }
   assert.ok(!read('INI.TXT').toString('latin1').includes('5550000'));
 });
