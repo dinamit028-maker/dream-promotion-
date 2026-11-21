@@ -109,6 +109,14 @@ t('no real identifiers: every identifying field holds a fictitious value', () =>
       : l.startsWith('D110') ? [l.slice(93, 123)] : [];                                            // 1260 line description
     for (const s of text) assert.ok(fictitious(s), `${l.slice(0, 13)}: ${s.trim()}`);
   }
+  // INI: 1015 company number and 1016 deductions file — zero or fictitious; 1018 business name — no real number (1009, the software vendor, is real once set)
+  assert.match(ini[0].slice(186, 204), /^(0{9}|0{6}\d{3}){2}$/, '1015/1016');
+  assert.ok(fictitious(ini[0].slice(214, 264)), '1018');
+  // cheques (D120, method 2): 1308 branch 0, 1309 account starting with 12 zeros
+  for (const l of bk.filter((x) => x.startsWith('D120') && x[49] === '2')) {
+    assert.equal(l.slice(60, 70), '0'.repeat(10), `${l.slice(0, 13)}: 1308`);
+    assert.match(l.slice(70, 85), /^0{12}\d{3}$/, `${l.slice(0, 13)}: 1309`);
+  }
   // the printed outputs: the only 9+-digit number is the fictitious dealer number
   for (const f of ['דוח-מסמכים-לפי-סוג.html', 'סיכום-הפקה-ממשק-פתוח.html']) {
     const s = read(f).toString('utf8');
