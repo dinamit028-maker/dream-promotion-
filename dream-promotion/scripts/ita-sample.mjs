@@ -1,7 +1,7 @@
 // Produces a sample unified-structure (ממשק פתוח, v1.31) export for the Tax Authority software-registration simulator.
 //   npx -y tsx scripts/ita-sample.mjs [outDir]          (tsx, because it imports the app's own .ts/.tsx code as is)
 //   env: ITA_DB (default ita_demo, a local postgres db with the migrations + tests/sql/ita-demo.seed.sql loaded, see that file),
-//        ITA_BUSINESS (default the demo business), ITA_FROM / ITA_TO (default 2026-01-01 .. 2026-12-31)
+//        ITA_BUSINESS (default the demo business), ITA_FROM / ITA_TO (default 2026-01-01 .. today (Israel))
 // It does what "חבילת רואה החשבון" (src/features/finance/Accountant.tsx, pack()) does for the open format: documents of the period
 // ordered by type and number, the cancellations set, toDoc -> buildOpenFormat(business, SOFTWARE, docs) -> INI.TXT +
 // BKMVDATA.zip under OPENFRMT/<8 digits>.<YY>/<MMDDhhmm>/, and the two printouts from DocumentsTab (reportHtml / summaryHtml).
@@ -13,12 +13,14 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import JSZip from 'jszip';
 
+import { israelParts } from '../src/lib/il-time.ts';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = resolve(process.argv[2] ?? join(root, 'docs/ita-registration/sample'));
 const DB = process.env.ITA_DB ?? 'ita_demo';
 const BIZ = process.env.ITA_BUSINESS ?? 'd3e00000-0000-4000-8000-000000000001';
 const from = process.env.ITA_FROM ?? '2026-01-01';
-const to = process.env.ITA_TO ?? '2026-12-31';
+const to = process.env.ITA_TO ?? israelParts(Date.now()).date;   // today (Israel), as the export screen's default (DocumentsTab)
+if (!/^[a-z_][a-z0-9_]*$/.test(DB)) throw new Error('bad ITA_DB');
 if (!/^[0-9a-f-]{36}$/.test(BIZ) || !/^\d{4}-\d\d-\d\d$/.test(from + '') || !/^\d{4}-\d\d-\d\d$/.test(to + '')) throw new Error('bad ITA_BUSINESS / ITA_FROM / ITA_TO');
 
 // the app's version, as next.config.mjs puts it in NEXT_PUBLIC_APP_VERSION (before the app code reads it)

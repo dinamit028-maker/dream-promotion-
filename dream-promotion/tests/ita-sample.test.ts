@@ -1,16 +1,20 @@
 /**
  * The sample unified-structure export for the Tax Authority simulator (docs/ita-registration/sample/, made by scripts/ita-sample.mjs
- * from the demo business of tests/sql/ita-demo.seed.sql). The files are checked as they are on disk; with no files the suite is skipped
- * explicitly (it needs a database to be made) — it never passes vacuously.
+ * from the demo business of tests/sql/ita-demo.seed.sql). The files are checked as they are on disk; a missing file FAILS (no skip):
+ * the sample is committed, regenerate it with scripts/ita-sample.mjs (needs the ita_demo database).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import JSZip from 'jszip';
+import { toIso88598 } from '../src/features/documents/openformat';
 
 const dir = join(__dirname, '..', 'docs', 'ita-registration', 'sample');
-const have = existsSync(join(dir, 'INI.TXT')) && existsSync(join(dir, 'BKMVDATA.TXT'));
-const t = (name: string, fn: () => void) => test(name, { skip: have ? false : 'no sample files — run scripts/ita-sample.mjs (needs the ita_demo database)' }, fn);
+const t = (name: string, fn: () => void | Promise<void>) => test(name, async () => {
+  for (const f of ['INI.TXT', 'BKMVDATA.TXT']) assert.ok(existsSync(join(dir, f)), `missing ${join(dir, f)} — run: npx -y tsx scripts/ita-sample.mjs (needs the ita_demo database)`);
+  await fn();
+});
 
 const read = (f: string) => readFileSync(join(dir, f));
 const lines = (b: Buffer) => { const s = b.toString('latin1'); assert.ok(s.endsWith('\r\n')); return s.slice(0, -2).split('\r\n'); };
@@ -29,12 +33,18 @@ t('ISO-8859-8: only valid bytes (ASCII printable, Hebrew letters E0-FA), CRLF af
   }
 });
 
-t('Hebrew is logical order: a customer name reads first-letter-first', () => {
-  const c100 = lines(read('BKMVDATA.TXT')).find((l) => l.startsWith('C100'))!;
-  const name = Buffer.from(c100.slice(47, 97), 'latin1');   // 1207 starts after 4+9+9+3+20+8+4
-  const heb = [...name].filter((x) => x >= 0xe0 && x <= 0xfa);
-  assert.ok(heb.length > 0);
-  assert.ok(!heb.some((x) => x < 0xe0 || x > 0xfa));
+t('Hebrew is logical order: a known seed name is in BKMVDATA exactly as toIso88598 writes it (and not reversed)', () => {
+  const seed = readFileSync(join(__dirname, 'sql', 'ita-demo.seed.sql'), 'utf8');
+  const name = 'קליניקה גליל';
+  assert.ok(seed.includes(name), 'the seed no longer has the name used here');
+  const want = Buffer.from(toIso88598(name));
+  const rev = Buffer.from(toIso88598([...name].reverse().join('')));
+  assert.notDeepEqual(want, rev);
+  const bk = read('BKMVDATA.TXT');
+  assert.ok(bk.includes(want), 'name not found as written');
+  assert.ok(!bk.includes(rev), 'name found reversed');
+  const c100 = lines(bk).find((l) => l.startsWith('C100') && Buffer.from(l.slice(57, 107), 'latin1').subarray(0, want.length).equals(want));   // 1207 starts at 4+9+9+3+20+8+4 = 57
+  assert.ok(c100, 'no C100 has the name at the start of field 1207');
 });
 
 t('fixed record lengths: A100 95, C100 444, D110 339, D120 222, Z900 110; nothing else in BKMVDATA', () => {
@@ -67,7 +77,7 @@ t('the primary id (1004 / 1103 / 1153) and the dealer number match across A000, 
   for (const l of bk) assert.equal(l.slice(13, 22), bk[0].slice(13, 22));
 });
 
-t('size: at least 2000 records, BKMVDATA under 4MB, unzipped copy equals the packaged one', () => {
+t('size: at least 2000 records, BKMVDATA under 4MB, unzipped copy equals the packaged one byte for byte', async () => {
   const b = read('BKMVDATA.TXT');
   assert.ok(lines(b).length >= 2000);
   assert.ok(b.length < 4 * 1024 * 1024);
@@ -76,5 +86,21 @@ t('size: at least 2000 records, BKMVDATA under 4MB, unzipped copy equals the pac
   const [a] = readdirSync(sub), [m] = readdirSync(join(sub, a));
   assert.match(a, /^\d{8}\.\d{2}$/); assert.match(m, /^\d{8}$/);
   assert.ok(read(join('OPENFRMT', a, m, 'INI.TXT')).equals(read('INI.TXT')));
-  assert.ok(existsSync(join(sub, a, m, 'BKMVDATA.zip')));
+  const zip = await JSZip.loadAsync(read(join('OPENFRMT', a, m, 'BKMVDATA.zip')));
+  assert.deepEqual(Object.keys(zip.files), ['BKMVDATA.TXT']);
+  assert.ok(Buffer.from(await zip.file('BKMVDATA.TXT')!.async('uint8array')).equals(b));
+});
+
+t('no real identifiers: none of the old demo numbers as a whole field, nor as text, in any produced file', () => {
+  const old = ['301911202', '58000001', '55000006', '517000055', '311111116', '1234501'];
+  const files = ['INI.TXT', 'BKMVDATA.TXT', 'דוח-מסמכים-לפי-סוג.html', 'סיכום-הפקה-ממשק-פתוח.html'];
+  for (const f of files) { const s = read(f).toString('latin1'); for (const n of old) assert.ok(!s.includes(n), `${f} has ${n}`); }
+  // the short ones (51600, 200000016, 5550000, and 200000016 again) also occur inside zero-padded record numbers and amounts, so they are checked per field
+  const bk = lines(read('BKMVDATA.TXT'));
+  const bad = new Set(['200000016', '000051600', '005550000']);
+  for (const l of bk) {
+    assert.ok(!bad.has(l.slice(13, 22)), 'dealer number field');                                 // 1203 / 1103
+    if (l.startsWith('C100')) { assert.ok(!bad.has(l.slice(252, 261)) , 'customer dealer'); assert.ok(!l.slice(237, 252).includes('5550000'), 'phone'); }
+  }
+  assert.ok(!read('INI.TXT').toString('latin1').includes('5550000'));
 });
