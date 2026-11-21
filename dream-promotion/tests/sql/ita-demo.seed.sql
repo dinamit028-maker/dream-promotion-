@@ -111,8 +111,9 @@ end $$;
 -- how a receipt was paid (the document's payments, as toDocPayment): one or two payments of amount_a agorot
 create or replace function pg_temp.ita_pay(kind text, amount_a bigint, d date, seed text) returns jsonb language plpgsql immutable as $$
 declare h int := pg_temp.ita_h(seed); a1 bigint; s text := to_char(d, 'YYYY-MM-DD');
-  cheque jsonb := jsonb_build_object('bank', (10 + h % 3 * 2)::text, 'branch', (300 + h % 600)::text, 'account', (100000 + h % 900000)::text,
-                                     'number', (1000 + h % 9000)::text, 'dueDate', to_char(d + h % 45, 'YYYY-MM-DD'));
+  -- fictional cheque details: branch 000, account 000xxx, a small cheque number (the bank code identifies no one)
+  cheque jsonb := jsonb_build_object('bank', (10 + h % 3 * 2)::text, 'branch', '000', 'account', '000' || lpad((h % 1000)::text, 3, '0'),
+                                     'number', (1 + h % 999)::text, 'dueDate', to_char(d + h % 45, 'YYYY-MM-DD'));
   one jsonb;
 begin
   a1 := round(amount_a * 0.4)::bigint;
