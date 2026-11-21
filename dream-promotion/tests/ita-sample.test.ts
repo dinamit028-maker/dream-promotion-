@@ -91,10 +91,8 @@ t('size: at least 2000 records, BKMVDATA under 4MB, unzipped copy equals the pac
   assert.ok(Buffer.from(await zip.file('BKMVDATA.TXT')!.async('uint8array')).equals(b));
 });
 
-t('no real identifiers: none of the old demo numbers as a whole field, nor as text, in any produced file', () => {
-  const old = ['301911202', '58000001', '55000006', '517000055', '311111116', '1234501'];
-  const files = ['INI.TXT', 'BKMVDATA.TXT', 'דוח-מסמכים-לפי-סוג.html', 'סיכום-הפקה-ממשק-פתוח.html'];
-  for (const f of files) { const s = read(f).toString('latin1'); for (const n of old) assert.ok(!s.includes(n), `${f} has ${n}`); }
+t('no real identifiers: every identifying field holds a fictitious value', () => {
+  // only fictitious identifiers (the first demo had numbers in ranges of real companies / people — removed; never list them here, not even hashed)
   // positive check of every identifying field: the issuer is the fictitious 000000109 everywhere; customers' ids and phones are the fictitious shapes
   const ini = lines(read('INI.TXT')), bk = lines(read('BKMVDATA.TXT'));
   assert.equal(ini[0].slice(24, 33), '000000109', '1003');
@@ -104,5 +102,25 @@ t('no real identifiers: none of the old demo numbers as a whole field, nor as te
     assert.ok(dealer === '000000000' || /^0{6}\d{3}$/.test(dealer), `1215 ${dealer}`);
     assert.ok(phone.trim() === '' || /^0[35]0?-0{5}\d\d\s*$/.test(phone), `1214 ${phone}`);
   }
-  assert.ok(!read('INI.TXT').toString('latin1').includes('5550000'));
+  // free-text fields: no run of 7+ digits that is not a fictitious one (a phone's 00000NN, an id starting with 000000)
+  const fictitious = (s: string) => (s.match(/\d{7,}/g) ?? []).every((r) => (r.length === 7 ? /^0{5}/ : /^0{6}/).test(r));
+  for (const l of bk) {
+    const text = l.startsWith('C100') ? [l.slice(57, 237), l.slice(374, 389), l.slice(415, 424)]   // 1207–1213 name and address, 1225 customer key, 1233
+      : l.startsWith('D110') ? [l.slice(93, 123)] : [];                                            // 1260 line description
+    for (const s of text) assert.ok(fictitious(s), `${l.slice(0, 13)}: ${s.trim()}`);
+  }
+  // INI: 1015 company number and 1016 deductions file — zero or fictitious; 1018 business name — no real number (1009, the software vendor, is real once set)
+  assert.match(ini[0].slice(186, 204), /^(0{9}|0{6}\d{3}){2}$/, '1015/1016');
+  assert.ok(fictitious(ini[0].slice(214, 264)), '1018');
+  // cheques (D120, method 2): 1308 branch 0, 1309 account starting with 12 zeros
+  for (const l of bk.filter((x) => x.startsWith('D120') && x[49] === '2')) {
+    assert.equal(l.slice(60, 70), '0'.repeat(10), `${l.slice(0, 13)}: 1308`);
+    assert.match(l.slice(70, 85), /^0{12}\d{3}$/, `${l.slice(0, 13)}: 1309`);
+  }
+  // the printed outputs: the only 9+-digit number is the fictitious dealer number
+  for (const f of ['דוח-מסמכים-לפי-סוג.html', 'סיכום-הפקה-ממשק-פתוח.html']) {
+    const s = read(f).toString('utf8');
+    assert.ok(s.includes('000000109'), `${f}: dealer number`);
+    assert.deepEqual([...new Set(s.match(/\d{9,}/g) ?? [])].filter((r) => r !== '000000109'), [], f);
+  }
 });
