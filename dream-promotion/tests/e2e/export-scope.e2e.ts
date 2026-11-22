@@ -163,7 +163,8 @@ async function main() {
       for (const f of OF) assert.ok(!has(names, f), `${f} is not in the package (${names.join(', ')})`);
       assert.ok(!names.some((n) => n.includes('OPENFRMT')), 'no OPENFRMT folder');
       await page.getByText(/החבילה ירדה: 1 מסמכים/).waitFor();
-      const msg = page.getByText(`החבילה ירדה בלי הקובץ לרשות המסים: ${MSG_ALL}`);
+      await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();   // 2.117.1: the note is a card (ScopeNote) — the heading, and the message on its own line
+      const msg = page.getByText(MSG_ALL);
       await msg.waitFor();
       assert.equal(await msg.evaluate((e: Element) => getComputedStyle(e).direction), 'rtl', 'the message is right-to-left');
       await fits(page, 'computer');
@@ -173,7 +174,8 @@ async function main() {
       await theSwitch(m.page).waitFor();
       assert.equal(await theSwitch(m.page).inputValue(), NORTH, 'the phone shows the same location');
       await download(m.page);
-      await m.page.getByText(`החבילה ירדה בלי הקובץ לרשות המסים: ${MSG_ALL}`).waitFor();
+      await m.page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();
+      await m.page.getByText(MSG_ALL).waitFor();
       await fits(m.page, 'phone 390');
       await shot(m.page, 'export-scope-all-branches-phone-390.png');
       await m.ctx.close();
@@ -186,7 +188,8 @@ async function main() {
       assert.equal(await theSwitch().count(), 0, 'one location to work in: no switch');
       const names = await download();
       for (const f of OF) assert.ok(!has(names, f), `${f} is not in the package (${names.join(', ')})`);
-      const msg = page.getByText(`החבילה ירדה בלי הקובץ לרשות המסים: ${MSG_LIMITED}`);
+      await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();   // 2.117.1: the note is a card (ScopeNote) — the heading, and the message on its own line
+      const msg = page.getByText(MSG_LIMITED);
       await msg.waitFor();
       assert.equal(await page.getByText(MSG_ALL).count(), 0, 'not the "pick all" message — they cannot');
       await fits(page, 'limited, computer');
@@ -194,7 +197,8 @@ async function main() {
       const m = await context(PHONE);
       await accountant(m.page);
       await download(m.page);
-      await m.page.getByText(`החבילה ירדה בלי הקובץ לרשות המסים: ${MSG_LIMITED}`).waitFor();
+      await m.page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();
+      await m.page.getByText(MSG_LIMITED).waitFor();
       await fits(m.page, 'limited, phone 390');
       await shot(m.page, 'export-scope-limited-phone-390.png');
       await m.ctx.close();
