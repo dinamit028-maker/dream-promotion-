@@ -17,9 +17,9 @@ export const SCOPE_LIMITED = 'רק מי שרואה את כל הסניפים יכ
 export const SCOPE_ERROR = 'לא הצלחנו לבדוק שנבחרו כל הסניפים, ולכן הקובץ לרשות המסים לא הופק. נסו שוב.';
 export const SCOPE_CHANGED = 'בחירת הסניף השתנתה בזמן ההכנה (אולי בטלפון או בחלון אחר), ולכן הקובץ לרשות המסים לא הופק. נסו שוב.';
 export const SCOPE_SHOW_ALL = 'להציג את כל הסניפים';
-/** the message of a hole in the numbering: which documents are missing (type and number — never an amount or a customer) */
-export const gapMessage = (missing: { docType: number; docNumber: number }[], label: (t: number) => string) =>
-  `חסרים מסמכים במספור של התקופה (${missing.slice(0, 3).map((m) => `${label(m.docType)} מס׳ ${m.docNumber}`).join(', ')}${missing.length > 3 ? ' ועוד' : ''}), `
+/** the message of a hole in the numbering: which type and between which numbers (never an amount or a customer) */
+export const gapMessage = (holes: NumberRange[], label: (t: number) => string) =>
+  `חסרים מסמכים במספור (${holes.slice(0, 3).map((h) => `${label(h.docType)} בין מס׳ ${h.min} ל-${h.max}`).join(', ')}${holes.length > 3 ? ' ועוד' : ''}), `
   + 'ולכן הקובץ לרשות המסים לא הופק — הקובץ חייב לכלול את כל המסמכים. פנו לתמיכה.';
 
 export type ExportScope = { ok: true } | { ok: false; message: string };
@@ -54,45 +54,41 @@ export function bothScopes(before: ExportScope, after: ExportScope): ExportScope
   if (!after.ok) return after.message === SCOPE_ERROR ? after : { ok: false, message: SCOPE_CHANGED };
   return { ok: true };
 }
-/**
- * One more guard of a whole file: every document type's numbers of the period run without a hole from its lowest to its highest
- * (one series per type — a document is found by type and number). A number between them may belong to a document dated outside
- * the period (a date in the past is allowed): `gaps` lists the candidates, the caller looks them up (lookupNumbers) — what is
- * still missing means documents the caller cannot see.
- */
-export function numberGaps(docs: { docType: number; docNumber: number }[]): { docType: number; docNumber: number }[] {
+/** the numbers of one document type in the period: its lowest, its highest, and how many documents of it were read */
+export interface NumberRange { docType: number; min: number; max: number; count: number }
+/** per document type (one series per type — a document is found by type and number): lowest, highest, how many */
+export function numberRanges(docs: { docType: number; docNumber: number }[]): NumberRange[] {
   const by = new Map<number, Set<number>>();
   for (const d of docs) { if (!by.has(d.docType)) by.set(d.docType, new Set()); by.get(d.docType)!.add(d.docNumber); }
-  const out: { docType: number; docNumber: number }[] = [];
-  for (const [t, set] of [...by].sort((a, z) => a[0] - z[0])) {
-    const ns = [...set].sort((a, z) => a - z);
-    for (let n = ns[0] + 1; n < ns[ns.length - 1]; n++) if (!set.has(n)) out.push({ docType: t, docNumber: n });
-  }
-  return out;
+  return [...by].sort((a, z) => a[0] - z[0]).map(([docType, set]) => {
+    const ns = [...set];
+    return { docType, min: Math.min(...ns), max: Math.max(...ns), count: set.size };
+  });
 }
-/** the candidates of numberGaps that are not found outside the period either */
-export const stillMissing = (gaps: { docType: number; docNumber: number }[], found: { docType: number; docNumber: number }[]) => {
-  const k = new Set(found.map((f) => `${f.docType}:${f.docNumber}`));
-  return gaps.filter((g) => !k.has(`${g.docType}:${g.docNumber}`));
-};
-/** a hole in the numbering → no file; the numbers between are looked up first (dated outside the period). Errors: no file */
-export async function confirmNoGaps(docs: { docType: number; docNumber: number }[], label: (t: number) => string,
+/** the types whose numbers of the period do not run without a hole from the lowest to the highest */
+export const holesOf = (ranges: NumberRange[]) => ranges.filter((r) => r.count !== r.max - r.min + 1);
+/**
+ * One more guard against the race (bothScopes) — only for a business with more than one active location (multiLocation, the
+ * same rule as the switch at the top): only there can a location narrow what is read. A business with one location is exactly
+ * as before 2.117.1 — an old hole in its numbering (a pilot, a counter fixed by hand) never blocks its file.
+ * A type with a hole in the period: a number between may belong to a document dated outside the period (a past date is allowed),
+ * so the database counts every document of that type between the lowest and the highest number (no date — one count query per
+ * type, head only); fewer than max − min + 1 → documents the caller cannot see → no file. An error → no file.
+ */
+export async function confirmNoGaps(docs: { docType: number; docNumber: number }[], label: (t: number) => string, multi: boolean,
   db: () => Pick<SupabaseClient, 'from'> = supabase): Promise<ExportScope> {
-  const gaps = numberGaps(docs);
-  if (!gaps.length) return { ok: true };
-  if (gaps.length > 2000) return { ok: false, message: gapMessage(gaps, label) };
+  if (!multi) return { ok: true };
+  const holes = holesOf(numberRanges(docs));
+  if (!holes.length) return { ok: true };
   try {
-    const found: { docType: number; docNumber: number }[] = [];
-    for (const t of [...new Set(gaps.map((g) => g.docType))]) {
-      const nums = gaps.filter((g) => g.docType === t).map((g) => g.docNumber);
-      for (let i = 0; i < nums.length; i += 500) {
-        const { data, error } = await db().from('documents').select('doc_type, doc_number').eq('doc_type', t).in('doc_number', nums.slice(i, i + 500));
-        if (error) return { ok: false, message: SCOPE_ERROR };
-        found.push(...((data ?? []) as any[]).map((r) => ({ docType: Number(r.doc_type), docNumber: Number(r.doc_number) })));
-      }
+    const still: NumberRange[] = [];
+    for (const h of holes) {
+      const { count, error } = await db().from('documents').select('id', { count: 'exact', head: true })
+        .eq('doc_type', h.docType).gte('doc_number', h.min).lte('doc_number', h.max);
+      if (error || count == null) return { ok: false, message: SCOPE_ERROR };
+      if (count !== h.max - h.min + 1) still.push(h);
     }
-    const left = stillMissing(gaps, found);
-    return left.length ? { ok: false, message: gapMessage(left, label) } : { ok: true };
+    return still.length ? { ok: false, message: gapMessage(still, label) } : { ok: true };
   } catch {
     return { ok: false, message: SCOPE_ERROR };
   }

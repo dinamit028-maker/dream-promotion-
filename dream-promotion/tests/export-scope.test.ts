@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SCOPE_CHANGED, SCOPE_ERROR, SCOPE_LIMITED, SCOPE_PICK_ALL, bothScopes, confirmNoGaps, exportScope, loadExportScope, numberGaps, offerShowAll, stillMissing,
+  SCOPE_CHANGED, SCOPE_ERROR, SCOPE_LIMITED, SCOPE_PICK_ALL, bothScopes, confirmNoGaps, exportScope, holesOf, loadExportScope, numberRanges, offerShowAll,
 } from '../src/features/documents/export-scope';
 
 const ok = (data: unknown) => ({ data, error: null });
@@ -62,26 +62,50 @@ test('the loader twice with the scope changing between: no file', async () => {
   assert.deepEqual(bothScopes(await loadExportScope(db), await loadExportScope(db)), { ok: false, message: SCOPE_CHANGED });
 });
 
-test('numbering: a hole between the lowest and highest number of a type is found; each type is its own series', () => {
+test('numbering: per type its lowest, highest and count; a hole when the count is short of max − min + 1', () => {
   const d = (docType: number, docNumber: number) => ({ docType, docNumber });
-  assert.deepEqual(numberGaps([d(320, 5), d(320, 6), d(320, 7), d(400, 1), d(330, 9)]), []);
-  assert.deepEqual(numberGaps([d(320, 5), d(320, 8), d(400, 2), d(400, 4), d(320, 6)]), [d(320, 7), d(400, 3)]);
-  assert.deepEqual(stillMissing([d(320, 7), d(400, 3)], [d(320, 7)]), [d(400, 3)], 'found outside the period (a past date) — not a hole');
+  const r = numberRanges([d(320, 5), d(320, 8), d(400, 2), d(400, 3), d(320, 6), d(320, 6)]);
+  assert.deepEqual(r, [{ docType: 320, min: 5, max: 8, count: 3 }, { docType: 400, min: 2, max: 3, count: 2 }]);
+  assert.deepEqual(holesOf(r), [{ docType: 320, min: 5, max: 8, count: 3 }]);
+  assert.deepEqual(holesOf(numberRanges([d(330, 9)])), []);
 });
 
-test('numbering: confirmNoGaps looks the numbers up; still missing → no file with the numbers; an error → no file', async () => {
-  const label = (t: number) => (t === 320 ? 'חשבונית מס / קבלה' : `מסמך ${t}`);
-  const docs = [{ docType: 320, docNumber: 5 }, { docType: 320, docNumber: 8 }];
+const label = (t: number) => (t === 320 ? 'חשבונית מס / קבלה' : `מסמך ${t}`);
+/** a fake documents table: count(*) where doc_type = t and doc_number between a and b — over these (type, number) pairs */
+function countDb(all: [number, number][] | Error, asked: unknown[] = []) {
+  return () => ({ from: () => ({ select: (_c: string, o: any) => {
+    assert.deepEqual(o, { count: 'exact', head: true });
+    const q: any = { t: 0, a: -Infinity, b: Infinity };
+    const chain: any = {
+      eq: (_k: string, v: number) => { q.t = v; return chain; }, gte: (_k: string, v: number) => { q.a = v; return chain; },
+      lte: (_k: string, v: number) => { q.b = v; asked.push([q.t, q.a, q.b]);
+        return Promise.resolve(all instanceof Error ? { count: null, error: { code: '500' } } : { count: all.filter(([t, n]) => t === q.t && n >= q.a && n <= q.b).length, error: null }); },
+    };
+    return chain;
+  } }) }) as any;
+}
+
+test('one active location: a hole never blocks the file (as before 2.117.1) — nothing is even asked', async () => {
   const asked: unknown[] = [];
-  const db = (rows: unknown[] | Error) => () => ({ from: () => ({ select: () => ({ eq: (_c: string, t: number) => ({ in: async (_k: string, nums: number[]) => {
-    asked.push([t, nums]); if (rows instanceof Error) return { data: null, error: { code: '500' } }; return { data: rows, error: null }; } }) }) }) }) as any;
-  assert.deepEqual(await confirmNoGaps([{ docType: 320, docNumber: 5 }, { docType: 320, docNumber: 6 }], label, db([])), { ok: true });
-  assert.equal(asked.length, 0, 'no hole — nothing asked');
-  assert.deepEqual(await confirmNoGaps(docs, label, db([{ doc_type: 320, doc_number: 6 }, { doc_type: 320, doc_number: 7 }])), { ok: true });
-  assert.deepEqual(asked, [[320, [6, 7]]]);
-  const r = await confirmNoGaps(docs, label, db([{ doc_type: 320, doc_number: 6 }]));
-  assert.equal(r.ok, false); assert.ok(!r.ok && r.message.includes('חשבונית מס / קבלה מס׳ 7') && !r.message.includes('מס׳ 6'));
-  assert.deepEqual(await confirmNoGaps(docs, label, db(new Error())), { ok: false, message: SCOPE_ERROR });
+  assert.deepEqual(await confirmNoGaps([{ docType: 320, docNumber: 5 }, { docType: 320, docNumber: 9 }], label, false, countDb([], asked)), { ok: true });
+  assert.equal(asked.length, 0);
+});
+
+test('several locations: a real hole → no file, naming the type and the numbers between; an error → no file', async () => {
+  const docs = [{ docType: 320, docNumber: 5 }, { docType: 320, docNumber: 8 }];
+  const r = await confirmNoGaps(docs, label, true, countDb([[320, 5], [320, 6], [320, 8]]));   // 7 is not seen
+  assert.equal(r.ok, false); assert.ok(!r.ok && r.message.includes('חשבונית מס / קבלה בין מס׳ 5 ל-8'));
+  assert.deepEqual(await confirmNoGaps(docs, label, true, countDb(new Error())), { ok: false, message: SCOPE_ERROR });
+  const asked: unknown[] = [];
+  assert.deepEqual(await confirmNoGaps([{ docType: 320, docNumber: 5 }, { docType: 320, docNumber: 6 }], label, true, countDb([], asked)), { ok: true });
+  assert.equal(asked.length, 0, 'no hole in the period — nothing asked');
+});
+
+test('several locations: a big range filled by documents dated outside the period → the file is made (one count per type)', async () => {
+  const outside: [number, number][] = Array.from({ length: 5000 }, (_, i) => [320, i + 1]);
+  const asked: unknown[] = [];
+  assert.deepEqual(await confirmNoGaps([{ docType: 320, docNumber: 1 }, { docType: 320, docNumber: 5000 }, { docType: 400, docNumber: 3 }], label, true, countDb(outside, asked)), { ok: true });
+  assert.deepEqual(asked, [[320, 1, 5000]], 'one count query, by range — no list of numbers in the URL');
 });
 
 test('"להציג את כל הסניפים": only for "pick all" when the switch is not shown; one location, nothing picked — no message at all', () => {

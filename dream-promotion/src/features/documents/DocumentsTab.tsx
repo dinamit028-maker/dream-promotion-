@@ -10,6 +10,8 @@ import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, ty
 import { loadDocCodes } from './doc-codes';
 import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './export-scope';
 import { ScopeNote } from './ScopeNote';
+import { multiLocation } from '@/features/locations/locations';
+import { useLocations } from '@/features/locations/store';
 import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
@@ -151,7 +153,7 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
     setBusy(true);
     // the documents here were read when the screen opened: the scope then (scope) and now must both be "every location", and no hole
     let now = bothScopes(scope ?? await loadExportScope(), await loadExportScope());
-    if (now.ok) now = await confirmNoGaps(docs.filter((d) => d.docDate >= from && d.docDate <= to), (t) => DOC_LABEL[t] ?? `מסמך ${t}`);
+    if (now.ok) now = await confirmNoGaps(docs.filter((d) => d.docDate >= from && d.docDate <= to), (t) => DOC_LABEL[t] ?? `מסמך ${t}`, multiLocation(useLocations.getState().state));
     setScope(now);
     if (!now.ok) { setResult(null); setBusy(false); return; }
     const codes = await loadDocCodes();   // field 1233 (2.117) — none before migration 20261122006700

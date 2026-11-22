@@ -10,6 +10,8 @@ import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents
 import { loadDocCodes } from '@/features/documents/doc-codes';
 import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from '@/features/documents/export-scope';
 import { ScopeNote } from '@/features/documents/ScopeNote';
+import { multiLocation } from '@/features/locations/locations';
+import { useLocations } from '@/features/locations/store';
 import { DOC_LABEL } from '@/features/documents/documents';
 import { SOFTWARE, reportHtml as docTypeReportHtml, summaryHtml as openFormatSummaryHtml } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
@@ -83,7 +85,7 @@ export function Accountant() {
       ]);
       if (!sum.ok) throw new Error(sum.error);
       let scope = bothScopes(scopeBefore, await loadExportScope());
-      if (scope.ok && business.ready && docs.length) scope = await confirmNoGaps(docs, (t) => DOC_LABEL[t] ?? `מסמך ${t}`);
+      if (scope.ok && business.ready && docs.length) scope = await confirmNoGaps(docs, (t) => DOC_LABEL[t] ?? `מסמך ${t}`, multiLocation(useLocations.getState().state));   // the switch's own rule
       const cancelled = new Set(cancels);
       const real = new Map(allocs.filter((x) => isRealAllocation(x.row)).map((x) => [x.documentId, `${x.row.number}${x.row.status === 'manual' ? ' (ידני)' : ''}`]));
       const marked: (DocRow & { cancelled?: boolean; allocation?: string })[] = docs.map((d) => ({ ...d, cancelled: cancelled.has(d.id), allocation: real.get(d.id) }));
