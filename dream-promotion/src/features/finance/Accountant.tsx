@@ -7,6 +7,7 @@ import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
 import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
+import { loadDocCodes } from '@/features/documents/doc-codes';
 import { SOFTWARE, reportHtml as docTypeReportHtml, summaryHtml as openFormatSummaryHtml } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
 import { loadSummary } from './Overview';
@@ -62,7 +63,7 @@ export function Accountant() {
     setBusy('אוסף את הנתונים…');
     try {
       const sb = supabase();
-      const [docs, cancels, allocs, expenses, ledger, recv, sum] = await Promise.all([
+      const [docs, cancels, allocs, expenses, ledger, recv, sum, codes] = await Promise.all([
         all((a, b) => sb.from('documents').select('*').gte('doc_date', period.from).lte('doc_date', period.to).order('doc_type').order('doc_number').range(a, b), toDoc),
         all((a, b) => sb.from('document_cancellations').select('document_id').range(a, b), (r) => r.document_id as string),
         all((a, b) => sb.from('tax_allocations').select('*').range(a, b), (r) => ({ documentId: r.document_id as string, row: toAllocationRow(r) })),
@@ -70,6 +71,7 @@ export function Accountant() {
         all((a, b) => sb.from('payments').select('*').gte('paid_on', period.from).lte('paid_on', period.to).order('paid_on').range(a, b), toLedgerRow),
         all((a, b) => sb.from('receivables').select('*').range(a, b), toReceivable),
         loadSummary(period),
+        loadDocCodes(),   // field 1233 (2.117): the people's codes; before migration 20261122006700 — none, 1233 as before
       ]);
       if (!sum.ok) throw new Error(sum.error);
       const cancelled = new Set(cancels);
@@ -108,7 +110,7 @@ export function Accountant() {
       }
       if (business.ready && docs.length) {
         const startedAt = new Date().toISOString();
-        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt });
+        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes });
         const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));

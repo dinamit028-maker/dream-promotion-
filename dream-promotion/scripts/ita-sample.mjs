@@ -3,10 +3,12 @@
 //   env: ITA_DB (default ita_demo, a local postgres db with the migrations + tests/sql/ita-demo.seed.sql loaded, see that file),
 //        ITA_BUSINESS (default the demo business), ITA_FROM / ITA_TO (default 2026-01-01 .. today (Israel))
 // It does what "חבילת רואה החשבון" (src/features/finance/Accountant.tsx, pack()) does for the open format: documents of the period
-// ordered by type and number, the cancellations set, toDoc -> buildOpenFormat(business, SOFTWARE, docs) -> INI.TXT +
+// ordered by type and number, the cancellations set, the people's codes (member_doc_codes, if there), toDoc -> buildOpenFormat(business,
+// SOFTWARE, docs, { codes }) -> INI.TXT +
 // BKMVDATA.zip under OPENFRMT/<8 digits>.<YY>/<MMDDhhmm>/, and the two printouts from DocumentsTab (reportHtml / summaryHtml).
 // Extra for the simulator: an unzipped BKMVDATA.TXT next to them. No code is copied: only the queries and the file layout.
-// Without NEXT_PUBLIC_SOFTWARE_REG_NUMBER / NEXT_PUBLIC_SOFTWARE_VENDOR_VAT fields 1006 / 1009 are zeros (as in the product today).
+// Without NEXT_PUBLIC_SOFTWARE_REG_NUMBER / NEXT_PUBLIC_SOFTWARE_VENDOR_VAT fields 1006 / 1009 are zeros, and without
+// NEXT_PUBLIC_SOFTWARE_VENDOR_NAME field 1010 is "Dream Promotion" (as in the product when they are not set).
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -26,7 +28,7 @@ if (!/^[0-9a-f-]{36}$/.test(BIZ) || !/^\d{4}-\d\d-\d\d$/.test(from + '') || !/^\
 // the app's version, as next.config.mjs puts it in NEXT_PUBLIC_APP_VERSION (before the app code reads it)
 process.env.NEXT_PUBLIC_APP_VERSION ??= JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 const { toDoc } = await import('../src/features/documents/documents.ts');
-const { buildOpenFormat, docTypeReport, toIso88598 } = await import('../src/features/documents/openformat.ts');
+const { buildOpenFormat, docCodesMap, docTypeReport, toIso88598 } = await import('../src/features/documents/openformat.ts');
 const { SOFTWARE, reportHtml, summaryHtml } = await import('../src/features/documents/DocumentsTab.tsx');
 
 const q = (sql) => {
@@ -41,9 +43,13 @@ const rs = q(`select to_json(r) from register_settings r where business_id='${BI
 const business = { dealerNumber: rs.dealer_number ?? '', companyNumber: rs.company_number ?? '', name: rs.legal_name || 'Dream Promotion', street: rs.street ?? '', houseNo: rs.house_no ?? '', city: rs.city ?? '', zip: rs.zip ?? '' };
 if (!/^[0-9]{9}$/.test(business.dealerNumber)) throw new Error('business not ready (dealer number)');
 const docs = docRows.map(toDoc).map((d) => ({ ...d, cancelled: cancels.has(d.id) }));
+// field 1233 (2.117): the people's codes, as pack() reads them (loadDocCodes) — only when migration 20261122006700 is in this database;
+// without it, none (1233 as before)
+const hasCodes = q(`select to_json(to_regclass('public.member_doc_codes') is not null)`);
+const codes = docCodesMap(hasCodes ? q(`select coalesce(json_agg(json_build_object('user_id', user_id, 'code', code)), '[]') from member_doc_codes where business_id='${BIZ}'`) : []);
 
 const startedAt = new Date().toISOString();
-const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt });
+const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes });
 const dir = join(out, ...f.dir.split('\\'));
 rmSync(join(out, 'OPENFRMT'), { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
@@ -55,4 +61,4 @@ writeFileSync(join(out, 'BKMVDATA.TXT'), bkmv);   // unzipped copy, for the simu
 writeFileSync(join(out, 'INI.TXT'), toIso88598(f.ini));
 writeFileSync(join(out, 'דוח-מסמכים-לפי-סוג.html'), reportHtml(docTypeReport(docs, from, to), business, from, to));
 writeFileSync(join(out, 'סיכום-הפקה-ממשק-פתוח.html'), summaryHtml({ ...f, startedAt }, business, from, to));
-console.log(JSON.stringify({ out, dir: f.dir, counts: f.counts, totalRecords: f.totalRecords, bkmvBytes: bkmv.length, docs: docs.length, cancelled: docs.filter((d) => d.cancelled).length }, null, 1));
+console.log(JSON.stringify({ out, dir: f.dir, counts: f.counts, totalRecords: f.totalRecords, bkmvBytes: bkmv.length, docs: docs.length, cancelled: docs.filter((d) => d.cancelled).length, codes: hasCodes ? codes.size : 'no member_doc_codes table' }, null, 1));
