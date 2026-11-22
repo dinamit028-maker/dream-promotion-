@@ -5,6 +5,7 @@ import { chargesVat, invoiceDocType, type EntityType } from './rules';
 import { ag } from './vat';
 import { ils } from '@/features/register/money';
 import { HE_MONTHS } from '@/lib/utils';
+import type { ItemKind } from '@/features/catalog/catalog';
 
 /**
  * Recurring charges ("חיובים חוזרים", docs/FINANCE_ADDITIONS_HE.md T4; migration 20261010004500): a retainer, a monthly
@@ -29,7 +30,7 @@ export const MODE_HE: Record<PlanMode, string> = { issue: 'חשבונית אוט
 export const LINES_MAX = 30;
 export const AMOUNT_MAX = 1_000_000;
 
-export interface RecurringLine { name: string; qty: number; unitPrice: number; itemId?: string; variantId?: string }
+export interface RecurringLine { name: string; qty: number; unitPrice: number; itemId?: string; variantId?: string; kind?: ItemKind }
 export interface RecurringPlan {
   id: string; leadId: string; userId: string | null; name: string; lines: RecurringLine[]; pricesIncludeVat: boolean; amount: number; every: Every;
   day: number; startDate: string; endDate: string | null; nextDate: string; mode: PlanMode; sendLink: boolean; status: PlanStatus; note: string;
@@ -45,6 +46,8 @@ export const CHARGE_COLUMNS = 'id, plan_id, period_date, status, document_id, dr
 const toLine = (l: any): RecurringLine => ({
   name: String(l?.name ?? ''), qty: Number(l?.qty ?? 0), unitPrice: Number(l?.unitPrice ?? 0),
   ...(l?.itemId ? { itemId: String(l.itemId), ...(l?.variantId ? { variantId: String(l.variantId) } : {}) } : {}),
+  // 2.117: the price list item's kind (field 1258 of the unified file) — only a known one
+  ...(['service', 'product', 'package', 'other'].includes(l?.kind) ? { kind: l.kind as ItemKind } : {}),
 });
 export const toRecurringPlan = (r: any): RecurringPlan => ({
   id: r.id, leadId: r.lead_id, userId: r.user_id ?? null, name: r.name ?? '', lines: Array.isArray(r.lines) ? r.lines.map(toLine) : [],

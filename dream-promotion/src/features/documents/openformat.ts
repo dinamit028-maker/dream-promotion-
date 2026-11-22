@@ -1,8 +1,10 @@
 /**
  * "ממשק פתוח" — the unified-structure files of the Israel Tax Authority, spec v1.31 (10.05.2009):
  * INI.TXT + BKMVDATA.TXT, fixed-width records, ISO-8859-8 (logical Hebrew), CRLF after each record.
- * This module produces the documents part (C100 / D110 / D120) — the software has no bookkeeping
- * (B100/B110) or inventory (M100) module, so field 1013 = 0. Every field position below is from the spec.
+ * This module produces the documents part (C100 / D110 / D120). The software keeps no books (B100/B110 — field 1013 = 0, "not
+ * relevant", spec p. 10). It does keep stock (per location, from 2.92), but this export writes no M100 ("פריטים במלאי", §4.8,
+ * p. 17) records — whether it has to is an open question (22.11.2026). Every field position below is from the spec.
+ * Checked against the official text (horaot-131.pdf, 22 pages) on 22.11.2026: pages 6, 10, 12, 13, 21 — see each change.
  */
 export const SYSTEM_CONST = '&OF1.31&';
 
@@ -12,9 +14,9 @@ export const N = (v: number | string | null | undefined, len: number) => {
   const d = String(v ?? '').replace(/\D/g, '');
   return d.length > len ? d.slice(-len) : d.padStart(len, '0');
 };
-/** alphanumeric X(n): left-aligned, space-padded on the right */
+/** alphanumeric X(n): left-aligned, space-padded on the right — the text first made writable in ISO-8859-8 (isoText) */
 export const X = (v: string | null | undefined, len: number) => {
-  const s = String(v ?? '').replace(/[\r\n]+/g, ' ');
+  const s = isoText(String(v ?? ''));
   return s.length > len ? s.slice(0, len) : s.padEnd(len, ' ');
 };
 /** signed amount X9(int)v99: sign, integer digits zero-padded, 2 decimals, no point — e.g. +00000000124565 */
@@ -24,12 +26,41 @@ export const AMT = (v: number, intDigits = 12, dec = 2) => {
 };
 export const yyyymmdd = (d: string) => d.replace(/-/g, '').slice(0, 8);
 
-/** ISO-8859-8 (logical): ASCII as is, Hebrew letters U+05D0–U+05EA → 0xE0–0xFA, anything else → '?' */
+/**
+ * Spec §2.4ח (p. 6, checked 22.11.2026): the files are written in ISO-8859-8-i (logical Hebrew) — field 1029 = 1 (p. 10).
+ * That set has ASCII and the 27 Hebrew letters only (for us): the marks the app itself writes ("מס׳", "בע״מ", "זיכוי — …", "₪")
+ * and what a phone's keyboard adds (direction marks, a non-breaking space, curly quotes) have no place in it and came out as "?".
+ * Here each one becomes the nearest character the set has — before a field is padded / cut, so the record keeps its fixed length
+ * (₪ is three characters: ש"ח). The mapping is ours (the spec names the set only), as the plain-text way of writing these marks.
+ */
+const ONE: Record<string, string> = {
+  '\u05F3': "'", '\u05F4': '"',                                                   // ׳ geresh, ״ gershayim
+  '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201B': "'", '\u2032': "'",       // ‘ ’ ‚ ‛ ′
+  '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u201F': '"', '\u2033': '"',       // “ ” „ ‟ ″
+  '\u05BE': '-', '\u2010': '-', '\u2011': '-', '\u2012': '-', '\u2013': '-', '\u2014': '-', '\u2015': '-', '\u2212': '-', // ־ maqaf, dashes, minus
+};
+/** a character that is not written at all: direction marks and embeddings, zero-width characters, Hebrew points (niqqud) */
+const DROP = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\u061C\uFEFF\u0591-\u05BD\u05BF-\u05C7]/g;
+/** a space of another kind (non-breaking, thin, narrow …) and any control character (tab, CR, LF) → a plain space */
+const SPACE = /[\u0000-\u001F\u007F\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g;
+/** text as it may be written in the file (2.4ח): the marks above as their plain form, ₪ as ש"ח, … as ..., the rest as is */
+export function isoText(s: string): string {
+  return s.replace(/[\r\n]+/g, ' ').replace(DROP, '').replace(SPACE, ' ').replace(/\u20AA/g, 'ש"ח').replace(/\u2026/g, '...')
+    .replace(/[\u05F3\u05F4\u2018-\u201F\u2032\u2033\u05BE\u2010-\u2015\u2212]/g, (c) => ONE[c] ?? c);
+}
+/**
+ * ISO-8859-8 (logical): ASCII as is, Hebrew letters U+05D0–U+05EA → 0xE0–0xFA. One byte per character, always (a record keeps
+ * its length): the marks of isoText that have a one-character form get it here too, a space of another kind or a direction
+ * mark is a space, anything else '?'. Every field already went through isoText (X); this is the last guard of the bytes.
+ */
 export function toIso88598(s: string): Uint8Array {
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
-    out[i] = c < 0x80 ? c : c >= 0x05d0 && c <= 0x05ea ? c - 0x05d0 + 0xe0 : 0x3f;
+    if (c === 0x0d || c === 0x0a || (c >= 0x20 && c < 0x7f)) { out[i] = c; continue; }   // ASCII (CR LF end a record — §2.4ט)
+    if (c >= 0x05d0 && c <= 0x05ea) { out[i] = c - 0x05d0 + 0xe0; continue; }
+    const one = ONE[s[i]];
+    out[i] = one ? one.charCodeAt(0) : /[\s\u200B-\u200F\u202A-\u202E\u2060-\u2069\u061C\uFEFF]/.test(s[i]) ? 0x20 : 0x3f;
   }
   return out;
 }
@@ -55,6 +86,53 @@ export interface Doc {
   baseDocType?: number | null; baseDocNumber?: number | null; issuedBy?: string; lines: DocLine[]; payments: DocPayment[];
   /** a receipt / transaction invoice cancelled after issue (document_cancellations, 2.51) — field 1228 */
   cancelled?: boolean;
+  /** who in the business issued it (documents.user_id) — its code goes into field 1233 (operatorOf) */
+  userId?: string | null;
+}
+
+/**
+ * Field 1258 "סוג עסקה" (spec p. 13, checked 22.11.2026): 1 service, 2 sale (מכר), 3 service and sale. A line of the price list
+ * carries its kind ('service' | 'product' | 'package' | 'other' — catalog.ts): a product is a sale (2); a service, a package, a
+ * line typed by hand (no kind) and anything else — a service (1), as every line was before 2.117. Only new documents get it:
+ * a document keeps the kind it was issued with (old ones — 1), and the file writes what the document has.
+ */
+export const txKind = (l: { kind?: string | null }): 1 | 2 => (l.kind === 'product' ? 2 : 1);
+
+const ag = (v: number) => Math.round(v * 100);
+const isWithholding = (p: DocPayment) => p.m === 'withholding';
+/**
+ * Tax withheld at source in the file — spec clarification 4 (p. 21, checked 22.11.2026), field 1224 (p. 12, "בקבלה בלבד, אם
+ * נוכה"): "a customer paid a debt of 1250 ₪ but withheld 250 ₪ at source: fields 1219, 1221, 1223 = 1000 ₪, field 1224 = 250 ₪,
+ * fields 1220, 1222 = 0 ₪"; 1223 — "בקבלה, סכום ללא הניכוי במקור"; 1224 is positive (§2.4יב, p. 6). The document itself keeps the
+ * withholding as one of its payments (m 'withholding', 2.94) and is not changed: only the file is written this way.
+ * A receipt (400) only. A tax invoice-receipt (320) with tax withheld is written as before (1224 = 0, a D120 line of code 9):
+ * the clarification's example is a receipt without VAT, and what 1219 / 1221 (before VAT) of a 320 should be is not written —
+ * an open question to the accountant (22.11.2026).
+ */
+export const withheldOf = (d: Pick<Doc, 'docType' | 'payments'>): number =>
+  d.docType === 400 ? d.payments.filter(isWithholding).reduce((a, p) => a + ag(p.amount), 0) / 100 : 0;
+/** the D120 lines of a document: a receipt's withholding is in 1224, not a payment line — so the D120 lines add up to 1223 */
+export const filePayments = (d: Pick<Doc, 'docType' | 'payments'>): DocPayment[] =>
+  d.docType === 400 ? d.payments.filter((p) => !isWithholding(p)) : d.payments;
+/**
+ * Field 1233 "מבצע הפעולה" — "שם המשתמש של מבצע הפעולה", X(9), ח/ר (spec p. 12, checked 22.11.2026). The owner of the system
+ * (22.11.2026): a short code per person of the business (member_doc_codes: U01, U02 …) — never a name or another personal detail.
+ * A document that names its issuer (the site's: 'אתר', and the credits made from them) keeps it, as before; without a code
+ * (the table is not in the database yet, or a document without user_id) — empty, as before.
+ */
+/** member_doc_codes rows → user_id → code (only a code that fits field 1233: up to 9 letters / digits) */
+export function docCodesMap(rows: unknown): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const u = (r as any)?.user_id, c = (r as any)?.code;
+    if (typeof u === 'string' && u && typeof c === 'string' && /^[A-Za-z0-9]{1,9}$/.test(c)) m.set(u, c);
+  }
+  return m;
+}
+export function operatorOf(d: Pick<Doc, 'issuedBy' | 'userId'>, codes?: ReadonlyMap<string, string>): string {
+  if (d.issuedBy) return d.issuedBy;
+  const c = d.userId ? codes?.get(d.userId) : undefined;
+  return c && c.length <= 9 ? c : '';
 }
 const ilTime = (iso: string) => {
   const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -69,8 +147,10 @@ export const A100 = (rec: number, b: Business, id: string) =>
 export const Z900 = (rec: number, b: Business, id: string, total: number) =>
   'Z900' + N(rec, 9) + N(b.dealerNumber, 9) + N(id, 15) + X(SYSTEM_CONST, 8) + N(total, 15) + X('', 50); // 110
 
-export function C100(rec: number, b: Business, d: Doc) {
+export function C100(rec: number, b: Business, d: Doc, operator: string = d.issuedBy ?? '') {
   const t = ilTime(d.issuedAt);
+  const wA = ag(withheldOf(d));                                       // clarification 4: a receipt's amounts without the withholding
+  const less = (v: number) => (ag(v) - wA) / 100;
   const sign = (v: number) => (d.docType === 330 ? v : v); // a credit invoice is positive; its type gives the meaning (clarification 1)
   return 'C100' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20)
     + N(t.date, 8) + N(t.time, 4)                                   // 1205, 1206
@@ -78,20 +158,20 @@ export function C100(rec: number, b: Business, d: Doc) {
     + X('', 30) + X('', 2) + X(d.customerPhone, 15) + N(d.customerDealer || 0, 9)   // 1212–1215
     + N(yyyymmdd(d.docDate), 8)                                       // 1216 value date
     + AMT(0) + X('', 3)                                               // 1217, 1218 (export only)
-    + AMT(sign(d.beforeDiscount)) + AMT(-Math.abs(d.discount)) + AMT(sign(d.afterDiscount)) // 1219, 1220 (negative), 1221
-    + AMT(sign(d.vatAmount)) + AMT(sign(d.total)) + AMT(0, 9)         // 1222, 1223, 1224 withholding
+    + AMT(sign(less(d.beforeDiscount))) + AMT(-Math.abs(d.discount)) + AMT(sign(less(d.afterDiscount))) // 1219, 1220 (negative), 1221
+    + AMT(sign(d.vatAmount)) + AMT(sign(less(d.total))) + AMT(wA / 100, 9) // 1222, 1223, 1224 withholding (positive — clarification 4)
     + X(d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15) // 1225 customer key
     + X('', 10)                                                       // 1226 matching field
     + X(d.cancelled ? '1' : '', 1)                                    // 1228 cancelled: a 300 / 400 cancelled after issue (a tax invoice gets a credit invoice instead)
     + N(yyyymmdd(d.docDate), 8)                                       // 1230 document date
     + X('', 7)                                                        // 1231 branch
-    + X(d.issuedBy, 9) + N(d.linkNo, 7) + X('', 13);                  // 1233, 1234, 1235 → 444
+    + X(operator, 9) + N(d.linkNo, 7) + X('', 13);                    // 1233 (operatorOf), 1234, 1235 → 444
 }
 
 export function D110(rec: number, b: Business, d: Doc, line: DocLine, lineNo: number) {
   return 'D110' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20) + N(lineNo, 4)
     + N(d.baseDocType ?? 0, 3) + X(d.baseDocNumber ? String(d.baseDocNumber) : '', 20)  // 1256, 1257
-    + N(line.kind, 1) + X('', 20) + X(line.name, 30) + X('', 50) + X('', 30) + X('יחידה', 20) // 1258–1263
+    + N(line.kind === 2 || line.kind === 3 ? line.kind : 1, 1) + X('', 20) + X(line.name, 30) + X('', 50) + X('', 30) + X('יחידה', 20) // 1258–1263
     + AMT(line.qty, 12, 4) + AMT(line.unitPriceExVat) + AMT(-Math.abs(line.discountExVat)) + AMT(line.totalExVat) // 1264–1267
     + N(Math.round(line.vatRate * 100), 4)                             // 1268 (18% → 1800)
     + X('', 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X('', 7) + X('', 21); // 1270, 1272, 1273, 1274, 1275 → 339
@@ -110,7 +190,7 @@ export function D120(rec: number, b: Business, d: Doc, p: DocPayment, lineNo: nu
 export function A000(b: Business, sw: SoftwareInfo, o: { id: string; totalRecords: number; path: string; from: string; to: string; startedAt: string }) {
   const t = ilTime(o.startedAt);
   return 'A000' + X('', 5) + N(o.totalRecords, 15) + N(b.dealerNumber, 9) + N(o.id, 15) + X(SYSTEM_CONST, 8)
-    + N(sw.regNumber, 8) + X(sw.name, 20) + X(sw.version, 20) + N(sw.vendorVat, 9) + X(sw.vendorName, 20)
+    + N(sw.regNumber, 8) + X(sw.name, 20) + X(sw.version, 20) + N(sw.vendorVat, 9) + X(sw.vendorName, 20) // 1006–1010 (p. 10)
     + N(2, 1) + X(o.path, 50) + N(0, 1) + N(0, 1)                         // 1011 multi-year, 1012 path, 1013 no bookkeeping, 1014
     + N(b.companyNumber || 0, 9) + N(0, 9) + X('', 10)                      // 1015, 1016, 1017
     + X(b.name, 50) + X(b.street, 50) + X(b.houseNo, 10) + X(b.city, 30) + X(b.zip, 8) // 1018–1022
@@ -124,7 +204,8 @@ export const SUM = (code: string, count: number) => X(code, 4) + N(count, 15); /
 export const exportId = () => Array.from(crypto.getRandomValues(new Uint8Array(15)), (b, i) => (i === 0 ? 1 + (b % 9) : b % 10)).join('');
 
 /** the whole export: INI.TXT, BKMVDATA.TXT (as text) and the counts for the printed summary */
-export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string }) {
+/** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf) */
+export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string> }) {
   const id = o.id ?? exportId();
   const t = ilTime(o.startedAt);
   const dir = `OPENFRMT\\${N(b.dealerNumber, 9).slice(0, 8)}.${t.date.slice(2, 4)}\\${t.date.slice(4, 8)}${t.time}`;
@@ -132,9 +213,9 @@ export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: {
   const counts: Record<string, number> = { C100: 0, D110: 0, D120: 0 };
   recs.push(A100(1, b, id));
   for (const d of docs.filter((x) => x.docDate >= o.from && x.docDate <= o.to).sort((a, z) => a.docType - z.docType || a.docNumber - z.docNumber)) {
-    recs.push(C100(recs.length + 1, b, d)); counts.C100++;
+    recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes))); counts.C100++;
     d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1)); counts.D110++; });
-    d.payments.forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1)); counts.D120++; });
+    filePayments(d).forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1)); counts.D120++; });
   }
   recs.push(Z900(recs.length + 1, b, id, recs.length + 1));
   const ini = [A000(b, sw, { id, totalRecords: recs.length, path: dir, from: o.from, to: o.to, startedAt: o.startedAt }),

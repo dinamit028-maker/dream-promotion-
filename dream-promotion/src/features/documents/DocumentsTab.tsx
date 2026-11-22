@@ -7,6 +7,7 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
+import { loadDocCodes } from './doc-codes';
 import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
@@ -21,9 +22,16 @@ export const docInsertRow = (userId: string, d: Omit<Doc, 'docNumber' | 'linkNo'
 });
 /** a real registration number of the software (8 digits from the Tax Authority) — none yet: "00000000" goes into the file only */
 export const softwareRegistered = (n = process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER) => Boolean(n && /^\d{8}$/.test(n) && n !== '00000000');
+/**
+ * The software in the unified file (INI.TXT, A000 — spec p. 10, checked 22.11.2026): 1006 registration number 9(8), 1007 name X(20),
+ * 1008 version X(20), 1009 the software vendor's VAT number 9(9), 1010 the vendor's name X(20). The vendor's number and name come
+ * from Vercel only (NEXT_PUBLIC_SOFTWARE_VENDOR_VAT / NEXT_PUBLIC_SOFTWARE_VENDOR_NAME) — never written in the code; a ״ in the name
+ * is written " in the file (isoText). Without them — zeros and "Dream Promotion", as before. The file only: no document shows them.
+ */
 export const SOFTWARE: SoftwareInfo = {
   regNumber: process.env.NEXT_PUBLIC_SOFTWARE_REG_NUMBER || '00000000', name: 'Dream Promotion',
-  version: process.env.NEXT_PUBLIC_APP_VERSION || '', vendorVat: process.env.NEXT_PUBLIC_SOFTWARE_VENDOR_VAT || '000000000', vendorName: 'Dream Promotion',
+  version: process.env.NEXT_PUBLIC_APP_VERSION || '', vendorVat: process.env.NEXT_PUBLIC_SOFTWARE_VENDOR_VAT || '000000000',
+  vendorName: process.env.NEXT_PUBLIC_SOFTWARE_VENDOR_NAME?.trim() || 'Dream Promotion',
 };
 /**
  * Count a print, then print: the first print is "מקור" and every later one "העתק נאמן למקור".
@@ -136,8 +144,9 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
   const [busy, setBusy] = useState(false);
   async function run() {
     setBusy(true);
+    const codes = await loadDocCodes();   // field 1233 (2.117) — none before migration 20261122006700
     const startedAt = new Date().toISOString();
-    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt });
+    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes });
     const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
     const bkmvZip = await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
     const outer = new JSZip(); const folder = f.dir.replace(/\\/g, '/');

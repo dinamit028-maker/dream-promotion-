@@ -7,7 +7,7 @@ import { ils } from '@/features/register/money';
 import type { Lead } from '@/types';
 import { EMPTY_CHEQUE, PAY_METHODS, WITHHOLDING, type DocPayMethod, type PaymentEntry } from './payments';
 import type { ComposeCustomer, ComposeLine } from './compose';
-import type { CatalogItem } from '@/features/catalog/catalog';
+import type { CatalogItem, ItemKind } from '@/features/catalog/catalog';
 import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
 import { periodOf, previousPeriod, type PeriodKind } from './reports';
@@ -111,6 +111,8 @@ export function CustomerFields({ value, onChange, leads, leadId, onLead, needNam
   );
 }
 
+/** a price list item's kind as a line keeps it (2.117 — field 1258 of the unified file, txKind); anything else — none */
+const itemKindOf = (k: unknown): ItemKind | undefined => (k === 'service' || k === 'product' || k === 'package' || k === 'other' ? k : undefined);
 /** a product / service of the price list — or one size / colour of it (2.54: variantId; its stock is the one that moves) */
 export interface CatalogPick { id: string; name: string; price: number; kind: string; variantId?: string }
 /**
@@ -133,8 +135,8 @@ export function LinesEditor({ lines, onChange, catalog, products, productsReady 
     <div className="grid gap-2">
       {lines.map((l, i) => (
         <div key={i} className="grid grid-cols-[minmax(0,1fr)_4.5rem_6.5rem_2rem] items-center gap-1.5">
-          <Input value={l.name} onChange={(e) => set(i, { name: e.target.value, itemId: undefined, variantId: undefined })} placeholder="תיאור" aria-label={`תיאור שורה ${i + 1}`} list="dp-catalog" className="py-2"
-            onBlur={(e) => { const c = catalog.find((x) => x.name === e.target.value.trim()); if (c && !l.itemId) set(i, { name: c.name, itemId: c.id, variantId: c.variantId, unitPrice: l.unitPrice || (priceOf ? priceOf(c) : c.price) }); }} />
+          <Input value={l.name} onChange={(e) => set(i, { name: e.target.value, itemId: undefined, variantId: undefined, kind: undefined })} placeholder="תיאור" aria-label={`תיאור שורה ${i + 1}`} list="dp-catalog" className="py-2"
+            onBlur={(e) => { const c = catalog.find((x) => x.name === e.target.value.trim()); if (c && !l.itemId) set(i, { name: c.name, itemId: c.id, variantId: c.variantId, kind: itemKindOf(c.kind), unitPrice: l.unitPrice || (priceOf ? priceOf(c) : c.price) }); }} />
           <Input type="number" inputMode="decimal" min={0} step="any" value={l.qty || ''} onChange={(e) => set(i, { qty: Number(e.target.value) })} aria-label={`כמות שורה ${i + 1}`} className="px-2 py-2 text-center" />
           <Input type="number" inputMode="decimal" min={0} step="0.01" value={l.unitPrice || ''} onChange={(e) => set(i, { unitPrice: Number(e.target.value) })} placeholder="מחיר" aria-label={`מחיר שורה ${i + 1}`} className="px-2 py-2 text-center" />
           <button type="button" aria-label={`הסרת שורה ${i + 1}`} onClick={() => onChange(lines.length > 1 ? lines.filter((_, k) => k !== i) : [{ name: '', qty: 1, unitPrice: 0 }])} className="h-10 rounded-full text-muted hover:text-(--danger)">✕</button>
@@ -163,7 +165,7 @@ export function LinesEditor({ lines, onChange, catalog, products, productsReady 
           onClose={() => setEdit(null)}
           onSaved={(item) => {
             // a line typed by hand that became a product is now that product's line (its first save)
-            if (edit && !edit.id && !lines[edit.line]?.itemId) { set(edit.line, { itemId: item.id, variantId: undefined, name: item.name }); setEdit({ ...edit, id: item.id }); }
+            if (edit && !edit.id && !lines[edit.line]?.itemId) { set(edit.line, { itemId: item.id, variantId: undefined, kind: itemKindOf(item.kind), name: item.name }); setEdit({ ...edit, id: item.id }); }
             void onCatalogChanged?.();
           }}
           onDeleted={() => { setEdit(null); void onCatalogChanged?.(); }} />
