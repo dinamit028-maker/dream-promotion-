@@ -8,7 +8,8 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
 import { loadDocCodes } from './doc-codes';
-import { loadExportScope, type ExportScope } from './export-scope';
+import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './export-scope';
+import { ScopeNote } from './ScopeNote';
 import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
@@ -148,7 +149,9 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
   useEffect(() => { let alive = true; void loadExportScope().then((s) => { if (alive) setScope(s); }); return () => { alive = false; }; }, []);
   async function run() {
     setBusy(true);
-    const now = await loadExportScope();
+    // the documents here were read when the screen opened: the scope then (scope) and now must both be "every location", and no hole
+    let now = bothScopes(scope ?? { ok: false, message: '' }, await loadExportScope());
+    if (now.ok) now = await confirmNoGaps(docs.filter((d) => d.docDate >= from && d.docDate <= to), (t) => DOC_LABEL[t] ?? `מסמך ${t}`);
     setScope(now);
     if (!now.ok) { setResult(null); setBusy(false); return; }
     const codes = await loadDocCodes();   // field 1233 (2.117) — none before migration 20261122006700
@@ -176,7 +179,7 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
         <Button variant="primary" onClick={run} disabled={busy || from > to || scope?.ok === false}>{busy ? 'מפיק…' : 'הפקת קבצים'}</Button>
         <Button variant="ghost" onClick={printReport} disabled={!scope?.ok}>דוח מסמכים לפי סוג (2.6)</Button>
       </div>
-      {scope && !scope.ok && <p role="alert" className="mt-2 text-sm text-warn">{scope.message}</p>}
+      <ScopeNote scope={scope} />
       {result && (
         <div className="mt-4 rounded-2xl bg-surface-2 p-3 text-sm">
           <p className="font-bold">ביצוע ממשק פתוח הסתיים בהצלחה.</p>
