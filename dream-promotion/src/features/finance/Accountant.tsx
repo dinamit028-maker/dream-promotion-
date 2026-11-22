@@ -8,6 +8,7 @@ import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
 import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
 import { loadDocCodes } from '@/features/documents/doc-codes';
+import { loadExportScope } from '@/features/documents/export-scope';
 import { SOFTWARE, reportHtml as docTypeReportHtml, summaryHtml as openFormatSummaryHtml } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
 import { loadSummary } from './Overview';
@@ -63,7 +64,7 @@ export function Accountant() {
     setBusy('אוסף את הנתונים…');
     try {
       const sb = supabase();
-      const [docs, cancels, allocs, expenses, ledger, recv, sum, codes] = await Promise.all([
+      const [docs, cancels, allocs, expenses, ledger, recv, sum, codes, scope] = await Promise.all([
         all((a, b) => sb.from('documents').select('*').gte('doc_date', period.from).lte('doc_date', period.to).order('doc_type').order('doc_number').range(a, b), toDoc),
         all((a, b) => sb.from('document_cancellations').select('document_id').range(a, b), (r) => r.document_id as string),
         all((a, b) => sb.from('tax_allocations').select('*').range(a, b), (r) => ({ documentId: r.document_id as string, row: toAllocationRow(r) })),
@@ -72,6 +73,7 @@ export function Accountant() {
         all((a, b) => sb.from('receivables').select('*').range(a, b), toReceivable),
         loadSummary(period),
         loadDocCodes(),   // field 1233 (2.117): the people's codes; before migration 20261122006700 — none, 1233 as before
+        loadExportScope(),   // 2.118: the Tax Authority's file is the whole business's — only when every location is seen (export-scope.ts)
       ]);
       if (!sum.ok) throw new Error(sum.error);
       const cancelled = new Set(cancels);
@@ -108,7 +110,9 @@ export function Accountant() {
           madeAt: formatIL(new Date().toISOString()), rows: c.rows, ok: c.ok, firstBad: c.firstBad, lastId: head.data ? Number((head.data as any).id) : null,
           lastHash: head.data ? String((head.data as any).hash) : '', lastAt: head.data ? formatIL(String((head.data as any).at)) : '' }));
       }
-      if (business.ready && docs.length) {
+      // the Tax Authority's part (INI / BKMVDATA and its two printouts): the whole business only — a location picked at the top or a
+      // member limited to locations would make a file with holes in the numbering (export-scope.ts); the rest of the package as before
+      if (business.ready && docs.length && scope.ok) {
         const startedAt = new Date().toISOString();
         const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes });
         const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
@@ -132,6 +136,7 @@ export function Accountant() {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${root}.zip`; a.click();
       void logEvent('export.package', 'accountant', '', { from: period.from, to: period.to, documents: docs.length, expenses: expenses.length, files });
       say(`החבילה ירדה: ${docs.length} מסמכים, ${expenses.length} הוצאות${files ? `, ${files} קבצים` : ''}`);
+      if (!scope.ok && business.ready && docs.length) fail(`החבילה ירדה בלי הקובץ לרשות המסים: ${scope.message}`);
     } catch (e) { fail(financeError(e)); }
     setBusy(null);
   }
