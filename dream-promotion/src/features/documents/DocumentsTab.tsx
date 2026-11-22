@@ -150,7 +150,7 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
   async function run() {
     setBusy(true);
     // the documents here were read when the screen opened: the scope then (scope) and now must both be "every location", and no hole
-    let now = bothScopes(scope ?? { ok: false, message: '' }, await loadExportScope());
+    let now = bothScopes(scope ?? await loadExportScope(), await loadExportScope());
     if (now.ok) now = await confirmNoGaps(docs.filter((d) => d.docDate >= from && d.docDate <= to), (t) => DOC_LABEL[t] ?? `מסמך ${t}`);
     setScope(now);
     if (!now.ok) { setResult(null); setBusy(false); return; }
