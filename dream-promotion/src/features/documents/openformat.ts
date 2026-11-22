@@ -111,6 +111,9 @@ const isWithholding = (p: DocPayment) => p.m === 'withholding';
  */
 export const withheldOf = (d: Pick<Doc, 'docType' | 'payments'>): number =>
   d.docType === 400 ? d.payments.filter(isWithholding).reduce((a, p) => a + ag(p.amount), 0) / 100 : 0;
+/** field 1223 of a document as the file writes it (a receipt — without the tax withheld, clarification 4); the printout of
+ *  §2.6ב (docTypeReport) sums this same number, so the report and the file agree (spec p. 9: "פלטים לאימות נתונים") */
+export const fileTotal = (d: Pick<Doc, 'docType' | 'payments' | 'total'>): number => (ag(d.total) - ag(withheldOf(d))) / 100;
 /** the D120 lines of a document: a receipt's withholding is in 1224, not a payment line — so the D120 lines add up to 1223 */
 export const filePayments = (d: Pick<Doc, 'docType' | 'payments'>): DocPayment[] =>
   d.docType === 400 ? d.payments.filter((p) => !isWithholding(p)) : d.payments;
@@ -159,7 +162,7 @@ export function C100(rec: number, b: Business, d: Doc, operator: string = d.issu
     + N(yyyymmdd(d.docDate), 8)                                       // 1216 value date
     + AMT(0) + X('', 3)                                               // 1217, 1218 (export only)
     + AMT(sign(less(d.beforeDiscount))) + AMT(-Math.abs(d.discount)) + AMT(sign(less(d.afterDiscount))) // 1219, 1220 (negative), 1221
-    + AMT(sign(d.vatAmount)) + AMT(sign(less(d.total))) + AMT(wA / 100, 9) // 1222, 1223, 1224 withholding (positive — clarification 4)
+    + AMT(sign(d.vatAmount)) + AMT(sign(fileTotal(d))) + AMT(wA / 100, 9) // 1222, 1223, 1224 withholding (positive — clarification 4)
     + X(d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15) // 1225 customer key
     + X('', 10)                                                       // 1226 matching field
     + X(d.cancelled ? '1' : '', 1)                                    // 1228 cancelled: a 300 / 400 cancelled after issue (a tax invoice gets a credit invoice instead)
@@ -223,7 +226,8 @@ export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: {
   return { id, dir, ini: ini.join('\r\n') + '\r\n', bkmv: recs.join('\r\n') + '\r\n', counts: { A100: 1, ...counts, Z900: 1 }, totalRecords: recs.length };
 }
 
-/** printout 2.6(b): number and money total of each document type the software handles (0 when not handled) */
+/** printout 2.6(b): number and money total of each document type the software handles (0 when not handled) — the total is the
+ *  sum of field 1223 as the file writes it (fileTotal: a receipt without the tax withheld), so the printout checks the file */
 export const DOC_TYPES: Record<number, string> = {
   100: 'הזמנה', 200: 'תעודת משלוח', 205: 'תעודת משלוח סוכן', 210: 'תעודת החזרה', 300: 'חשבונית / חשבונית עסקה', 305: 'חשבונית מס', 310: 'חשבונית ריכוז',
   320: 'חשבונית מס / קבלה', 330: 'חשבונית מס זיכוי', 340: 'חשבונית שריון', 345: 'חשבונית סוכן', 400: 'קבלה', 405: 'קבלה על תרומות', 410: 'יציאה מקופה', 420: 'הפקדת בנק',
@@ -234,6 +238,6 @@ export function docTypeReport(docs: Doc[], from: string, to: string) {
   const inRange = docs.filter((d) => d.docDate >= from && d.docDate <= to);
   return Object.entries(DOC_TYPES).map(([code, name]) => {
     const list = inRange.filter((d) => d.docType === Number(code));
-    return { code: Number(code), name, count: list.length, total: Math.round(list.reduce((a, d) => a + d.total, 0) * 100) / 100 };
+    return { code: Number(code), name, count: list.length, total: list.reduce((a, d) => a + ag(fileTotal(d)), 0) / 100 };
   });
 }

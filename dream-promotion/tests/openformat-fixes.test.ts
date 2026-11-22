@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  A000, C100, D110, X, buildOpenFormat, docCodesMap, filePayments, isoText, operatorOf, toIso88598, txKind, withheldOf, type Doc,
+  A000, C100, D110, X, buildOpenFormat, docCodesMap, docTypeReport, fileTotal, filePayments, isoText, operatorOf, toIso88598, txKind, withheldOf, type Doc,
 } from '../src/features/documents/openformat';
 import { creditForRefund, docFromSale, toDoc } from '../src/features/documents/documents';
 import { composeCredit, computeLines } from '../src/features/finance/compose';
@@ -78,6 +78,24 @@ test('clarification 4: a tax invoice-receipt (320) with tax withheld is written 
   const c = C100(2, biz, d);
   assert.equal(col(c, 348, 362), '+00000000125000'); assert.equal(col(c, 363, 374), '+00000000000');
   assert.equal((buildOpenFormat(biz, sw, [d], at).counts as Record<string, number>).D120, 2);
+});
+
+test('§2.6ב (p. 9): the printout by type = the sum of 1223 in the file, per type — a receipt with tax withheld too', () => {
+  const docs: Doc[] = [receipt, { ...receipt, docNumber: 13, payments: [{ method: 1, amount: 1250, date: '2026-11-10', m: 'cash' }] },
+    { ...receipt, docType: 320, docNumber: 4, beforeDiscount: 1059.32, afterDiscount: 1059.32, vatAmount: 190.68, total: 1250,
+      lines: [{ name: 'שירות', qty: 1, unitPriceExVat: 1059.32, discountExVat: 0, totalExVat: 1059.32, vatRate: 18, kind: 1 }] },
+    { ...receipt, docType: 305, docNumber: 2, total: 99.99, beforeDiscount: 84.74, afterDiscount: 84.74, vatAmount: 15.25, payments: [] },
+    { ...receipt, docNumber: 14, docDate: '2026-12-01' }];
+  const f = buildOpenFormat(biz, sw, docs, at);
+  const inFile = new Map<number, number>();
+  for (const l of f.bkmv.split('\r\n').filter((x) => x.startsWith('C100'))) {
+    const t = Number(col(l, 23, 25)); inFile.set(t, (inFile.get(t) ?? 0) + Number(col(l, 349, 362)) * (col(l, 348, 348) === '-' ? -1 : 1));
+  }
+  const rep = docTypeReport(docs, at.from, at.to);
+  for (const r of rep) assert.equal(Math.round(r.total * 100), inFile.get(r.code) ?? 0, `${r.code}`);
+  assert.equal(rep.find((r) => r.code === 400)!.total, 2250, '1000 (withheld 250) + 1250; the December one is outside the period');
+  assert.equal(rep.find((r) => r.code === 400)!.count, 2);
+  assert.equal(fileTotal(receipt), 1000);
 });
 
 // ---------- 2. 1258 kind of transaction: 1 service, 2 sale ----------
