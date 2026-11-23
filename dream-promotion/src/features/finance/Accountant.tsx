@@ -8,6 +8,11 @@ import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
 import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
 import { loadDocCodes } from '@/features/documents/doc-codes';
+import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from '@/features/documents/export-scope';
+import { ScopeNote } from '@/features/documents/ScopeNote';
+import { multiLocation } from '@/features/locations/locations';
+import { useLocations } from '@/features/locations/store';
+import { DOC_LABEL } from '@/features/documents/documents';
 import { SOFTWARE, reportHtml as docTypeReportHtml, summaryHtml as openFormatSummaryHtml } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
 import { loadSummary } from './Overview';
@@ -48,6 +53,7 @@ export function Accountant() {
   const [busy, setBusy] = useState<string | null>(null);
   const [lockDate, setLockDate] = useState(() => periodNow('month').from > todayIL() ? '' : new Date(Date.parse(`${periodNow('month').from}T12:00:00Z`) - 864e5).toISOString().slice(0, 10));
   const [log, setLog] = useState<AuditRow[] | null>(null);
+  const [scopeNote, setScopeNote] = useState<ExportScope | null>(null);
   const [verify, setVerify] = useState<{ ok: boolean; rows: number; firstBad?: number } | null>(null);
 
   const loadLog = useCallback(async (more = false) => {
@@ -61,8 +67,12 @@ export function Accountant() {
 
   async function pack() {
     setBusy('אוסף את הנתונים…');
+    setScopeNote(null);
     try {
       const sb = supabase();
+      // 2.118: the Tax Authority's file is the whole business's (export-scope.ts) — asked before the documents are read and again
+      // after (the location picked is on the profile, shared by tabs and devices); then the numbering is checked for holes
+      const scopeBefore = await loadExportScope();
       const [docs, cancels, allocs, expenses, ledger, recv, sum, codes] = await Promise.all([
         all((a, b) => sb.from('documents').select('*').gte('doc_date', period.from).lte('doc_date', period.to).order('doc_type').order('doc_number').range(a, b), toDoc),
         all((a, b) => sb.from('document_cancellations').select('document_id').range(a, b), (r) => r.document_id as string),
@@ -74,6 +84,8 @@ export function Accountant() {
         loadDocCodes(),   // field 1233 (2.117): the people's codes; before migration 20261122006700 — none, 1233 as before
       ]);
       if (!sum.ok) throw new Error(sum.error);
+      let scope = bothScopes(scopeBefore, await loadExportScope());
+      if (scope.ok && business.ready && docs.length) scope = await confirmNoGaps(docs, (t) => DOC_LABEL[t] ?? `מסמך ${t}`, multiLocation(useLocations.getState().state));   // the switch's own rule
       const cancelled = new Set(cancels);
       const real = new Map(allocs.filter((x) => isRealAllocation(x.row)).map((x) => [x.documentId, `${x.row.number}${x.row.status === 'manual' ? ' (ידני)' : ''}`]));
       const marked: (DocRow & { cancelled?: boolean; allocation?: string })[] = docs.map((d) => ({ ...d, cancelled: cancelled.has(d.id), allocation: real.get(d.id) }));
@@ -108,7 +120,9 @@ export function Accountant() {
           madeAt: formatIL(new Date().toISOString()), rows: c.rows, ok: c.ok, firstBad: c.firstBad, lastId: head.data ? Number((head.data as any).id) : null,
           lastHash: head.data ? String((head.data as any).hash) : '', lastAt: head.data ? formatIL(String((head.data as any).at)) : '' }));
       }
-      if (business.ready && docs.length) {
+      // the Tax Authority's part (INI / BKMVDATA and its two printouts): the whole business only — a location picked at the top or a
+      // member limited to locations would make a file with holes in the numbering (export-scope.ts); the rest of the package as before
+      if (business.ready && docs.length && scope.ok) {
         const startedAt = new Date().toISOString();
         const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes });
         const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
@@ -132,6 +146,7 @@ export function Accountant() {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${root}.zip`; a.click();
       void logEvent('export.package', 'accountant', '', { from: period.from, to: period.to, documents: docs.length, expenses: expenses.length, files });
       say(`החבילה ירדה: ${docs.length} מסמכים, ${expenses.length} הוצאות${files ? `, ${files} קבצים` : ''}`);
+      if (!scope.ok && business.ready && docs.length) setScopeNote(scope);   // the package without the Tax Authority's part — and why
     } catch (e) { fail(financeError(e)); }
     setBusy(null);
   }
@@ -163,6 +178,7 @@ export function Accountant() {
           {mail && <a href={mail} className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">✉️ מייל ל{profile.accountantName || 'רו״ח'}</a>}
         </div>
         {!profile.accountantEmail && <p className="mt-2 text-xs text-muted">את פרטי רואה החשבון ממלאים בלשונית "הגדרות".</p>}
+        {scopeNote && !scopeNote.ok && <><p className="mt-2 text-sm font-semibold text-warn">החבילה ירדה בלי הקובץ לרשות המסים:</p><ScopeNote scope={scopeNote} /></>}
       </Card>
 
       <Card className="p-4">

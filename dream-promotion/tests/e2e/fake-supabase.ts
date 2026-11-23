@@ -752,8 +752,11 @@ export class FakeSupabase {
     return l ? { location: { name: l.name, address: l.address ?? '', phone: l.phone ?? '' } } : {};
   }
   private locationRpc(fn: string, args: any): { status: number; body: any } | null {
-    if (!['location_state', 'location_select', 'location_save', 'register_save'].includes(fn)) return null;
+    if (!['location_state', 'location_select', 'location_save', 'register_save', 'location_filter', 'my_locations'].includes(fn)) return null;
     if (!this.locationTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    // 2.118: the Tax Authority's file asks whether every location is seen (export-scope.ts) — null = every one
+    if (fn === 'location_filter') return { status: 200, body: this.locationFilter() };
+    if (fn === 'my_locations') return { status: 200, body: this.memberLocations };
     const refuse = (message: string, code = 'P0001') => ({ status: 400, body: { code, message, details: null, hint: null } });
     const b = this.opts.businessId;
     const { locations, registers } = this.places();

@@ -8,6 +8,10 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
 import { loadDocCodes } from './doc-codes';
+import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './export-scope';
+import { ScopeNote } from './ScopeNote';
+import { multiLocation } from '@/features/locations/locations';
+import { useLocations } from '@/features/locations/store';
 import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
@@ -142,8 +146,16 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
   const [to, setTo] = useState(israelParts(Date.now()).date);
   const [result, setResult] = useState<ReturnType<typeof buildOpenFormat> & { startedAt: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // 2.118: the file and its printouts are the whole business's — only when every location is seen (export-scope.ts)
+  const [scope, setScope] = useState<ExportScope | null>(null);
+  useEffect(() => { let alive = true; void loadExportScope().then((s) => { if (alive) setScope(s); }); return () => { alive = false; }; }, []);
   async function run() {
     setBusy(true);
+    // the documents here were read when the screen opened: the scope then (scope) and now must both be "every location", and no hole
+    let now = bothScopes(scope ?? await loadExportScope(), await loadExportScope());
+    if (now.ok) now = await confirmNoGaps(docs.filter((d) => d.docDate >= from && d.docDate <= to), (t) => DOC_LABEL[t] ?? `מסמך ${t}`, multiLocation(useLocations.getState().state));
+    setScope(now);
+    if (!now.ok) { setResult(null); setBusy(false); return; }
     const codes = await loadDocCodes();   // field 1233 (2.117) — none before migration 20261122006700
     const startedAt = new Date().toISOString();
     const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes });
@@ -157,7 +169,7 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
   }
   const report = docTypeReport(docs, from, to);
   const printSummary = () => { const w = window.open('', '_blank'); if (w && result) { w.document.write(summaryHtml(result, business, from, to)); w.document.close(); } };
-  const printReport = () => { const w = window.open('', '_blank'); if (w) { w.document.write(reportHtml(report, business, from, to)); w.document.close(); } };
+  const printReport = () => { if (!scope?.ok) return; const w = window.open('', '_blank'); if (w) { w.document.write(reportHtml(report, business, from, to)); w.document.close(); } };
   return (
     <Card className="p-4">
       <p className="mb-3 text-sm text-ink-2">הפקת קבצים במבנה אחיד (INI.TXT + BKMVDATA) לפי הוראות רשות המסים, לרואה החשבון או לביקורת.</p>
@@ -166,9 +178,10 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
         <Field label="עד תאריך"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" onClick={run} disabled={busy || from > to}>{busy ? 'מפיק…' : 'הפקת קבצים'}</Button>
-        <Button variant="ghost" onClick={printReport}>דוח מסמכים לפי סוג (2.6)</Button>
+        <Button variant="primary" onClick={run} disabled={busy || from > to || scope?.ok === false}>{busy ? 'מפיק…' : 'הפקת קבצים'}</Button>
+        <Button variant="ghost" onClick={printReport} disabled={!scope?.ok}>דוח מסמכים לפי סוג (2.6)</Button>
       </div>
+      <ScopeNote scope={scope} />
       {result && (
         <div className="mt-4 rounded-2xl bg-surface-2 p-3 text-sm">
           <p className="font-bold">ביצוע ממשק פתוח הסתיים בהצלחה.</p>
