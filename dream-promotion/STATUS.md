@@ -7,7 +7,7 @@
 
 ## מצב מיגרציות (נכון ל-22 בנובמבר 2026, אחרי 6700)
 
-**6700 `member_doc_codes` (2.117.0) — הוחלה על המסד החי ב-22.11.2026 (בעל המערכת, ב-SQL Editor). נבדקה ע״י בעל המערכת בשאילתת קריאה:** 7 קודים ב-3 עסקים. md5 של ארבע הפונקציות (`md5(replace(prosrc, E'\r', ''))`, הורץ ע״י בעל המערכת ונשלח בצילום — הערכים חתוכים בצילום, ו-20 התווים הראשונים זהים למסד המקומי בכל הארבע). החיבור של ה-MCP בסביבה הזו הוא לחשבון Supabase אחר, ולא רואה את `dream-promotion`. **Supabase: "Grace period is over"** — הפרויקט חרג ממכסת התוכנית החינמית; כשהמכסה נגמרת הוא מפסיק לענות (22.11.2026). md5 במסד המקומי: `member_doc_code_assign` b85a8ecd83f5a6146f7bb622f68aa28f, `member_doc_codes_locked` f33b132f37d067a3897f68236bf9518f, `member_doc_codes_on_member` / `_on_document` 2ed1e1056b583f27cec497e2b0195fc2.
+**6700 `member_doc_codes` (2.117.0) — הוחלה על המסד החי ב-22.11.2026 (בעל המערכת, ב-SQL Editor). נבדקה ע״י בעל המערכת בשאילתת קריאה:** 7 קודים ב-3 עסקים. md5 של ארבע הפונקציות (`md5(replace(prosrc, E'\r', ''))`, הורץ ע״י בעל המערכת ונשלח בצילום — הערכים חתוכים בצילום, ו-20 התווים הראשונים זהים למסד המקומי בכל הארבע). החיבור של ה-MCP בסביבה הזו הוא לחשבון Supabase אחר, ולא רואה את `dream-promotion`. **Supabase:** ב-22.11.2026 "Grace period is over" (חריגה ממכסת Free); **ב-23.11.2026 הפרויקט עבר ל-Pro** — גיבוי יומי של המסד (7 ימים, נראה ב-Database ← Backups). **קבצי Storage לא בגיבוי.** md5 במסד המקומי: `member_doc_code_assign` b85a8ecd83f5a6146f7bb622f68aa28f, `member_doc_codes_locked` f33b132f37d067a3897f68236bf9518f, `member_doc_codes_on_member` / `_on_document` 2ed1e1056b583f27cec497e2b0195fc2.
 - **נבדקה:** `tests/sql/member-doc-codes.check.sql`.
 
 
