@@ -342,24 +342,53 @@ async function main() {
       await phone.page.waitForURL(/\/create/, { timeout: 120_000 });
     });
 
-    await step('(ד) "יומן בלבד": the calendar opens on the day, and there is no + in her menu — nothing breaks', async () => {
+    await step('(ד1) "יומן בלבד" on a phone: the menu has the big +, it opens "תור חדש", and "+ תור" in the head is not shown', async () => {
       const a = await open(PHONE, tables(), { userId: KARIN_USER, email: 'karin@clinic.test', owner: false, access: 'agenda' });
       current = a.page;
       await goto(a.page, '/appointments');
       await a.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
       await a.page.getByText('יום ראשון, 18 באוקטובר').waitFor();
       const bar = a.page.getByRole('navigation', { name: 'ניווט' });
-      assert.deepEqual((await bar.locator('a').allInnerTexts()).map((x: string) => x.trim()), ['תורים']);
-      assert.equal(await a.page.getByRole('button', { name: 'תור חדש', exact: true }).count(), 0, 'no + of the menu');
-      assert.equal(await a.page.getByRole('link', { name: 'יצירת תוכן חדש' }).count(), 0, 'no /create +');
-      await a.page.getByRole('button', { name: '+ תור' }).click();
-      await dialog(a.page).getByRole('heading', { name: 'תור חדש' }).waitFor();
-      await a.page.keyboard.press('Escape');
+      const plus = bar.getByRole('button', { name: 'תור חדש', exact: true });
+      await plus.waitFor();
+      assert.equal(await bar.getByRole('link', { name: 'יצירת תוכן חדש' }).count(), 0, 'not the /create +');
+      assert.deepEqual((await bar.locator('a').allInnerTexts()).map((x: string) => x.trim()), ['תורים'], 'her tab is still there');
+      assert.equal(await a.page.locator('button', { hasText: '+ תור' }).first().isVisible(), false, '"+ תור" in the head is hidden on a phone');
+      await a.page.evaluate(() => window.scrollTo(0, 0));
       await fits(a.page, 'agenda-only');
+      await shot(a.page, 'calendar-member-plus-phone-390.png', false);
+      await plus.click();
+      await dialog(a.page).getByRole('heading', { name: 'תור חדש' }).waitFor();
+      assert.equal(await dialog(a.page).getByLabel('תאריך').inputValue(), TODAY);
+      await a.page.keyboard.press('Escape');
       await a.ctx.close();
     });
 
-    await step('(ה) "+ תור" in the head of the screen: hidden on a phone for the owner (the menu has the +), shown on a computer and on a phone for "יומן בלבד" / "יומן ולידים"', async () => {
+    await step('(ד2) "יומן ולידים" on the clients\' screen: the + goes to the calendar and opens "תור חדש" once, with no ?new=1 left; a reload does not open it again', async () => {
+      const k = await open(PHONE, tables(), { userId: KARIN_USER, email: 'karin@clinic.test', owner: false, access: 'calendar' });
+      current = k.page;
+      await goto(k.page, '/leads');
+      const bar = k.page.getByRole('navigation', { name: 'ניווט' });
+      const plus = bar.getByRole('link', { name: 'תור חדש', exact: true });
+      await plus.waitFor({ timeout: 120_000 });
+      assert.match((await plus.getAttribute('href')) ?? '', /^\/appointments\?new=1$/);
+      await plus.click();
+      await k.page.waitForURL(/\/appointments/, { timeout: 120_000 });
+      await dialog(k.page).getByRole('heading', { name: 'תור חדש' }).waitFor({ timeout: 120_000 });
+      assert.equal(await dialog(k.page).getByLabel('תאריך').inputValue(), TODAY);
+      assert.ok(!/new=/.test(k.page.url()), `?new=1 is out of the address (${k.page.url()})`);
+      await k.page.keyboard.press('Escape');
+      await dialog(k.page).waitFor({ state: 'hidden' });
+      await goto(k.page, '/appointments');
+      await k.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
+      await k.page.getByText('יום ראשון, 18 באוקטובר').waitFor();
+      await k.page.waitForTimeout(1500);
+      assert.equal(await k.page.getByRole('dialog').count(), 0, 'a reload does not open the form again');
+      assert.equal(await k.page.getByRole('navigation', { name: 'ניווט' }).getByRole('button', { name: 'תור חדש', exact: true }).count(), 1, 'on the calendar the + is a button');
+      await k.ctx.close();
+    });
+
+    await step('(ה) "+ תור" in the head of the screen: hidden on a phone for the owner and the calendar members (the menu has the +), shown on a computer', async () => {
       const headPlus = (p: any) => p.locator('button', { hasText: '+ תור' }).first();
       current = phone.page;
       await goto(phone.page, '/appointments');
@@ -380,7 +409,7 @@ async function main() {
         await goto(m.page, '/appointments');
         await m.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
         await m.page.getByText('יום ראשון, 18 באוקטובר').waitFor();
-        assert.equal(await headPlus(m.page).isVisible(), true, `${access} on a phone: "+ תור" is there (no + in her menu)`);
+        assert.equal(await headPlus(m.page).isVisible(), false, `${access} on a phone: "+ תור" is hidden (the menu has the +)`);
         await m.ctx.close();
       }
     });
