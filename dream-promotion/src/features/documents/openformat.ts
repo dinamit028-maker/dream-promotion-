@@ -88,6 +88,8 @@ export interface Doc {
   cancelled?: boolean;
   /** who in the business issued it (documents.user_id) — its code goes into field 1233 (operatorOf) */
   userId?: string | null;
+  /** the invoice this receipt pays (documents.paid_document_id: a 400 pays a 305 / 300, a 320 pays a 300) — B110 (accountsOf) */
+  paidDocumentId?: string | null;
 }
 
 /**
@@ -150,6 +152,10 @@ export const A100 = (rec: number, b: Business, id: string) =>
 export const Z900 = (rec: number, b: Business, id: string, total: number) =>
   'Z900' + N(rec, 9) + N(b.dealerNumber, 9) + N(id, 15) + X(SYSTEM_CONST, 8) + N(total, 15) + X('', 50); // 110
 
+/** field 1225 "מפתח הלקוח אצל המוכר" X(15), as written — the same 15 characters are 1403 of the customer's B110 */
+export const customerKeyField = (d: Pick<Doc, 'customerKey' | 'customerPhone' | 'customerName'>) =>
+  X(d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15);
+
 export function C100(rec: number, b: Business, d: Doc, operator: string = d.issuedBy ?? '') {
   const t = ilTime(d.issuedAt);
   const wA = ag(withheldOf(d));                                       // clarification 4: a receipt's amounts without the withholding
@@ -163,7 +169,7 @@ export function C100(rec: number, b: Business, d: Doc, operator: string = d.issu
     + AMT(0) + X('', 3)                                               // 1217, 1218 (export only)
     + AMT(sign(less(d.beforeDiscount))) + AMT(-Math.abs(d.discount)) + AMT(sign(less(d.afterDiscount))) // 1219, 1220 (negative), 1221
     + AMT(sign(d.vatAmount)) + AMT(sign(fileTotal(d))) + AMT(wA / 100, 9) // 1222, 1223, 1224 withholding (positive — clarification 4)
-    + X(d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15) // 1225 customer key
+    + customerKeyField(d)                                            // 1225 customer key (= 1403 of its B110)
     + X('', 10)                                                       // 1226 matching field
     + X(d.cancelled ? '1' : '', 1)                                    // 1228 cancelled: a 300 / 400 cancelled after issue (a tax invoice gets a credit invoice instead)
     + N(yyyymmdd(d.docDate), 8)                                       // 1230 document date
@@ -207,17 +213,77 @@ export const SUM = (code: string, count: number) => X(code, 4) + N(count, 15); /
 export const exportId = () => Array.from(crypto.getRandomValues(new Uint8Array(15)), (b, i) => (i === 0 ? 1 + (b % 9) : b % 10)).join('');
 
 /** the whole export: INI.TXT, BKMVDATA.TXT (as text) and the counts for the printed summary */
+/**
+ * Which documents have D110 lines ("פרטי מסמך", §4.4, p. 13). A receipt's details are its payments — D120 "פרטי קבלה / הפקדה"
+ * (§4.5, p. 14, the example: "ברשומה מסוג 'כותרת מסמך' – C100 תופיע רשומה אחת שתכיל את נתוני כותרת הקבלה. בנוסף לכך יופיעו 5
+ * רשומות, אחת לכל המחאה מסוג רשומה 'פרטי קבלה/הפקדה' – D120" — no D110). The Tax Authority's simulator (25.11.2026, the sample of
+ * 2.117.0) refused every D110 of a 400 ("לא נמצאה רשומת כותרת מסמך", field 1250) and counted them as "D110 ללא התאמה". So a receipt
+ * (400) and a bank deposit (420 — D120 is its record too; not produced yet) are written C100 + D120 only; their C100 is unchanged
+ * (1219–1224 come from the document, not from its lines), and the document keeps its lines. A 320 (invoice and receipt) keeps both.
+ */
+export const NO_D110 = new Set([400, 420]);
+
+/**
+ * B110 "חשבון בהנהלת חשבונות" (§4.7, p. 16, checked 25.11.2026) — one per customer key of the file.
+ * B110 נבנה כדי לענות על הסימולטור (25.11.2026: "לא הועברו רשומות מסוג חשבון בהנהלת חשבונות (B110)"); הסכומים מהמסמכים —
+ * לאישור רו״ח. The owner of the system decided (25.11.2026, option א): the software keeps no books (1013 stays 0), so each account
+ * is a customer's card built from the documents of the period:
+ *   1403 the key — exactly field 1225 of its C100s (the same 15 characters, so two keys cut to the same 15 are one account);
+ *   1404 the name, 1407 / 1409 street and city — from its first C100 (first with an address);
+ *   1405 / 1406 a fixed trial-balance code and description: 'CUSTOMERS' / 'לקוחות' — there is no chart of accounts, every account
+ *        here is a customer;
+ *   1414 opening balance 0 (no books before the period);
+ *   1415 debit = charges: 300, 305 and 320 (an invoice-receipt charges and is paid in one document) — field 1223 of each;
+ *   1416 credit = what closed them: 400 (1223 + 1224 — the money and the tax withheld at source, clarification 4: the debt of 1250
+ *        is closed by both), the payment of a 320 (its 1223), and 330 (its 1223);
+ *   a 320 that pays a 300 (paid_document_id — `receipt:<300>`) is credit only: the charge is the 300's, already in 1415 —
+ *        else the customer who paid would show a debt;
+ *   open question to the accountant: a 330 whose money was given back (a refund) — the refund is not a document of the file
+ *        (a 330 has no payments), so it cannot be told here; the 330 stays credit only;
+ *   a cancelled document (1228 = 1) is not counted — it does not charge or pay (its account is still written, as its key is in
+ *   the file); 100 / 200 / 210 charge nothing;
+ *   1417 0; 1419 0 (only when 1013 = 2); 1421 empty (no branches, 1034 = 0); 1422 0 / 1423 empty (shekels only).
+ * Amounts are summed in agorot, positive (§2.4יא: debit and credit movements positive; 1414 is 0).
+ */
+export const B110_CODE = 'CUSTOMERS';
+export const B110_NAME = 'לקוחות';
+export interface Account { key: string; name: string; street: string; city: string; debitA: number; creditA: number }
+export function accountsOf(docs: Doc[]): Account[] {
+  const m = new Map<string, Account>();
+  for (const d of docs) {
+    const key = customerKeyField(d);
+    let a = m.get(key);
+    if (!a) m.set(key, (a = { key, name: d.customerName || 'לקוח מזדמן', street: '', city: '', debitA: 0, creditA: 0 }));
+    if (!a.street && !a.city && (d.customerStreet || d.customerCity)) { a.street = d.customerStreet ?? ''; a.city = d.customerCity ?? ''; }
+    if (d.cancelled) continue;
+    const t = ag(fileTotal(d));                                      // 1223 as the C100 writes it
+    if (d.docType === 300 || d.docType === 305) a.debitA += t;
+    else if (d.docType === 320) { if (!d.paidDocumentId) a.debitA += t; a.creditA += t; }   // a 320 paying a 300: credit only
+    else if (d.docType === 400) a.creditA += t + ag(withheldOf(d)); // 1223 + 1224
+    else if (d.docType === 330) a.creditA += t;
+  }
+  return [...m.values()];
+}
+export const B110 = (rec: number, b: Business, a: Account) =>
+  'B110' + N(rec, 9) + N(b.dealerNumber, 9) + a.key + X(a.name, 50)   // 1400–1404 (1403: the C100's 1225 as is)
+  + X(B110_CODE, 15) + X(B110_NAME, 30)                              // 1405, 1406
+  + X(a.street, 50) + X('', 10) + X(a.city, 30) + X('', 8) + X('', 30) + X('', 2) // 1407–1412
+  + X('', 15)                                                        // 1413 parent account
+  + AMT(0) + AMT(a.debitA / 100) + AMT(a.creditA / 100)              // 1414, 1415, 1416
+  + N(0, 4) + N(0, 9) + X('', 7) + AMT(0) + X('', 3) + X('', 16);    // 1417, 1419, 1421, 1422, 1423, 1424 → 376
 /** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf) */
 export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string> }) {
   const id = o.id ?? exportId();
   const t = ilTime(o.startedAt);
   const dir = `OPENFRMT\\${N(b.dealerNumber, 9).slice(0, 8)}.${t.date.slice(2, 4)}\\${t.date.slice(4, 8)}${t.time}`;
   const recs: string[] = [];
-  const counts: Record<string, number> = { C100: 0, D110: 0, D120: 0 };
+  const counts: Record<string, number> = { B110: 0, C100: 0, D110: 0, D120: 0 };
   recs.push(A100(1, b, id));
-  for (const d of docs.filter((x) => x.docDate >= o.from && x.docDate <= o.to).sort((a, z) => a.docType - z.docType || a.docNumber - z.docNumber)) {
+  const inFile = docs.filter((x) => x.docDate >= o.from && x.docDate <= o.to).sort((a, z) => a.docType - z.docType || a.docNumber - z.docNumber);
+  for (const a of accountsOf(inFile)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }   // the accounts first, then the documents
+  for (const d of inFile) {
     recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes))); counts.C100++;
-    d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1)); counts.D110++; });
+    if (!NO_D110.has(d.docType)) d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1)); counts.D110++; });
     filePayments(d).forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1)); counts.D120++; });
   }
   recs.push(Z900(recs.length + 1, b, id, recs.length + 1));

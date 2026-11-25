@@ -18,7 +18,7 @@ const t = (name: string, fn: () => void | Promise<void>) => test(name, async () 
 
 const read = (f: string) => readFileSync(join(dir, f));
 const lines = (b: Buffer) => { const s = b.toString('latin1'); assert.ok(s.endsWith('\r\n')); return s.slice(0, -2).split('\r\n'); };
-const LEN: Record<string, number> = { A100: 95, C100: 444, D110: 339, D120: 222, Z900: 110 };
+const LEN: Record<string, number> = { A100: 95, B110: 376, C100: 444, D110: 339, D120: 222, Z900: 110 };   // B110 from 2.117.4 (the simulator, 25.11.2026)
 
 t('ISO-8859-8: only valid bytes (ASCII printable, Hebrew letters E0-FA), CRLF after every line', () => {
   for (const f of ['INI.TXT', 'BKMVDATA.TXT']) {
@@ -59,7 +59,7 @@ t('INI: A000 is 466, each summary line 19; summaries equal the real counts; 1002
   const sums = ini.slice(1);
   assert.ok(sums.length > 0);
   for (const s of sums) { assert.equal(s.length, 19); assert.equal(Number(s.slice(4)), counts[s.slice(0, 4).trim()], s); }
-  assert.deepEqual(sums.map((s) => s.slice(0, 4)).sort(), ['C100', 'D110', 'D120']);
+  assert.deepEqual(sums.map((s) => s.slice(0, 4)).sort(), ['B110', 'C100', 'D110', 'D120']);
   const total = Number(ini[0].slice(9, 24));                        // 1002
   assert.equal(total, bk.length);
   assert.equal(Number(bk[bk.length - 1].slice(45, 60)), bk.length); // Z900 total (after 4+9+9+15+8 = 45)
@@ -112,9 +112,9 @@ t('no real identifiers: every identifying field holds a fictitious value', () =>
   // INI: 1015 company number and 1016 deductions file — zero or fictitious; 1018 business name — no real number (1009, the software vendor, is real once set)
   assert.match(ini[0].slice(186, 204), /^(0{9}|0{6}\d{3}){2}$/, '1015/1016');
   assert.ok(fictitious(ini[0].slice(214, 264)), '1018');
-  // cheques (D120, method 2): 1308 branch 0, 1309 account starting with 12 zeros
+  // cheques (D120, method 2): 1308 a bank branch — not 0 (the simulator refuses 0, 25.11.2026), never a whole account; 1309 account starting with 12 zeros
   for (const l of bk.filter((x) => x.startsWith('D120') && x[49] === '2')) {
-    assert.equal(l.slice(60, 70), '0'.repeat(10), `${l.slice(0, 13)}: 1308`);
+    assert.match(l.slice(60, 70), /^0{7}[1-9]\d{2}$/, `${l.slice(0, 13)}: 1308`);
     assert.match(l.slice(70, 85), /^0{12}\d{3}$/, `${l.slice(0, 13)}: 1309`);
   }
   // the printed outputs: the only 9+-digit number is the fictitious dealer number

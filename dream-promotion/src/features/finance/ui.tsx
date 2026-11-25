@@ -5,7 +5,7 @@ import { cx } from '@/lib/utils';
 import { israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import type { Lead } from '@/types';
-import { EMPTY_CHEQUE, PAY_METHODS, WITHHOLDING, type DocPayMethod, type PaymentEntry } from './payments';
+import { EMPTY_CHEQUE, PAY_METHODS, WITHHOLDING, chequeErrors, type DocPayMethod, type PaymentEntry } from './payments';
 import type { ComposeCustomer, ComposeLine } from './compose';
 import type { CatalogItem, ItemKind } from '@/features/catalog/catalog';
 import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
@@ -221,10 +221,14 @@ export function PaymentsEditor({ payments, onChange, total, today, withholding =
           {p.method === 'cheque' && (
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
               {(['number', 'bank', 'branch', 'account'] as const).map((k) => (
-                <Input key={k} value={p.cheque?.[k] ?? ''} inputMode="numeric" dir="ltr" placeholder={{ number: 'מס׳ צ׳ק', bank: 'בנק', branch: 'סניף', account: 'חשבון' }[k]}
+                <Input key={k} value={p.cheque?.[k] ?? ''} inputMode="numeric" dir="ltr" required aria-required="true" placeholder={{ number: 'מס׳ צ׳ק *', bank: 'בנק *', branch: 'סניף *', account: 'חשבון *' }[k]}
                   onChange={(e) => set(i, { cheque: { ...(p.cheque ?? EMPTY_CHEQUE), [k]: e.target.value.replace(/\D/g, '') } })} aria-label={{ number: 'מספר צ׳ק', bank: 'מספר בנק', branch: 'מספר סניף', account: 'מספר חשבון' }[k]} className="px-2 py-2" />
               ))}
               <Input type="date" value={p.cheque?.dueDate ?? ''} onChange={(e) => set(i, { cheque: { ...(p.cheque ?? EMPTY_CHEQUE), dueDate: e.target.value } })} aria-label="תאריך פירעון" className="px-2 py-2" />
+              {/* 2.117.4: what is still missing, once the cheque was started (the form refuses it on issue too — paymentErrors) */}
+              {Object.values(p.cheque ?? {}).some(Boolean) && chequeErrors(p.cheque).length > 0 && (
+                <p aria-live="polite" className="col-span-2 text-xs text-warn sm:col-span-5">{chequeErrors(p.cheque).join(' · ')}</p>
+              )}
             </div>
           )}
           {p.method === 'withholding' && (

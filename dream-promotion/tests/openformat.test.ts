@@ -61,9 +61,9 @@ test('whole export: record numbers, totals, folder name, doc-type report', () =>
   assert.equal(lines.length, f.totalRecords);
   lines.forEach((l, i) => assert.equal(Number(col(l, 5, 13)), i + 1, 'running record number (field 2)'));
   assert.equal(Number(col(lines.at(-1)!, 46, 60)), lines.length, 'Z900 total includes opening and closing');
-  assert.deepEqual(f.counts, { A100: 1, C100: 3, D110: 6, D120: 2, Z900: 1 });
+  assert.deepEqual(f.counts, { A100: 1, B110: 1, C100: 3, D110: 6, D120: 2, Z900: 1 }, 'one customer → one B110 (2.117.4)');
   assert.equal(f.dir, 'OPENFRMT\\51512345.26\\10051030');
-  assert.ok(f.bkmv.endsWith('\r\n') && f.ini.split('\r\n').filter(Boolean).length === 4, 'A000 + 3 summaries');
+  assert.ok(f.bkmv.endsWith('\r\n') && f.ini.split('\r\n').filter(Boolean).length === 5, 'A000 + 4 summaries (B110 from 2.117.4)');
   const rep = docTypeReport(docs, '2026-10-01', '2026-10-31');
   assert.equal(rep.find((x) => x.code === 320)!.count, 2); assert.equal(rep.find((x) => x.code === 320)!.total, 859.6);
   assert.equal(rep.find((x) => x.code === 305)!.count, 0, 'types not handled are reported as 0');

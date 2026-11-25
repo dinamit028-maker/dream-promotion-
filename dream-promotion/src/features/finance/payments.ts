@@ -30,14 +30,29 @@ export const methodOfCode = (code: number): PayMethod => (code === 1 ? 'cash' : 
 /** a cheque's details — fields 1307–1311 of the unified file */
 export interface Cheque { bank: string; branch: string; account: string; number: string; dueDate: string }
 export const EMPTY_CHEQUE: Cheque = { bank: '', branch: '', account: '', number: '', dueDate: '' };
-export function chequeError(c: Cheque | undefined): string | null {
-  if (!c || !/^\d{1,10}$/.test(c.number.trim())) return 'מספר הצ׳ק — ספרות בלבד';
-  if (c.bank && !/^\d{1,3}$/.test(c.bank.trim())) return 'מספר הבנק — עד 3 ספרות';
-  if (c.branch && !/^\d{1,5}$/.test(c.branch.trim())) return 'מספר הסניף — עד 5 ספרות';
-  if (c.account && !/^\d{1,15}$/.test(c.account.trim())) return 'מספר החשבון — עד 15 ספרות';
-  if (c.dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(c.dueDate)) return 'תאריך הפירעון לא תקין';
-  return null;
+/**
+ * What is wrong in a cheque's details — one Hebrew line per field, none when fine. From 2.117.4 the bank, the branch and the account
+ * are required, as the number always was: in the unified file fields 1307–1310 are "חמ — בהמחאה בלבד" (spec §4.5, p. 14, checked
+ * 25.11.2026), and the Tax Authority's simulator (25.11.2026) refused a cheque whose branch was 0 ("ערך השדה לא ולידי / השדה מאופס").
+ * So a field of zeros only is missing too. New documents only: a document already issued is not changed.
+ */
+export function chequeErrors(c: Cheque | undefined): string[] {
+  const e: string[] = [];
+  const v = (s: string | undefined) => (s ?? '').trim();
+  const zeros = (s: string) => /^0+$/.test(s);
+  if (!c || !/^\d{1,10}$/.test(v(c.number)) || zeros(v(c.number))) e.push('מספר הצ׳ק — ספרות בלבד');
+  const field = (s: string, max: number, name: string) => {
+    if (!s || zeros(s)) e.push(`${name} — חובה בצ׳ק`);
+    else if (!new RegExp(`^\\d{1,${max}}$`).test(s)) e.push(`${name} — עד ${max} ספרות`);
+  };
+  field(v(c?.bank), 3, 'מספר הבנק');
+  field(v(c?.branch), 5, 'מספר הסניף');
+  field(v(c?.account), 15, 'מספר החשבון');
+  if (c?.dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(c.dueDate)) e.push('תאריך הפירעון לא תקין');
+  return e;
 }
+/** the first of chequeErrors, or null */
+export const chequeError = (c: Cheque | undefined): string | null => chequeErrors(c)[0] ?? null;
 
 /** pct: tax withheld at source — the percent on the customer's certificate (optional) */
 export interface PaymentEntry { method: DocPayMethod; amount: number; date: string; cheque?: Cheque; pct?: number | null }
