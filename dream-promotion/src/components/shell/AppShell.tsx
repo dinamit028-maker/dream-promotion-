@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { NEW_APPOINTMENT_EVENT, plusAction } from '@/features/booking/new-appointment-event';
+import { NEW_APPOINTMENT_EVENT, NEW_APPOINTMENT_HREF, plusAction } from '@/features/booking/new-appointment-event';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
@@ -194,6 +194,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   };
 
+  // the big + of the phone's bottom menu (new-appointment-event.ts)
+  const bigPlus = (what: ReturnType<typeof plusAction>) => {
+    const look = 'mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]';
+    const icon = <Plus size={26} weight="bold" aria-hidden />;
+    if (what === 'appointment') {
+      return <button type="button" aria-label="תור חדש" onClick={() => window.dispatchEvent(new Event(NEW_APPOINTMENT_EVENT))} className={look}>{icon}</button>;
+    }
+    return what === 'appointment-link'
+      ? <Link href={NEW_APPOINTMENT_HREF} aria-label="תור חדש" className={look}>{icon}</Link>
+      : <Link href="/create" aria-label="יצירת תוכן חדש" className={look}>{icon}</Link>;
+  };
   const tabItem = ({ href, label, Icon }: NavItem) => {
     const on = path === href;
     return (
@@ -349,17 +360,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {!cashier && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-(--glass) px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
         {MOBILE_LEFT.map(tabItem)}
-        {plusAction(path) === 'appointment' ? (
-          <button type="button" aria-label="תור חדש" onClick={() => window.dispatchEvent(new Event(NEW_APPOINTMENT_EVENT))}
-            className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">
-            <Plus size={26} weight="bold" aria-hidden />
-          </button>
-        ) : (
-          <Link href="/create" aria-label="יצירת תוכן חדש"
-            className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">
-            <Plus size={26} weight="bold" aria-hidden />
-          </Link>
-        )}
+        {bigPlus(plusAction(path))}
         {MOBILE_RIGHT.map(tabItem)}
         <button type="button" onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen}
           className={cx('flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold',
@@ -370,7 +371,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav>}
 
       {calendarAccess(access) && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-(--glass) px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
-        {NAV_MAIN.map(tabItem)}
+        {NAV_MAIN.slice(0, 1).map(tabItem)}
+        {bigPlus(plusAction(path, true))}
+        {NAV_MAIN.slice(1).map(tabItem)}
       </nav>}
 
       {/* phone: every screen, one tap away */}

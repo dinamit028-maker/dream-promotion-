@@ -359,6 +359,32 @@ async function main() {
       await a.ctx.close();
     });
 
+    await step('(ה) "+ תור" in the head of the screen: hidden on a phone for the owner (the menu has the +), shown on a computer and on a phone for "יומן בלבד" / "יומן ולידים"', async () => {
+      const headPlus = (p: any) => p.locator('button', { hasText: '+ תור' }).first();
+      current = phone.page;
+      await goto(phone.page, '/appointments');
+      await onDayAll(phone.page, 'owner, phone');
+      assert.equal(await headPlus(phone.page).isVisible(), false, 'owner on a phone: no "+ תור" in the head (the real visibility — not only the class)');
+      assert.equal(await headPlus(phone.page).evaluate((e: Element) => getComputedStyle(e).display), 'none');
+      await phone.page.getByRole('button', { name: 'תור חדש', exact: true }).waitFor();
+      await phone.page.evaluate(() => window.scrollTo(0, 0));
+      await fits(phone.page, 'the head');
+      await shot(phone.page, 'calendar-head-phone-390.png', false);
+      current = desk.page;
+      await goto(desk.page, '/appointments');
+      await onDayAll(desk.page, 'owner, computer');
+      assert.equal(await headPlus(desk.page).isVisible(), true, 'owner on a computer: "+ תור" is there');
+      for (const access of ['calendar', 'agenda'] as const) {
+        const m = await open(PHONE, tables(), { userId: KARIN_USER, email: 'karin@clinic.test', owner: false, access });
+        current = m.page;
+        await goto(m.page, '/appointments');
+        await m.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
+        await m.page.getByText('יום ראשון, 18 באוקטובר').waitFor();
+        assert.equal(await headPlus(m.page).isVisible(), true, `${access} on a phone: "+ תור" is there (no + in her menu)`);
+        await m.ctx.close();
+      }
+    });
+
     await step('no error in the browser', async () => { assert.deepEqual(errors, []); });
   } finally {
     await browser.close().catch(() => null);
