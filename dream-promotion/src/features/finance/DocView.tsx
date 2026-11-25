@@ -419,7 +419,7 @@ function SaleReceiptsDue({ doc, onIssued }: { doc: DocRow; onIssued: (d: DocRow)
   }
   // each refund with its day: the refund receipt is dated today (answer 16) — the owner sees what it is for before issuing it
   const what = [...(due.cancel ? ['המכירה בוטלה בקופה'] : []),
-    ...due.refunds.map((r) => `החזר של ${ils(Number(r.amount))} מ-${r.created_at ? israelParts(Date.parse(r.created_at)).date.split('-').reverse().join('/') : ''}`)];
+    ...due.refunds.map((r) => `החזר של ${ils(Number(r.amount))} מתאריך \u200e${r.created_at ? israelParts(Date.parse(r.created_at)).date.split('-').reverse().join('/') : ''}`)];
   return (
     <div className="mt-3 grid gap-2 rounded-2xl border border-line p-3 text-sm">
       <p><strong>חסרה קבלה במינוס:</strong> {what.join(' · ')} — והקבלה במינוס לא הופקה אז. היא תופק בתאריך של היום.</p>

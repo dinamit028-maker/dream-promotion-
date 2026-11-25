@@ -288,6 +288,66 @@ async function main() {
       } finally { await ctx.close(); }
     });
 
+    // ---- the completion box of a sale's receipt (DocView "חסרה קבלה במינוס"): never a second refund receipt ---------------------
+    for (const scenario of ['refund', 'cancel'] as const) {
+      await step(`${view}: the completion box (${scenario === 'refund' ? 'a refund of 80 with no refund receipt' : 'a cancelled sale, a refund of 80 before it'}) — a double click and a second tab issue it once`, async () => {
+        fake = new FakeSupabase(seed('exempt_dealer'), { businessId: BIZ, userId: OWNER, email: 'owner@example.test' });
+        { const f: any = fake; const orig = f.goodsCheck.bind(f); f.goodsCheck = (r: any) => (r.doc_type === 400 && Number(r.total) < 0 && r.base_doc_type === 400 ? null : orig(r)); }
+        const SALE = 'c0000000-0000-4000-8000-0000000000f1', REFUND = 'c0000000-0000-4000-8000-0000000000f2';
+        const a = await open('/finance/documents', view);
+        let b: { ctx: any; page: any } | null = null;
+        try {
+          // a receipt of 200 made on the screen, then made the receipt of a register sale (the sale, and its refund of 80 without a refund receipt)
+          await a.page.getByRole('button', { name: '+ מסמך חדש' }).click();
+          const d = dialog(a.page);
+          await d.getByRole('radio', { name: 'קבלה', exact: true }).click();
+          await d.getByLabel('תיאור שורה 1').fill('טיפול');
+          await d.getByLabel('מחיר שורה 1').fill('200');
+          await d.getByRole('button', { name: 'הפקת קבלה' }).click();
+          await a.page.getByRole('heading', { name: 'קבלה 1' }).waitFor();
+          const rec = fake.tables.documents[0];
+          rec.sale_id = SALE;
+          const nowIso = new Date().toISOString();
+          fake.tables.sales.push({ id: SALE, business_id: BIZ, user_id: OWNER, items: [{ name: 'טיפול', price: 200, qty: 1, kind: 'other' }], subtotal: 200, total: 200, vat_rate: 0, vat_amount: 0,
+            method: 'cash', status: scenario === 'cancel' ? 'cancelled' : 'paid', payments: [], discount: 0, note: '', paid_at: nowIso, created_at: nowIso });
+          fake.tables.sale_refunds.push({ id: REFUND, business_id: BIZ, user_id: OWNER, sale_id: SALE, amount: 80, vat_amount: 0, method: 'cash', items: [], restock: false, reason: '', created_at: nowIso });
+          const open1 = async (pg: any) => { await pg.reload({ waitUntil: 'domcontentloaded' }); await pg.getByText(/^קבלה 1 · /).first().click(); await dialog(pg).getByRole('heading', { name: /קבלה 1/ }).waitFor(); };
+          await open1(a.page);
+          const box = dialog(a.page).getByText('חסרה קבלה במינוס:');
+          await box.waitFor();
+          assert.equal(await dialog(a.page).getByRole('button', { name: 'החזר כספי' }).count(), 0, 'a sale\'s receipt is refunded from the sale: no plain refund button');
+          await noSideScroll(a.page, 'completion box');
+          await box.scrollIntoViewIfNeeded();
+          await shot(a.page, `${tag}11-completion-box-${scenario}.png`);
+          if (scenario === 'refund') await axe(a.page, `${view} completion box`);
+          // a second tab opens the same receipt at the same time (its view is the stale one from now on)
+          b = await open('/finance/documents', view);
+          await open1(b.page);
+          await dialog(b.page).getByText('חסרה קבלה במינוס:').waitFor();
+          // tab A: a double click
+          const btnA = dialog(a.page).getByRole('button', { name: 'הפקת הקבלה במינוס' });
+          await btnA.dblclick();
+          await a.page.getByText(/הופקה קבלה במינוס/).first().waitFor();
+          const back = () => fake.tables.documents.filter((x) => Number(x.total) < 0);
+          const expected = scenario === 'refund' ? [-80] : [-80, -120];
+          assert.deepEqual(back().map((x) => Number(x.total)).sort((x, y) => x - y).reverse().sort((x, y) => y - x).sort((x, y) => x - y), [...expected].sort((x, y) => x - y), 'one refund receipt per missing thing after a double click');
+          assert.equal(back().filter((x) => x.refund_id === REFUND).length, 1, 'one refund receipt for the refund');
+          assert.ok(back().every((x) => /^(refund|cancel):/.test(x.idempotency_key)), 'on the register\'s keys');
+          // tab B (stale): its click must not make another one
+          const before = fake.tables.documents.length;
+          await dialog(b.page).getByRole('button', { name: 'הפקת הקבלה במינוס' }).click();
+          await b.page.waitForTimeout(1500);
+          assert.equal(fake.tables.documents.length, before, 'the second tab made no second document');
+          const sum = back().reduce((x, y) => x - Number(y.total), 0);
+          assert.ok(sum <= 200, `never more back than the receipt (${sum})`);
+          if (scenario === 'cancel') assert.equal(sum, 200, 'cancelled: the whole receipt went back (80 the refund + 120 the rest)');
+          // the reopened receipt: nothing left to complete
+          await open1(a.page);
+          assert.equal(await dialog(a.page).getByText('חסרה קבלה במינוס:').count(), 0, 'nothing missing any more');
+        } finally { await a.ctx.close(); await b?.ctx.close(); }
+      });
+    }
+
     for (const old of [false, true]) {
       await step(`${view}: settings — the deductions-file field ${old ? 'is hidden on an old database and saving still works' : 'shown, 9 digits, saved'}`, async () => {
         fake = new FakeSupabase(seed('company'), { businessId: BIZ, userId: OWNER, email: 'owner@example.test' });

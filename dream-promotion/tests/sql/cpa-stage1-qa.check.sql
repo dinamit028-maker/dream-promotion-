@@ -51,6 +51,15 @@ create or replace function pg_temp.back(p_amount numeric, p_base text, p_extra j
     'lines', jsonb_build_array(jsonb_build_object('name', 'החזר', 'qty', 1, 'unitPriceExVat', -p_amount, 'discountExVat', 0, 'totalExVat', -p_amount, 'vatRate', 0, 'kind', 1)),
     'payments', jsonb_build_array(jsonb_build_object('method', 1, 'amount', -p_amount, 'date', public.il_today())))) || p_extra;
 $$;
+-- refused as a repeat of the same key: by the unique key itself, or by a rule that answers just before it (the ceiling / "one refund, one
+-- refund receipt") — which one answers first is the migration's order; what must hold: refused, and nothing issued
+create or replace function pg_temp.refused_as_repeat(stmt text, msg text) returns void language plpgsql as $$
+declare m text := pg_temp.refusal(stmt);
+begin
+  if m is null then raise exception 'CHECK FAILED: % (it was allowed)', msg; end if;
+  if m not like '%idempotency%' and m not like 'refund_receipt_over%' and m not like 'refund_receipt_refund%' then raise exception 'CHECK FAILED: % (refused, but with "%")', msg, m; end if;
+end $$;
+
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000681e1', 'owner@exempt-681.example.test'), ('00000000-0000-0000-0000-0000000681e2', 'cashier@exempt-681.example.test');
 insert into public.businesses (id, name, slug) values ('00000000-0000-0000-0000-0000000681b1', 'Exempt 681', 'exempt-681');
@@ -115,8 +124,7 @@ commit;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000681e1');
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.back(100, 'sale:00000000-0000-0000-0000-00000006815a', '{"idempotency_key": "cancel:00000000-0000-0000-0000-00000006815a", "sale_id": "00000000-0000-0000-0000-00000006815a", "source": "refund"}'))$$,
-  'refund_receipt_over', 'the same key twice, when the receipt is already all given back: the ceiling answers first (the unique key is checked after the validation) — never a second document');
+select pg_temp.refused_as_repeat($$select pg_temp.issue(pg_temp.back(100, 'sale:00000000-0000-0000-0000-00000006815a', '{"idempotency_key": "cancel:00000000-0000-0000-0000-00000006815a", "sale_id": "00000000-0000-0000-0000-00000006815a", "source": "refund"}'))$$, 'the cancel receipt of sale A, twice (same key)');
 commit;
 begin;
 set local role authenticated;
@@ -138,9 +146,9 @@ commit;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000681e1');
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000681e1', 400, -30, 0, 0, jsonb_build_object('idempotency_key', 'refund:00000000-0000-0000-0000-00000006816c',
+select pg_temp.refused_as_repeat($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000681e1', 400, -30, 0, 0, jsonb_build_object('idempotency_key', 'refund:00000000-0000-0000-0000-00000006816c',
   'base_doc_type', 400, 'base_doc_number', (select doc_number from public.documents where idempotency_key = 'sale:00000000-0000-0000-0000-00000006815c'),
-  'sale_id', '00000000-0000-0000-0000-00000006815c', 'refund_id', '00000000-0000-0000-0000-00000006816c', 'source', 'refund')))$$, 'refund_receipt_refund', 'the refund receipt of a refund, twice (the rule "one refund, one refund receipt" answers before the unique key)');
+  'sale_id', '00000000-0000-0000-0000-00000006815c', 'refund_id', '00000000-0000-0000-0000-00000006816c', 'source', 'refund')))$$, 'the refund receipt of a refund, twice (same key)');
 commit;
 -- the same refund with ANOTHER key (a client bug): never a second refund receipt for one refund
 begin;
