@@ -69,7 +69,9 @@ export function FromBaseDialog({ base, targets, left, fixedQty, title, onClose, 
 
   async function go() {
     if (!key) return;
-    const res = docFromBase(base, take, opts);
+    // the document's day — taken now, at issue (a screen left open across midnight: the database refuses yesterday)
+    const now = todayIL();
+    const res = docFromBase(base, take, { ...opts, docDate: now, today: now });
     if (!res.ok) { setErrors(res.errors); return; }
     if (!window.confirm(`להפיק ${DOC_LABEL[type]} על ${ils(res.doc.total)} מתוך ${DOC_LABEL[base.docType]} ${base.docNumber}?`)) return;
     setBusy(true); setErrors([]);

@@ -10,7 +10,14 @@ import { supabase } from '@/lib/supabase/client';
  */
 let ready: Promise<boolean> | null = null;
 export function deductionsReady(): Promise<boolean> {
-  ready ??= Promise.resolve(supabase().from('register_settings').select('deductions_file').limit(1)).then(({ error }) => !error, () => false);
+  // only "the column is there" is kept: a failure (no network, a timeout) is asked again on the next call — "not there" only for
+  // the database's own answer that the column does not exist (42703, or PostgREST's schema cache)
+  ready ??= Promise.resolve(supabase().from('register_settings').select('deductions_file').limit(1)).then(({ error }) => {
+    if (!error) return true;
+    const missing = error.code === '42703' || /does not exist|schema cache|PGRST204/i.test(String(error.message ?? ''));
+    if (!missing) ready = null;
+    return false;
+  }, () => { ready = null; return false; });
   return ready;
 }
 export function useDeductionsReady(): boolean {

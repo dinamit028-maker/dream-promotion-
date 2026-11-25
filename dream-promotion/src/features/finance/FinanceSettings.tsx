@@ -111,8 +111,11 @@ export function FinanceSettings() {
         <div className="grid gap-2 sm:grid-cols-2">
           <Field label={s.entity === 'company' ? 'ח.פ / מספר עוסק (9 ספרות)' : 'מספר עוסק (9 ספרות)'}><Input value={s.dealerNumber} onChange={(e) => setSv('dealerNumber', e.target.value.replace(/\D/g, '').slice(0, 9))} inputMode="numeric" dir="ltr" /></Field>
           <Field label="מספר ח.פ / ע״ר (אם שונה)"><Input value={s.companyNumber} onChange={(e) => setSv('companyNumber', e.target.value.replace(/\D/g, '').slice(0, 9))} inputMode="numeric" dir="ltr" /></Field>
-          {deductionsOk && <Field label="מספר תיק ניכויים (9 ספרות, אם יש)"><Input value={s.deductionsFile} onChange={(e) => setSv('deductionsFile', e.target.value.replace(/\D/g, '').slice(0, 9))} inputMode="numeric" dir="ltr" aria-describedby="deductions-hint" />
-            <span id="deductions-hint" className="mt-1 block text-xs text-muted">נכנס לקובץ לרשות המסים (מבנה אחיד, שדה 1016). לא מופיע על המסמכים.</span></Field>}
+          {/* the hint outside Field — Field ties its label to a single input child only */}
+          {deductionsOk && <div>
+            <Field label="מספר תיק ניכויים (9 ספרות, אם יש)"><Input value={s.deductionsFile} onChange={(e) => setSv('deductionsFile', e.target.value.replace(/\D/g, '').slice(0, 9))} inputMode="numeric" dir="ltr" aria-describedby="deductions-hint" /></Field>
+            <p id="deductions-hint" className="-mt-3 mb-4 text-xs text-muted">נכנס לקובץ לרשות המסים (מבנה אחיד, שדה 1016). לא מופיע על המסמכים.</p>
+          </div>}
           <Field label="השם הרשום"><Input value={s.legalName} onChange={(e) => setSv('legalName', e.target.value)} /></Field>
           <Field label="שם מסחרי (לא חובה)"><Input value={p.tradingName} onChange={(e) => setPv('tradingName', e.target.value)} /></Field>
           <Field label="רחוב"><Input value={s.street} onChange={(e) => setSv('street', e.target.value)} /></Field>

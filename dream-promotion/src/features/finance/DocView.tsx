@@ -222,7 +222,8 @@ export function ReceiptDialog({ doc, balance, onClose, onIssued }: { doc: DocRow
   }, [doc.id]);
   async function go() {
     if (!key) return;
-    const r = composeReceipt({ ...doc, balance }, { entity: settings.entity, vatRate: settings.vatRate, payments, docDate: today, today });
+    const now = todayIL();   // the document's day — taken at issue, not when the dialog opened
+    const r = composeReceipt({ ...doc, balance }, { entity: settings.entity, vatRate: settings.vatRate, payments, docDate: now, today: now });
     if (!r.ok) { setErrors(r.errors); return; }
     setBusy(true);
     const out = await issueDocumentRow(documentRow(r.doc, { userId, idempotencyKey: key, vatRate: r.totals.vatRate, leadId: doc.leadId ?? null, paidDocumentId: doc.id }));
@@ -268,16 +269,19 @@ function CreditDialog({ doc, credited, onClose, onIssued }: { doc: DocRow; credi
   const preview = composeCredit(doc, mode, credited, today, { reason, today });
   async function go() {
     if (!key) return;
-    if (!preview.ok) { setErrors(preview.errors); return; }
-    if (!window.confirm(`להפיק חשבונית מס זיכוי על ${ils(preview.doc.total)}? החשבונית המקורית נשארת כמו שהיא.`)) return;
+    // the document's day — taken at issue, not when the dialog opened
+    const now = todayIL();
+    const fresh = composeCredit(doc, mode, credited, now, { reason, today: now });
+    if (!fresh.ok) { setErrors(fresh.errors); return; }
+    if (!window.confirm(`להפיק חשבונית מס זיכוי על ${ils(fresh.doc.total)}? החשבונית המקורית נשארת כמו שהיא.`)) return;
     setBusy(true);
-    const out = await issueDocumentRow(documentRow(preview.doc, { userId, idempotencyKey: key, vatRate: preview.totals.vatRate, leadId: doc.leadId ?? null, saleId: doc.saleId }));
+    const out = await issueDocumentRow(documentRow(fresh.doc, { userId, idempotencyKey: key, vatRate: fresh.totals.vatRate, leadId: doc.leadId ?? null, saleId: doc.saleId }));
     if (!out.ok) { setBusy(false); setErrors([out.error]); return; }
-    if (out.again && Math.round(out.doc.total * 100) !== Math.round(preview.doc.total * 100)) {
+    if (out.again && Math.round(out.doc.total * 100) !== Math.round(fresh.doc.total * 100)) {
       setBusy(false); setErrors(['כבר הופקה חשבונית זיכוי על החשבונית הזו, כנראה ממכשיר אחר. סגרו ופתחו שוב כדי לראות כמה נשאר לזכות.']); return;
     }
     if (refund.on && !out.again) {
-      const { error } = await supabase().rpc('record_credit_refund', { p_document: out.doc.id, p_method: refund.method, p_amount: out.doc.total, p_paid_on: today, p_note: reason.slice(0, 300) });
+      const { error } = await supabase().rpc('record_credit_refund', { p_document: out.doc.id, p_method: refund.method, p_amount: out.doc.total, p_paid_on: now, p_note: reason.slice(0, 300) });
       if (error) fail(`חשבונית הזיכוי הופקה, אבל ההחזר לא נרשם: ${financeError(error)}`);
     }
     setBusy(false); onIssued(out.doc);

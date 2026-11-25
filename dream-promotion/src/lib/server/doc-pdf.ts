@@ -45,7 +45,17 @@ export function forceLtr(f: PDFFont) {
 }
 
 const ddmmyyyy = (d: string) => d.split('-').reverse().join('/');
-const money = (n: number) => n.toFixed(2);
+/**
+ * 2.118: an amount below zero (a refund receipt's) reads "-80.00", left to right: it is wrapped in a left-to-right isolate (U+2066 …
+ * U+2069), which visual() honours and which is taken out after it (ISOLATE / unIsolate). An amount above zero is written as before,
+ * byte for byte (tests/cpa-rules-stage1.test.ts — the PDF of a document issued before 2.118).
+ */
+const LRI = '\u2066', PDI = '\u2069';
+const ISOLATE = /[\u2066-\u2069]/g;
+const unIsolate = (s: string) => s.replace(ISOLATE, '');
+export const money = (n: number) => (n < 0 ? `${LRI}${n.toFixed(2)}${PDI}` : n.toFixed(2));
+/** the text as drawn: visual order, isolates out (exported for the tests) */
+export const drawn = (t: string) => unIsolate(visual(t));
 /** "05/10/2026 10:30" in Israel time */
 export const ilDateTime = (iso: string) => {
   const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -71,8 +81,8 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   let y = H - M;
   // characters the font can not draw (emoji…) are left out rather than breaking the file
   const known = new Set(font.getCharacterSet());
-  const clean = (t: string) => Array.from(String(t ?? '')).filter((c) => known.has(c.codePointAt(0)!) || c === ' ').join('');
-  const width = (t: string, size: number, f: PDFFont) => f.widthOfTextAtSize(visual(clean(t)), size);
+  const clean = (t: string) => Array.from(String(t ?? '')).filter((c) => known.has(c.codePointAt(0)!) || c === ' ' || (c >= '\u2066' && c <= '\u2069')).join('');
+  const width = (t: string, size: number, f: PDFFont) => f.widthOfTextAtSize(drawn(clean(t)), size);
   /** the longest start of t that fits — with "…" when cut */
   const fit = (t: string, size: number, f: PDFFont, max: number) => {
     let s = clean(t);
@@ -82,7 +92,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   };
   /** draw right-aligned at xRight (the RTL default), or left-aligned at xLeft */
   const text = (t: string, at: { right?: number; left?: number }, size = 10, f: PDFFont = font, color = ink) => {
-    const v = visual(clean(t));
+    const v = drawn(clean(t));
     const x = at.right != null ? at.right - f.widthOfTextAtSize(v, size) : at.left!;
     page.drawText(v, { x, y, size, font: f, color });
   };

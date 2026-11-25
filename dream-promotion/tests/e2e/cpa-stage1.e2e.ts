@@ -213,9 +213,6 @@ async function main() {
 
     // ---- an exempt dealer -------------------------------------------------------------------------------------------------
     fake = new FakeSupabase(seed('exempt_dealer'), { businessId: BIZ, userId: OWNER, email: 'owner@example.test' });
-    // the fake's goodsCheck (fake-supabase.ts) still refuses every non-credit document with a base ("only a credit invoice points to a base
-    // document") — migration 6800 lets a refund receipt (a 400 below zero on a 400) through; mirrored here, reported to the brain
-    { const f: any = fake; const orig = f.goodsCheck.bind(f); f.goodsCheck = (r: any) => (r.doc_type === 400 && Number(r.total) < 0 && r.base_doc_type === 400 ? null : orig(r)); }
     await step(`${view}: an exempt dealer — a receipt, "החזר כספי", never beyond the receipt, a negative receipt that can not be refunded again`, async () => {
       const { ctx, page } = await open('/finance/documents', view);
       try {
@@ -298,8 +295,8 @@ async function main() {
         const { ctx, page } = await open('/finance/settings', view);
         try {
           await page.getByLabel('מספר עוסק / ח.פ (9 ספרות)').or(page.getByLabel('ח.פ / מספר עוסק (9 ספרות)')).first().waitFor();
-          // not getByLabel: Field can not tie its <label> to an input that has a hint beside it (reported — the input has no accessible name)
-          const f = page.locator('div.mb-4:has(> label:text-is("מספר תיק ניכויים (9 ספרות, אם יש)")) input');
+          // the label is tied to the input (its accessible name), and the hint describes it
+          const f = page.getByLabel('מספר תיק ניכויים (9 ספרות, אם יש)', { exact: true });
           if (old) {
             await page.waitForTimeout(1500);
             assert.equal(await f.count(), 0, 'hidden before the migration');

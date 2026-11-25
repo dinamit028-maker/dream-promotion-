@@ -327,3 +327,22 @@ test('an online order\'s refund of an exempt dealer: a refund receipt with the r
   assert.deepEqual([np.sale_refunds.length, np.documents.length], [1, 1]);
   delete (globalThis as any).__DP_TEST_ADMIN_DB__;
 });
+
+test('a refund receipt prints its amounts left to right ("-80.00", not "80.00-") — HTML and PDF; amounts above zero as before', async () => {
+  process.env.NEXT_PUBLIC_APP_VERSION = '';
+  const { n2, docBody } = await import('../src/features/documents/DocumentsTab');
+  const { money, drawn, buildDocPdf } = await import('../src/lib/server/doc-pdf');
+  assert.equal(n2(80), '80.00');
+  assert.equal(n2(-80), '<span dir="ltr">-80.00</span>');
+  assert.equal(n2('x'), '');
+  assert.equal(money(80), '80.00');
+  assert.equal(drawn(money(80)), '80.00');
+  assert.equal(drawn(money(-80)), '-80.00');
+  assert.equal(drawn(`${money(-80)} ₪`), '₪ -80.00', 'the total line, as drawn in the PDF');
+  const back = { ...refundReceiptFor(RECEIPT, { payments: [{ method: 1, amount: 80, m: 'cash' }], docDate: '2026-11-25' }), docNumber: 22, linkNo: 2, issuedAt: '2026-11-25T08:00:00Z' } as Doc;
+  const html = docBody(back, BIZ, 'מקור');
+  assert.ok(html.includes('<span dir="ltr">-80.00</span> ₪'), 'the total');
+  assert.ok(!/[0-9]-</.test(html), 'no amount with its minus after it');
+  const pdf = await buildDocPdf(back, BIZ, { mark: 'מקור', software: 'Dream Promotion', signed: false });
+  assert.ok((await pdf.save()).length > 1000, 'the PDF of a refund receipt is drawn (the isolates are not glyphs of the font)');
+});

@@ -1569,7 +1569,8 @@ export class FakeSupabase {
   private goodsCheck(r: Row): string | null {
     const goodsType = [100, 200, 210].includes(r.doc_type);
     if ((goodsType || [100, 200].includes(r.base_doc_type)) && !this.cashTables) return 'new row for relation "documents" violates check constraint "documents_doc_type_check"';
-    if (r.base_doc_type != null && r.doc_type !== 330) {
+    // 2.118 (migration 6800): an exempt dealer's refund receipt (a 400 below zero) points to the receipt it refunds — checked above
+    if (r.base_doc_type != null && r.doc_type !== 330 && !(r.doc_type === 400 && Number(r.total) < 0 && r.base_doc_type === 400)) {
       const ok = (r.doc_type === 200 && r.base_doc_type === 100) || (r.doc_type === 210 && r.base_doc_type === 200) || ([300, 305, 320].includes(r.doc_type) && [100, 200].includes(r.base_doc_type));
       if (!ok || r.base_doc_number == null) return 'only a credit invoice points to a base document (or a document made from an order or a delivery note)';
     }
