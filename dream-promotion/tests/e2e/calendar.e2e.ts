@@ -512,7 +512,10 @@ async function main() {
     current = w.page;
     await step('a week on the computer: Sunday to Saturday (Saturday open, in its colour); the next week and back', async () => {
       await goto(w.page, '/appointments');
-      await w.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor({ timeout: 120_000 });
+      // 2.117.3: every entry opens on the day (a computer too) — then the week
+      await w.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
+      await w.page.getByRole('tab', { name: 'שבוע' }).click();
+      await w.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor();
       await w.page.getByText('18–24 באוקטובר 2026').waitFor();
       await block(w.page, /^17:00–18:00 נגה ת\./).waitFor();
       await expectHeads(w.page, ['א׳ 18.10 16 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 אין תורים']);
@@ -567,7 +570,10 @@ async function main() {
     current = hw.page;
     await step('the holidays on the computer: Friday, Saturday and a holiday in their colours; one booked on Saturday; the week of Sukkot; September', async () => {
       await goto(hw.page, '/appointments');
-      await hw.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor({ timeout: 120_000 });
+      // 2.117.3: every entry opens on the day (a computer too) — then the week
+      await hw.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
+      await hw.page.getByRole('tab', { name: 'שבוע' }).click();
+      await hw.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor();
       await block(hw.page, /^18:00–18:45 רינת ס\./).waitFor();
       // a week with no holiday: no line for one — the titles as before; Friday and Saturday in their colours, Saturday open
       await expectHeads(hw.page, ['א׳ 18.10 15 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 אין תורים']);

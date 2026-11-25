@@ -200,7 +200,8 @@ export function AppointmentsScreen() {
   };
   // the big + of the phone's menu (AppShell), on this screen: a new appointment on the day shown (no services yet — to where they are added)
   useEffect(() => {
-    const onNew = () => { if (services.length) book(date, '', null); else setTab('services'); };
+    // the same as "+ תור" of the head; before the first answer — nothing (the services are not known yet)
+    const onNew = () => { if (first) return; if (services.length) book(view === 'list' ? todayIL : date, '', null); else setTab('services'); };
     window.addEventListener(NEW_APPOINTMENT_EVENT, onNew);
     return () => window.removeEventListener(NEW_APPOINTMENT_EVENT, onNew);
   });
