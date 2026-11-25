@@ -192,7 +192,7 @@ async function main() {
       assert.equal(await theSwitch().count(), 0, 'no switch');
       assert.equal(await picker().count(), 0, 'no register picker');
       await goto('/appointments');
-      // 2.105: the calendar opens on the week (a computer) — the list says where each appointment is; the device remembers it
+      // the list says where each appointment is (2.117.3: every entry opens on the day — the list is picked each time)
       await page.getByRole('tab', { name: 'רשימה' }).click({ timeout: 60_000 });
       await page.getByText('מיכל לוי').first().waitFor({ timeout: 60_000 });
       await page.getByRole('button', { name: '+ תור' }).click();
@@ -329,6 +329,7 @@ async function main() {
     await step('the location field: an appointment and an expense of "כל הסניפים" go to the location chosen', async () => {
       const north = loc('סניף הצפון').id;
       await goto('/appointments');
+      await page.getByRole('tab', { name: 'רשימה' }).click({ timeout: 60_000 });   // 2.117.3: the entry is the day — the list, as before
       await page.getByText('מיכל לוי').first().waitFor({ timeout: 60_000 });
       await page.getByRole('button', { name: '+ תור' }).click();
       const d = dialog();

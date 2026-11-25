@@ -755,7 +755,7 @@ async function main() {
 
     await step('Karin books — a new customer only with a phone', async () => {
       await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
-      await k.page.getByRole('button', { name: '+ תור' }).click();
+      await k.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       const d = dialog(k.page);
       await d.getByRole('heading', { name: 'תור חדש' }).waitFor();
       await d.getByLabel('או שעה אחרת').fill('19:30');
@@ -809,7 +809,7 @@ async function main() {
 
     await step('2.110 — "סיום": a new appointment ends by its treatment, or at an hour set by hand; the sheet changes the end', async () => {
       await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
-      await k.page.getByRole('button', { name: '+ תור' }).click();
+      await k.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       const d = dialog(k.page);
       await d.getByRole('heading', { name: 'תור חדש' }).waitFor();
       // 2.110.2: "+ שירות חדש" from the appointment itself — saved, chosen, no price
@@ -933,7 +933,7 @@ async function main() {
       assert.equal(await card.getByText('מחיקת איש הקשר').count(), 0, 'no deleting');
       await shot(a.page, 'cal-18-agenda-card-phone.png', false);
       await a.page.keyboard.press('Escape');
-      await a.page.getByRole('button', { name: '+ תור' }).click();
+      await a.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       await dialog(a.page).getByText('טלפון (חובה ללקוח/ה חדש/ה)').waitFor();   // a new customer only with a phone, as "יומן ולידים"
       await a.page.keyboard.press('Escape');
     });
@@ -997,7 +997,7 @@ async function main() {
       await n.page.keyboard.press('Escape');
       await n.page.getByRole('tab', { name: 'רשימה' }).click();
       await n.page.getByRole('button', { name: 'הזזה והיסטוריה ›' }).first().waitFor();
-      await n.page.getByRole('button', { name: '+ תור' }).click();
+      await n.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       assert.equal(await dialog(n.page).getByLabel('מטפל/ת').count(), 0);
       await n.page.keyboard.press('Escape');
     });
