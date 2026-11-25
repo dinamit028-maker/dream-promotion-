@@ -60,6 +60,7 @@ export function AppointmentsScreen() {
   // 2.109: a calendar member ("יומן ולידים") — the calendar only: no team, services, hours or booking page, no money, no client file
   const calendarOnly = useApp((x) => calendarAccess(x.access));
   const agendaOnly = useApp((x) => x.access === 'agenda');
+  const fullAccess = useApp((x) => x.access === 'full');
   // T12א: with several locations and "כל הסניפים" picked, every appointment says where it is
   const locState = useLocations((x) => x.state);
   const where = (a: Appointment) => (locState.businessId ? locationTag(locState, a, locState.businessId) : '');
@@ -276,7 +277,10 @@ export function AppointmentsScreen() {
       <PageHead title="תורים" sub={tab === 'agenda' ? viewSub : undefined}
         action={<div className="flex gap-2">
           <Button variant="ghost" onClick={() => setAlertsOpen(true)} aria-label="התראות בטלפון">🔔</Button>
-          <Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>
+          {/* 2.117.3 (asked by a business): on a phone with the bottom menu's big + (full access) — that + is the new appointment,
+              so this one is hidden there; a computer, and a calendar member (whose menu has no +), keep it */}
+          <Button variant="primary" className={fullAccess ? 'max-md:hidden' : undefined}
+            onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>
         </div>} />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
