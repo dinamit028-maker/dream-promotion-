@@ -501,10 +501,9 @@ async function main() {
       await p.page.getByText('מטפל/ת: קרין בן ניזרי · שינוי והיסטוריה ›').first().waitFor();
       await p.page.getByText(/^היום · /).waitFor();
       await fits(p.page, 'the list');
-      // the device remembers the view
+      // 2.117.3: the device does not remember the view — every entry opens on the day
       await goto(p.page, '/appointments');
-      await p.page.getByRole('tab', { name: 'רשימה', selected: true }).waitFor({ timeout: 60_000 });
-      await p.page.getByRole('tab', { name: 'יום' }).click();
+      await p.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 60_000 });
     });
 
     // ------------------------------------------------------------------------------------------------- a computer --
@@ -512,7 +511,10 @@ async function main() {
     current = w.page;
     await step('a week on the computer: Sunday to Saturday (Saturday open, in its colour); the next week and back', async () => {
       await goto(w.page, '/appointments');
-      await w.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor({ timeout: 120_000 });
+      // 2.117.3: every entry opens on the day (a computer too) — then the week
+      await w.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
+      await w.page.getByRole('tab', { name: 'שבוע' }).click();
+      await w.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor();
       await w.page.getByText('18–24 באוקטובר 2026').waitFor();
       await block(w.page, /^17:00–18:00 נגה ת\./).waitFor();
       await expectHeads(w.page, ['א׳ 18.10 16 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 אין תורים']);
@@ -567,7 +569,10 @@ async function main() {
     current = hw.page;
     await step('the holidays on the computer: Friday, Saturday and a holiday in their colours; one booked on Saturday; the week of Sukkot; September', async () => {
       await goto(hw.page, '/appointments');
-      await hw.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor({ timeout: 120_000 });
+      // 2.117.3: every entry opens on the day (a computer too) — then the week
+      await hw.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 120_000 });
+      await hw.page.getByRole('tab', { name: 'שבוע' }).click();
+      await hw.page.getByRole('tab', { name: 'שבוע', selected: true }).waitFor();
       await block(hw.page, /^18:00–18:45 רינת ס\./).waitFor();
       // a week with no holiday: no line for one — the titles as before; Friday and Saturday in their colours, Saturday open
       await expectHeads(hw.page, ['א׳ 18.10 15 תורים', 'ב׳ 19.10 10 תורים', 'ג׳ 20.10 10 תורים', 'ד׳ 21.10 8 תורים', 'ה׳ 22.10 10 תורים', 'ו׳ 23.10 5 תורים', 'ש׳ 24.10 אין תורים']);
@@ -750,7 +755,7 @@ async function main() {
 
     await step('Karin books — a new customer only with a phone', async () => {
       await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
-      await k.page.getByRole('button', { name: '+ תור' }).click();
+      await k.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       const d = dialog(k.page);
       await d.getByRole('heading', { name: 'תור חדש' }).waitFor();
       await d.getByLabel('או שעה אחרת').fill('19:30');
@@ -804,7 +809,7 @@ async function main() {
 
     await step('2.110 — "סיום": a new appointment ends by its treatment, or at an hour set by hand; the sheet changes the end', async () => {
       await block(k.page, /^18:30–19:30 נגה ת\./).waitFor({ timeout: 120_000 });
-      await k.page.getByRole('button', { name: '+ תור' }).click();
+      await k.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       const d = dialog(k.page);
       await d.getByRole('heading', { name: 'תור חדש' }).waitFor();
       // 2.110.2: "+ שירות חדש" from the appointment itself — saved, chosen, no price
@@ -928,7 +933,7 @@ async function main() {
       assert.equal(await card.getByText('מחיקת איש הקשר').count(), 0, 'no deleting');
       await shot(a.page, 'cal-18-agenda-card-phone.png', false);
       await a.page.keyboard.press('Escape');
-      await a.page.getByRole('button', { name: '+ תור' }).click();
+      await a.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       await dialog(a.page).getByText('טלפון (חובה ללקוח/ה חדש/ה)').waitFor();   // a new customer only with a phone, as "יומן ולידים"
       await a.page.keyboard.press('Escape');
     });
@@ -992,7 +997,7 @@ async function main() {
       await n.page.keyboard.press('Escape');
       await n.page.getByRole('tab', { name: 'רשימה' }).click();
       await n.page.getByRole('button', { name: 'הזזה והיסטוריה ›' }).first().waitFor();
-      await n.page.getByRole('button', { name: '+ תור' }).click();
+      await n.page.getByRole('button', { name: 'תור חדש', exact: true }).click();   // 2.117.3: on a phone — the big + of the bottom menu
       assert.equal(await dialog(n.page).getByLabel('מטפל/ת').count(), 0);
       await n.page.keyboard.press('Escape');
     });

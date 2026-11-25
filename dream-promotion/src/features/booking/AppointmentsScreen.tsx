@@ -31,6 +31,7 @@ import { customerProblem, matchLead } from './new-customer';
 import { apptRange, defaultEnd, lengthProblem, timesProblem } from './appt-times';
 import { DurationPicker } from './DurationPicker';
 import { PhoneAlerts } from './PhoneAlerts';
+import { NEW_APPOINTMENT_EVENT } from './new-appointment-event';
 import { dayRange } from './alerts';
 
 const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -59,11 +60,14 @@ export function AppointmentsScreen() {
   // 2.109: a calendar member ("יומן ולידים") — the calendar only: no team, services, hours or booking page, no money, no client file
   const calendarOnly = useApp((x) => calendarAccess(x.access));
   const agendaOnly = useApp((x) => x.access === 'agenda');
+  // a phone with the bottom menu's big + (everyone but a cashier, who has no menu) — there it is the new appointment
+  const menuPlus = useApp((x) => x.access === 'full' || calendarAccess(x.access));
   // T12א: with several locations and "כל הסניפים" picked, every appointment says where it is
   const locState = useLocations((x) => x.state);
   const where = (a: Appointment) => (locState.businessId ? locationTag(locState, a, locState.businessId) : '');
   const [tab, setTab] = useState<'agenda' | 'staff' | 'services' | 'hours' | 'page'>('agenda');
-  // the calendar (2.105): the view this device used last (a phone opens on the day, a computer on the week), its day, whose
+  // the calendar: every entry opens on the day, today, with every practitioner side by side (2.117.3 — asked by a business, for all;
+  // until then the view this device used last was kept). Moving to the week / month / list stays until the screen is left.
   const [view, setView] = useState<CalView>('day');
   const [date, setDate] = useState(() => israelParts(Date.now()).date);
   const [filter, setFilter] = useState<string>('all');
@@ -73,14 +77,12 @@ export function AppointmentsScreen() {
   const [version, setVersion] = useState(0);
   const [prefill, setPrefill] = useState<{ date: string; time: string; staffId: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [newAsked, setNewAsked] = useState(false);
   useEffect(() => {
-    let saved: string | null = null;
-    try { saved = localStorage.getItem('dp-cal-view'); } catch { /* a private window */ }
-    setView(CAL_VIEWS.some((v) => v.key === saved) ? (saved as CalView) : window.matchMedia('(min-width: 1024px)').matches ? 'week' : 'day');
     const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
-  const pickView = (v: CalView) => { setView(v); try { localStorage.setItem('dp-cal-view', v); } catch { /* a private window */ } };
+  const pickView = (v: CalView) => setView(v);
   const [settings, setSettings] = useState<BookingSettings>(DEFAULT_SETTINGS);
   const [services, setServices] = useState<BookingServiceRow[]>([]);
   const [appts, setAppts] = useState<Appointment[]>([]);
@@ -101,6 +103,13 @@ export function AppointmentsScreen() {
     const day = q.get('reminders'), appt = q.get('appt');
     if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) setRemindDay(day);
     if (appt) setOpenId(appt);
+    // the big + of a calendar member's menu, from another screen (NEW_APPOINTMENT_HREF): once, and out of the address
+    if (q.get('new') === '1') {
+      setNewAsked(true);
+      const u = new URL(window.location.href);
+      u.searchParams.delete('new');
+      window.history.replaceState(window.history.state, '', u.pathname + u.search + u.hash);
+    }
   }, []);
   useEffect(() => {
     if (!remindDay || !userId) return;
@@ -199,6 +208,16 @@ export function AppointmentsScreen() {
     setPrefill({ date: d, time, staffId: staffId ?? (filter !== 'all' && filter !== 'mine' ? filter : mine.length === 1 && filter === 'mine' ? mine[0] : '') });
     setAdding(true);
   };
+  // the big + of the phone's menu (AppShell), on this screen: a new appointment on the day shown (no services yet — to where they are added)
+  useEffect(() => {
+    // the same as "+ תור" of the head; before the first answer — nothing (the services are not known yet)
+    const onNew = () => { if (first) return; if (services.length) book(view === 'list' ? todayIL : date, '', null); else setTab('services'); };
+    window.addEventListener(NEW_APPOINTMENT_EVENT, onNew);
+    return () => window.removeEventListener(NEW_APPOINTMENT_EVENT, onNew);
+  });
+  useEffect(() => {
+    if (newAsked && !first) { setNewAsked(false); if (!error) window.dispatchEvent(new Event(NEW_APPOINTMENT_EVENT)); }   // a failed load: its error, not the services tab
+  }, [newAsked, first, error]);
   const viewSub = view === 'list'
     ? `${active.filter((a) => a.start >= new Date().toISOString()).length} תורים קרובים`
     : `${apptCount(shownAppts.filter((a) => a.status !== 'cancelled' && (view !== 'day' || dayOf(a.start) === date)).length)} ${view === 'day' ? 'ביום הזה' : view === 'week' ? 'בשבוע הזה' : 'בחודש הזה'}`;
@@ -270,7 +289,10 @@ export function AppointmentsScreen() {
       <PageHead title="תורים" sub={tab === 'agenda' ? viewSub : undefined}
         action={<div className="flex gap-2">
           <Button variant="ghost" onClick={() => setAlertsOpen(true)} aria-label="התראות בטלפון">🔔</Button>
-          <Button variant="primary" onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>
+          {/* 2.117.3 (asked by a business): on a phone with the bottom menu's big + that + is the new appointment, so this one
+              is hidden there; a computer keeps it */}
+          <Button variant="primary" className={menuPlus ? 'max-md:hidden' : undefined}
+            onClick={() => book(view === 'list' ? todayIL : date, '', null)} disabled={!services.length}>+ תור</Button>
         </div>} />
 
       <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
