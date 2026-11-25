@@ -227,7 +227,7 @@ const docHtml = (d: Doc, b: Business, mark: string) => page(`${DOC_LABEL[d.docTy
 
 /** נספח 4: the summary of an open-format run (also in the accountant's package, 2.52.1) */
 export function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string }, b: Business, from: string, to: string) {
-  const names: Record<string, string> = { A100: 'רשומת פתיחה', C100: 'כותרת מסמך', D110: 'פרטי מסמך', D120: 'פרטי קבלות', Z900: 'רשומת סיום' };
+  const names: Record<string, string> = { A100: 'רשומת פתיחה', B110: 'חשבון בהנהלת חשבונות', C100: 'כותרת מסמך', D110: 'פרטי מסמך', D120: 'פרטי קבלות', Z900: 'רשומת סיום' };
   const t = israelParts(new Date(r.startedAt));
   return page('הפקת קבצים במבנה אחיד', `<h2>הפקת קבצים במבנה אחיד עבור:</h2>
 <p>מספר עוסק מורשה: ${esc(b.dealerNumber)}<br>שם בית העסק: ${esc(b.name)}</p><p><strong>ביצוע ממשק פתוח הסתיים בהצלחה.</strong></p>

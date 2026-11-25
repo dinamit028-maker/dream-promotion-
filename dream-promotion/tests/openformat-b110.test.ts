@@ -89,3 +89,22 @@ test('no documents in the period — no B110', () => {
   const f = buildOpenFormat(biz, sw, docs, { ...at, from: '2027-01-01', to: '2027-01-31' });
   assert.ok(!f.bkmv.includes('B110') && !f.ini.includes('B110'));
 });
+
+test('a 320 that pays a 300 is credit only — the 300 charged; the customer who paid owes nothing', () => {
+  const who = { name: 'לקוחה דמו', phone: '050-0000003' };
+  const inv = doc(300, who, 1180);
+  const pay = doc(320, who, 1180, { paidDocumentId: 'id-of-the-300' });
+  const [a] = accountsOf([inv, pay]);
+  assert.deepEqual([a.debitA, a.creditA], [118000, 118000], 'balance 0');
+  const [b] = accountsOf([doc(320, who, 500)]);
+  assert.deepEqual([b.debitA, b.creditA], [50000, 50000], 'a 320 on its own charges and pays');
+  const [c] = accountsOf([doc(305, who, 1000), doc(400, who, 1000, { paidDocumentId: 'id-of-the-305' })]);
+  assert.equal(c.debitA - c.creditA, 0);
+});
+
+test('the export summary (נספח 4) names B110', async () => {
+  const { summaryHtml } = await import('../src/features/documents/DocumentsTab');
+  const f = buildOpenFormat(biz, sw, docs, at);
+  const html = summaryHtml({ ...f, startedAt: at.startedAt }, biz, at.from, at.to);
+  assert.ok(html.includes('<td>B110</td><td>חשבון בהנהלת חשבונות</td><td>3</td>'));
+});

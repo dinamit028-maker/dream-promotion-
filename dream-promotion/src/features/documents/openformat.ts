@@ -88,6 +88,8 @@ export interface Doc {
   cancelled?: boolean;
   /** who in the business issued it (documents.user_id) — its code goes into field 1233 (operatorOf) */
   userId?: string | null;
+  /** the invoice this receipt pays (documents.paid_document_id: a 400 pays a 305 / 300, a 320 pays a 300) — B110 (accountsOf) */
+  paidDocumentId?: string | null;
 }
 
 /**
@@ -234,6 +236,10 @@ export const NO_D110 = new Set([400, 420]);
  *   1415 debit = charges: 300, 305 and 320 (an invoice-receipt charges and is paid in one document) — field 1223 of each;
  *   1416 credit = what closed them: 400 (1223 + 1224 — the money and the tax withheld at source, clarification 4: the debt of 1250
  *        is closed by both), the payment of a 320 (its 1223), and 330 (its 1223);
+ *   a 320 that pays a 300 (paid_document_id — `receipt:<300>`) is credit only: the charge is the 300's, already in 1415 —
+ *        else the customer who paid would show a debt;
+ *   open question to the accountant: a 330 whose money was given back (a refund) — the refund is not a document of the file
+ *        (a 330 has no payments), so it cannot be told here; the 330 stays credit only;
  *   a cancelled document (1228 = 1) is not counted — it does not charge or pay (its account is still written, as its key is in
  *   the file); 100 / 200 / 210 charge nothing;
  *   1417 0; 1419 0 (only when 1013 = 2); 1421 empty (no branches, 1034 = 0); 1422 0 / 1423 empty (shekels only).
@@ -252,7 +258,7 @@ export function accountsOf(docs: Doc[]): Account[] {
     if (d.cancelled) continue;
     const t = ag(fileTotal(d));                                      // 1223 as the C100 writes it
     if (d.docType === 300 || d.docType === 305) a.debitA += t;
-    else if (d.docType === 320) { a.debitA += t; a.creditA += t; }
+    else if (d.docType === 320) { if (!d.paidDocumentId) a.debitA += t; a.creditA += t; }   // a 320 paying a 300: credit only
     else if (d.docType === 400) a.creditA += t + ag(withheldOf(d)); // 1223 + 1224
     else if (d.docType === 330) a.creditA += t;
   }
