@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { NEW_APPOINTMENT_EVENT, plusAction } from '@/features/booking/new-appointment-event';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { isCloudConfigured, supabase } from '@/lib/supabase/client';
@@ -348,10 +349,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {!cashier && <nav aria-label="ניווט" className="safe-b fixed inset-x-3 bottom-3 z-40 flex items-center justify-around rounded-[26px] border border-line bg-(--glass) px-2 py-1 shadow-[0_20px_50px_rgba(0,0,0,.5)] backdrop-blur-xl md:hidden">
         {MOBILE_LEFT.map(tabItem)}
-        <Link href="/create" aria-label="יצירת תוכן חדש"
-          className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">
-          <Plus size={26} weight="bold" aria-hidden />
-        </Link>
+        {plusAction(path) === 'appointment' ? (
+          <button type="button" aria-label="תור חדש" onClick={() => window.dispatchEvent(new Event(NEW_APPOINTMENT_EVENT))}
+            className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">
+            <Plus size={26} weight="bold" aria-hidden />
+          </button>
+        ) : (
+          <Link href="/create" aria-label="יצירת תוכן חדש"
+            className="mx-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] bg-primary text-white shadow-[0_8px_22px_rgba(107,59,245,.42)]">
+            <Plus size={26} weight="bold" aria-hidden />
+          </Link>
+        )}
         {MOBILE_RIGHT.map(tabItem)}
         <button type="button" onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen}
           className={cx('flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold',
