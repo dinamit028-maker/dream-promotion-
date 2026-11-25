@@ -371,7 +371,7 @@ function RefundReceiptDialog({ doc, left, count, onClose, onIssued }: { doc: Doc
  */
 function SaleReceiptsDue({ doc, onIssued }: { doc: DocRow; onIssued: (d: DocRow) => void }) {
   const { userId } = useFinance();
-  const [due, setDue] = useState<{ sale: any; refunds: any[]; cancel: boolean; docs: DocRow[] } | null>(null);
+  const [due, setDue] = useState<{ sale: any; refunds: any[]; allRefunds: any[]; cancel: boolean; docs: DocRow[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
@@ -384,7 +384,7 @@ function SaleReceiptsDue({ doc, onIssued }: { doc: DocRow; onIssued: (d: DocRow)
     if (sl.error || rf.error || ds.error || !sl.data) { setDue(null); return; }
     const docs = ((ds.data ?? []) as any[]).map(toDoc);
     const m = missingSaleReceipts({ saleStatus: sl.data.status, refunds: (rf.data ?? []) as any[], docs, receiptCancelled: false });
-    setDue({ sale: sl.data, refunds: m.refunds, cancel: m.cancel, docs });
+    setDue({ sale: sl.data, refunds: m.refunds, allRefunds: (rf.data ?? []) as any[], cancel: m.cancel, docs });
   }, [doc.saleId]);
   useEffect(() => { void load(); }, [load]);
   if (!due || (!due.refunds.length && !due.cancel)) return null;
@@ -393,20 +393,29 @@ function SaleReceiptsDue({ doc, onIssued }: { doc: DocRow; onIssued: (d: DocRow)
     setBusy(true); setError(null);
     const today = todayIL();
     const sale = saleFromRow(due.sale);
+    const allRefunds = (due.allRefunds ?? []) as any[];
     let docs = due.docs;
     let last: DocRow | null = null;
-    const jobs = [...due.refunds.map((r) => ({ refund: toRefund(r) })), ...(due.cancel ? [{ refund: null }] : [])];
-    for (const j of jobs) {
-      const back = j.refund ? refundReceiptDoc(doc, docs, j.refund, sale, today) : cancelReceiptDoc(doc, docs, today);
-      if (!back) continue;
-      const row = { ...documentRow(back, { userId, idempotencyKey: j.refund ? `refund:${j.refund.id}` : `cancel:${sale.id}`, vatRate: 0, saleId: sale.id,
-        leadId: sale.leadId, refundId: j.refund?.id ?? null, source: 'refund' }) };
-      const out = await issueDocumentRow(row);
-      if (!out.ok) { setError(refundReceiptError(out.raw ?? out.error)); break; }
+    let stop: string | null = null;
+    // the refunds first, in order; the cancellation only once every refund before it has its refund receipt — never the same money twice
+    for (const r of due.refunds.map(toRefund)) {
+      const back = refundReceiptDoc(doc, docs, r, sale, today);
+      if (!back) { stop = `ההחזר של ${ils(r.amount)} גדול ממה שנשאר על הקבלה — לא הופקה קבלה במינוס. לבירור עם רואה החשבון.`; break; }
+      const out = await issueDocumentRow(documentRow(back, { userId, idempotencyKey: `refund:${r.id}`, vatRate: 0, saleId: sale.id, leadId: sale.leadId, refundId: r.id, source: 'refund' }));
+      if (!out.ok) { stop = refundReceiptError(out.raw ?? out.error); break; }
       docs = [...docs, out.doc]; last = out.doc;
     }
+    if (!stop && due.cancel) {
+      const back = cancelReceiptDoc(doc, docs, today, allRefunds.map((r) => ({ amount: Number(r.amount) })));
+      if (back) {
+        const out = await issueDocumentRow(documentRow(back, { userId, idempotencyKey: `cancel:${sale.id}`, vatRate: 0, saleId: sale.id, leadId: sale.leadId, source: 'refund' }));
+        if (!out.ok) stop = refundReceiptError(out.raw ?? out.error); else last = out.doc;
+      } else if (!last) stop = 'אין מה להשלים: על הקבלה לא נשאר כסף להחזיר.';
+    }
     setBusy(false);
-    if (last) onIssued(last); else void load();
+    // stopped: the reason stays on screen (what was issued before it is kept — the box shows what is still missing)
+    if (stop) { setError(stop); if (last) void load(); return; }
+    if (last) onIssued(last); else setError('אין מה להשלים.');
   }
   // each refund with its day: the refund receipt is dated today (answer 16) — the owner sees what it is for before issuing it
   const what = [...(due.cancel ? ['המכירה בוטלה בקופה'] : []),

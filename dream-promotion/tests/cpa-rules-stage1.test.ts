@@ -21,7 +21,7 @@ import { A000, B110, C100, D120, accountsOf, buildOpenFormat, cardKindField, ded
 import { CARD_KIND_MISSING, composeDocument, composeReceipt, composeRefundReceipt, docDateErrors, docInvariants, paymentErrors } from '../src/features/finance/compose';
 import { CARD_KINDS, isCardKind, payCode, toDocPayment } from '../src/features/finance/payments';
 import { REFUND_RECEIPT_WAITS, financeError, refundReceiptError, refundReceiptWaits } from '../src/features/finance/rows';
-import { cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from '../src/features/finance/sale-receipts';
+import { cancelLeft, cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from '../src/features/finance/sale-receipts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 /** the old database's (20261011005000) own refusals of a refund receipt, read from the migration as it is */
@@ -371,8 +371,17 @@ test('a sale\'s refund receipts (sale-receipts.ts): what is missing, and the sam
   assert.deepEqual(docInvariants(c, 0), []);
   // refunded in part before: one payment of what is left
   const part = { docType: 400, total: -50, baseDocType: 400, baseDocNumber: 21, refundId: 'R1' };
-  assert.equal(cancelReceiptDoc(r400, [part], '2026-11-25')!.total, -200);
-  assert.equal(cancelReceiptDoc(r400, [{ ...part, total: -250 }], '2026-11-25'), null, 'nothing left');
+  // (a refund receipt of a refund counts through its refund — sale_refunds; the receipt alone is not the money twice)
+  assert.equal(cancelReceiptDoc(r400, [part], '2026-11-25', [{ amount: 50 }])!.total, -200);
+  assert.equal(cancelReceiptDoc(r400, [{ ...part, total: -250 }], '2026-11-25', [{ amount: 250 }]), null, 'nothing left');
+  // the sale's refunds count once — with their refund receipt or without (its money went out on the refund's own row)
+  const cancelPart = { ...part, refundId: null };
+  assert.equal(cancelLeft(r400, [], [{ amount: 50 }]), 200, 'a refund with no refund receipt yet');
+  assert.equal(cancelLeft(r400, [part], [{ amount: 50 }]), 200, 'a refund and its refund receipt: the same money, once');
+  assert.equal(cancelLeft(r400, [cancelPart], [{ amount: 30 }]), 170, 'an earlier cancellation\'s refund receipt and a refund');
+  assert.equal(cancelLeft(r400, [], [{ amount: 300 }]), 0, 'never below zero');
+  assert.equal(cancelReceiptDoc(r400, [], '2026-11-25', [{ amount: 50 }])!.total, -200);
+  assert.equal(cancelReceiptDoc(r400, [], '2026-11-25', [{ amount: 250 }]), null);
   // a refund: never beyond what is left
   const sale = { subtotal: 250, total: 250 };
   assert.equal(refundReceiptDoc(r400, [], { amount: 50, method: 'cash', items: [] }, sale, '2026-11-25')!.total, -50);

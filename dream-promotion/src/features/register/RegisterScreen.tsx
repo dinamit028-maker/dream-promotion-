@@ -377,7 +377,7 @@ export function RegisterScreen() {
       const receipt = docs.find((d) => d.docType === 400 && !isRefundReceipt(d));
       if (!licensed && receipt && !exemptDealer) note = ' · הקבלה נשארת (קבלה לא מבטלים) — מה לעשות בה בעמותה: לבירור עם רואה החשבון';
       if (!licensed && receipt && exemptDealer) {
-        const back = cancelReceiptDoc(receipt, docs, israelParts(Date.now()).date);
+        const back = cancelReceiptDoc(receipt, docs, israelParts(Date.now()).date, refunds.filter((r) => r.saleId === s.id));
         if (back) {
           const ins = await issueDocumentRow({ ...docInsertRow(userId, back, { saleId: s.id, leadId: s.leadId, vatRate: 0 }), notes: back.notes ?? '', idempotency_key: `cancel:${s.id}`, source: 'refund' });
           if (ins.ok) note = ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`;
@@ -385,8 +385,8 @@ export function RegisterScreen() {
             // before migration 6800 the database refuses a refund receipt — and still cancels a receipt: as before 2.118, so the
             // books stay right in that window (the money of the receipt goes out of the ledger)
             const { error: ce } = await supabase().from('document_cancellations').insert({ document_id: receipt.id, user_id: userId, reason: CANCEL_NOTE });
-            note = !ce ? ` · קבלה מס׳ ${receipt.docNumber} סומנה כמבוטלת` : ` · הקבלה לא בוטלה ולא הופקה עליה קבלה במינוס (${financeError(ce)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "החזר כספי"`;
-          } else note = ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "החזר כספי"`;
+            note = !ce ? ` · קבלה מס׳ ${receipt.docNumber} סומנה כמבוטלת` : ` · הקבלה לא בוטלה ולא הופקה עליה קבלה במינוס (${financeError(ce)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "הפקת הקבלה במינוס"`;
+          } else note = ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "הפקת הקבלה במינוס"`;
         }
       }
     }
@@ -427,7 +427,7 @@ export function RegisterScreen() {
         // not issued: nothing retries by itself — the receipt's own view completes it (DocView, the same key: never two)
         message += ins.ok ? ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`
           : refundReceiptWaits(ins.raw ?? ins.error) ? ` · ${REFUND_RECEIPT_WAITS}`
-          : ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${orig.docNumber} ← "החזר כספי"`;
+          : ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${orig.docNumber} ← "הפקת הקבלה במינוס"`;
       }
     }
     if (business.ready && licensed) {

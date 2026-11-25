@@ -19,6 +19,10 @@
 --      A cashier (my_access() = 'register'): only on a receipt of the sale being refunded — refund_id, or sale_id with the
 --      receipt's sale_id — never "restock" without refund_id, and refusals that tell no amount or state ('cashier_refund: …').
 --      The customer's card (report_customer_ledger): the refund's money out belongs to its refund receipt, as to a 330.
+--      A refund receipt with sale_id and without refund_id: only on that sale's receipt, and only once the sale was cancelled.
+--      Never beyond the receipt less everything that went back on it: its refund receipts and its sale's refunds (sale_refunds)
+--      that have no refund receipt; and a register refund (new trigger c_sale_refunds_receipts — sale_refunds_receipts()) counts
+--      the refund receipts on its sale's receipts — the money never goes out twice, whichever comes first.
 --   4. (answer 17) register_settings.deductions_file — the business's deductions file number (תיק ניכויים, unified-file field
 --      1016): nullable, 9 digits (register_settings_deductions_file_check). Saved like the other business details (the owner's
 --      upsert of register_settings, under its RLS); its change is logged (register_settings_audit, field 'deductions_file').
@@ -36,7 +40,7 @@
 --   register_settings_audit()      of 20261004003100_dream_finance.sql     (item 4)
 --   report_customer_ledger(text, date, date) of 20261011005100_journal_entries.sql (item 3)
 -- Running 5000, 5100 (or 3100) again after this one brings the old versions back — then run this one again.
--- Adds: one column + its check, one function + its trigger (d_documents_issue_day). No table, no policy, no grant to the browser.
+-- Adds: one column + its check, two functions + their triggers (d_documents_issue_day, c_sale_refunds_receipts). No table, no policy, no grant to the browser.
 -- Deploy order: the app that sends "cardKind" goes first (the old database ignores the key); a register / server document of an
 -- app still on the old code gets cardKind 1 (above). Until this runs, a refund receipt is refused by the old checks.
 -- Runs after 3100 (Dream Finance), 4900 (reports, withholding), 5000 (goods documents) and 5100 (journal entries) — it stops at
@@ -167,8 +171,27 @@ begin
     if exists (select 1 from public.document_cancellations c where c.document_id = base.id) then
       if cashier then raise exception 'cashier_refund: אי אפשר להפיק את ההחזר הזה מהקופה' using errcode = '42501'; end if;
       raise exception 'refund_receipt_base: הקבלה שעליה ההחזר בוטלה' using errcode = '23514'; end if;
+    -- a refund receipt of a sale without its refund (sale_refunds) is the cancelled sale's — cancelling it at the register is
+    -- the only way to refund a sale without recording the refund; on the sale's own receipt
+    if new.sale_id is not null then
+      if base.sale_id is distinct from new.sale_id then
+        if cashier then raise exception 'cashier_refund: הקבלה הזו לא שייכת למכירה של ההחזר' using errcode = '42501'; end if;
+        raise exception 'refund_receipt_sale: הקבלה שעליה ההחזר לא שייכת למכירה הזו' using errcode = '23514'; end if;
+      if new.refund_id is null and not exists (select 1 from public.sales x where x.id = new.sale_id and x.status = 'cancelled') then
+        raise exception 'refund_receipt_sale: החזר על מכירה שלא בוטלה — רושמים "החזר כספי" בקופה (ההחזר מפיק את הקבלה במינוס)'
+          using errcode = '23514'; end if;
+    end if;
+    -- what already went back on this receipt: its refund receipts, and the refunds of its sale (sale_refunds) that have no refund
+    -- receipt of their own (yet) — this one's own refund aside. The sale is locked too, as sale_refunds_check locks it: a refund at
+    -- the register and a refund receipt of the same sale never pass at once.
+    if base.sale_id is not null then perform 1 from public.sales x where x.id = base.sale_id for update; end if;
     select coalesce(sum(-c.total), 0) into done from public.documents c
      where c.business_id = new.business_id and c.doc_type = 400 and c.total < 0 and c.base_doc_type = 400 and c.base_doc_number = new.base_doc_number;
+    if base.sale_id is not null then
+      done := done + coalesce((select sum(x.amount) from public.sale_refunds x
+                                where x.sale_id = base.sale_id and x.id is distinct from new.refund_id
+                                  and not exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = x.id)), 0);
+    end if;
     if done - new.total > base.total then
       if cashier then raise exception 'refund_receipt_over: ההחזר גדול ממה שנשאר להחזיר על הקבלה' using errcode = '23514'; end if;
       raise exception 'refund_receipt_over: על הקבלה נשארו להחזר % ש״ח', base.total - done using errcode = '23514'; end if;
@@ -323,6 +346,30 @@ begin
 end $$;
 revoke execute on function public.documents_issue_day() from public, anon, authenticated;
 create or replace trigger d_documents_issue_day before insert on public.documents for each row execute function public.documents_issue_day();
+
+-- ---- 3. a register's / an order's refund counts the refund receipts of its sale too ------------------------------------------
+-- sale_refunds_check (20261005003200) caps a sale's refunds by the sale, its refunds and its credit invoices' money out. An exempt
+-- dealer's receipt of the sale may also have been refunded by a refund receipt from the money screens (a package sold at the
+-- register, refunded from its screen) — those count as well, so the money never goes out twice. After b_sale_refunds_check
+-- (which locked the sale); a refund receipt locks the same sale (documents_validate, above).
+create or replace function public.sale_refunds_receipts() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare s record; done numeric; back numeric;
+begin
+  select id, business_id, total into s from public.sales where id = new.sale_id;
+  select coalesce(sum(r.amount), 0) into done from public.sale_refunds r where r.sale_id = new.sale_id and r.id <> new.id;
+  select coalesce(sum(-c.total), 0) into back from public.documents c
+   where c.business_id = s.business_id and c.doc_type = 400 and c.total < 0 and c.base_doc_type = 400 and c.refund_id is null
+     and c.base_doc_number in (select x.doc_number from public.documents x where x.business_id = s.business_id and x.doc_type = 400
+                                  and x.total > 0 and x.sale_id = new.sale_id);
+  if back > 0 and done + back + new.amount > s.total then
+    raise exception 'refund_exceeds_paid: % left', greatest(s.total - done - back, 0) using errcode = '23514';
+  end if;
+  return new;
+end $$;
+revoke execute on function public.sale_refunds_receipts() from public, anon, authenticated;
+create or replace trigger c_sale_refunds_receipts before insert on public.sale_refunds
+  for each row execute function public.sale_refunds_receipts();
 
 -- ---- 3. the ledger and the stock of a refund receipt: documents_after_insert (20261011005000's) ---------------------------------
 -- A refund receipt with refund_id (the register's / an order's refund): nothing — the refund's own ledger row (sale_refunds_ledger)
@@ -492,6 +539,7 @@ revoke execute on function public.document_cancellations_check() from public, an
 -- Documents issued under these rules stay as they are (a refund receipt, a card payment's kind) — undoing the rules does not
 -- change them. To go back:
 --   drop trigger if exists d_documents_issue_day on public.documents; drop function if exists public.documents_issue_day();
+--   drop trigger if exists c_sale_refunds_receipts on public.sale_refunds; drop function if exists public.sale_refunds_receipts();
 --   then run again, from 20261011005000_cash_bank_goods.sql, documents_validate(), documents_after_insert() and
 --   document_cancellations_check() (with their revoke lines), from 20261004003100_dream_finance.sql register_settings_audit(),
 --   and from 20261011005100_journal_entries.sql report_customer_ledger().

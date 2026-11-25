@@ -353,6 +353,51 @@ select pg_temp.check((select count(*) from public.payments where document_id = p
   and (select amount from public.payments where sale_id = '00000000-0000-0000-0000-00000006805a' and direction = 'out') = 50, 'the money out of the register''s refund: once');
 commit;
 
+-- a sale refunded twice? Never: what went back on a receipt — its refund receipts and its sale's refunds — never passes it,
+-- whichever comes first. And a refund receipt of a sale without its refund only once the sale was cancelled.
+--   5c: 100, refunded 40 from the money screens (a package sold at the register, refunded from its screen), then cancelled:
+--       the cancel's refund receipt — only the 60 left
+--   5d: 100, a register refund of 30 (no refund receipt yet), then 80 from the money screens: only 70; then the refund's own
+--       refund receipt (30) still passes — 30 + 70 = 100, the money out once
+--   5e: 100, 80 back from the money screens first, then a register refund of 30: only 20
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000680e1');
+insert into public.sales (id, user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at) values
+  ('00000000-0000-0000-0000-00000006805c', '00000000-0000-0000-0000-0000000680e1', '[{"name":"חבילה","price":100,"qty":1,"kind":"other"}]', 100, 100, 0, 0, 'cash', 'paid', now()),
+  ('00000000-0000-0000-0000-00000006805d', '00000000-0000-0000-0000-0000000680e1', '[{"name":"חבילה","price":100,"qty":1,"kind":"other"}]', 100, 100, 0, 0, 'cash', 'paid', now()),
+  ('00000000-0000-0000-0000-00000006805e', '00000000-0000-0000-0000-0000000680e1', '[{"name":"חבילה","price":100,"qty":1,"kind":"other"}]', 100, 100, 0, 0, 'cash', 'paid', now());
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680e1', 400, 100, 0, 0, jsonb_build_object('idempotency_key', 'sale:' || x, 'sale_id', x, 'source', 'pos')))
+  from unnest(array['00000000-0000-0000-0000-00000006805c', '00000000-0000-0000-0000-00000006805d', '00000000-0000-0000-0000-00000006805e']) x;
+-- on a sale that was not cancelled: never without its refund (the owner too)
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.back(10, 'sale:00000000-0000-0000-0000-00000006805d', '{"sale_id": "00000000-0000-0000-0000-00000006805d"}'))$$,
+  'refund_receipt_sale', 'a refund receipt of a sale that was not cancelled, without its refund');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.back(10, 'sale:00000000-0000-0000-0000-00000006805d', '{"sale_id": "00000000-0000-0000-0000-00000006805e"}'))$$,
+  'refund_receipt_sale', 'a refund receipt of one sale on the receipt of another');
+-- 5c: 40 back from the money screens, then the sale cancelled
+select pg_temp.issue(pg_temp.back(40, 'sale:00000000-0000-0000-0000-00000006805c', jsonb_build_object('idempotency_key', 'refund:' || pg_temp.d('sale:00000000-0000-0000-0000-00000006805c') || ':1')));
+update public.sales set status = 'cancelled' where id = '00000000-0000-0000-0000-00000006805c';
+-- 5d: a register refund of 30, then the money screens — 70 left, not 100
+insert into public.sale_refunds (id, user_id, sale_id, amount, vat_amount, method, items, restock, reason)
+values ('00000000-0000-0000-0000-00000006806d', '00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-00000006805d', 30, 0, 'cash', '[]', false, 'החזר בקופה');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.back(80, 'sale:00000000-0000-0000-0000-00000006805d'))$$, 'נשארו להחזר 70', 'a sale''s refund counts on its receipt');
+select pg_temp.issue(pg_temp.back(70, 'sale:00000000-0000-0000-0000-00000006805d', '{"idempotency_key": "e:5d-back"}'));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680e1', 400, -30, 0, 0, jsonb_build_object('idempotency_key', 'refund:00000000-0000-0000-0000-00000006806d',
+  'base_doc_type', 400, 'base_doc_number', pg_temp.num('sale:00000000-0000-0000-0000-00000006805d'), 'sale_id', '00000000-0000-0000-0000-00000006805d', 'refund_id', '00000000-0000-0000-0000-00000006806d')));
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.back(0.01, 'sale:00000000-0000-0000-0000-00000006805d'))$$, 'refund_receipt_over', 'nothing left on 5d');
+-- 5e: 80 from the money screens first; a register refund after it — only 20
+select pg_temp.issue(pg_temp.back(80, 'sale:00000000-0000-0000-0000-00000006805e', '{"idempotency_key": "e:5e-back"}'));
+select pg_temp.refused_with($$insert into public.sale_refunds (user_id, sale_id, amount, vat_amount, method, items, restock, reason)
+  values ('00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-00000006805e', 30, 0, 'cash', '[]', false, 'x')$$, 'refund_exceeds_paid', 'a register refund counts the refund receipts of its sale');
+insert into public.sale_refunds (id, user_id, sale_id, amount, vat_amount, method, items, restock, reason)
+values ('00000000-0000-0000-0000-00000006806e', '00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-00000006805e', 20, 0, 'cash', '[]', false, 'השאר');
+commit;
+select pg_temp.check((select sum(case direction when 'out' then amount else -amount end) from public.payments where direction = 'out'
+                        and (sale_id = '00000000-0000-0000-0000-00000006805d' or document_id in (select id from public.documents where base_doc_type = 400 and base_doc_number = pg_temp.num('sale:00000000-0000-0000-0000-00000006805d')
+                                                                       and business_id = '00000000-0000-0000-0000-0000000680b1'))) = 100, '5d: 100 out in all (30 at the register + 70), never 130');
+select pg_temp.check((select sum(amount) from public.payments where direction = 'out'
+                        and (sale_id = '00000000-0000-0000-0000-00000006805e' or document_id = pg_temp.d('e:5e-back'))) = 100, '5e: 100 out in all (80 + 20)');
+
 -- a cashier: only the refund of a sale, on that sale's receipt; no restock without the refund; no amounts in a refusal
 -- (the receipts' numbers read here, by the superuser — a cashier sees only the documents of their own sales)
 create temp table n68 as select idempotency_key as k, doc_number as n from public.documents where business_id = '00000000-0000-0000-0000-0000000680b1';
@@ -368,19 +413,23 @@ select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'e:r2', '{}'))
   'cashier_refund', 'a cashier''s refund receipt that is not of a sale');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'e:r2', '{"sale_id": "00000000-0000-0000-0000-00000006805a"}'))$$,
   'cashier_refund', 'a cashier''s refund of a sale on another receipt');
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'sale:00000000-0000-0000-0000-00000006805a', jsonb_build_object(
-  'sale_id', '00000000-0000-0000-0000-00000006805a',
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'sale:00000000-0000-0000-0000-00000006805c', jsonb_build_object(
+  'sale_id', '00000000-0000-0000-0000-00000006805c',
   'lines', jsonb_build_array(jsonb_build_object('name', 'קרם', 'qty', 1, 'totalExVat', -10, 'restock', true, 'itemId', '00000000-0000-0000-0000-0000000680c1')))))$$,
   'cashier_refund', 'a cashier''s restock without the refund');
--- the sale's receipt (80) has 50 refunded: 30 left — the cashier is told no number
-select pg_temp.check(pg_temp.refusal($$select pg_temp.issue(pg_temp.cb(40, 'sale:00000000-0000-0000-0000-00000006805a', '{"sale_id": "00000000-0000-0000-0000-00000006805a"}'))$$)
-  ~ '^refund_receipt_over: [^0-9]*$', 'beyond the receipt: refused, without the amount left');
 select pg_temp.check(pg_temp.refusal($$select pg_temp.issue(pg_temp.cb(10, 'old:e:cancelled', '{"sale_id": "00000000-0000-0000-0000-00000006805a"}'))$$)
   like 'cashier_refund:%', 'a receipt that is not the sale''s: not told it was cancelled');
-select pg_temp.issue(pg_temp.cb(30, 'sale:00000000-0000-0000-0000-00000006805a', '{"sale_id": "00000000-0000-0000-0000-00000006805a", "idempotency_key": "e:cashier-back"}'));
+-- 5a (not cancelled; 80, 50 refunded at the register): a cashier never refunds it without the register's refund
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'sale:00000000-0000-0000-0000-00000006805a', '{"sale_id": "00000000-0000-0000-0000-00000006805a"}'))$$,
+  'refund_receipt_sale', 'a cashier''s refund receipt of a sale that was not cancelled');
+-- 5c (cancelled; 100, 40 back): the cancel's refund receipt — the 60 left only, and the cashier is told no number
+select pg_temp.check(pg_temp.refusal($$select pg_temp.issue(pg_temp.cb(70, 'sale:00000000-0000-0000-0000-00000006805c', '{"sale_id": "00000000-0000-0000-0000-00000006805c"}'))$$)
+  ~ '^refund_receipt_over: [^0-9]*$', 'beyond what is left: refused, without the amount left');
+select pg_temp.issue(pg_temp.cb(60, 'sale:00000000-0000-0000-0000-00000006805c', '{"sale_id": "00000000-0000-0000-0000-00000006805c", "idempotency_key": "e:cashier-back"}'));
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(0.01, 'sale:00000000-0000-0000-0000-00000006805c', '{"sale_id": "00000000-0000-0000-0000-00000006805c"}'))$$, 'refund_receipt_over', 'nothing left on 5c');
 commit;
-select pg_temp.check((select (direction, amount) = ('out', 30::numeric) from public.payments where document_id = (select id from public.documents where idempotency_key = 'e:cashier-back')),
-  'the cashier refunds the rest of the sale''s receipt (money out on the refund receipt)');
+select pg_temp.check((select (direction, amount) = ('out', 60::numeric) from public.payments where document_id = (select id from public.documents where idempotency_key = 'e:cashier-back')),
+  'the cancelled sale''s rest goes back on the cashier''s refund receipt');
 
 -- the customer's card: a sale of 100, refunded in full at the register with its refund receipt — owes 0 (as with a 330)
 begin;

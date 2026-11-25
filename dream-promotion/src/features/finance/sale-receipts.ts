@@ -14,9 +14,20 @@ type Base = Pick<Doc, 'docType' | 'docNumber' | 'total' | 'customerName' | 'cust
 type Follower = Pick<Doc, 'docType' | 'total' | 'baseDocType' | 'baseDocNumber'> & { refundId?: string | null; saleId?: string | null };
 export const CANCEL_NOTE = 'המכירה בוטלה בקופה (נרשמה בטעות)';
 
-/** the refund receipt of a cancelled sale: what is left on its receipt — the receipt's own payments when all of it is left */
-export function cancelReceiptDoc(receipt: Base, docs: Follower[], docDate: string) {
-  const left = refundLeft(receipt, docs);
+/**
+ * what is left of a sale's receipt for its cancellation: the receipt less the refund receipts of no refund (an earlier cancellation's)
+ * and less every refund of the sale (sale_refunds — their money went out on their own rows, with or without their refund receipt;
+ * a refund receipt of a refund is that same money, so it is not counted twice). The database's ceiling counts the same (6800).
+ */
+export function cancelLeft(receipt: Pick<Doc, 'docType' | 'docNumber' | 'total'>, docs: Follower[], saleRefunds: { amount: number }[] = []): number {
+  const ag = (v: number) => Math.round(v * 100);
+  const mine = docs.filter((d) => isRefundReceipt(d) && d.baseDocType === 400 && Number(d.baseDocNumber) === receipt.docNumber);
+  const leftA = ag(refundLeft(receipt, mine.filter((d) => !d.refundId))) - saleRefunds.reduce((a, r) => a + ag(Number(r.amount)), 0);
+  return Math.max(0, leftA) / 100;
+}
+/** the refund receipt of a cancelled sale: what is left (cancelLeft) — the receipt's own payments when all of it is left */
+export function cancelReceiptDoc(receipt: Base, docs: Follower[], docDate: string, saleRefunds: { amount: number }[] = []) {
+  const left = cancelLeft(receipt, docs, saleRefunds);
   if (left <= 0) return null;
   const all = refundReceiptFor(receipt, { payments: receipt.payments.filter((p) => p.m !== 'withholding' && p.amount > 0)
     .map((p) => ({ method: p.method, amount: p.amount, m: p.m, cardKind: p.cardKind })), docDate, notes: CANCEL_NOTE });

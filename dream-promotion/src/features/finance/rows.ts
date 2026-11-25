@@ -125,7 +125,7 @@ export function financeError(e: unknown): string {
  * "totals: amounts are positive and the total is above zero". Then say so plainly — and where to complete it after the update
  * (nothing retries by itself). Anything else — financeError.
  */
-export const REFUND_RECEIPT_WAITS = 'הקבלה במינוס (החזר כספי) לא הופקה: מסד הנתונים עוד לא עודכן (מיגרציה 20261125006800). ההחזר עצמו נרשם. אחרי העדכון משלימים אותה ב"כספים ← מסמכים" — פותחים את הקבלה המקורית ולוחצים "החזר כספי".';
+export const REFUND_RECEIPT_WAITS = 'הקבלה במינוס (החזר כספי) לא הופקה: מסד הנתונים עוד לא עודכן (מיגרציה 20261125006800). ההחזר עצמו נרשם. אחרי העדכון משלימים אותה מהקבלה המקורית ב"כספים ← מסמכים": בקבלה של מכירה (קופה או אתר) — "הפקת הקבלה במינוס", בכל קבלה אחרת — "החזר כספי".';
 const OLD_DB = /only a credit invoice points to a base document|totals: amounts are positive|each payment needs a method \(1–9\), an amount above zero/;
 /** the old database (before 6800) refused the refund receipt */
 export const refundReceiptWaits = (e: unknown) => OLD_DB.test(`${(e as any)?.message ?? e ?? ''} ${(e as any)?.details ?? ''}`);
