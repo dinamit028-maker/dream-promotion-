@@ -218,7 +218,7 @@ ${baseDocLine(d) ? `<p>${esc(baseDocLine(d))}</p>` : ''}
 <table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>
 <table><tr><td>סה״כ לפני הנחה</td><td>${n2(d.beforeDiscount)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${n2(d.discount)}</td></tr>` : ''}
 <tr><td>${vatRow ? 'סה״כ לפני מע״מ' : 'סה״כ'}</td><td>${n2(d.afterDiscount)}</td></tr>${vatRow}
-<tr class="tot"><td>${esc(totalLabel(d.docType))}</td><td>${n2(d.total)} ₪</td></tr></table>
+<tr class="tot"><td>${esc(totalLabel(d.docType, d.total))}</td><td>${n2(d.total)} ₪</td></tr></table>
 ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכום</th></tr>${pays}</table>` : ''}
 ${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${d.docType === 200 ? `<p style="margin-top:28px">${esc(RECEIVED_LINE)}</p>` : ''}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
 <p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${softwareRegistered(SOFTWARE.regNumber) ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;

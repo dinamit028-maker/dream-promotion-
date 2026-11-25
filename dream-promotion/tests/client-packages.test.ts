@@ -112,7 +112,7 @@ test('a sale’s document: the existing engine, one line at the price — the in
     assert.equal(inv.doc.lines[0].itemId, 'item-1', 'the line keeps its catalog item');
   }
   // paid now, in two payments at once
-  const now = composeDocument({ ...base, docType: 320, payments: [{ method: 'cash', amount: 600, date: TODAY }, { method: 'card', amount: 600, date: TODAY }] });
+  const now = composeDocument({ ...base, docType: 320, payments: [{ method: 'cash', amount: 600, date: TODAY }, { method: 'card', amount: 600, date: TODAY, cardKind: 1 }] });
   assert.ok(now.ok && docInvariants(now.doc, 18).length === 0 && now.doc.payments.length === 2);
   // an exempt dealer: a receipt, no VAT
   const ex = composeDocument({ ...base, entity: 'exempt_dealer', docType: 400, payments: [{ method: 'bit', amount: 1200, date: TODAY }] });
@@ -158,15 +158,20 @@ test('cancelling (the Definition of Done’s package: ₪1,200, 6 treatments, 2 
   assert.deepEqual([c.maxCredit, c.credit, c.refund], [1000, 600, 600], 'credited before: the credit leaves the value used (₪400) charged; ₪1,000 paid − ₪400 = ₪600 back');
   c = cancelSuggestion(used(2, { paid: 300, credited: 900 }));
   assert.deepEqual([c.maxCredit, c.credit, c.refund, c.owed], [300, 0, 0, 0], 'credited beyond the unused part before: nothing more to credit');
-  // a receipt / transaction invoice with nothing used: the existing cancellation
+  // a transaction invoice with nothing used: the existing cancellation. 2.118 (the accountant's answers 8 and 15): a receipt is
+  // not cancelled — its money goes back in a refund receipt (an exempt dealer's 400 below zero)
   c = cancelSuggestion(pk({ docType: 400, paid: 1200 }));
-  assert.deepEqual([c.route, c.refund], ['cancel_document', 1200]);
+  assert.deepEqual([c.route, c.refund, c.maxCredit], ['refund_receipt', 1200, 1200]);
   c = cancelSuggestion(pk({ docType: 300, paid: 0 }));
   assert.deepEqual([c.route, c.refund, c.owed], ['cancel_document', 0, 0]);
   c = cancelSuggestion(pk({ docType: 300, paid: 200 }));
   assert.equal(c.route, 'none', 'a paid transaction invoice is not cancelled');
   c = cancelSuggestion(used(2, { docType: 400, paid: 1200 }));
-  assert.deepEqual([c.route, c.refund], ['none', 800], 'an exempt dealer with treatments used: no credit invoice — the number is information');
+  assert.deepEqual([c.route, c.refund], ['refund_receipt', 800], 'an exempt dealer with treatments used: a refund receipt for what was paid beyond them');
+  c = cancelSuggestion(used(2, { docType: 400, paid: 1200 }), 300);
+  assert.deepEqual([c.route, c.refund, c.owed], ['refund_receipt', 300, 0], 'the owner changes the money back');
+  c = cancelSuggestion(used(2, { docType: 400, paid: 1200 }), 5000);
+  assert.equal(c.refund, 1200, 'never beyond the receipt');
   assert.match(c.note, /עוסק פטור/);
   c = cancelSuggestion(pk({ price: 0, documentId: null, docType: null, docTotal: null }));
   assert.equal(c.route, 'no_document');

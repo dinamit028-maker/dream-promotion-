@@ -68,16 +68,21 @@ export function toIso88598(s: string): Uint8Array {
 // ---------- the business and the documents ----------
 export interface Business {
   dealerNumber: string; companyNumber?: string; name: string; street?: string; houseNo?: string; city?: string; zip?: string;
+  /** 2.118: the business's deductions file number (תיק ניכויים) — field 1016 (register_settings.deductions_file, 9 digits or none) */
+  deductionsFile?: string | null;
 }
 export interface SoftwareInfo { regNumber: string; name: string; version: string; vendorVat: string; vendorName: string }
 /** itemId ties a line to the price list (stock); restock marks a credit line whose goods came back (2.51); variantId: the
  *  size / colour sold (2.54 — the database moves that variant's stock; not part of the file to the Tax Authority) */
 export interface DocLine { name: string; qty: number; unitPriceExVat: number; discountExVat: number; totalExVat: number; vatRate: number; kind: 1 | 2 | 3; itemId?: string; variantId?: string; restock?: boolean }
-/** method = field 1306; m = the app's own method (Bit is "other" in the file); cheque = fields 1307–1311 (2.51) */
+/** method = field 1306; m = the app's own method (Bit: 9 "other" before 2.118, 4 "bank transfer" from 2.118 — the accountant,
+ *  answer 12); cheque = fields 1307–1311 (2.51) */
 export interface DocPayment {
   method: number; amount: number; date: string; m?: string; cheque?: { bank?: string; branch?: string; account?: string; number?: string; dueDate?: string };
   /** 2.94: tax withheld at source (m 'withholding', method 9) — the percent on the customer's certificate */
   pct?: number;
+  /** 2.118: a card payment's credit transaction kind — field 1315 (1 regular, 2 installments, 3 credit, 4 deferred, 5 other) */
+  cardKind?: number;
 }
 export interface Doc {
   docType: number; docNumber: number; linkNo: number; issuedAt: string /* ISO */; docDate: string /* YYYY-MM-DD */;
@@ -160,7 +165,12 @@ export function C100(rec: number, b: Business, d: Doc, operator: string = d.issu
   const t = ilTime(d.issuedAt);
   const wA = ag(withheldOf(d));                                       // clarification 4: a receipt's amounts without the withholding
   const less = (v: number) => (ag(v) - wA) / 100;
-  const sign = (v: number) => (d.docType === 330 ? v : v); // a credit invoice is positive; its type gives the meaning (clarification 1)
+  // a credit invoice is positive; its type gives the meaning (clarification 1). 2.118: an exempt dealer's refund receipt (a 400
+  // below zero — the accountant's answer 15) is written with its own sign: §2.4יב (p. 6) "משמעות המסמך … בהתאם לסוג המסמך ולא
+  // בהתאם לערך המסמך", and the table of document types (appendix 1, p. 18): "כאשר ערך המסמך שלילי, ההשפעה הפוכה" — 1219, 1221,
+  // 1223 below zero (1220 and 1222 are 0). The receipt it refunds (1256/1257) is not in the file: those fields are D110's only,
+  // and a 400 has no D110 (NO_D110, below) — open question for the simulator / the accountant (25.11.2026).
+  const sign = (v: number) => (d.docType === 330 ? v : v);
   return 'C100' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20)
     + N(t.date, 8) + N(t.time, 4)                                   // 1205, 1206
     + X(d.customerName || 'לקוח מזדמן', 50) + X(d.customerStreet, 50) + X('', 10) + X(d.customerCity, 30) + X('', 8) // 1207–1211
@@ -186,12 +196,20 @@ export function D110(rec: number, b: Business, d: Doc, line: DocLine, lineNo: nu
     + X('', 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X('', 7) + X('', 21); // 1270, 1272, 1273, 1274, 1275 → 339
 }
 
+/**
+ * Field 1315 "סוג עסקת האשראי" 9(1), ח/ר (spec §4.5, p. 14, checked against horaot-131.pdf 25.11.2026): 1 רגיל, 2 תשלומים,
+ * 3 קרדיט, 4 חיוב נדחה, 5 אחר. From 2.118 a card payment carries its kind (cardKind — asked at issue, the accountant's answer 13,
+ * 25.11.2026). A card payment of a document issued before has none — written 1, exactly as before; not a card — 0, as before.
+ */
+export const cardKindField = (p: Pick<DocPayment, 'method' | 'cardKind'>): number =>
+  p.method !== 3 ? 0 : [1, 2, 3, 4, 5].includes(Number(p.cardKind)) && Number.isInteger(p.cardKind) ? Number(p.cardKind) : 1;
+
 export function D120(rec: number, b: Business, d: Doc, p: DocPayment, lineNo: number) {
   const c = p.method === 2 ? p.cheque : undefined;                      // a cheque's bank, branch, account, number, due date (2.51)
   return 'D120' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20) + N(lineNo, 4)
     + N(p.method, 1) + N(c?.bank || 0, 10) + N(c?.branch || 0, 10) + N(c?.account || 0, 15) + N(c?.number || 0, 10) // 1306–1310
     + N(c?.dueDate ? yyyymmdd(c.dueDate) : p.method === 3 ? yyyymmdd(p.date) : 0, 8) // 1311 cheque due date / card payment date
-    + AMT(p.amount) + N(0, 1) + X('', 20) + N(p.method === 3 ? 1 : 0, 1)  // 1312–1315
+    + AMT(p.amount) + N(0, 1) + X('', 20) + N(cardKindField(p), 1)        // 1312–1315 (1312 signed: a refund receipt's money back is below zero)
     + X('', 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X('', 60);  // 1320, 1322, 1323, 1324 → 222
 }
 
@@ -201,12 +219,18 @@ export function A000(b: Business, sw: SoftwareInfo, o: { id: string; totalRecord
   return 'A000' + X('', 5) + N(o.totalRecords, 15) + N(b.dealerNumber, 9) + N(o.id, 15) + X(SYSTEM_CONST, 8)
     + N(sw.regNumber, 8) + X(sw.name, 20) + X(sw.version, 20) + N(sw.vendorVat, 9) + X(sw.vendorName, 20) // 1006–1010 (p. 10)
     + N(2, 1) + X(o.path, 50) + N(0, 1) + N(0, 1)                         // 1011 multi-year, 1012 path, 1013 no bookkeeping, 1014
-    + N(b.companyNumber || 0, 9) + N(0, 9) + X('', 10)                      // 1015, 1016, 1017
+    + N(b.companyNumber || 0, 9) + N(deductionsFileField(b), 9) + X('', 10) // 1015, 1016 (2.118), 1017
     + X(b.name, 50) + X(b.street, 50) + X(b.houseNo, 10) + X(b.city, 30) + X(b.zip, 8) // 1018–1022
     + N(0, 4) + N(yyyymmdd(o.from), 8) + N(yyyymmdd(o.to), 8)              // 1023 (single-year only), 1024, 1025
     + N(t.date, 8) + N(t.time, 4) + N(0, 1) + N(1, 1)                       // 1026, 1027, 1028 Hebrew, 1029 ISO-8859-8
     + X('JSZip', 20) + X('ILS', 3) + N(0, 1) + X('', 46);                   // 1030, 1032, 1034 no branches, 1035 → 466
 }
+/**
+ * Field 1016 "מספר תיק ניכויים" 9(9), ח/ר (spec p. 10, positions 196–204, checked against horaot-131.pdf 25.11.2026). The
+ * accountant's answer 17 (25.11.2026): the business's deductions file number. None (or anything but 9 digits) — 0, as before 2.118.
+ */
+export const deductionsFileField = (b: Pick<Business, 'deductionsFile'>): number | string =>
+  /^\d{9}$/.test(String(b.deductionsFile ?? '').trim()) ? String(b.deductionsFile).trim() : 0;
 export const SUM = (code: string, count: number) => X(code, 4) + N(count, 15); // 19
 
 /** a 15-digit random id, unique per export (clarification 2) */
@@ -240,6 +264,9 @@ export const NO_D110 = new Set([400, 420]);
  *        else the customer who paid would show a debt;
  *   open question to the accountant: a 330 whose money was given back (a refund) — the refund is not a document of the file
  *        (a 330 has no payments), so it cannot be told here; the 330 stays credit only;
+ *   2.118 — an exempt dealer's refund receipt (a 400 below zero, the accountant's answer 15): the money given back to the
+ *        customer is a debit (1415, its 1223 as a positive amount) — the movements stay positive (§2.4יא), and the receipt it
+ *        refunds stays credit as it was. For the accountant to confirm (open question, 25.11.2026);
  *   a cancelled document (1228 = 1) is not counted — it does not charge or pay (its account is still written, as its key is in
  *   the file); 100 / 200 / 210 charge nothing;
  *   1417 0; 1419 0 (only when 1013 = 2); 1421 empty (no branches, 1034 = 0); 1422 0 / 1423 empty (shekels only).
@@ -259,6 +286,7 @@ export function accountsOf(docs: Doc[]): Account[] {
     const t = ag(fileTotal(d));                                      // 1223 as the C100 writes it
     if (d.docType === 300 || d.docType === 305) a.debitA += t;
     else if (d.docType === 320) { if (!d.paidDocumentId) a.debitA += t; a.creditA += t; }   // a 320 paying a 300: credit only
+    else if (d.docType === 400 && t < 0) a.debitA += -t;            // 2.118: a refund receipt — the money given back (see above)
     else if (d.docType === 400) a.creditA += t + ag(withheldOf(d)); // 1223 + 1224
     else if (d.docType === 330) a.creditA += t;
   }

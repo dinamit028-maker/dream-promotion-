@@ -67,7 +67,7 @@ test('what is left on a delivery note after its return notes — a product by it
   assert.ok(!ok.ok && /סכום/.test(ok.errors.join()), 'an invoice-receipt says how it was paid — all of it');
   const half = docFromBase(DN, [2, 1, 0], { ...opts, docType: 305, left: [2, 1, 0] });
   assert.ok(half.ok);
-  const paid = docFromBase(DN, [2, 1, 0], { ...opts, docType: 320, left: [2, 1, 0], payments: [{ method: 'card', amount: half.ok ? half.doc.total : 0, date: '2026-10-11' }] });
+  const paid = docFromBase(DN, [2, 1, 0], { ...opts, docType: 320, left: [2, 1, 0], payments: [{ method: 'card', amount: half.ok ? half.doc.total : 0, date: '2026-10-11', cardKind: 1 }] });
   assert.ok(paid.ok && paid.doc.payments[0].method === 3, 'paid by card: field 1306 = 3');
 });
 

@@ -40,7 +40,7 @@ const q = (sql) => {
 const docRows = q(`select coalesce(json_agg(t), '[]') from (select * from documents where business_id='${BIZ}' and doc_date >= '${from}' and doc_date <= '${to}' order by doc_type, doc_number) t`);
 const cancels = new Set(q(`select coalesce(json_agg(document_id), '[]') from document_cancellations where business_id='${BIZ}'`));
 const rs = q(`select to_json(r) from register_settings r where business_id='${BIZ}'`);
-const business = { dealerNumber: rs.dealer_number ?? '', companyNumber: rs.company_number ?? '', name: rs.legal_name || 'Dream Promotion', street: rs.street ?? '', houseNo: rs.house_no ?? '', city: rs.city ?? '', zip: rs.zip ?? '' };
+const business = { dealerNumber: rs.dealer_number ?? '', companyNumber: rs.company_number ?? '', deductionsFile: rs.deductions_file ?? null, name: rs.legal_name || 'Dream Promotion', street: rs.street ?? '', houseNo: rs.house_no ?? '', city: rs.city ?? '', zip: rs.zip ?? '' };
 if (!/^[0-9]{9}$/.test(business.dealerNumber)) throw new Error('business not ready (dealer number)');
 const docs = docRows.map(toDoc).map((d) => ({ ...d, cancelled: cancels.has(d.id) }));
 // field 1233 (2.117): the people's codes, as pack() reads them (loadDocCodes) — only when migration 20261122006700 is in this database;

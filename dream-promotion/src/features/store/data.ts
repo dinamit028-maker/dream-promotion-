@@ -376,7 +376,7 @@ export async function setFulfillment(id: string, status: string, tracking = '', 
 }
 export const retryOrderDocument = (id: string) => api<{ document: string; error?: string }>('/api/commerce/finalize', { orderId: id, retry: true });
 export interface RefundBody { orderId: string; mode: 'full' | 'items' | 'amount'; qty?: number[]; amount?: number; restock: boolean; reason: string; confirmed: boolean }
-export const refundOrder = (b: RefundBody) => api<{ ok: true; refundId: string; amount: number; credit: string }>('/api/store/orders/refund', b);
+export const refundOrder = (b: RefundBody) => api<{ ok: true; refundId: string; amount: number; credit: string; receipt?: boolean }>('/api/store/orders/refund', b);
 export async function alertsSeen(id: string) { try { await supabase().rpc('store_alerts_seen', { p_order: id }); } catch { /* a mark only */ } }
 
 /** the store's sending domain for customers' emails (written by the server with Resend's answer) */

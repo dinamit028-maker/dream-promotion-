@@ -45,5 +45,5 @@ export async function POST(req: Request) {
   const r = await recordOrderRefund(c.businessId, c.userId, o.sale_id, plan.refund);
   if (!r.ok) return bad(financeError(r.error), 'refund_failed', 409);
   await sendQueuedEmails().catch(() => null);
-  return json(200, { ok: true, refundId: r.refundId, amount: plan.refund.amount, credit: r.credit });
+  return json(200, { ok: true, refundId: r.refundId, amount: plan.refund.amount, credit: r.credit, receipt: r.receipt === true });
 }

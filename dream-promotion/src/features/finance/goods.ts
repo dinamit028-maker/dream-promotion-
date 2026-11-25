@@ -2,7 +2,7 @@ import type { DocLine } from '@/features/documents/openformat';
 import { DOC_LABEL } from '@/features/documents/documents';
 import { israelParts } from '@/lib/il-time';
 import { chargesVat, type EntityType } from './rules';
-import { paymentErrors, type ComposeResult, type NewDoc } from './compose';
+import { docDateErrors, paymentErrors, type ComposeResult, type NewDoc } from './compose';
 import { toDocPayment, type PaymentEntry } from './payments';
 
 /**
@@ -85,7 +85,7 @@ export function docFromBase(base: BaseDoc, take: number[], o: {
   if (rows.length && totalA <= 0) errors.push('הסכום חייב להיות גדול מאפס');
   const receipt = o.docType === 320 || o.docType === 400;
   if (receipt && totalA > 0) errors.push(...paymentErrors(o.payments ?? [], totalA, today));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(o.docDate) || o.docDate > today) errors.push('תאריך המסמך לא יכול להיות בעתיד');
+  errors.push(...docDateErrors(o.docDate, today));   // 2.118: the day it is issued
   if ((o.docType === 305 || o.docType === 300) && o.dueDate && o.dueDate < o.docDate) errors.push('מועד התשלום לפני תאריך המסמך');
   if ((o.notes ?? '').length > 1000) errors.push('ההערות ארוכות מדי (עד 1,000 תווים)');
   if (errors.length) return { ok: false, errors: [...new Set(errors)] };

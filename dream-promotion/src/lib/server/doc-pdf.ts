@@ -143,7 +143,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   if (d.discount) totals.push(['הנחה', `-${money(d.discount)}`]);
   totals.push([withVat ? 'סה״כ לפני מע״מ' : 'סה״כ', money(d.afterDiscount)]);
   if (withVat) totals.push([`מע״מ ${rate}%`, money(d.vatAmount)]);
-  totals.push([totalLabel(d.docType), `${money(d.total)} ₪`, true]);
+  totals.push([totalLabel(d.docType, d.total), `${money(d.total)} ₪`, true]);
   for (const [k, v, strong] of totals) {
     newPageIfNeeded(18);
     text(k, { right: W - M - 5 }, strong ? 12 : 10, strong ? bold : font);

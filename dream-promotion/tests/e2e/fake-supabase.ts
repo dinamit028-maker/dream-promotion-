@@ -364,6 +364,18 @@ export class FakeSupabase {
         const done = this.t('documents').filter((d) => d.doc_type === 330 && d.base_doc_type === r.base_doc_type && d.base_doc_number === r.base_doc_number).reduce((a, d) => a + Number(d.total), 0);
         if (Math.round((done + Number(r.total)) * 100) > Math.round(Number(base.total) * 100)) return `credit_exceeds_original: ${Number(base.total) - done} left`;
       }
+      // 2.118 (migration 6800): an exempt dealer's refund receipt (a 400 below zero) on a receipt, never beyond it; a card payment's kind
+      if (r.doc_type === 400 && Number(r.total) < 0) {
+        const st0 = this.t('register_settings')[0] ?? {};
+        if ((st0.entity_type ?? (st0.business_type === 'exempt' ? 'exempt_dealer' : 'licensed_dealer')) !== 'exempt_dealer') return 'refund_receipt_not_exempt: a refund receipt is an exempt dealer\'s';
+        const base = this.t('documents').find((d) => d.doc_type === 400 && Number(d.doc_number) === Number(r.base_doc_number) && Number(d.total) > 0);
+        if (r.base_doc_type !== 400 || !base) return 'refund_receipt_base: the receipt it refunds was not found';
+        const done = this.t('documents').filter((d) => d.doc_type === 400 && Number(d.total) < 0 && d.base_doc_type === 400 && Number(d.base_doc_number) === Number(r.base_doc_number))
+          .reduce((a, d) => a - Number(d.total), 0);
+        if (Math.round((done - Number(r.total)) * 100) > Math.round(Number(base.total) * 100)) return `refund_receipt_over: על הקבלה נשארו להחזר ${Number(base.total) - done} ש״ח`;
+      }
+      if ((r.doc_type === 320 || r.doc_type === 400) && (r.payments ?? []).some((p: Row) => Number(p.method) === 3 && ![1, 2, 3, 4, 5].includes(p.cardKind))) return 'card_kind_missing: a card payment names its kind';
+      if ((r.payments ?? []).some((p: Row) => Number(p.method) !== 3 && p.cardKind != null)) return 'card_kind_not_card: only a card payment has a kind';
       // 2.94: tax withheld at source — a receipt's, with a customer, a percent that is one, never all of it (before 4900: no such method)
       const held = (r.payments ?? []).filter((p: Row) => p.m === 'withholding');
       if (held.length) {
@@ -404,6 +416,8 @@ export class FakeSupabase {
     if (table === 'client_sessions') Object.assign(r, { at: r.at ?? now(), notes: r.notes ?? '', params: r.params ?? {}, by_user: r.by_user ?? this.opts.userId, cancelled_at: null, cancelled_by: null, cancel_reason: '' });
     if (table === 'document_cancellations' && this.t('document_cancellations').some((c) => c.document_id === r.document_id)) return 'duplicate key value violates unique constraint "document_cancellations_pkey"';
     if (table === 'document_cancellations') { const e = this.goodsCancelCheck(r.document_id); if (e) return e; }
+    // 2.118 (migration 6800): a receipt is not cancelled by marking
+    if (table === 'document_cancellations' && this.t('documents').some((d) => d.id === r.document_id && d.doc_type === 400)) return 'cancel_receipt_not_allowed: a receipt is refunded, not cancelled';
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
     if (table === 'store_coupons') { r.code = String(r.code ?? '').toUpperCase(); r.active ??= true; r.used_count = 0; r.min_subtotal ??= 0; }
     // 3500: a sale of the register does not take units held for an order on the site (c_sales_reserved); 4700: the held units are
@@ -504,8 +518,10 @@ export class FakeSupabase {
     form101AfterInsert(this, table, r);
     if (table === 'appointments') this.appointmentLog(null, r);
     if (table === 'documents') {
-      if (r.doc_type === 320 || r.doc_type === 400) for (const p of r.payments ?? []) {
-        this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: 'in', amount: Number(p.amount), method: p.m ?? ({ 1: 'cash', 2: 'cheque', 3: 'card', 4: 'transfer' } as Row)[p.method] ?? 'other',
+      // 2.118: a refund receipt's money goes out (its own, unless it is a register / order refund's — that one has its own row)
+      const back = r.doc_type === 400 && Number(r.total) < 0;
+      if ((r.doc_type === 320 || r.doc_type === 400) && !(back && r.refund_id)) for (const p of r.payments ?? []) {
+        this.t('payments').push({ id: randomUUID(), business_id: r.business_id, user_id: r.user_id, direction: back ? 'out' : 'in', amount: Math.abs(Number(p.amount)), method: p.m ?? ({ 1: 'cash', 2: 'cheque', 3: 'card', 4: 'transfer' } as Row)[p.method] ?? 'other',
           paid_on: p.date ?? r.doc_date, source: 'document', document_id: r.id, applies_to: r.paid_document_id ?? null, sale_id: r.sale_id ?? null, lead_id: r.lead_id ?? null,
           reference: p.m === 'withholding' ? (p.pct != null && p.pct !== '' ? { pct: Number(p.pct) } : {}) : p.cheque ?? {}, note: '', created_at: now(),
           ...(this.locationTables ? { location_id: r.location_id ?? null } : {}) });

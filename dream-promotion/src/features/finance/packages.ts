@@ -147,12 +147,13 @@ export const deductibleFor = <P extends Pick<ClientPackage, 'status' | 'remainin
 export const usedValueA = (p: Pick<ClientPackage, 'price' | 'sessionsTotal' | 'used'>) =>
   p.sessionsTotal > 0 ? Math.round((ag(p.price) * Math.min(Math.max(p.used, 0), p.sessionsTotal)) / p.sessionsTotal) : 0;
 
-export type CancelRoute = 'credit' | 'cancel_document' | 'none' | 'no_document';
+export type CancelRoute = 'credit' | 'refund_receipt' | 'cancel_document' | 'none' | 'no_document';
 export interface CancelPlan {
   route: CancelRoute;
   /** what the treatments taken are worth, what is left of the package, what the customer paid (all ₪) */
   usedValue: number; unusedValue: number; paid: number;
-  /** route 'credit': a credit invoice for this much (suggested: what was not used), at most what is left to credit */
+  /** route 'credit': a credit invoice for this much (suggested: what was not used), at most what is left to credit;
+   *  route 'refund_receipt': maxCredit = the most money back (the receipt's total) */
   credit: number; maxCredit: number;
   /** money back to the customer (suggested: what they paid beyond what they are charged after the credit); never below 0 */
   refund: number;
@@ -166,10 +167,11 @@ export interface CancelPlan {
  *  - a tax invoice (305 / 320): a credit invoice (330) that leaves exactly the value used charged (what was not used, when
  *    nothing was credited before); money back = what was paid beyond what is still charged — the existing credit engine
  *    (composeCredit) and record_credit_refund;
- *  - a receipt (400) or a transaction invoice (300) with nothing used (and a 300 that was not paid): the existing cancellation
- *    of the document (a 400's money goes back off the books by itself);
- *  - otherwise (an exempt dealer with treatments used): no credit invoice exists for an exempt dealer — the package is
- *    cancelled, and money given back is documented as the accountant says;
+ *  - a receipt (400 — an exempt dealer): 2.118, the accountant's answers 8 and 15 (25.11.2026) — a receipt is not cancelled; the
+ *    money given back is a refund receipt (a 400 below zero) on it: suggested — what was paid beyond the value used (all of it
+ *    when nothing was used), at most the receipt (the database also counts refund receipts issued on it before);
+ *  - a transaction invoice (300) with nothing used and not paid: the existing cancellation of the document;
+ *  - otherwise (a 300 paid, or with treatments used): the package is cancelled; money back — on the receipt that paid it;
  *  - no document (a package without a price, or its document was never issued): only the package.
  */
 export function cancelSuggestion(p: ClientPackage, credit?: number): CancelPlan {
@@ -190,13 +192,18 @@ export function cancelSuggestion(p: ClientPackage, credit?: number): CancelPlan 
     return plan('credit', wantA, maxA, docA - creditedA - wantA,
       'חשבונית זיכוי על מה שלא נוצל, והחזר של מה ששולם מעבר לזה. הסכומים הם הצעה — אפשר לשנות לפני ההפקה.');
   }
-  if (p.used === 0 && (p.docType === 400 || (p.docType === 300 && paidA === 0))) {
-    return plan('cancel_document', 0, 0, 0, p.docType === 400
-      ? 'לא נוצל אף טיפול: מבטלים את הקבלה. הכסף שלה יוצא מיומן התשלומים — ומחזירים אותו ללקוח/ה.'
-      : 'לא נוצל אף טיפול ולא שולם: מבטלים את חשבונית העסקה.');
+  if (p.docType === 400) {
+    const maxA = docA;
+    const wantA = credit === undefined ? Math.min(Math.max(0, paidA - usedA), maxA) : Math.min(Math.max(0, ag(credit)), maxA);
+    return plan('refund_receipt', 0, maxA, paidA - wantA, p.used === 0
+      ? 'לא נוצל אף טיפול: הקבלה לא מבוטלת — מחזירים את הכסף בקבלה במינוס (החזר כספי) עליה. הסכום הוא הצעה — אפשר לשנות לפני ההפקה.'
+      : 'עוסק פטור: החזר של מה ששולם מעבר לשווי הטיפולים שנוצלו — בקבלה במינוס (החזר כספי) על הקבלה. הסכום הוא הצעה — אפשר לשנות או לבחור 0.');
   }
-  return plan('none', 0, 0, usedA, p.docType === 400 || p.docType === 300
-    ? 'עוסק פטור לא מפיק חשבונית זיכוי. מבטלים את החבילה; החזר כספי חלקי מתעדים לפי הנחיית רואה החשבון.'
+  if (p.used === 0 && p.docType === 300 && paidA === 0) {
+    return plan('cancel_document', 0, 0, 0, 'לא נוצל אף טיפול ולא שולם: מבטלים את חשבונית העסקה.');
+  }
+  return plan('none', 0, 0, usedA, p.docType === 300
+    ? 'חשבונית עסקה לא מזכים. מבטלים את החבילה; כסף שהוחזר — מהקבלה ששילמה אותה ("החזר כספי" בקבלה, עוסק פטור).'
     : 'אין מסמך לזכות. מבטלים את החבילה בלבד.');
 }
 

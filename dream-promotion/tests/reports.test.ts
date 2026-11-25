@@ -199,21 +199,21 @@ test('a receipt with tax withheld: the form → a document the database accepts;
   const inv = { docType: 305, docNumber: 1, customerName: 'חברה בע"מ', customerPhone: '', customerDealer: '514000012', customerStreet: '', customerCity: '',
     lines: [{ name: 'ייעוץ', qty: 1, unitPriceExVat: 2000, discountExVat: 0, totalExVat: 2000, vatRate: 18, kind: 1 as const }],
     beforeDiscount: 2000, discount: 0, afterDiscount: 2000, vatAmount: 360, total: 2360, balance: 2360 };
-  const r = composeReceipt(inv, { entity: 'company', vatRate: 18, docDate: '2026-04-15', today: '2026-10-11',
+  const r = composeReceipt(inv, { entity: 'company', vatRate: 18, docDate: '2026-10-11', today: '2026-10-11',
     payments: [{ method: 'transfer', amount: 2260, date: '2026-04-15' }, { method: 'withholding', amount: 100, date: '2026-04-15', pct: 5 }] });
   assert.ok(r.ok, JSON.stringify(r));
   assert.equal(r.doc.docType, 400);
   assert.equal(r.doc.total, 2360);
   assert.deepEqual(r.doc.payments.map((p) => [p.method, p.m, p.amount, (p as any).pct]), [[4, 'transfer', 2260, undefined], [9, 'withholding', 100, 5]]);
   assert.deepEqual(docInvariants(r.doc, 0), []);
-  const all = composeReceipt(inv, { entity: 'company', vatRate: 18, docDate: '2026-04-15', today: '2026-10-11', payments: [{ method: 'withholding', amount: 100, date: '2026-04-15' }] });
+  const all = composeReceipt(inv, { entity: 'company', vatRate: 18, docDate: '2026-10-11', today: '2026-10-11', payments: [{ method: 'withholding', amount: 100, date: '2026-04-15' }] });
   assert.ok(!all.ok && all.errors.some((e) => e.includes('לא כולו')));
-  const pct = composeReceipt(inv, { entity: 'company', vatRate: 18, docDate: '2026-04-15', today: '2026-10-11',
+  const pct = composeReceipt(inv, { entity: 'company', vatRate: 18, docDate: '2026-10-11', today: '2026-10-11',
     payments: [{ method: 'cash', amount: 50, date: '2026-04-15' }, { method: 'withholding', amount: 10, date: '2026-04-15', pct: 120 }] });
   assert.ok(!pct.ok && pct.errors.some((e) => e.includes('אחוז')));
   // a tax invoice-receipt of the document center: tax withheld needs the customer's name
   const doc = (name: string) => composeDocument({ docType: 320, entity: 'company', vatRate: 18, pricesIncludeVat: true, lines: [{ name: 'טיפול', qty: 1, unitPrice: 590 }],
-    customer: { name }, docDate: '2026-02-01', today: '2026-10-11',
+    customer: { name }, docDate: '2026-10-11', today: '2026-10-11',
     payments: [{ method: 'cash', amount: 565, date: '2026-02-01' }, { method: 'withholding', amount: 25, date: '2026-02-01', pct: 5 }] });
   const anon = doc('');
   assert.ok(!anon.ok && anon.errors.some((e) => e.includes('שם הלקוח')));

@@ -133,7 +133,9 @@ async function balanceOf(db: Db, inv: any): Promise<number> {
     - ((pays ?? []) as any[]).reduce((a, p) => a + (p.direction === 'out' ? -agorot(p.amount) : agorot(p.amount)), 0);
   return left / 100;
 }
-const card = (amount: number) => [{ method: 'card' as const, amount, date: today() }];
+// 2.118 (the accountant's answer 13 — field 1315): a payment link is one charge on the payment page; the provider's answer carries no
+// installments (sf_paylink_paid), so its card payment is "regular" (1)
+const card = (amount: number) => [{ method: 'card' as const, amount, date: today(), cardKind: 1 as const }];
 const NOTE = 'שולם בכרטיס אשראי בלינק לתשלום';
 
 /**

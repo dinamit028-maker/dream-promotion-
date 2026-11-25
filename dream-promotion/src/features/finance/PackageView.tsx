@@ -5,13 +5,13 @@ import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
-import { DOC_LABEL, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, refundLeft, type DocRow } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { DocView, loadDoc } from './DocView';
-import { composeCredit } from './compose';
-import { documentRow, financeError, issueDocumentRow } from './api';
+import { composeCredit, composeRefundReceipt } from './compose';
+import { documentRow, financeError, issueDocumentRow, refundReceiptError } from './api';
 import { followKey } from './keys';
-import { PAY_METHODS, type PayMethod } from './payments';
+import { CARD_KINDS, PAY_METHODS, type CardKind, type PayMethod } from './payments';
 import { Note, Pill, ils, todayIL } from './ui';
 import {
   STATE_HE, cancelSuggestion, ddmmyyyy, packageLine, packageState, packageWarnings, sessionsLabel, usedValueA,
@@ -26,7 +26,8 @@ import { PlanSection } from './Plans';
  * One sold package (docs/FINANCE_ADDITIONS_HE.md, T1): what is left, its validity, its document and money, every treatment
  * taken from it (and given back) — and what can happen to it: its document issued (when it was not), the validity moved,
  * a treatment given back, or the package cancelled. Cancelling puts the money right through the existing documents only:
- * a credit invoice (330) on a tax invoice, or the cancellation of a receipt / transaction invoice issued for nothing used.
+ * a credit invoice (330) on a tax invoice, a refund receipt (2.118 — an exempt dealer's receipt below zero) on a receipt, or the
+ * cancellation of a transaction invoice issued for nothing used and not paid.
  * The amounts are the system's suggestion; the owner approves or changes them.
  */
 const TONE = { active: 'ok', used_up: 'default', expired: 'warn', cancelled: 'bad' } as const;
@@ -199,15 +200,19 @@ function GiveBack({ use, onClose, onDone }: { use: PackageUse; onClose: () => vo
 /**
  * Cancelling a package: the suggestion (cancelSuggestion) — a credit invoice for what was not used and the money back for what
  * was paid beyond it — and the owner approves or changes the amounts. The documents are the existing ones only (composeCredit /
- * issueDocumentRow / record_credit_refund, or the cancellation of a 300 / 400); then the package is cancelled.
+ * issueDocumentRow / record_credit_refund, a refund receipt on a 400 (2.118 — composeRefundReceipt), or the cancellation of an
+ * unpaid 300); then the package is cancelled.
  */
 function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: () => void; onDone: (message: string) => void }) {
-  const { userId } = useFinance();
+  const { userId, settings } = useFinance();
   const { addActivity, updateLead } = useApp();
   const today = todayIL();
   const first = cancelSuggestion(pkg);
+  // 2.118: a refund receipt (an exempt dealer's 400 below zero) — a card refund names its kind (field 1315), no default
+  const [cardKind, setCardKind] = useState<CardKind | null>(null);
   const [credit, setCredit] = useState(first.credit);
-  const plan = cancelSuggestion(pkg, credit);
+  // the amount typed is the credit invoice's (route 'credit'); a refund receipt's is the money back itself (refund, below)
+  const plan = cancelSuggestion(pkg, first.route === 'credit' ? credit : undefined);
   const [refund, setRefund] = useState(first.refund);
   const [refundTouched, setRefundTouched] = useState(false);
   const [refundNow, setRefundNow] = useState(first.refund > 0);
@@ -258,6 +263,30 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
           setRefunded(true);
         }
         if (refunded || (refundNow && refund > 0)) done.push(`נרשם החזר של ${ils(refund)}`);
+      } else if (plan.route === 'refund_receipt' && (refund > 0 || issued)) {
+        // 2.118 (the accountant's answers 8 and 15): the receipt stays; the money back is a refund receipt on it
+        let back = issued;
+        if (!back) {
+          if (refund > plan.maxCredit) { setErrors([`אפשר להחזיר עד ${ils(plan.maxCredit)}.`]); return; }
+          const base = await loadDoc(pkg.documentId!);
+          if (!base) { setErrors(['המסמך של החבילה לא נטען — נסו שוב.']); return; }
+          const { data: prior, error: pErr } = await supabase().from('documents').select('doc_type, total, base_doc_type, base_doc_number')
+            .eq('doc_type', 400).eq('base_doc_type', 400).eq('base_doc_number', base.docNumber).lt('total', 0);
+          if (pErr) { setErrors([financeError(pErr)]); return; }
+          const priorDocs = ((prior ?? []) as any[]).map((x) => ({ docType: x.doc_type, total: Number(x.total), baseDocType: x.base_doc_type, baseDocNumber: Number(x.base_doc_number) }));
+          const r = composeRefundReceipt(base, { entity: settings.entity, left: refundLeft(base, priorDocs), today, docDate: today,
+            payments: [{ method, amount: refund, date: today, ...(method === 'card' ? { cardKind } : {}) }], notes: `ביטול חבילה: ${reason.trim()}`.slice(0, 300) });
+          if (!r.ok) { setErrors(r.errors); return; }
+          if (!window.confirm(`להפיק קבלה במינוס (החזר כספי) על ${ils(-r.doc.total)} ולבטל את החבילה? הקבלה המקורית נשארת כמו שהיא.`)) return;
+          const out = await issueDocumentRow(documentRow(r.doc, { userId, idempotencyKey: followKey('refund', base.id, priorDocs.length), vatRate: 0, leadId: pkg.leadId, source: 'refund' }));
+          if (!out.ok) { setErrors([refundReceiptError(out.raw ?? out.error)]); return; }
+          if (out.again) { setErrors(['כבר הופקה קבלה במינוס על הקבלה הזו, כנראה ממכשיר אחר. סגרו ופתחו שוב כדי לראות מה נשאר.']); return; }
+          back = out.doc; setIssued(out.doc);
+          addActivity(pkg.leadId, 'note', `החזר כספי על חבילה "${pkg.name}" · ${ils(-out.doc.total)}`);
+          const l = useApp.getState().leads.find((x) => x.id === pkg.leadId);
+          if (l) updateLead(l.id, { value: Math.max(0, Math.round(((l.value ?? 0) + out.doc.total) * 100) / 100) });
+        }
+        done.push(`הופקה קבלה במינוס (החזר כספי) מס׳ ${back.docNumber} · ${ils(-back.total)}`);
       } else if (plan.route === 'cancel_document' && cancelDoc) {
         if (!cancelledDoc) {
           if (!window.confirm(`לבטל את ${DOC_LABEL[pkg.docType!]} מס׳ ${pkg.docNumber} ואת החבילה? המסמך נשאר ומסומן "בוטל".`)) return;
@@ -300,6 +329,24 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
           {plan.owed > 0 && <p className="text-sm text-amber-700 dark:text-amber-300">אחרי הזיכוי נשאר/ת חייב/ת {ils(plan.owed)} על הטיפולים שנוצלו.</p>}
         </div>
       )}
+      {plan.route === 'refund_receipt' && (
+        <div className="mt-3 grid gap-2">
+          <Field label={`החזר כספי ₪ (עד ${ils(plan.maxCredit)}; 0 = בלי)`}>
+            <Input type="number" inputMode="decimal" min={0} max={plan.maxCredit} step="0.01" value={refund} disabled={Boolean(issued)} onChange={(e) => { setRefundTouched(true); setRefund(Math.max(0, Number(e.target.value) || 0)); }} />
+          </Field>
+          {issued && <p className="text-sm">✓ הופקה קבלה במינוס מס׳ {issued.docNumber} · {ils(-issued.total)}</p>}
+          {refund > 0 && !issued && <>
+            <div className="flex flex-wrap gap-1.5">{PAY_METHODS.map((m) => <Chip key={m.id} on={method === m.id} onClick={() => setMethod(m.id)} className="min-h-9">{m.icon} {m.label}</Chip>)}</div>
+            {method === 'card' && (
+              <div role="radiogroup" aria-label="סוג עסקת האשראי" aria-required="true" className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold">סוג העסקה *</span>
+                {CARD_KINDS.map((k) => <Chip key={k.id} role="radio" aria-checked={cardKind === k.id} on={cardKind === k.id} onClick={() => setCardKind(k.id)} className="min-h-9">{k.label}</Chip>)}
+              </div>
+            )}
+          </>}
+          {plan.owed > 0 && <p className="text-sm text-amber-700 dark:text-amber-300">שולם פחות משווי הטיפולים שנוצלו ({ils(plan.owed)}).</p>}
+        </div>
+      )}
       {plan.route === 'cancel_document' && (
         <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={cancelDoc} onChange={(e) => setCancelDoc(e.target.checked)} className="h-5 w-5" /> לבטל גם את {DOC_LABEL[pkg.docType!]} מס׳ {pkg.docNumber}</label>
       )}
@@ -307,7 +354,7 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
       <Field label="סיבה (חובה)"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} className="min-h-14" /></Field>
       {errors.length > 0 && <Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note>}
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" disabled={busy} onClick={() => void go()}>{busy ? 'רגע…' : plan.route === 'credit' && credit > 0 && !issued ? 'הפקת זיכוי וביטול החבילה' : 'ביטול החבילה'}</Button>
+        <Button variant="primary" disabled={busy} onClick={() => void go()}>{busy ? 'רגע…' : plan.route === 'credit' && credit > 0 && !issued ? 'הפקת זיכוי וביטול החבילה' : plan.route === 'refund_receipt' && refund > 0 && !issued ? 'הפקת החזר וביטול החבילה' : 'ביטול החבילה'}</Button>
         <Button variant="ghost" onClick={onClose}>חזרה</Button>
       </div>
       <p className="mt-2 text-xs text-muted">החישוב הוא הצעה של המערכת לפי החלק היחסי של הטיפולים — הבעלים מחליט/ה על הסכום.</p>
