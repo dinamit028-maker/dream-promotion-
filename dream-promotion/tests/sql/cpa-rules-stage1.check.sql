@@ -385,6 +385,9 @@ select pg_temp.issue(pg_temp.back(70, 'sale:00000000-0000-0000-0000-00000006805d
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680e1', 400, -30, 0, 0, jsonb_build_object('idempotency_key', 'refund:00000000-0000-0000-0000-00000006806d',
   'base_doc_type', 400, 'base_doc_number', pg_temp.num('sale:00000000-0000-0000-0000-00000006805d'), 'sale_id', '00000000-0000-0000-0000-00000006805d', 'refund_id', '00000000-0000-0000-0000-00000006806d')));
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.back(0.01, 'sale:00000000-0000-0000-0000-00000006805d'))$$, 'refund_receipt_over', 'nothing left on 5d');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680e1', 400, -30, 0, 0, jsonb_build_object('idempotency_key', 'refund:again',
+  'base_doc_type', 400, 'base_doc_number', pg_temp.num('sale:00000000-0000-0000-0000-00000006805d'), 'sale_id', '00000000-0000-0000-0000-00000006805d',
+  'refund_id', '00000000-0000-0000-0000-00000006806d')))$$, 'כבר הופקה קבלה במינוס', 'one refund, one refund receipt (another key)');
 -- 5e: 80 from the money screens first; a register refund after it — only 20
 select pg_temp.issue(pg_temp.back(80, 'sale:00000000-0000-0000-0000-00000006805e', '{"idempotency_key": "e:5e-back"}'));
 select pg_temp.refused_with($$insert into public.sale_refunds (user_id, sale_id, amount, vat_amount, method, items, restock, reason)

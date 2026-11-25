@@ -116,7 +116,7 @@ begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000681e1');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.back(100, 'sale:00000000-0000-0000-0000-00000006815a', '{"idempotency_key": "cancel:00000000-0000-0000-0000-00000006815a", "sale_id": "00000000-0000-0000-0000-00000006815a", "source": "refund"}'))$$,
-  'idempotency', 'the same key twice');
+  'refund_receipt_over', 'the same key twice, when the receipt is already all given back: the ceiling answers first (the unique key is checked after the validation) — never a second document');
 commit;
 begin;
 set local role authenticated;

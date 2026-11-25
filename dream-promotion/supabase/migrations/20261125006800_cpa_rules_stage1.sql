@@ -198,6 +198,9 @@ begin
     -- the register's / an order's refund: the same money, of the same sale
     if new.refund_id is not null then
       select id, sale_id, amount into rf from public.sale_refunds where id = new.refund_id;
+      -- one refund, one refund receipt (whatever its key)
+      if exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = new.refund_id) then
+        raise exception 'refund_receipt_refund: להחזר הזה כבר הופקה קבלה במינוס' using errcode = '23514'; end if;
       if rf.amount is distinct from -new.total then
         if cashier then raise exception 'refund_receipt_refund: סכום הקבלה במינוס שונה מסכום ההחזר' using errcode = '23514'; end if;
         raise exception 'refund_receipt_refund: סכום הקבלה במינוס (%) שונה מסכום ההחזר (%)', new.total, rf.amount using errcode = '23514'; end if;
