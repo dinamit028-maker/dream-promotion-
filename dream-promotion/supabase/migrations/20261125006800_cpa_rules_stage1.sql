@@ -198,8 +198,10 @@ begin
     -- the register's / an order's refund: the same money, of the same sale
     if new.refund_id is not null then
       select id, sale_id, amount into rf from public.sale_refunds where id = new.refund_id;
-      -- one refund, one refund receipt (whatever its key)
-      if exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = new.refund_id) then
+      -- one refund, one refund receipt, whatever its key. A retry with the same key is left to the unique key (23505), so the
+      -- app reads back the receipt it already issued
+      if exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = new.refund_id)
+         and not exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key) then
         raise exception 'refund_receipt_refund: להחזר הזה כבר הופקה קבלה במינוס' using errcode = '23514'; end if;
       if rf.amount is distinct from -new.total then
         if cashier then raise exception 'refund_receipt_refund: סכום הקבלה במינוס שונה מסכום ההחזר' using errcode = '23514'; end if;

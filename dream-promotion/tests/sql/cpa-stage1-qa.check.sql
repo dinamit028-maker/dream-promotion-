@@ -140,7 +140,7 @@ set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000681e1');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000681e1', 400, -30, 0, 0, jsonb_build_object('idempotency_key', 'refund:00000000-0000-0000-0000-00000006816c',
   'base_doc_type', 400, 'base_doc_number', (select doc_number from public.documents where idempotency_key = 'sale:00000000-0000-0000-0000-00000006815c'),
-  'sale_id', '00000000-0000-0000-0000-00000006815c', 'refund_id', '00000000-0000-0000-0000-00000006816c', 'source', 'refund')))$$, 'idempotency', 'the refund receipt of a refund, twice');
+  'sale_id', '00000000-0000-0000-0000-00000006815c', 'refund_id', '00000000-0000-0000-0000-00000006816c', 'source', 'refund')))$$, 'refund_receipt_refund', 'the refund receipt of a refund, twice (the rule "one refund, one refund receipt" answers before the unique key)');
 commit;
 -- the same refund with ANOTHER key (a client bug): never a second refund receipt for one refund
 begin;
