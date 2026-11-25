@@ -225,16 +225,17 @@ async function main() {
   async function missing(p: any, d: any, what: string, shotName: string) {
     for (const ph of ['מס׳ צ׳ק *', 'בנק *', 'סניף *', 'חשבון *']) await d.getByPlaceholder(ph).waitFor();
     await d.getByLabel('מספר צ׳ק').fill('1234');
-    const alert = d.getByRole('alert').filter({ hasText: 'חובה בצ׳ק' });
+    const alert = d.locator('[aria-live="polite"]').filter({ hasText: 'חובה בצ׳ק' });
     await alert.waitFor();
     const text = await alert.innerText();
     for (const m of MISSING.slice(1)) assert.ok(text.includes(m), `${what}: says "${m}" (${text})`);
     assert.ok(!text.includes(MISSING[0]), `${what}: the number was typed — not missing`);
     assert.equal(await alert.evaluate((e: Element) => getComputedStyle(e).direction), 'rtl');
+    assert.equal(await alert.getAttribute('aria-live'), 'polite');
     await d.getByRole('button', { name: 'הפקת קבלה' }).click();
     await p.waitForTimeout(600);
     assert.equal(fake.tables.documents.filter((x: any) => x.doc_type === 400).length, 0, `${what}: a cheque without bank / branch / account is refused`);
-    await d.getByRole('alert').filter({ hasText: 'מספר הבנק — חובה בצ׳ק' }).first().waitFor();
+    await d.getByText('מספר הבנק — חובה בצ׳ק').first().waitFor();
     const [sw, iw] = await p.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
     assert.ok(sw <= iw + 1, `${what}: nothing sideways (${sw} > ${iw})`);
     await shot(p, shotName);
@@ -246,6 +247,7 @@ async function main() {
     const d = await startCheque(m.page);
     await missing(m.page, d, 'phone', 'cheque-missing-phone-390.png');
     await m.ctx.close();
+    current = null;
   });
 
   await step('(ב) computer 1280: the same, and then with every field filled the receipt is issued with the cheque\'s details', async () => {
@@ -257,13 +259,14 @@ async function main() {
     await d.getByLabel('מספר בנק').fill('12');
     await d.getByLabel('מספר סניף').fill('345');
     await d.getByLabel('מספר חשבון').fill('678901');
-    await d.getByRole('alert').filter({ hasText: 'חובה בצ׳ק' }).waitFor({ state: 'detached' });
+    await d.locator('[aria-live="polite"]').filter({ hasText: 'חובה בצ׳ק' }).waitFor({ state: 'detached' });   // the inline note goes; the refusal of the first try stays until the next try
     await d.getByRole('button', { name: 'הפקת קבלה' }).click();
     await m.page.getByText(/הופקה קבלה מס׳ 1/).waitFor();
     const r = fake.tables.documents.find((x: any) => x.doc_type === 400)!;
     const pay = (r.payments as any[])[0];
     assert.deepEqual([pay.cheque?.bank, pay.cheque?.branch, pay.cheque?.account, pay.cheque?.number], ['12', '345', '678901', '1234'], JSON.stringify(pay));
     await m.ctx.close();
+    current = null;
   });
 
   await step('no errors in the browser', async () => { assert.deepEqual(errors, []); });
