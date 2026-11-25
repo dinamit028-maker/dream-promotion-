@@ -5,7 +5,7 @@ import { dealerDigits, validIsraeliId } from '@/features/register/billing';
 import { israelParts } from '@/lib/il-time';
 import { ag, netOfGross, sh, vatOfGross, vatOfNet } from './vat';
 import { canIssue, chargesVat, type EntityType } from './rules';
-import { chequeError, toDocPayment, withholdingErrors, type PaymentEntry } from './payments';
+import { chequeErrors, toDocPayment, withholdingErrors, type PaymentEntry } from './payments';
 
 /**
  * The accounting engine's document builder: what the user typed → a legal document, agorot-exact.
@@ -84,7 +84,7 @@ export function paymentErrors(payments: PaymentEntry[], totalA: number, today: s
   for (const p of payments) {
     if (!(p.amount > 0)) e.push('כל תשלום צריך סכום גדול מאפס');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date) || p.date > today) e.push('תאריך תשלום לא תקין (לא בעתיד)');
-    if (p.method === 'cheque') { const c = chequeError(p.cheque); if (c) e.push(c); }
+    if (p.method === 'cheque') e.push(...chequeErrors(p.cheque));   // every missing field of the cheque, each in its own line
   }
   const paidA = payments.reduce((a, p) => a + ag(p.amount), 0);
   if (!e.length && paidA !== totalA) e.push(`סכום התשלומים (${ils(sh(paidA))}) שונה מסכום המסמך (${ils(sh(totalA))})`);

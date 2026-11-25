@@ -177,7 +177,7 @@ test('§2.4ח: a whole export with these marks — every record its fixed length
   const d: Doc = { ...receipt, customerName: '‏סלון ״דנה״ בע״מ‎', customerCity: 'תל־אביב', issuedBy: '',
     lines: [{ name: 'זיכוי — מס׳ 5 (₪100)', qty: 1, unitPriceExVat: 1250, discountExVat: 0, totalExVat: 1250, vatRate: 0, kind: 1 }] };
   const f = buildOpenFormat({ ...biz, name: 'דמו בע״מ — סניף' }, { ...sw, vendorName: 'יצרן דמו בע״מ' }, [d], at);
-  const LEN: Record<string, number> = { A100: 95, C100: 444, D110: 339, D120: 222, Z900: 110, A000: 466 };
+  const LEN: Record<string, number> = { A100: 95, B110: 376, C100: 444, D110: 339, D120: 222, Z900: 110, A000: 466 };
   for (const text of [f.bkmv, f.ini]) {
     const b = toIso88598(text);
     assert.ok(bytesOk(b)); assert.ok(!b.includes(0x3f), 'no "?"');

@@ -32,7 +32,7 @@ test('a receipt (400) is C100 + D120 only — no D110; a 320 keeps D110 and D120
   assert.deepEqual([of('C100', '400'), of('D110', '400'), of('D120', '400')], [1, 0, 2]);
   assert.deepEqual([of('C100', '320'), of('D110', '320'), of('D120', '320')], [1, 2, 1]);
   assert.deepEqual([of('C100', '305'), of('D110', '305'), of('D120', '305')], [1, 2, 0]);
-  assert.deepEqual(f.counts, { A100: 1, C100: 3, D110: 4, D120: 3, Z900: 1 });
+  assert.deepEqual(f.counts, { A100: 1, B110: 1, C100: 3, D110: 4, D120: 3, Z900: 1 });
   recs.forEach((l, i) => assert.equal(Number(col(l, 5, 13)), i + 1, 'record numbers still run 1..n'));
   assert.equal(Number(col(recs.at(-1)!, 46, 60)), recs.length, 'Z900 total');
   assert.ok(f.ini.includes('D110' + '4'.padStart(15, '0')) && f.ini.includes('D120' + '3'.padStart(15, '0')));
@@ -45,7 +45,7 @@ test('only receipts: no D110 at all — no D110 summary in INI; the receipt\'s C
   assert.equal((f.counts as Record<string, number>).D110, 0);
   assert.ok(!f.ini.includes('D110'), 'no summary line for a record type that is not in the file (§2.5ב)');
   const c = f.bkmv.split('\r\n').find((l) => l.startsWith('C100'))!;
-  assert.equal(c, C100(2, biz, receipt), 'C100 written exactly as before');
+  assert.equal(c, C100(3, biz, receipt), 'C100 written exactly as before (record 3: after A100 and the customer\'s B110)');
   assert.equal(col(c, 288, 302), '+00000000050000'); assert.equal(col(c, 348, 362), '+00000000050000');
   const pay = f.bkmv.split('\r\n').filter((l) => l.startsWith('D120')).reduce((a, l) => a + Number(col(l, 105, 118)), 0);
   assert.equal(pay, 50000, 'Σ 1312 = 1223 (the simulator\'s check for 400)');
