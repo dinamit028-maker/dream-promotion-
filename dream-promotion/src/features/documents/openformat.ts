@@ -207,6 +207,15 @@ export const SUM = (code: string, count: number) => X(code, 4) + N(count, 15); /
 export const exportId = () => Array.from(crypto.getRandomValues(new Uint8Array(15)), (b, i) => (i === 0 ? 1 + (b % 9) : b % 10)).join('');
 
 /** the whole export: INI.TXT, BKMVDATA.TXT (as text) and the counts for the printed summary */
+/**
+ * Which documents have D110 lines ("פרטי מסמך", §4.4, p. 13). A receipt's details are its payments — D120 "פרטי קבלה / הפקדה"
+ * (§4.5, p. 14, the example: "ברשומה מסוג 'כותרת מסמך' – C100 תופיע רשומה אחת שתכיל את נתוני כותרת הקבלה. בנוסף לכך יופיעו 5
+ * רשומות, אחת לכל המחאה מסוג רשומה 'פרטי קבלה/הפקדה' – D120" — no D110). The Tax Authority's simulator (25.11.2026, the sample of
+ * 2.117.0) refused every D110 of a 400 ("לא נמצאה רשומת כותרת מסמך", field 1250) and counted them as "D110 ללא התאמה". So a receipt
+ * (400) and a bank deposit (420 — D120 is its record too; not produced yet) are written C100 + D120 only; their C100 is unchanged
+ * (1219–1224 come from the document, not from its lines), and the document keeps its lines. A 320 (invoice and receipt) keeps both.
+ */
+export const NO_D110 = new Set([400, 420]);
 /** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf) */
 export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string> }) {
   const id = o.id ?? exportId();
@@ -217,7 +226,7 @@ export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: {
   recs.push(A100(1, b, id));
   for (const d of docs.filter((x) => x.docDate >= o.from && x.docDate <= o.to).sort((a, z) => a.docType - z.docType || a.docNumber - z.docNumber)) {
     recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes))); counts.C100++;
-    d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1)); counts.D110++; });
+    if (!NO_D110.has(d.docType)) d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1)); counts.D110++; });
     filePayments(d).forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1)); counts.D120++; });
   }
   recs.push(Z900(recs.length + 1, b, id, recs.length + 1));
