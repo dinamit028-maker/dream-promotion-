@@ -216,8 +216,8 @@ export function AppointmentsScreen() {
     return () => window.removeEventListener(NEW_APPOINTMENT_EVENT, onNew);
   });
   useEffect(() => {
-    if (newAsked && !first) { setNewAsked(false); window.dispatchEvent(new Event(NEW_APPOINTMENT_EVENT)); }
-  }, [newAsked, first]);
+    if (newAsked && !first) { setNewAsked(false); if (!error) window.dispatchEvent(new Event(NEW_APPOINTMENT_EVENT)); }   // a failed load: its error, not the services tab
+  }, [newAsked, first, error]);
   const viewSub = view === 'list'
     ? `${active.filter((a) => a.start >= new Date().toISOString()).length} תורים קרובים`
     : `${apptCount(shownAppts.filter((a) => a.status !== 'cancelled' && (view !== 'day' || dayOf(a.start) === date)).length)} ${view === 'day' ? 'ביום הזה' : view === 'week' ? 'בשבוע הזה' : 'בחודש הזה'}`;
