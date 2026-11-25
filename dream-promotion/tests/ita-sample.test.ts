@@ -18,7 +18,7 @@ const t = (name: string, fn: () => void | Promise<void>) => test(name, async () 
 
 const read = (f: string) => readFileSync(join(dir, f));
 const lines = (b: Buffer) => { const s = b.toString('latin1'); assert.ok(s.endsWith('\r\n')); return s.slice(0, -2).split('\r\n'); };
-const LEN: Record<string, number> = { A100: 95, C100: 444, D110: 339, D120: 222, Z900: 110 };
+const LEN: Record<string, number> = { A100: 95, B110: 376, C100: 444, D110: 339, D120: 222, Z900: 110 };   // B110 from 2.117.4 (the simulator, 25.11.2026)
 
 t('ISO-8859-8: only valid bytes (ASCII printable, Hebrew letters E0-FA), CRLF after every line', () => {
   for (const f of ['INI.TXT', 'BKMVDATA.TXT']) {
@@ -59,7 +59,7 @@ t('INI: A000 is 466, each summary line 19; summaries equal the real counts; 1002
   const sums = ini.slice(1);
   assert.ok(sums.length > 0);
   for (const s of sums) { assert.equal(s.length, 19); assert.equal(Number(s.slice(4)), counts[s.slice(0, 4).trim()], s); }
-  assert.deepEqual(sums.map((s) => s.slice(0, 4)).sort(), ['C100', 'D110', 'D120']);
+  assert.deepEqual(sums.map((s) => s.slice(0, 4)).sort(), ['B110', 'C100', 'D110', 'D120']);
   const total = Number(ini[0].slice(9, 24));                        // 1002
   assert.equal(total, bk.length);
   assert.equal(Number(bk[bk.length - 1].slice(45, 60)), bk.length); // Z900 total (after 4+9+9+15+8 = 45)
