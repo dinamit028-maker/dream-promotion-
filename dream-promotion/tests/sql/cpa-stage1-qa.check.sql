@@ -51,13 +51,17 @@ create or replace function pg_temp.back(p_amount numeric, p_base text, p_extra j
     'lines', jsonb_build_array(jsonb_build_object('name', 'החזר', 'qty', 1, 'unitPriceExVat', -p_amount, 'discountExVat', 0, 'totalExVat', -p_amount, 'vatRate', 0, 'kind', 1)),
     'payments', jsonb_build_array(jsonb_build_object('method', 1, 'amount', -p_amount, 'date', public.il_today())))) || p_extra;
 $$;
--- refused as a repeat of the same key: by the unique key itself, or by a rule that answers just before it (the ceiling / "one refund, one
--- refund receipt") — which one answers first is the migration's order; what must hold: refused, and nothing issued
+-- refused as a repeat of the same key: only by the unique key itself (documents_idempotency_uq, 23505) — documents_validate lets a
+-- refund receipt whose key is already issued through unchecked (6800), so issueDocumentRow sees the duplicate and reads back the
+-- receipt it issued; no rule (the ceiling, "one refund, one refund receipt") may answer first. Nothing is issued.
 create or replace function pg_temp.refused_as_repeat(stmt text, msg text) returns void language plpgsql as $$
-declare m text := pg_temp.refusal(stmt);
 begin
-  if m is null then raise exception 'CHECK FAILED: % (it was allowed)', msg; end if;
-  if m not like '%idempotency%' and m not like 'refund_receipt_over%' and m not like 'refund_receipt_refund%' then raise exception 'CHECK FAILED: % (refused, but with "%")', msg, m; end if;
+  execute stmt;
+  raise exception 'CHECK FAILED: % (it was allowed)', msg;
+exception when others then
+  if sqlerrm like 'CHECK FAILED%' then raise; end if;
+  if sqlstate <> '23505' or position('documents_idempotency_uq' in sqlerrm) = 0 then
+    raise exception 'CHECK FAILED: % (refused, but with % "%")', msg, sqlstate, sqlerrm; end if;
 end $$;
 
 insert into auth.users (id, email) values

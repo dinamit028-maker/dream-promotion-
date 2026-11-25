@@ -144,6 +144,13 @@ begin
   -- 2.118 (the accountant, answer 15): an exempt dealer refunds with a receipt of a negative total, pointing to the receipt it
   -- refunds — never more than that receipt less the refund receipts already on it (in a lock)
   refund_receipt := new.doc_type = 400 and new.total < 0;
+  -- a retry of a refund receipt already issued (the same key — a double tap, a lost answer, a second tab): no check of it here;
+  -- the insert reaches the unique key (documents_idempotency_uq, 23505) and the app reads back the receipt it issued
+  if refund_receipt and new.idempotency_key is not null
+     and exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key) then
+    new.doc_date := coalesce(new.doc_date, public.il_today());
+    return new;
+  end if;
   if refund_receipt then
     if ent is distinct from 'exempt_dealer' then
       raise exception 'refund_receipt_not_exempt: קבלה במינוס (החזר כספי) — רק לעוסק פטור. עוסק מורשה וחברה מפיקים חשבונית מס זיכוי (330)'
@@ -198,10 +205,8 @@ begin
     -- the register's / an order's refund: the same money, of the same sale
     if new.refund_id is not null then
       select id, sale_id, amount into rf from public.sale_refunds where id = new.refund_id;
-      -- one refund, one refund receipt, whatever its key. A retry with the same key is left to the unique key (23505), so the
-      -- app reads back the receipt it already issued
-      if exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = new.refund_id)
-         and not exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key) then
+      -- one refund, one refund receipt, whatever its key (a retry with the same key never gets here — above)
+      if exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = new.refund_id) then
         raise exception 'refund_receipt_refund: להחזר הזה כבר הופקה קבלה במינוס' using errcode = '23514'; end if;
       if rf.amount is distinct from -new.total then
         if cashier then raise exception 'refund_receipt_refund: סכום הקבלה במינוס שונה מסכום ההחזר' using errcode = '23514'; end if;
