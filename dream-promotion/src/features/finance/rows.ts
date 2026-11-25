@@ -119,15 +119,18 @@ export function financeError(e: unknown): string {
 }
 
 /**
- * 2.118: the refusal of a refund receipt (a 400 below zero). Until migration 20261125006800 runs on the database, its old checks
- * refuse every amount below zero ("totals: amounts are positive …") — then say so plainly: the refund itself was recorded (the
- * caller says that), only its receipt waits for the update. Anything else — financeError.
+ * 2.118: the refusal of a refund receipt (a 400 below zero) — call these ONLY for a refund receipt. Until migration 20261125006800
+ * runs on the database, its old checks (documents_validate of 20261011005000) refuse it: first a base document on a receipt
+ * ("only a credit invoice points to a base document (or a document made from an order or a delivery note)"), and without one
+ * "totals: amounts are positive and the total is above zero". Then say so plainly — and where to complete it after the update
+ * (nothing retries by itself). Anything else — financeError.
  */
-export const REFUND_RECEIPT_WAITS = 'הקבלה במינוס (החזר כספי) עוד לא זמינה — היא תעבוד אחרי עדכון מסד הנתונים (מיגרציה 20261125006800).';
+export const REFUND_RECEIPT_WAITS = 'הקבלה במינוס (החזר כספי) לא הופקה: מסד הנתונים עוד לא עודכן (מיגרציה 20261125006800). ההחזר עצמו נרשם. אחרי העדכון משלימים אותה ב"כספים ← מסמכים" — פותחים את הקבלה המקורית ולוחצים "החזר כספי".';
+const OLD_DB = /only a credit invoice points to a base document|totals: amounts are positive|each payment needs a method \(1–9\), an amount above zero/;
+/** the old database (before 6800) refused the refund receipt */
+export const refundReceiptWaits = (e: unknown) => OLD_DB.test(`${(e as any)?.message ?? e ?? ''} ${(e as any)?.details ?? ''}`);
 export function refundReceiptError(e: unknown): string {
-  const m = `${(e as any)?.message ?? e ?? ''} ${(e as any)?.details ?? ''}`;
-  if (/totals: amounts are positive|each payment needs a method \(1–9\), an amount above zero/.test(m)) return REFUND_RECEIPT_WAITS;
-  return financeError(e);
+  return refundReceiptWaits(e) ? REFUND_RECEIPT_WAITS : financeError(e);
 }
 
 export interface IssueExtra {

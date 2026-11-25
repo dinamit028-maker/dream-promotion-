@@ -202,6 +202,17 @@ select pg_temp.check((select coalesce(sum(amount), 0) from public.payments where
                    = (select -sum(total) from ita_x where total < 0), 'the refunds'' money out, once');
 select pg_temp.check(not exists (select 1 from public.document_cancellations c join ita_x x on x.id = c.document_id), 'nothing cancelled');
 
+-- every demo document was issued on its day (issued_at, Israel time = doc_date), in the order of its numbers; the seed's own
+-- trigger for it is gone
+select pg_temp.check(not exists (select 1 from public.documents where business_id in ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-000000000003')
+                                   and (issued_at at time zone 'Asia/Jerusalem')::date <> doc_date), 'issued on the day of its date');
+select pg_temp.check(not exists (select 1 from public.documents a join public.documents b on b.business_id = a.business_id and b.doc_type = a.doc_type
+                                   and b.doc_number > a.doc_number and b.issued_at < a.issued_at
+                                  where a.business_id in ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-000000000003')),
+  'issue times in the order of the numbers');
+select pg_temp.check(to_regprocedure('public.ita_demo_issued_at()') is null
+                     and not exists (select 1 from pg_trigger where tgname = 'z_ita_demo_issued_at'), 'the seed left no trigger behind');
+
 -- ---- the seed again: nothing added -----------------------------------------------------------------------------------
 \ir ita-demo.seed.sql
 select pg_temp.demo(2);

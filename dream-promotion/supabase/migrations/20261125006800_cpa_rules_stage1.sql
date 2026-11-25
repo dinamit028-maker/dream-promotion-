@@ -16,24 +16,31 @@
 --      sale_refunds row): the money out is the refund's own ledger row and stock is the refund's — the document adds neither.
 --      Without it (from the money screens, e.g. a package): documents_after_insert writes the money out (direction 'out') and
 --      brings back the lines marked "restock", like a credit invoice.
+--      A cashier (my_access() = 'register'): only on a receipt of the sale being refunded — refund_id, or sale_id with the
+--      receipt's sale_id — never "restock" without refund_id, and refusals that tell no amount or state ('cashier_refund: …').
+--      The customer's card (report_customer_ledger): the refund's money out belongs to its refund receipt, as to a 330.
 --   4. (answer 17) register_settings.deductions_file — the business's deductions file number (תיק ניכויים, unified-file field
 --      1016): nullable, 9 digits (register_settings_deductions_file_check). Saved like the other business details (the owner's
 --      upsert of register_settings, under its RLS); its change is logged (register_settings_audit, field 'deductions_file').
 --   5. (answer 13) a card payment (method 3) of a new receipt names its credit transaction kind — "cardKind", a JSON number,
 --      field 1315 of 1.31 (checked against the official text): 1 regular, 2 installments, 3 credit, 4 deferred charge,
 --      5 other. Required on every new card payment ('card_kind_missing: …'); refused on any other payment
---      ('card_kind_not_card: …'). Payments of documents issued before stay as they are.
+--      ('card_kind_not_card: …'). Payments of documents issued before stay as they are. A document of the register or a server
+--      path (sale_id set — the register, its re-issue from "הכנסות", an online order; or the key paylink:<id>) whose card payment
+--      names no kind gets cardKind 1 (an app still open on the old code after this migration runs keeps issuing).
 -- Replaces four functions (same signatures; the md5 of the old ones are in the report of 25.11.2026, compare with the live
 -- database before running):
 --   documents_validate()           of 20261011005000_cash_bank_goods.sql   (items 1, 3, 5)
 --   documents_after_insert()       of 20261011005000_cash_bank_goods.sql   (item 3)
 --   document_cancellations_check() of 20261011005000_cash_bank_goods.sql   (item 2)
 --   register_settings_audit()      of 20261004003100_dream_finance.sql     (item 4)
--- Running 5000 (or 3100) again after this one brings the old versions back — then run this one again.
+--   report_customer_ledger(text, date, date) of 20261011005100_journal_entries.sql (item 3)
+-- Running 5000, 5100 (or 3100) again after this one brings the old versions back — then run this one again.
 -- Adds: one column + its check, one function + its trigger (d_documents_issue_day). No table, no policy, no grant to the browser.
--- Deploy order: the app that sends "cardKind" on every card payment goes FIRST (the old database ignores the key); then this
--- migration. Until it runs, a refund receipt is refused by the old checks (total above zero).
--- Runs after 3100 (Dream Finance), 4900 (reports, withholding) and 5000 (goods documents) — it stops at the top without them.
+-- Deploy order: the app that sends "cardKind" goes first (the old database ignores the key); a register / server document of an
+-- app still on the old code gets cardKind 1 (above). Until this runs, a refund receipt is refused by the old checks.
+-- Runs after 3100 (Dream Finance), 4900 (reports, withholding), 5000 (goods documents) and 5100 (journal entries) — it stops at
+-- the top without them.
 
 do $$
 begin
@@ -54,6 +61,10 @@ begin
      or not exists (select 1 from pg_constraint where conname = 'documents_doc_type_check'
                      and pg_get_constraintdef(oid) like '%210%') then
     raise exception 'migration 20261125006800 runs after 20261011005000 (goods documents) — run it first; nothing was changed';
+  end if;
+  if to_regclass('public.journal_entries') is null or to_regprocedure('public.report_business(date, date)') is null
+     or to_regprocedure('public.party_key(uuid, text, text)') is null then
+    raise exception 'migration 20261125006800 runs after 20261011005100 (journal entries) — run it first; nothing was changed';
   end if;
 end $$;
 
@@ -97,7 +108,7 @@ create or replace function public.documents_validate() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   rs record; ent text; n int; bad int; s numeric; lock_end date; base record; done numeric; tgt record; mirror boolean := false;
-  refund_receipt boolean; rf record;
+  refund_receipt boolean; rf record; cashier boolean := public.my_access() = 'register';
 begin
   if new.business_id is null then raise exception 'a document must belong to a business' using errcode = '23502'; end if;
   select * into rs from public.register_settings where business_id = new.business_id;
@@ -137,20 +148,35 @@ begin
       raise exception 'refund_receipt_alone: קבלה במינוס לא משלמת חשבונית ולא מופקת מהצעה או מטיוטה' using errcode = '23514'; end if;
     if new.base_doc_type is distinct from 400 or new.base_doc_number is null then
       raise exception 'refund_receipt_base: קבלה במינוס מציינת את הקבלה שעליה ההחזר (base_doc_type 400 ומספר הקבלה)' using errcode = '23514'; end if;
+    -- a cashier (who reads no money): only the refund of a sale — its refund (refund_id), or the sale itself (sale_id) — never
+    -- products back without the refund, and no message that tells a receipt's amounts or state (cashier_refund)
+    if cashier then
+      if new.refund_id is null and new.sale_id is null then
+        raise exception 'cashier_refund: קופאי/ת מחזיר/ה כסף רק על מכירה (החזר מהקופה)' using errcode = '42501'; end if;
+      if new.refund_id is null and exists (select 1 from jsonb_array_elements(case when jsonb_typeof(new.lines) = 'array' then new.lines else '[]'::jsonb end) e
+                                            where (e->>'restock') = 'true') then
+        raise exception 'cashier_refund: החזרת מוצרים למלאי — רק בהחזר מהקופה' using errcode = '42501'; end if;
+    end if;
     select id, total, sale_id into base from public.documents
      where business_id = new.business_id and doc_type = 400 and doc_number = new.base_doc_number for update;
+    if cashier and (not found or base.sale_id is null
+                    or base.sale_id is distinct from coalesce(new.sale_id, (select x.sale_id from public.sale_refunds x where x.id = new.refund_id))) then
+      raise exception 'cashier_refund: הקבלה הזו לא שייכת למכירה של ההחזר' using errcode = '42501'; end if;
     if not found or base.total <= 0 then
       raise exception 'refund_receipt_base: הקבלה שעליה ההחזר לא נמצאה בעסק הזה' using errcode = '23514'; end if;
     if exists (select 1 from public.document_cancellations c where c.document_id = base.id) then
+      if cashier then raise exception 'cashier_refund: אי אפשר להפיק את ההחזר הזה מהקופה' using errcode = '42501'; end if;
       raise exception 'refund_receipt_base: הקבלה שעליה ההחזר בוטלה' using errcode = '23514'; end if;
     select coalesce(sum(-c.total), 0) into done from public.documents c
      where c.business_id = new.business_id and c.doc_type = 400 and c.total < 0 and c.base_doc_type = 400 and c.base_doc_number = new.base_doc_number;
     if done - new.total > base.total then
+      if cashier then raise exception 'refund_receipt_over: ההחזר גדול ממה שנשאר להחזיר על הקבלה' using errcode = '23514'; end if;
       raise exception 'refund_receipt_over: על הקבלה נשארו להחזר % ש״ח', base.total - done using errcode = '23514'; end if;
     -- the register's / an order's refund: the same money, of the same sale
     if new.refund_id is not null then
       select id, sale_id, amount into rf from public.sale_refunds where id = new.refund_id;
       if rf.amount is distinct from -new.total then
+        if cashier then raise exception 'refund_receipt_refund: סכום הקבלה במינוס שונה מסכום ההחזר' using errcode = '23514'; end if;
         raise exception 'refund_receipt_refund: סכום הקבלה במינוס (%) שונה מסכום ההחזר (%)', new.total, rf.amount using errcode = '23514'; end if;
       if base.sale_id is distinct from rf.sale_id or (new.sale_id is not null and new.sale_id is distinct from rf.sale_id) then
         raise exception 'refund_receipt_refund: ההחזר שייך למכירה אחרת מהקבלה' using errcode = '23514'; end if;
@@ -231,6 +257,14 @@ begin
     if abs(s - new.total) > 0.01 then raise exception 'payments: % paid but the document says %', s, new.total using errcode = '23514'; end if;
     -- 2.118 (the accountant, answer 13): a card payment names its credit transaction kind (field 1315): 1 regular, 2 installments,
     -- 3 credit, 4 deferred charge, 5 other — asked when the document is issued; no other payment carries one
+    -- a document the register or a server path makes (a sale's: sale_id — the register, its re-issue from "הכנסות", an online
+    -- order; a payment link's receipt: paylink:<id>) whose card payment names no kind — an app still open on the code before
+    -- 2.118 — gets 1 (regular); a kind that is there is checked as any. Everything else (composed by hand) must name it.
+    if (new.sale_id is not null or coalesce(new.idempotency_key, '') like 'paylink:%')
+       and exists (select 1 from jsonb_array_elements(new.payments) p where p->>'method' = '3' and not (p ? 'cardKind')) then
+      select jsonb_agg(case when p->>'method' = '3' and not (p ? 'cardKind') then p || '{"cardKind": 1}'::jsonb else p end order by o)
+        into new.payments from jsonb_array_elements(new.payments) with ordinality x(p, o);
+    end if;
     if exists (select 1 from jsonb_array_elements(new.payments) p
                 where p->>'method' = '3' and (jsonb_typeof(p->'cardKind') is distinct from 'number' or coalesce(p->>'cardKind', '') !~ '^[1-5]$')) then
       raise exception 'card_kind_missing: בתשלום בכרטיס אשראי בוחרים את סוג העסקה — רגיל, תשלומים, קרדיט, חיוב נדחה או אחר (cardKind 1–5)'
@@ -353,6 +387,69 @@ begin
 end $$;
 revoke execute on function public.documents_after_insert() from public, anon, authenticated;
 
+-- ---- 3. the customer's card: report_customer_ledger (20261011005100's) ---------------------------------------------------------
+-- The money out of a register's / an order's refund (sale_refunds — no document of its own) is the customer's through the document
+-- of that refund: a credit invoice (330) as before, and (2.118) an exempt dealer's refund receipt (a 400 below zero with refund_id).
+-- Without it, the refund receipt lowered the card's balance and its money out was nowhere: −X after a full refund. Nothing else
+-- changes.
+create or replace function public.report_customer_ledger(p_key text, p_from date, p_to date) returns jsonb
+language plpgsql stable set search_path = public as $$
+declare b uuid := public.report_business(p_from, p_to); res jsonb;
+begin
+  if coalesce(p_key, '') !~ '^(l|d|n):' then raise exception 'customer: a key' using errcode = '22023'; end if;
+  with docs as (
+    select doc.id, doc.doc_type, doc.doc_number, doc.doc_date, doc.issued_at, doc.total, doc.paid_document_id, doc.refund_id, doc.lead_id, doc.customer_name,
+           public.party_key(doc.lead_id, doc.customer_dealer, doc.customer_name) as k,
+           (select c.created_at from public.document_cancellations c where c.document_id = doc.id) as cancelled_at
+      from public.documents doc where doc.business_id = b
+  ), mine as (
+    select * from docs where k = p_key
+  ), mv as (
+    -- a tax invoice-receipt (320) or a receipt (400) that pays an invoice charges nothing again: the invoice did
+    select doc_date as day, issued_at as at, 'charge' as kind, doc_type, doc_number, total as debit, 0::numeric as credit, '' as method, id::text as rid
+      from mine where doc_type in (300, 305) or (doc_type in (320, 400) and paid_document_id is null)
+    union all
+    select doc_date, issued_at, 'credit', doc_type, doc_number, 0, total, '', id::text from mine where doc_type = 330
+    union all
+    select (cancelled_at at time zone 'Asia/Jerusalem')::date, cancelled_at, 'cancelled', doc_type, doc_number, 0, total, '', id::text
+      from mine where cancelled_at is not null and (doc_type = 300 or (doc_type = 400 and paid_document_id is null))
+    union all
+    select p.paid_on, p.created_at, 'payment_' || p.source, x.doc_type, x.doc_number,
+           case when p.direction = 'out' then p.amount else 0 end, case when p.direction = 'in' then p.amount else 0 end, p.method, p.id::text
+      from public.payments p
+      join lateral (select m.doc_type, m.doc_number from mine m
+                     where m.id = coalesce(p.document_id, (select r.id from public.documents r where r.refund_id = p.refund_id
+                                                       and (r.doc_type = 330 or (r.doc_type = 400 and r.total < 0)) limit 1), p.applies_to)
+                     limit 1) x on true
+     where p.business_id = b and p.source in ('document', 'credit', 'cancel', 'refund')
+    union all
+    -- 2.96 (T13א): a manual entry of this customer — owed more when it is positive, less when it is negative
+    select j.entry_date, j.created_at, 'manual', null::int, j.number, greatest(j.amount + j.vat, 0), greatest(-(j.amount + j.vat), 0), '', j.id::text
+      from public.journal_entries j
+     where j.business_id = b and j.party_kind = 'customer' and public.party_key(j.lead_id, j.party_dealer, j.party_name) = p_key
+  ), op as (
+    select coalesce(sum(debit - credit), 0) as opening from mv where day < p_from
+  ), rw as (
+    select mv.*, op.opening + sum(debit - credit) over (order by day, at, kind, rid rows unbounded preceding) as balance
+      from mv, op where day between p_from and p_to
+  )
+  select jsonb_build_object('key', p_key, 'from', p_from, 'to', p_to,
+           'name', coalesce((select l.name from public.leads l where p_key like 'l:%' and l.id::text = substr(p_key, 3)),
+                            (select m.customer_name from mine m order by m.doc_date desc, m.issued_at desc limit 1),
+                            (select j.party_name from public.journal_entries j where j.business_id = b and j.party_kind = 'customer'
+                                and public.party_key(j.lead_id, j.party_dealer, j.party_name) = p_key order by j.entry_date desc, j.created_at desc limit 1), ''),
+           'opening', (select opening from op),
+           'debit', coalesce((select sum(debit) from rw), 0), 'credit', coalesce((select sum(credit) from rw), 0),
+           'closing', (select opening from op) + coalesce((select sum(debit - credit) from rw), 0),
+           'rows', coalesce((select jsonb_agg(jsonb_build_object('date', day, 'kind', kind, 'docType', doc_type, 'docNumber', doc_number,
+                     'debit', debit, 'credit', credit, 'method', method, 'balance', balance,
+                     'note', case when kind = 'manual' then (select j.explanation from public.journal_entries j where j.id::text = rw.rid) else '' end)
+                     order by day, at, kind, rid) from rw), '[]'::jsonb))
+    into res;
+  return res;
+end $$;
+-- (security invoker, as before: the grants of 4900 / 5100 stay)
+
 -- ---- 2. cancellations (20261011005000's): no longer a receipt (the accountant, answer 8) ----------------------------------------
 -- Cancelling by marking — only a document that is neither a tax invoice nor a receipt: an order, a delivery note, a return note
 -- and a transaction invoice (100 / 200 / 210 / 300), with their conditions as before. A receipt is refunded (an exempt dealer:
@@ -396,7 +493,8 @@ revoke execute on function public.document_cancellations_check() from public, an
 -- change them. To go back:
 --   drop trigger if exists d_documents_issue_day on public.documents; drop function if exists public.documents_issue_day();
 --   then run again, from 20261011005000_cash_bank_goods.sql, documents_validate(), documents_after_insert() and
---   document_cancellations_check() (with their revoke lines), and from 20261004003100_dream_finance.sql register_settings_audit().
+--   document_cancellations_check() (with their revoke lines), from 20261004003100_dream_finance.sql register_settings_audit(),
+--   and from 20261011005100_journal_entries.sql report_customer_ledger().
 --   The column may stay (nothing else reads it); to remove it as well:
 --   alter table public.register_settings drop constraint if exists register_settings_deductions_file_check;
 --   alter table public.register_settings drop column if exists deductions_file;

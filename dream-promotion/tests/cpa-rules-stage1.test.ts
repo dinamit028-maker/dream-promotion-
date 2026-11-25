@@ -20,7 +20,15 @@ import {
 import { A000, B110, C100, D120, accountsOf, buildOpenFormat, cardKindField, deductionsFileField, docTypeReport, type Doc } from '../src/features/documents/openformat';
 import { CARD_KIND_MISSING, composeDocument, composeReceipt, composeRefundReceipt, docDateErrors, docInvariants, paymentErrors } from '../src/features/finance/compose';
 import { CARD_KINDS, isCardKind, payCode, toDocPayment } from '../src/features/finance/payments';
-import { REFUND_RECEIPT_WAITS, financeError, refundReceiptError } from '../src/features/finance/rows';
+import { REFUND_RECEIPT_WAITS, financeError, refundReceiptError, refundReceiptWaits } from '../src/features/finance/rows';
+import { cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from '../src/features/finance/sale-receipts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+/** the old database's (20261011005000) own refusals of a refund receipt, read from the migration as it is */
+const M5000 = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '20261011005000_cash_bank_goods.sql'), 'utf8');
+const oldRefusal = (start: string) => { const m = new RegExp(`raise exception '(${start}[^']*)'`).exec(M5000); assert.ok(m, start); return m![1]; };
+const OLD_BASE = oldRefusal('only a credit invoice points to a base document');
+const OLD_TOTALS = oldRefusal('totals: amounts are positive');
 import { documentFailure } from '../src/features/store/commerce';
 import { followKey } from '../src/features/finance/keys';
 import { fakeDb } from './fakedb';
@@ -257,7 +265,13 @@ test('answers 8 + 15: the refusals in Hebrew; before migration 6800 the refund r
   assert.match(financeError({ message: 'refund_receipt_alone: …' }), /לא משלמת חשבונית/);
   assert.match(financeError({ message: 'refund_receipt_payments: …' }), /כסף שהוחזר/);
   assert.match(financeError({ message: 'refund_receipt_refund: …' }), /לא תואמת/);
-  assert.equal(refundReceiptError({ message: 'totals: amounts are positive and the total is above zero', code: '23514' }), REFUND_RECEIPT_WAITS);
+  // the old database refuses a refund receipt first for its base (5000's documents_validate), and one without a base for its totals
+  assert.equal(refundReceiptError({ message: OLD_BASE, code: '23514' }), REFUND_RECEIPT_WAITS);
+  assert.equal(refundReceiptError({ message: OLD_TOTALS, code: '23514' }), REFUND_RECEIPT_WAITS);
+  assert.ok(refundReceiptWaits({ message: OLD_BASE }) && !refundReceiptWaits({ message: 'refund_receipt_over: 5' }));
+  // the message says where to complete it — it never promises that it happens by itself
+  assert.match(REFUND_RECEIPT_WAITS, /כספים ← מסמכים/);
+  assert.match(REFUND_RECEIPT_WAITS, /החזר כספי/);
   assert.match(refundReceiptError({ message: 'refund_receipt_over: על הקבלה נשארו להחזר 5 ש״ח' }), /נשארו ₪5/);
 });
 
@@ -313,7 +327,8 @@ test('an online order\'s refund of an exempt dealer: a refund receipt with the r
   // before 6800: the old checks refuse a total below zero — the refund is recorded, the reason is plain Hebrew
   const old = tables();
   (globalThis as any).__DP_TEST_ADMIN_DB__ = fakeDb(old, {
-    onInsert: (t, row) => (t === 'documents' && Number(row.total) <= 0 ? { code: '23514', message: 'totals: amounts are positive and the total is above zero' } : null) });
+    // as 5000's documents_validate refuses it: a base document on a receipt comes first
+    onInsert: (t, row) => (t === 'documents' && Number(row.total) <= 0 ? { code: '23514', message: row.base_doc_type != null ? OLD_BASE : OLD_TOTALS } : null) });
   const o = await recordOrderRefund(BIZ_ID, 'u1', SALE, plan);
   assert.ok(o.ok);
   if (o.ok) { assert.equal(o.credit, REFUND_RECEIPT_WAITS); assert.equal(o.receipt, true); }
@@ -345,4 +360,28 @@ test('a refund receipt prints its amounts left to right ("-80.00", not "80.00-")
   assert.ok(!/[0-9]-</.test(html), 'no amount with its minus after it');
   const pdf = await buildDocPdf(back, BIZ, { mark: 'מקור', software: 'Dream Promotion', signed: false });
   assert.ok((await pdf.save()).length > 1000, 'the PDF of a refund receipt is drawn (the isolates are not glyphs of the font)');
+});
+
+test('a sale\'s refund receipts (sale-receipts.ts): what is missing, and the same documents the register issues — so DocView can complete one', () => {
+  const r400 = { ...RECEIPT, docNumber: 21, total: 250, payments: [{ method: 1, amount: 150, date: '2026-11-20', m: 'cash' }, { method: 3, amount: 100, date: '2026-11-20', m: 'card', cardKind: 2 }] };
+  // a cancelled sale: what is left, as the receipt was paid
+  const c = cancelReceiptDoc(r400, [], '2026-11-25')!;
+  assert.deepEqual(c.payments.map((p) => [p.method, p.amount, p.cardKind]), [[1, -150, undefined], [3, -100, 2]]);
+  assert.equal(c.total, -250);
+  assert.deepEqual(docInvariants(c, 0), []);
+  // refunded in part before: one payment of what is left
+  const part = { docType: 400, total: -50, baseDocType: 400, baseDocNumber: 21, refundId: 'R1' };
+  assert.equal(cancelReceiptDoc(r400, [part], '2026-11-25')!.total, -200);
+  assert.equal(cancelReceiptDoc(r400, [{ ...part, total: -250 }], '2026-11-25'), null, 'nothing left');
+  // a refund: never beyond what is left
+  const sale = { subtotal: 250, total: 250 };
+  assert.equal(refundReceiptDoc(r400, [], { amount: 50, method: 'cash', items: [] }, sale, '2026-11-25')!.total, -50);
+  assert.equal(refundReceiptDoc(r400, [{ ...part, total: -220 }], { amount: 50, method: 'cash', items: [] }, sale, '2026-11-25'), null);
+  // missing: a refund with no refund receipt; a cancelled sale whose receipt was neither refunded nor marked "בוטל"
+  const back = { docType: 400, total: -50, baseDocType: 400, baseDocNumber: 21, refundId: 'R1' };
+  assert.deepEqual(missingSaleReceipts({ saleStatus: 'paid', refunds: [{ id: 'R1' }, { id: 'R2' }], docs: [r400, back], receiptCancelled: false }).refunds.map((r) => r.id), ['R2']);
+  assert.equal(missingSaleReceipts({ saleStatus: 'cancelled', refunds: [], docs: [r400], receiptCancelled: false }).cancel, true);
+  assert.equal(missingSaleReceipts({ saleStatus: 'cancelled', refunds: [], docs: [r400], receiptCancelled: true }).cancel, false, 'cancelled before 6800 — nothing to do');
+  assert.equal(missingSaleReceipts({ saleStatus: 'cancelled', refunds: [], docs: [r400, { ...back, refundId: null }], receiptCancelled: false }).cancel, false, 'already refunded');
+  assert.equal(missingSaleReceipts({ saleStatus: 'paid', refunds: [], docs: [r400], receiptCancelled: false }).cancel, false);
 });

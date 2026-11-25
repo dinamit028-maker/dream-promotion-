@@ -28,6 +28,9 @@ end $$;
 create or replace function pg_temp.as_user(uid text) returns void language sql as $$
   select set_config('request.jwt.claim.sub', uid, true), set_config('request.jwt.claim.role', 'authenticated', true);
 $$;
+-- the message of a refused statement (null when it was allowed)
+create or replace function pg_temp.refusal(stmt text) returns text language plpgsql as $$
+begin execute stmt; return null; exception when others then return sqlerrm; end $$;
 -- a document row the way the app sends it: one line; a receipt's payment in cash (the amount = the total)
 create or replace function pg_temp.doc(p_user text, p_type int, p_before numeric, p_vat numeric, p_rate numeric, p_extra jsonb default '{}')
 returns jsonb language sql as $$
@@ -90,6 +93,8 @@ insert into public.catalog_items (id, user_id, business_id, name, price, kind, t
   ('00000000-0000-0000-0000-0000000680c1', '00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-0000000680b1', 'קרם לדוגמה', 60, 'product', true, 10);
 insert into public.leads (id, user_id, business_id, name, phone, email) values
   ('00000000-0000-0000-0000-0000000680d1', '00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-0000000680b1', 'לקוחה לדוגמה', '050-0000001', 'client@exempt-68.example.test');
+insert into public.leads (id, user_id, business_id, name, phone, email) values
+  ('00000000-0000-0000-0000-0000000680d2', '00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-0000000680b1', 'לקוחה שנייה לדוגמה', '050-0000002', 'client2@exempt-68.example.test');
 
 -- documents as issued before 6800, in both businesses: days ago, a card payment without its kind, a receipt cancelled then
 -- (documents_validate of 6800 asks for the kind, so it is set aside for these rows only — as the old one let them in)
@@ -205,6 +210,26 @@ select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680f1', 320, 10
   'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', k, 'amount', 118, 'date', public.il_today())))))
   from generate_series(1, 5) k;
 select pg_temp.check((select count(*) from public.documents where idempotency_key like 'l:kind:%') = 5, 'the kinds 1–5: regular, installments, credit, deferred, other');
+-- the register / a server path on the code before 2.118 (no kind sent): a sale's document and a payment link's receipt get 1;
+-- the rest of the payment and a kind that is sent stay as they are; a wrong kind is refused there too
+insert into public.sales (id, user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at)
+values ('00000000-0000-0000-0000-00000006805b', '00000000-0000-0000-0000-0000000680f1', '[{"name":"שירות","price":118,"qty":1,"kind":"other"}]', 118, 118, 18, 18, 'card', 'paid', now());
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680f1', 320, 100, 18, 18, jsonb_build_object('idempotency_key', 'sale:00000000-0000-0000-0000-00000006805b',
+  'sale_id', '00000000-0000-0000-0000-00000006805b', 'source', 'pos',
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'amount', 118, 'date', public.il_today(), 'm', 'card')))));
+select pg_temp.check((select payments from public.documents where idempotency_key = 'sale:00000000-0000-0000-0000-00000006805b')
+  = jsonb_build_array(jsonb_build_object('method', 3, 'amount', 118, 'date', public.il_today(), 'm', 'card', 'cardKind', 1)), 'a register sale''s card without a kind: 1 (regular)');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680f1', 320, 100, 18, 18, jsonb_build_object('idempotency_key', 'paylink:00000000-0000-0000-0000-00000006805c',
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'amount', 100, 'date', public.il_today(), 'm', 'card'),
+                                jsonb_build_object('method', 3, 'cardKind', 2, 'amount', 18, 'date', public.il_today(), 'm', 'card')))));
+select pg_temp.check((select array_agg(p->>'cardKind' order by o) from public.documents, jsonb_array_elements(payments) with ordinality x(p, o)
+                       where idempotency_key = 'paylink:00000000-0000-0000-0000-00000006805c') = array['1', '2'], 'a payment link''s receipt: 1 where missing, the sent kind kept');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680f1', 320, 100, 18, 18, jsonb_build_object('idempotency_key', 'paylink:00000000-0000-0000-0000-00000006805d',
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 7, 'amount', 118, 'date', public.il_today())))))$$,
+  'card_kind_missing', 'a wrong kind on a server path');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680f1', 320, 100, 18, 18, jsonb_build_object('idempotency_key', 'direct:00000000-0000-0000-0000-00000006805e',
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'amount', 118, 'date', public.il_today())))))$$,
+  'card_kind_missing', 'a document composed by hand: the kind is required');
 commit;
 
 -- ======================================================================================================================
@@ -326,6 +351,57 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000000680e1');
 select pg_temp.check((select count(*) from public.payments where document_id = pg_temp.d('refund:00000000-0000-0000-0000-00000006806a')) = 0
   and (select count(*) from public.payments where sale_id = '00000000-0000-0000-0000-00000006805a' and direction = 'out') = 1
   and (select amount from public.payments where sale_id = '00000000-0000-0000-0000-00000006805a' and direction = 'out') = 50, 'the money out of the register''s refund: once');
+commit;
+
+-- a cashier: only the refund of a sale, on that sale's receipt; no restock without the refund; no amounts in a refusal
+-- (the receipts' numbers read here, by the superuser — a cashier sees only the documents of their own sales)
+create temp table n68 as select idempotency_key as k, doc_number as n from public.documents where business_id = '00000000-0000-0000-0000-0000000680b1';
+grant select on n68 to authenticated;
+create or replace function pg_temp.cb(p_amount numeric, p_base text, p_extra jsonb) returns jsonb language sql as $$
+  select pg_temp.back(p_amount, p_base) || jsonb_build_object('user_id', '00000000-0000-0000-0000-0000000680e2', 'base_doc_number', (select n from n68 where k = p_base)) || p_extra;
+$$;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000680e2');
+select pg_temp.check(public.my_access() = 'register', 'e2 is a cashier');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'e:r2', '{}'))$$,
+  'cashier_refund', 'a cashier''s refund receipt that is not of a sale');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'e:r2', '{"sale_id": "00000000-0000-0000-0000-00000006805a"}'))$$,
+  'cashier_refund', 'a cashier''s refund of a sale on another receipt');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.cb(10, 'sale:00000000-0000-0000-0000-00000006805a', jsonb_build_object(
+  'sale_id', '00000000-0000-0000-0000-00000006805a',
+  'lines', jsonb_build_array(jsonb_build_object('name', 'קרם', 'qty', 1, 'totalExVat', -10, 'restock', true, 'itemId', '00000000-0000-0000-0000-0000000680c1')))))$$,
+  'cashier_refund', 'a cashier''s restock without the refund');
+-- the sale's receipt (80) has 50 refunded: 30 left — the cashier is told no number
+select pg_temp.check(pg_temp.refusal($$select pg_temp.issue(pg_temp.cb(40, 'sale:00000000-0000-0000-0000-00000006805a', '{"sale_id": "00000000-0000-0000-0000-00000006805a"}'))$$)
+  ~ '^refund_receipt_over: [^0-9]*$', 'beyond the receipt: refused, without the amount left');
+select pg_temp.check(pg_temp.refusal($$select pg_temp.issue(pg_temp.cb(10, 'old:e:cancelled', '{"sale_id": "00000000-0000-0000-0000-00000006805a"}'))$$)
+  like 'cashier_refund:%', 'a receipt that is not the sale''s: not told it was cancelled');
+select pg_temp.issue(pg_temp.cb(30, 'sale:00000000-0000-0000-0000-00000006805a', '{"sale_id": "00000000-0000-0000-0000-00000006805a", "idempotency_key": "e:cashier-back"}'));
+commit;
+select pg_temp.check((select (direction, amount) = ('out', 30::numeric) from public.payments where document_id = (select id from public.documents where idempotency_key = 'e:cashier-back')),
+  'the cashier refunds the rest of the sale''s receipt (money out on the refund receipt)');
+
+-- the customer's card: a sale of 100, refunded in full at the register with its refund receipt — owes 0 (as with a 330)
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000680e1');
+insert into public.sales (id, user_id, lead_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at)
+values ('00000000-0000-0000-0000-00000006805f', '00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-0000000680d2',
+  '[{"name":"טיפול","price":100,"qty":1,"kind":"other"}]', 100, 100, 0, 0, 'cash', 'paid', now());
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680e1', 400, 100, 0, 0, jsonb_build_object('idempotency_key', 'sale:00000000-0000-0000-0000-00000006805f',
+  'sale_id', '00000000-0000-0000-0000-00000006805f', 'lead_id', '00000000-0000-0000-0000-0000000680d2', 'source', 'pos')));
+select pg_temp.check((public.report_customer_ledger('l:00000000-0000-0000-0000-0000000680d2', public.il_today() - 30, public.il_today())->>'closing')::numeric = 0,
+  'the card after the sale: paid, owes 0');
+insert into public.sale_refunds (id, user_id, sale_id, amount, vat_amount, method, items, restock, reason)
+values ('00000000-0000-0000-0000-00000006806b', '00000000-0000-0000-0000-0000000680e1', '00000000-0000-0000-0000-00000006805f', 100, 0, 'cash', '[]', false, 'ביקשה החזר');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000680e1', 400, -100, 0, 0, jsonb_build_object('idempotency_key', 'refund:00000000-0000-0000-0000-00000006806b',
+  'base_doc_type', 400, 'base_doc_number', pg_temp.num('sale:00000000-0000-0000-0000-00000006805f'), 'lead_id', '00000000-0000-0000-0000-0000000680d2',
+  'sale_id', '00000000-0000-0000-0000-00000006805f', 'refund_id', '00000000-0000-0000-0000-00000006806b')));
+select pg_temp.check((public.report_customer_ledger('l:00000000-0000-0000-0000-0000000680d2', public.il_today() - 30, public.il_today())->>'closing')::numeric = 0,
+  'the card after the full refund with its refund receipt: owes 0 (the refund''s money out is the refund receipt''s)');
+select pg_temp.check((select count(*) from jsonb_array_elements(public.report_customer_ledger('l:00000000-0000-0000-0000-0000000680d2', public.il_today() - 30, public.il_today())->'rows') r
+                       where r->>'kind' = 'payment_refund' and (r->>'debit')::numeric = 100) = 1, 'the refund''s money out is on the card, once');
 commit;
 
 -- a licensed business: never a receipt below zero (a credit invoice)

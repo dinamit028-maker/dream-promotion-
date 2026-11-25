@@ -48,6 +48,19 @@ do $$ begin
     alter table public.document_cancellations disable trigger b_document_cancellations_check;
   end if;
 end $$;
+-- … and each demo document is issued on its own day: issued_at (set to now() by documents_number) becomes its doc_date, Israel
+-- time, from 09:00, 9 minutes after the one before it that day — fictitious and the same on every run. Only the two demo
+-- businesses; this trigger exists inside this transaction only (dropped before the commit).
+create or replace function public.ita_demo_issued_at() returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.business_id in ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-000000000003') then
+    new.issued_at := ((new.doc_date + time '09:00')
+                      + make_interval(mins => 9 * (select count(*) from public.documents x
+                                                    where x.business_id = new.business_id and x.doc_date = new.doc_date)::int)) at time zone 'Asia/Jerusalem';
+  end if;
+  return new;
+end $$;
+create or replace trigger z_ita_demo_issued_at before insert on public.documents for each row execute function public.ita_demo_issued_at();
 
 do $$
 begin
@@ -495,6 +508,8 @@ begin
 end $$;
 
 reset role;
+drop trigger if exists z_ita_demo_issued_at on public.documents;
+drop function if exists public.ita_demo_issued_at();
 do $$ begin
   if exists (select 1 from pg_trigger where tgname = 'd_documents_issue_day' and tgrelid = 'public.documents'::regclass) then
     alter table public.documents enable trigger d_documents_issue_day;

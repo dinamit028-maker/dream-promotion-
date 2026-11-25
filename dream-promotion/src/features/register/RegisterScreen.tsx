@@ -11,7 +11,7 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { CashRegister, CornersIn, CornersOut } from '@/components/ui/Icon';
 import { phoneDigits, waLink } from '@/features/crm/crm';
 import { DocumentsTab, docInsertRow, printDocRow, toDoc, type DocRow } from '@/features/documents/DocumentsTab';
-import { DOC_LABEL, creditFor, creditForRefund, creditedTotals, docFromSale, isRefundReceipt, refundLeft as receiptLeft, refundReceiptFor, refundReceiptForRefund } from '@/features/documents/documents';
+import { DOC_LABEL, creditFor, creditForRefund, creditedTotals, docFromSale, isRefundReceipt } from '@/features/documents/documents';
 import { enablePush, needsHomeScreen, notifySale, pushKeyReady, pushSupported, sendTest } from './notifications';
 import { ShiftTab } from './ShiftTab';
 import { PosView, type CheckoutInput, type CheckoutResult, type PosItem, type TodayAppt } from './PosView';
@@ -23,7 +23,8 @@ import { METHODS, computeSale, ils, isPosSale, methodLabel, payRequestText, sale
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
 import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type Held } from './stock';
 import { billingColumns } from './billing';
-import { issueDocumentRow, refundReceiptError } from '@/features/finance/api';
+import { REFUND_RECEIPT_WAITS, financeError, issueDocumentRow, refundReceiptError, refundReceiptWaits } from '@/features/finance/api';
+import { CANCEL_NOTE, cancelReceiptDoc, refundReceiptDoc } from '@/features/finance/sale-receipts';
 import { entityOf } from '@/features/finance/rules';
 import { MIGRATION_3300, applyVariantStock, catalogError, lineName, toCatalogItem, toVariant, variantLevel, variantStockText, variantsOf, type CatalogItem, type CatalogVariant } from '@/features/catalog/catalog';
 import { PublishSwitch, type EditorFocus } from '@/features/catalog/PublishSwitch';
@@ -376,15 +377,16 @@ export function RegisterScreen() {
       const receipt = docs.find((d) => d.docType === 400 && !isRefundReceipt(d));
       if (!licensed && receipt && !exemptDealer) note = ' · הקבלה נשארת (קבלה לא מבטלים) — מה לעשות בה בעמותה: לבירור עם רואה החשבון';
       if (!licensed && receipt && exemptDealer) {
-        const left = receiptLeft(receipt, docs);
-        if (left > 0) {
-          const back = refundReceiptFor(receipt, { payments: receipt.payments.filter((p) => p.m !== 'withholding' && p.amount > 0)
-            .map((p) => ({ method: p.method, amount: p.amount, m: p.m, cardKind: p.cardKind })), docDate: israelParts(Date.now()).date, notes: 'המכירה בוטלה בקופה (נרשמה בטעות)' });
-          // a receipt refunded in part before: one line of what is left
-          const doc = Math.round(-back.total * 100) === Math.round(left * 100) ? back
-            : refundReceiptFor(receipt, { payments: [{ method: receipt.payments[0]?.method ?? 1, amount: left, m: receipt.payments[0]?.m, cardKind: receipt.payments[0]?.cardKind }], docDate: israelParts(Date.now()).date, notes: 'המכירה בוטלה בקופה (נרשמה בטעות)' });
-          const ins = await issueDocumentRow({ ...docInsertRow(userId, doc, { saleId: s.id, leadId: s.leadId, vatRate: 0 }), notes: doc.notes ?? '', idempotency_key: `cancel:${s.id}`, source: 'refund' });
-          note = !ins.ok ? ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)})` : ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`;
+        const back = cancelReceiptDoc(receipt, docs, israelParts(Date.now()).date);
+        if (back) {
+          const ins = await issueDocumentRow({ ...docInsertRow(userId, back, { saleId: s.id, leadId: s.leadId, vatRate: 0 }), notes: back.notes ?? '', idempotency_key: `cancel:${s.id}`, source: 'refund' });
+          if (ins.ok) note = ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`;
+          else if (refundReceiptWaits(ins.raw ?? ins.error)) {
+            // before migration 6800 the database refuses a refund receipt — and still cancels a receipt: as before 2.118, so the
+            // books stay right in that window (the money of the receipt goes out of the ledger)
+            const { error: ce } = await supabase().from('document_cancellations').insert({ document_id: receipt.id, user_id: userId, reason: CANCEL_NOTE });
+            note = !ce ? ` · קבלה מס׳ ${receipt.docNumber} סומנה כמבוטלת` : ` · הקבלה לא בוטלה ולא הופקה עליה קבלה במינוס (${financeError(ce)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "החזר כספי"`;
+          } else note = ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "החזר כספי"`;
         }
       }
     }
@@ -418,12 +420,14 @@ export function RegisterScreen() {
       const { data } = await supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at');
       const docs = (data ?? []).map(toDoc);
       const orig = docs.find((d) => d.docType === 400 && !isRefundReceipt(d)) ?? null;
-      if (orig && Math.round(receiptLeft(orig, docs) * 100) < Math.round(r.amount * 100)) {
-        message += ' · על הקבלה כבר הוחזר כמעט הכול — לא הופקה קבלה במינוס';
-      } else if (orig) {
-        const back = refundReceiptForRefund(orig, r, sale, israelParts(Date.now()).date);
+      const back = orig ? refundReceiptDoc(orig, docs, r, sale, israelParts(Date.now()).date) : null;
+      if (orig && !back) message += ' · על הקבלה כבר הוחזר כמעט הכול — לא הופקה קבלה במינוס';
+      else if (orig && back) {
         const ins = await issueDocumentRow({ ...docInsertRow(userId, back, { saleId: sale.id, leadId: sale.leadId, vatRate: 0 }), refund_id: r.id, idempotency_key: `refund:${r.id}`, source: 'refund' });
-        message += !ins.ok ? ` · הקבלה במינוס לא הופקה: ${refundReceiptError(ins.raw ?? ins.error)}` : ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`;
+        // not issued: nothing retries by itself — the receipt's own view completes it (DocView, the same key: never two)
+        message += ins.ok ? ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`
+          : refundReceiptWaits(ins.raw ?? ins.error) ? ` · ${REFUND_RECEIPT_WAITS}`
+          : ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${orig.docNumber} ← "החזר כספי"`;
       }
     }
     if (business.ready && licensed) {

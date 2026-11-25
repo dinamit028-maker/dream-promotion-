@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
@@ -210,6 +210,7 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
   const first = cancelSuggestion(pkg);
   // 2.118: a refund receipt (an exempt dealer's 400 below zero) — a card refund names its kind (field 1315), no default
   const [cardKind, setCardKind] = useState<CardKind | null>(null);
+  const refundKey = useRef<string | null>(null);
   const [credit, setCredit] = useState(first.credit);
   // the amount typed is the credit invoice's (route 'credit'); a refund receipt's is the money back itself (refund, below)
   const plan = cancelSuggestion(pkg, first.route === 'credit' ? credit : undefined);
@@ -278,7 +279,9 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
             payments: [{ method, amount: refund, date: today, ...(method === 'card' ? { cardKind } : {}) }], notes: `ביטול חבילה: ${reason.trim()}`.slice(0, 300) });
           if (!r.ok) { setErrors(r.errors); return; }
           if (!window.confirm(`להפיק קבלה במינוס (החזר כספי) על ${ils(-r.doc.total)} ולבטל את החבילה? הקבלה המקורית נשארת כמו שהיא.`)) return;
-          const out = await issueDocumentRow(documentRow(r.doc, { userId, idempotencyKey: followKey('refund', base.id, priorDocs.length), vatRate: 0, leadId: pkg.leadId, source: 'refund' }));
+          // the key — fixed the first time this dialog issues (a lost answer and a second tap: the same refund receipt, never two)
+          refundKey.current ??= followKey('refund', base.id, priorDocs.length);
+          const out = await issueDocumentRow(documentRow(r.doc, { userId, idempotencyKey: refundKey.current, vatRate: 0, leadId: pkg.leadId, source: 'refund' }));
           if (!out.ok) { setErrors([refundReceiptError(out.raw ?? out.error)]); return; }
           if (out.again) { setErrors(['כבר הופקה קבלה במינוס על הקבלה הזו, כנראה ממכשיר אחר. סגרו ופתחו שוב כדי לראות מה נשאר.']); return; }
           back = out.doc; setIssued(out.doc);

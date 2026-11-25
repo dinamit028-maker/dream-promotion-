@@ -7,6 +7,10 @@ import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { waLink } from '@/features/crm/crm';
 import { DOC_LABEL, creditedTotals, isRefundReceipt, refundLeft, toDoc, type DocRow } from '@/features/documents/documents';
+import { cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from './sale-receipts';
+import { toRefund } from '@/features/register/refunds';
+import { saleFromRow } from '@/features/store/commerce';
+import { israelParts } from '@/lib/il-time';
 import { docBody, printDocRow } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
 import { composeCredit, composeReceipt, composeRefundReceipt, type CreditMode } from './compose';
@@ -158,6 +162,9 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
       {/* a register sale's document is cancelled / refunded with its sale (money and stock come back with it) */}
       {doc.docType === 300 && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">המסמך הופק ממכירה בקופה — מבטלים אותו מהעסקה עצמה (קופה ← מכירות ודוחות), כדי שגם הכסף והמלאי יחזרו.</p>}
       {doc.docType === 400 && !isRefundReceipt(doc) && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">הקבלה הופקה ממכירה (בקופה או באתר) — החזר כספי עושים מהעסקה עצמה (קופה ← מכירות ודוחות, או דף ההזמנה), כדי שגם המלאי יחזור. שם תופק הקבלה במינוס.</p>}
+      {doc.docType === 400 && !isRefundReceipt(doc) && !cancelled && doc.saleId && settings.entity === 'exempt_dealer' && (
+        <SaleReceiptsDue key={`${doc.id}:${refunded?.count ?? 0}`} doc={doc} onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${d.docNumber} · ${ils(-d.total)}`)} />
+      )}
       {alloc && (alloc.state.kind === 'missing' || alloc.state.kind === 'error' || alloc.state.kind === 'test') && (
         <div className="mt-3 grid gap-2 rounded-2xl border border-line p-3 text-sm">
           <p><strong>מספר הקצאה:</strong> {alloc.state.kind === 'missing' ? alloc.state.reason : alloc.state.kind === 'error' ? `הבקשה האחרונה נכשלה — ${alloc.state.message}` : 'יש רק מספר בדיקה (סביבת בדיקות).'}
@@ -354,6 +361,62 @@ function RefundReceiptDialog({ doc, left, count, onClose, onIssued }: { doc: Doc
       {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
       <div className="mt-4 flex gap-2"><Button variant="primary" disabled={busy} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת קבלה במינוס'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>
     </Modal>
+  );
+}
+
+/**
+ * 2.118: a sale's receipt whose refund receipt did not go out when the sale was cancelled or refunded (the database refused it before
+ * migration 6800, or the answer was lost) — completed here, on the same key the register used (cancel:<sale> / refund:<refund id>),
+ * so it can never be issued twice. The builders are the register's own (sale-receipts.ts).
+ */
+function SaleReceiptsDue({ doc, onIssued }: { doc: DocRow; onIssued: (d: DocRow) => void }) {
+  const { userId } = useFinance();
+  const [due, setDue] = useState<{ sale: any; refunds: any[]; cancel: boolean; docs: DocRow[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const sb = supabase();
+    const [sl, rf, ds] = await Promise.all([
+      sb.from('sales').select('*').eq('id', doc.saleId!).maybeSingle(),
+      sb.from('sale_refunds').select('*').eq('sale_id', doc.saleId!),
+      sb.from('documents').select('*').eq('sale_id', doc.saleId!).order('issued_at'),
+    ]);
+    if (sl.error || rf.error || ds.error || !sl.data) { setDue(null); return; }
+    const docs = ((ds.data ?? []) as any[]).map(toDoc);
+    const m = missingSaleReceipts({ saleStatus: sl.data.status, refunds: (rf.data ?? []) as any[], docs, receiptCancelled: false });
+    setDue({ sale: sl.data, refunds: m.refunds, cancel: m.cancel, docs });
+  }, [doc.saleId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!due || (!due.refunds.length && !due.cancel)) return null;
+  async function go() {
+    if (!due) return;
+    setBusy(true); setError(null);
+    const today = todayIL();
+    const sale = saleFromRow(due.sale);
+    let docs = due.docs;
+    let last: DocRow | null = null;
+    const jobs = [...due.refunds.map((r) => ({ refund: toRefund(r) })), ...(due.cancel ? [{ refund: null }] : [])];
+    for (const j of jobs) {
+      const back = j.refund ? refundReceiptDoc(doc, docs, j.refund, sale, today) : cancelReceiptDoc(doc, docs, today);
+      if (!back) continue;
+      const row = { ...documentRow(back, { userId, idempotencyKey: j.refund ? `refund:${j.refund.id}` : `cancel:${sale.id}`, vatRate: 0, saleId: sale.id,
+        leadId: sale.leadId, refundId: j.refund?.id ?? null, source: 'refund' }) };
+      const out = await issueDocumentRow(row);
+      if (!out.ok) { setError(refundReceiptError(out.raw ?? out.error)); break; }
+      docs = [...docs, out.doc]; last = out.doc;
+    }
+    setBusy(false);
+    if (last) onIssued(last); else void load();
+  }
+  // each refund with its day: the refund receipt is dated today (answer 16) — the owner sees what it is for before issuing it
+  const what = [...(due.cancel ? ['המכירה בוטלה בקופה'] : []),
+    ...due.refunds.map((r) => `החזר של ${ils(Number(r.amount))} מ-${r.created_at ? israelParts(Date.parse(r.created_at)).date.split('-').reverse().join('/') : ''}`)];
+  return (
+    <div className="mt-3 grid gap-2 rounded-2xl border border-line p-3 text-sm">
+      <p><strong>חסרה קבלה במינוס:</strong> {what.join(' · ')} — והקבלה במינוס לא הופקה אז. היא תופק בתאריך של היום.</p>
+      {error && <Note tone="warn">{error}</Note>}
+      <div><Button size="sm" variant="primary" disabled={busy} onClick={() => void go()}>{busy ? <Spinner /> : 'הפקת הקבלה במינוס'}</Button></div>
+    </div>
   );
 }
 

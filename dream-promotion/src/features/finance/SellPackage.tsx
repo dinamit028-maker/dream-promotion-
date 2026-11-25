@@ -134,7 +134,7 @@ export function SellPackageDialog({ leadId, existing, basics: given, onClose, on
       if (!basics.ready) { setErrors(['חסרים פרטי העסק למסמכים (מספר עוסק) — ממלאים בהגדרות הכספים.']); return; }
       composed = composeDocument({ docType, entity: basics.entity, vatRate: basics.vatRate, pricesIncludeVat: true,
         lines: [packageDocLine(pkg!.name, sessions, price, pkg!.id)], customer: customerOf(customer), payments: payNow ? payments : [],
-        docDate: today, dueDate: payNow ? null : dueDate, notes: '', today });
+        docDate: todayIL(), dueDate: payNow ? null : dueDate, notes: '', today: todayIL() });   // the day it is issued — taken now (2.118)
       if (!composed.ok) { setErrors(composed.errors); return; }
     }
     const what = `"${pkg!.name}" (${sessionsLabel(sessions)}) ל${customer.name} ב-${ils(price)}`;
