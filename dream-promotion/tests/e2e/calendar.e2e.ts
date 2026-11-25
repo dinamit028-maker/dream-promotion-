@@ -501,10 +501,9 @@ async function main() {
       await p.page.getByText('מטפל/ת: קרין בן ניזרי · שינוי והיסטוריה ›').first().waitFor();
       await p.page.getByText(/^היום · /).waitFor();
       await fits(p.page, 'the list');
-      // the device remembers the view
+      // 2.117.3: the device does not remember the view — every entry opens on the day
       await goto(p.page, '/appointments');
-      await p.page.getByRole('tab', { name: 'רשימה', selected: true }).waitFor({ timeout: 60_000 });
-      await p.page.getByRole('tab', { name: 'יום' }).click();
+      await p.page.getByRole('tab', { name: 'יום', selected: true }).waitFor({ timeout: 60_000 });
     });
 
     // ------------------------------------------------------------------------------------------------- a computer --
