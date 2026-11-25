@@ -9,6 +9,11 @@
 --   300 (some paid by a 320, some cancelled), 400 (receipts for 305 — whole, in two parts, with tax withheld at source; some
 --   cancelled and issued again), 330 (credits of 320 — a full mirror or a part — and of 305 — a part).
 -- Enough for a BKMVDATA of more than 2,000 records (C100 + D110 + D120; see tests/sql/ita-demo.check.sql).
+-- 2.118: a second demo business, "עוסקת פטורה - דמו" (exempt dealer, dealer number 000000117 — fictional (leading zeros), a valid
+-- check digit; id d3e00000-0000-4000-8000-000000000003, owner …00a3): only receipts (400) — about 30 over the same months,
+-- paid in cash / transfer / Bit (method 4, as payments.ts) / card (with its kind, field 1315) — and two refund receipts (400 below
+-- zero on the receipt, base_doc_type 400 + base_doc_number — the accountant, answer 15): one partial, back to the card; one full,
+-- in cash. No tax invoice. scripts/ita-sample.mjs makes its files with ITA_BUSINESS=d3e00000-0000-4000-8000-000000000003.
 --
 -- How: every document is a plain insert into public.documents by the demo owner signed in (role authenticated + JWT subject),
 -- through every trigger (numbering, issuer snapshot, documents_validate, the ledger, the audit log) — the number, the issue time
@@ -77,6 +82,27 @@ insert into public.business_finance_profile (business_id, user_id, trading_name,
           'ita-demo@example.test', 'בנק דמו', '123', '123456', 'net_30', 'מסמך לדוגמה - נתוני דמו בלבד', 'bimonthly')
   on conflict (business_id) do nothing;
 
+-- ---- the second demo business: an exempt dealer (2.118; fixed ids; nothing that exists is changed) --------------------------
+insert into auth.users (id, email) values ('d3e00000-0000-4000-8000-0000000000a3', 'ita-demo-exempt@example.test')
+  on conflict (id) do nothing;
+insert into public.businesses (id, name, slug) values ('d3e00000-0000-4000-8000-000000000003', 'עוסקת פטורה - דמו', 'ita-demo-exempt')
+  on conflict (id) do nothing;
+insert into public.business_members (business_id, user_id, role, access)
+  values ('d3e00000-0000-4000-8000-000000000003', 'd3e00000-0000-4000-8000-0000000000a3', 'owner', 'full')
+  on conflict do nothing;
+update public.profiles set current_business_id = 'd3e00000-0000-4000-8000-000000000003'
+ where id = 'd3e00000-0000-4000-8000-0000000000a3' and current_business_id is distinct from 'd3e00000-0000-4000-8000-000000000003';
+insert into public.register_settings (user_id, business_id, business_type, vat_rate, dealer_number, company_number, legal_name,
+                                      street, house_no, city, zip, entity_type)
+  values ('d3e00000-0000-4000-8000-0000000000a3', 'd3e00000-0000-4000-8000-000000000003', 'exempt', 0, '000000117', '',
+          'עוסקת פטורה - דמו', 'הדוגמה', '5', 'עיר דוגמה', '0000000', 'exempt_dealer')
+  on conflict (business_id) do nothing;
+insert into public.business_finance_profile (business_id, user_id, trading_name, phone, email, bank_name, bank_branch, bank_account,
+                                             payment_terms, doc_note, vat_period)
+  values ('d3e00000-0000-4000-8000-000000000003', 'd3e00000-0000-4000-8000-0000000000a3', 'סטודיו פטור דמו', '03-0000010',
+          'ita-demo-exempt@example.test', 'בנק דמו', '123', '000789', 'immediate', 'מסמך לדוגמה - נתוני דמו בלבד', 'bimonthly')
+  on conflict (business_id) do nothing;
+
 -- ---- helpers (this session only) ---------------------------------------------------------------------------------------
 -- a fixed pseudo-random number of a text (the same on every database)
 create or replace function pg_temp.ita_h(t text) returns int language sql immutable as $$
@@ -133,7 +159,7 @@ begin
     when 'card'     then jsonb_build_object('method', 3, 'cardKind', 1, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'card')
     when 'transfer' then jsonb_build_object('method', 4, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'transfer')
     when 'cheque'   then jsonb_build_object('method', 2, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'cheque', 'cheque', cheque)
-    when 'bit'      then jsonb_build_object('method', 9, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'bit')
+    when 'bit'      then jsonb_build_object('method', 4, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'bit')  -- Bit = 4 (רו״ח, תשובה 12)
     when 'other'    then jsonb_build_object('method', 9, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'other')
     else null end;
   if one is not null then return jsonb_build_array(one); end if;
@@ -380,6 +406,92 @@ begin
         values (r.id, B, U, 'קבלה הופקה בטעות - סכום שגוי');
     end loop;
   end loop;
+end $$;
+
+-- ---- the exempt dealer's documents, as its owner (2.118) ---------------------------------------------------------------------
+create or replace function pg_temp.ita_issue_x(k text, r jsonb) returns uuid language plpgsql as $$
+declare cols text; id uuid;
+begin
+  select d.id into id from public.documents d where d.business_id = 'd3e00000-0000-4000-8000-000000000003' and d.idempotency_key = k;
+  if id is not null then return id; end if;
+  r := r || jsonb_build_object('idempotency_key', k, 'user_id', 'd3e00000-0000-4000-8000-0000000000a3',
+                               'business_id', 'd3e00000-0000-4000-8000-000000000003', 'doc_number', 0);
+  select string_agg(quote_ident(x), ', ') into cols from jsonb_object_keys(r) x;
+  execute format('insert into public.documents (%s) select %s from jsonb_populate_record(null::public.documents, $1) returning id', cols, cols)
+    using r into id;
+  return id;
+end $$;
+
+set local "request.jwt.claim.sub" = 'd3e00000-0000-4000-8000-0000000000a3';
+
+do $$
+declare
+  B constant uuid := 'd3e00000-0000-4000-8000-000000000003';
+  -- an exempt dealer's price list (no VAT, agorot)
+  menu constant jsonb := '[
+    {"name":"שיעור יוגה פרטי","unit":25000},{"name":"כרטיסייה 5 שיעורים","unit":60000},{"name":"שיעור קבוצתי","unit":6000},
+    {"name":"סדנת נשימה","unit":18000},{"name":"ייעוץ תזונה","unit":30000},{"name":"מזרן יוגה","unit":12000}]';
+  people constant jsonb := '[
+    {"n":"אורנה דוגמה","p":"050-0000021"},{"n":"בתיה דוגמה","p":"050-0000022"},{"n":"גאיה דוגמה","p":"050-0000023"},
+    {"n":"דורית דוגמה","p":"050-0000024"},{"n":"הדס דוגמה","p":"050-0000025"},{"n":"ורד דוגמה","p":"050-0000026"},
+    {"n":"זהבה דוגמה","p":"050-0000027"},{"n":"חנה דוגמה","p":"050-0000028"}]';
+  d date; k int; j int; nn int; hh int; c int; key text; items jsonb; cust jsonb; calc jsonb; pay jsonb; amt bigint; s text;
+  r record; back bigint; n_back int;
+begin
+  if exists (select 1 from public.documents x where x.business_id = B) then
+    raise notice 'ita-demo: the exempt dealer is already seeded — nothing added';
+    return;
+  end if;
+
+  for d in select g::date from generate_series(date '2026-06-01', date '2026-10-31', interval '1 day') g loop
+    continue when extract(isodow from d) = 6;   -- closed on Saturday
+    s := to_char(d, 'YYYY-MM-DD');
+
+    -- a receipt (400) about one day in five: one or two lines, paid in cash / transfer / Bit / card (card: its kind)
+    if pg_temp.ita_h('x400:' || d) % 5 = 0 then
+      key := format('direct:ita-exempt-%s-400-1', to_char(d, 'YYYYMMDD')); hh := pg_temp.ita_h(key);
+      items := '[]'; nn := 1 + hh % 2;
+      for j in 1..nn loop items := items || jsonb_build_array(menu->(pg_temp.ita_h(key || ':' || j) % 6) || '{"qty":1}'); end loop;
+      calc := pg_temp.ita_compute(items, false, 0, 0);
+      amt := round((calc->>'total')::numeric * 100)::bigint;
+      cust := people->(hh % 8);
+      c := (hh / 7) % 100;
+      pay := case when c < 25 then jsonb_build_array(jsonb_build_object('method', 1, 'amount', round(amt / 100.0, 2), 'date', s, 'm', 'cash'))
+                  when c < 45 then jsonb_build_array(jsonb_build_object('method', 4, 'amount', round(amt / 100.0, 2), 'date', s, 'm', 'transfer'))
+                  when c < 65 then jsonb_build_array(jsonb_build_object('method', 4, 'amount', round(amt / 100.0, 2), 'date', s, 'm', 'bit'))
+                  when c < 90 then jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', case when hh % 4 = 0 then 2 else 1 end,
+                                                                        'amount', round(amt / 100.0, 2), 'date', s, 'm', 'card'))
+                  else jsonb_build_array(jsonb_build_object('method', 1, 'amount', round(round(amt * 0.4) / 100.0, 2), 'date', s, 'm', 'cash'),
+                                         jsonb_build_object('method', 3, 'cardKind', 1, 'amount', round((amt - round(amt * 0.4)) / 100.0, 2), 'date', s, 'm', 'card')) end;
+      perform pg_temp.ita_issue_x(key, calc || jsonb_build_object('doc_type', 400, 'doc_date', d,
+        'customer_name', cust->>'n', 'customer_phone', cust->>'p', 'payments', pay));
+    end if;
+
+    -- the refund receipts (a 400 below zero on the receipt — the accountant, answer 15), after that day's receipt:
+    -- 16.7 — half of the latest card receipt, back to the card; 20.8 — all of the latest cash receipt, in cash
+    if d in (date '2026-07-16', date '2026-08-20') then
+      select x.* into r from public.documents x
+       where x.business_id = B and x.doc_type = 400 and x.total > 0 and x.doc_date < d and jsonb_array_length(x.payments) = 1
+         and x.payments->0->>'m' = case when d = date '2026-07-16' then 'card' else 'cash' end
+         and not exists (select 1 from public.documents y where y.business_id = B and y.base_doc_type = 400 and y.base_doc_number = x.doc_number)
+       order by x.doc_date desc, x.doc_number desc limit 1;
+      if r.id is null then raise exception 'ita-demo: no receipt to refund on %', d; end if;
+      back := case when d = date '2026-07-16' then round(r.total * 50)::bigint else round(r.total * 100)::bigint end;
+      perform pg_temp.ita_issue_x(format('refund:%s:1', r.id), jsonb_build_object('doc_type', 400, 'doc_date', d,
+        'base_doc_type', 400, 'base_doc_number', r.doc_number,
+        'lines', jsonb_build_array(jsonb_build_object('name', format('החזר כספי - קבלה מס׳ %s', r.doc_number), 'qty', 1,
+                                                       'unitPriceExVat', round(-back / 100.0, 2), 'discountExVat', 0, 'totalExVat', round(-back / 100.0, 2), 'vatRate', 0, 'kind', 1)),
+        'before_discount', round(-back / 100.0, 2), 'discount', 0, 'after_discount', round(-back / 100.0, 2), 'vat_amount', 0, 'total', round(-back / 100.0, 2), 'vat_rate', 0,
+        'customer_name', r.customer_name, 'customer_phone', r.customer_phone,
+        'notes', case when d = date '2026-07-16' then 'החזר חלקי - שיעור שלא התקיים' else 'החזר מלא - ביטול עסקה' end,
+        'payments', case when d = date '2026-07-16'
+                         then jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 1, 'amount', round(-back / 100.0, 2), 'date', s, 'm', 'card'))
+                         else jsonb_build_array(jsonb_build_object('method', 1, 'amount', round(-back / 100.0, 2), 'date', s, 'm', 'cash')) end));
+    end if;
+  end loop;
+
+  select count(*) into n_back from public.documents x where x.business_id = B and x.total < 0;
+  if n_back <> 2 then raise exception 'ita-demo: the exempt dealer has % refund receipts (2 expected)', n_back; end if;
 end $$;
 
 reset role;
