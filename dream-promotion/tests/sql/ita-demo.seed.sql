@@ -34,6 +34,16 @@ end $$;
 
 begin;
 
+-- 6800 (the accountant, 25.11.2026): a document is dated the day it is issued, and a receipt is no longer cancelled by marking.
+-- The demo is history (June–October 2026, as before 6800): both checks are set aside inside this transaction only — on again
+-- before its commit (a failure rolls the whole file back, with them).
+do $$ begin
+  if exists (select 1 from pg_trigger where tgname = 'd_documents_issue_day' and tgrelid = 'public.documents'::regclass) then
+    alter table public.documents disable trigger d_documents_issue_day;
+    alter table public.document_cancellations disable trigger b_document_cancellations_check;
+  end if;
+end $$;
+
 do $$
 begin
   if to_regprocedure('public.issuer_snapshot(uuid)') is null or to_regprocedure('public.documents_goods()') is null
@@ -120,7 +130,7 @@ begin
   a1 := round(amount_a * 0.4)::bigint;
   one := case kind
     when 'cash'     then jsonb_build_object('method', 1, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'cash')
-    when 'card'     then jsonb_build_object('method', 3, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'card')
+    when 'card'     then jsonb_build_object('method', 3, 'cardKind', 1, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'card')
     when 'transfer' then jsonb_build_object('method', 4, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'transfer')
     when 'cheque'   then jsonb_build_object('method', 2, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'cheque', 'cheque', cheque)
     when 'bit'      then jsonb_build_object('method', 9, 'amount', round(amount_a / 100.0, 2), 'date', s, 'm', 'bit')
@@ -129,7 +139,7 @@ begin
   if one is not null then return jsonb_build_array(one); end if;
   if kind = 'cash_card' then
     return jsonb_build_array(jsonb_build_object('method', 1, 'amount', round(a1 / 100.0, 2), 'date', s, 'm', 'cash'),
-                             jsonb_build_object('method', 3, 'amount', round((amount_a - a1) / 100.0, 2), 'date', s, 'm', 'card'));
+                             jsonb_build_object('method', 3, 'cardKind', 1, 'amount', round((amount_a - a1) / 100.0, 2), 'date', s, 'm', 'card'));
   elsif kind = 'cheque_cash' then
     return jsonb_build_array(jsonb_build_object('method', 2, 'amount', round((amount_a - a1) / 100.0, 2), 'date', s, 'm', 'cheque', 'cheque', cheque),
                              jsonb_build_object('method', 1, 'amount', round(a1 / 100.0, 2), 'date', s, 'm', 'cash'));
@@ -370,6 +380,14 @@ begin
         values (r.id, B, U, 'קבלה הופקה בטעות - סכום שגוי');
     end loop;
   end loop;
+end $$;
+
+reset role;
+do $$ begin
+  if exists (select 1 from pg_trigger where tgname = 'd_documents_issue_day' and tgrelid = 'public.documents'::regclass) then
+    alter table public.documents enable trigger d_documents_issue_day;
+    alter table public.document_cancellations enable trigger b_document_cancellations_check;
+  end if;
 end $$;
 
 commit;

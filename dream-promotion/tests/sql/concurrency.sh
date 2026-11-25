@@ -342,7 +342,11 @@ q "insert into public.leads (id, user_id, business_id, name, phone, email) value
 LATE="insert into public.documents (user_id, doc_type, doc_number, doc_date, due_date, lead_id, customer_name, before_discount, discount, after_discount, vat_amount, total, vat_rate, lines, payments)
   values ('$U', 305, 0, public.il_today() - %s - 1, public.il_today() - %s, '$LEAD', 'Late', 100, 0, 100, 18, 118, 18,
   jsonb_build_array(jsonb_build_object('name', 'x', 'qty', 1, 'totalExVat', 100)), '[]'::jsonb);"
+# 6800 (a document is dated the day it is issued): the late invoices are history, as if issued on their day — the date's own
+# trigger is set aside for them only, by the superuser
+q "do \$\$ begin if exists (select 1 from pg_trigger where tgname = 'd_documents_issue_day') then alter table public.documents disable trigger d_documents_issue_day; end if; end \$\$;" >/dev/null
 for late in 4 5 8 10 20 30; do q "begin; $AS $(printf "$LATE" "$late" "$late") commit;" >/dev/null; done
+q "do \$\$ begin if exists (select 1 from pg_trigger where tgname = 'd_documents_issue_day') then alter table public.documents enable trigger d_documents_issue_day; end if; end \$\$;" >/dev/null
 r=$(q "select count(*) from public.documents where business_id = '$B' and lead_id = '$LEAD' and due_date < public.il_today()")
 [ "$r" = "6" ] || fail "the 6 late invoices of the load test were not issued (got: $r)"
 AT="((public.il_today() + case when extract(isodow from public.il_today()) = 6 then 1 else 0 end) + time '10:00') at time zone 'Asia/Jerusalem'"

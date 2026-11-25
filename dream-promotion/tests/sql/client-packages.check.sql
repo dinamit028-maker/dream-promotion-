@@ -444,7 +444,15 @@ select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000d406', 400, 40
   'idempotency_key', 'package:00000000-0000-0000-0000-00000000da05')));
 select pg_temp.check((select (doc_type, paid, doc_cancelled) = (400, 400::numeric, false) from pg_temp.pk('00000000-0000-0000-0000-00000000da05')),
   'an exempt dealer: a receipt pays the package');
+-- 6800 (the accountant, answer 8): a receipt is no longer cancelled by marking "בוטל" — a receipt cancelled before 6800 (as then:
+-- the cancellation's check set aside by the superuser for this one row) stays cancelled
+select pg_temp.refused_with($$insert into public.document_cancellations (document_id, user_id, reason) values ('00000000-0000-0000-0000-00000000d400', '00000000-0000-0000-0000-00000000d406', 'הופקה בטעות')$$,
+  'cancel_receipt_not_allowed', 'a receipt is not cancelled by marking (6800)');
+reset role;
+alter table public.document_cancellations disable trigger b_document_cancellations_check;
 insert into public.document_cancellations (document_id, user_id, reason) values ('00000000-0000-0000-0000-00000000d400', '00000000-0000-0000-0000-00000000d406', 'הופקה בטעות');
+alter table public.document_cancellations enable trigger b_document_cancellations_check;
+set local role authenticated;
 update public.client_packages set status = 'cancelled', cancel_reason = 'נמכרה בטעות' where id = '00000000-0000-0000-0000-00000000da05';
 select pg_temp.check((select (status, paid, doc_cancelled) = ('cancelled', 0::numeric, true) from pg_temp.pk('00000000-0000-0000-0000-00000000da05')),
   'the receipt cancelled: its money went back off the books');

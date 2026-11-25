@@ -338,7 +338,7 @@ create temp table rc as select pg_temp.issue(jsonb_build_object('user_id', '0000
   'business_id', '00000000-0000-0000-0000-00000000eb01', 'doc_type', 400, 'doc_number', 0, 'doc_date', public.il_today(), 'customer_name', 'נועה',
   'lead_id', '00000000-0000-0000-0000-00000000ec01', 'paid_document_id', '00000000-0000-0000-0000-00000000e305', 'source', 'receipt',
   'lines', '[{"name": "תשלום עבור חשבונית מס מס׳ 1", "qty": 1, "unitPriceExVat": 300, "discountExVat": 0, "totalExVat": 300, "vatRate": 0, "kind": 1}]'::jsonb,
-  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'm', 'card', 'amount', 300, 'date', public.il_today())),
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 1, 'm', 'card', 'amount', 300, 'date', public.il_today())),
   'before_discount', 300, 'discount', 0, 'after_discount', 300, 'vat_amount', 0, 'total', 300, 'vat_rate', 0,
   'idempotency_key', 'paylink:' || (select id from r1))) as id;
 grant select on rc to public;
@@ -346,7 +346,7 @@ select pg_temp.refused_with(format($$select pg_temp.issue(jsonb_build_object('us
   'business_id', '00000000-0000-0000-0000-00000000eb01', 'doc_type', 400, 'doc_number', 0, 'doc_date', public.il_today(), 'customer_name', 'נועה',
   'paid_document_id', '00000000-0000-0000-0000-00000000e305', 'source', 'receipt',
   'lines', '[{"name": "x", "qty": 1, "unitPriceExVat": 300, "discountExVat": 0, "totalExVat": 300, "vatRate": 0, "kind": 1}]'::jsonb,
-  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'm', 'card', 'amount', 300, 'date', public.il_today())),
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 1, 'm', 'card', 'amount', 300, 'date', public.il_today())),
   'before_discount', 300, 'discount', 0, 'after_discount', 300, 'vat_amount', 0, 'total', 300, 'vat_rate', 0,
   'idempotency_key', 'paylink:%s'))$$, (select id from r1)), 'idempotency', 'a second receipt with the link''s key is refused');
 select pg_temp.check((public.paylink_receipt_done((select id from r1), (select id from rc), '')->>'receipt') = 'issued', 'the receipt is the link''s');
@@ -427,7 +427,7 @@ create temp table rdd as select pg_temp.issue(jsonb_build_object('user_id', '000
   'business_id', '00000000-0000-0000-0000-00000000eb01', 'doc_type', 320, 'doc_number', 0, 'doc_date', public.il_today(), 'customer_name', 'דנה',
   'lead_id', '00000000-0000-0000-0000-00000000ec02',
   'lines', '[{"name": "מקדמה — לייזר רגליים", "qty": 1, "unitPriceExVat": 84.75, "discountExVat": 0, "totalExVat": 84.75, "vatRate": 18, "kind": 1}]'::jsonb,
-  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'm', 'card', 'amount', 100, 'date', public.il_today())),
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 1, 'm', 'card', 'amount', 100, 'date', public.il_today())),
   'before_discount', 84.75, 'discount', 0, 'after_discount', 84.75, 'vat_amount', 15.25, 'total', 100, 'vat_rate', 18,
   'idempotency_key', 'paylink:' || (select id from rd))) as id;
 grant select on rdd to public;

@@ -41,6 +41,7 @@ begin
                when p_pay is null then jsonb_build_array(jsonb_build_object('method', 1, 'amount', t, 'date', dd, 'm', 'cash'))
                else (select jsonb_agg(jsonb_build_object('method', case e->>'m' when 'cash' then 1 when 'cheque' then 2 when 'card' then 3 when 'transfer' then 4 else 9 end,
                                                          'amount', (e->>'amount')::numeric, 'date', dd, 'm', e->>'m')
+                                      || case when e->>'m' = 'card' then jsonb_build_object('cardKind', 1) else '{}'::jsonb end  -- 6800: a card payment's kind (1315)
                                       || case when e ? 'cheque' then jsonb_build_object('cheque', e->'cheque') else '{}'::jsonb end order by o)
                        from jsonb_array_elements(p_pay) with ordinality x(e, o)) end;
   r := jsonb_build_object('user_id', p_user, 'doc_type', p_type, 'doc_number', 0, 'doc_date', dd, 'customer_name', '',
@@ -288,7 +289,10 @@ select pg_temp.issue('00000000-0000-0000-0000-000000e50a04', 400, 'd-r8', '{"cus
   p_extra => '{"location_id": "00000000-0000-0000-0000-000000e50c04"}');
 select pg_temp.issue('00000000-0000-0000-0000-000000e50a04', 400, 'd-r9', '{"customer_name": "חנה"}', '[{"name": "טיפול", "qty": 1, "price": 300}]', p_vat => 0,
   p_pay => jsonb_build_array(jsonb_build_object('m', 'cheque', 'amount', 300, 'cheque', jsonb_build_object('number', '1003', 'bank', '12', 'dueDate', pg_temp.rday() + 2))));
+-- a receipt cancelled before 6800 (since 6800 a receipt is not cancelled by marking — as then: the check set aside for this one row)
+alter table public.document_cancellations disable trigger b_document_cancellations_check;
 insert into public.document_cancellations (document_id, user_id, reason) values (pg_temp.d('d-r9'), '00000000-0000-0000-0000-000000e50a04', 'הצ׳ק הוחזר ללקוחה');
+alter table public.document_cancellations enable trigger b_document_cancellations_check;
 insert into public.expenses (id, user_id, supplier_name, doc_date, supplier_doc_type, amount_before_vat, vat_amount, total, paid_on, payment_method) values
   ('00000000-0000-0000-0000-000000e50e71', '00000000-0000-0000-0000-000000e50a04', 'קפה למטופלים', public.il_today(), 'receipt', 118, 0, 118, public.il_today(), 'cash'),
   ('00000000-0000-0000-0000-000000e50e72', '00000000-0000-0000-0000-000000e50a04', 'ספק ציוד', public.il_today(), 'receipt', 354, 0, 354, public.il_today(), 'transfer'),

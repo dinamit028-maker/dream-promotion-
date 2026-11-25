@@ -210,7 +210,7 @@ create temp table d1 as select pg_temp.issue(jsonb_build_object(
   'doc_date', public.il_today(), 'customer_name', 'Dana Cohen', 'customer_phone', '0501234567', 'customer_email', 'dana@x.co',
   'lines', '[{"name": "שקית בד", "qty": 2, "unitPriceExVat": 33.9, "discountExVat": 0, "totalExVat": 67.8, "vatRate": 18, "kind": 1},
              {"name": "משלוח", "qty": 1, "unitPriceExVat": 25.42, "discountExVat": 0, "totalExVat": 25.42, "vatRate": 18, "kind": 1}]'::jsonb,
-  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'amount', 110, 'date', public.il_today(), 'm', 'card')),
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 1, 'amount', 110, 'date', public.il_today(), 'm', 'card')),
   'before_discount', 93.22, 'discount', 0, 'after_discount', 93.22, 'vat_amount', 16.78, 'total', 110, 'vat_rate', 18,
   'sale_id', (select id from o1), 'lead_id', '00000000-0000-0000-0000-000000366001', 'idempotency_key', 'sale:' || (select id from o1))) as id;
 grant select on d1 to public;
@@ -220,13 +220,13 @@ select pg_temp.check((select count(*) = 1 from public.payments where document_id
 select pg_temp.refused_with($$select pg_temp.issue(jsonb_build_object(
   'user_id', '00000000-0000-0000-0000-0000000360a1', 'business_id', '00000000-0000-0000-0000-00000036b001', 'doc_type', 320, 'doc_number', 0,
   'doc_date', public.il_today(), 'customer_name', 'Dana', 'lines', '[{"name": "x", "qty": 1, "unitPriceExVat": 93.22, "discountExVat": 0, "totalExVat": 93.22, "vatRate": 18, "kind": 1}]'::jsonb,
-  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'amount', 110, 'date', public.il_today())),
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 1, 'amount', 110, 'date', public.il_today())),
   'before_discount', 93.22, 'discount', 0, 'after_discount', 93.22, 'vat_amount', 16.78, 'total', 110, 'vat_rate', 18,
   'sale_id', (select id from o1), 'idempotency_key', 'sale:' || (select id from o1)))$$, 'idempotency', 'the manual "paid sale without a document" cannot issue a second one');
 select pg_temp.refused_with($$select pg_temp.issue(jsonb_build_object(
   'user_id', '00000000-0000-0000-0000-0000000360a2', 'business_id', '00000000-0000-0000-0000-00000036b002', 'doc_type', 320, 'doc_number', 0,
   'doc_date', public.il_today(), 'customer_name', 'X', 'lines', '[{"name": "x", "qty": 1, "unitPriceExVat": 100, "discountExVat": 0, "totalExVat": 100, "vatRate": 18, "kind": 1}]'::jsonb,
-  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'amount', 118, 'date', public.il_today())),
+  'payments', jsonb_build_array(jsonb_build_object('method', 3, 'cardKind', 1, 'amount', 118, 'date', public.il_today())),
   'before_discount', 100, 'discount', 0, 'after_discount', 100, 'vat_amount', 18, 'total', 118, 'vat_rate', 18, 'idempotency_key', 'direct:x4'))$$,
   'business_details_missing', 'the service role meets the same checks: a business without details issues nothing');
 select pg_temp.refused_with($$select public.order_document_done((select id from o1), gen_random_uuid(), '')$$, 'not of this order', 'only a document of the order''s sale');
