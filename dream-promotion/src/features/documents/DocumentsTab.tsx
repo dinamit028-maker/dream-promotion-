@@ -16,6 +16,7 @@ import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, credited
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
 import { deliveryState, keepOriginal, recordDelivery, staffPdf, stateAllocationLine } from './deliver';
+import { AWAITING_STAFF, type DeliveryState } from '@/features/finance/delivery';
 
 /** Legal documents: list, view & print (original / true copy), credit invoice, and the "ממשק פתוח" export. */
 export { toDoc, type DocRow } from './documents';
@@ -77,6 +78,11 @@ export async function printDocRow(d: DocRow, business: Business): Promise<PrintR
   keepOriginal(r.delivery);
   return { ok: true, doc: fresh };
 }
+/** was the document delivered already (2.119: any delivery — the link, a PDF, a print); before migration 6900 — a print */
+export const wasDelivered = (d: Pick<DocRow, 'printCount'>, s: DeliveryState | null) => (s ? s.delivered || d.printCount > 0 : d.printCount > 0);
+/** the screen's preview mark: what the next delivery will be — the same words as DocView's */
+export const previewMark = (d: Pick<DocRow, 'printCount'>, s: DeliveryState | null) =>
+  wasDelivered(d, s) ? 'העתק נאמן למקור' : s ? 'מקור (טרם נמסר)' : 'מקור (טרם הודפס)';
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 /**
  * an amount as written on the document; anything that is not a number prints nothing (never raw text). 2.118: an amount below zero
@@ -89,6 +95,15 @@ const ddmmyyyy = (d: unknown) => String(d ?? '').split('-').reverse().join('/');
 export function DocumentsTab({ userId, business, licensed, onError }: { userId: string; business: Business & { ready: boolean }; licensed: boolean; onError: (m: string) => void }) {
   const [docs, setDocs] = useState<DocRow[] | null>(null);
   const [open, setOpen] = useState<DocRow | null>(null);
+  // 2.119: the open document's deliveries and allocation rule (document_delivery_state) — null before migration 6900, as before it
+  const [openState, setOpenState] = useState<DeliveryState | null>(null);
+  useEffect(() => {
+    setOpenState(null);
+    if (!open) return;
+    let alive = true;
+    void deliveryState(open.id).then((r) => { if (alive) setOpenState(r.ok ? r.state : null); });
+    return () => { alive = false; };
+  }, [open]);
   const [view, setView] = useState<'list' | 'export'>('list');
   const load = async () => {
     const { data, error } = await supabase().from('documents').select('*').order('issued_at', { ascending: false }).limit(3000);
@@ -145,12 +160,14 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
 
       <Modal open={Boolean(open)} onClose={() => setOpen(null)} wide>
         {open && <>
-          <div className="max-h-[60vh] overflow-auto rounded-xl bg-white p-2 text-black" dangerouslySetInnerHTML={{ __html: docBody(open, business, open.printCount ? 'העתק נאמן למקור' : 'מקור (טרם הודפס)') }} />
+          <div className="max-h-[60vh] overflow-auto rounded-xl bg-white p-2 text-black" dangerouslySetInnerHTML={{ __html: docBody(open, business, previewMark(open, openState), { allocation: stateAllocationLine(openState) }) }} />
+          {openState?.allocation.awaiting && <p role="status" className="mt-3 rounded-2xl border border-red-500/50 p-3 text-sm font-bold">{AWAITING_STAFF}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="primary" onClick={() => printDoc(open)}>{open.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
+            <Button variant="primary" disabled={Boolean(openState?.allocation.awaiting)} onClick={() => printDoc(open)}>{wasDelivered(open, openState) ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
             {licensed && (open.docType === 320 || open.docType === 305) && !credited.has(`${open.docType}:${open.docNumber}`) &&
               <Button variant="ghost" disabled={crediting} onClick={() => credit(open)}>{crediting ? 'מפיק…' : 'חשבונית מס זיכוי'}</Button>}
-            <Button variant="ghost" title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)" onClick={() => void staffPdf(open).then((e) => { if (e) onError(e); })}>📄 PDF</Button>
+            <Button variant="ghost" disabled={Boolean(openState?.allocation.awaiting)} title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)"
+              onClick={() => void staffPdf(open).then((e) => { if (e) onError(e); void deliveryState(open.id).then((r) => setOpenState(r.ok ? r.state : null)); })}>📄 PDF</Button>
             <Button variant="ghost" onClick={() => setOpen(null)}>סגירה</Button>
           </div>
           <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. לתיקון — חשבונית זיכוי. החזר כספי על חלק מעסקה עושים מהעסקה עצמה (מכירות ודוחות ← העסקה ← החזר כספי).</p>

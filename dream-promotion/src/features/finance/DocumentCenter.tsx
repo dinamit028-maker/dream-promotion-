@@ -23,6 +23,7 @@ import { useLocations } from '@/features/locations/store';
  * document of any type the business may issue. Filtered and paged by the database (50 at a time), not in the browser.
  * 2.97 (T7): ?show=allocation&from&to — the overview's "חשבוניות מס מעל הסף … בלי מספר הקצאה" opens the very invoices it
  * counted (allocationMissingDocs: finance_summary's rules), for its period; until 2.97 the filter of the address was ignored.
+ * 2.119: ?open=<document id> — opens that document (DocView), when the caller may read it.
  */
 const PAGE = 50;
 interface Draft { id: string; docType: number; customerName: string; total: number; updatedAt: string; body: ComposerBody; leadId: string | null; quoteId: string | null }
@@ -124,6 +125,15 @@ export function DocumentCenter() {
     setComposer({ mode: { kind: 'document', docType: allowed.includes(Number(n)) ? Number(n) : allowed[0] },
       initial: lead ? { leadId: lead.id, customer: { name: lead.billingName || lead.name, phone: lead.phone, email: lead.email, dealer: lead.billingDealer, street: lead.billingStreet, city: lead.billingCity } } : undefined });
     clearParams();
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ?open=<document id> (2.119 — the store's order page links here instead of the customer's link, which records a delivery):
+  // the document opens in DocView; the RLS decides whether it is read at all — an unknown / closed id opens nothing
+  useEffect(() => {
+    const id = params.get('open');
+    if (!id) return;
+    if (!/^[0-9a-f-]{36}$/i.test(id)) { clearParams(); return; }
+    void supabase().from('documents').select('*').eq('id', id).maybeSingle().then(({ data }) => { if (data) setOpen(toDoc(data)); clearParams(); });
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const types = useMemo(() => allowedDocTypes(settings.entity), [settings.entity]);

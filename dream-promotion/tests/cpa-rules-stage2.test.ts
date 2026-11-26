@@ -390,3 +390,41 @@ test('before migration 6900 the timer does nothing; it answers only with CRON_SE
   const vercel = JSON.parse(readFileSync(path.join(__dirname, '..', 'vercel.json'), 'utf8'));
   assert.ok(vercel.crons.some((c: any) => c.path === '/api/cron/backup' && /^\d+ \d+ \* \* \*$/.test(c.schedule)), 'daily');
 });
+
+// ---- follow-ups (2.119): the store's link, the storefront's channel, the debt reminders, the documents tab's preview -------------
+test('a debt reminder of a document waiting for its number is not sent — the email says why, nothing goes to Resend', async () => {
+  const { reminderAwaiting, sendReminderEmail } = await import('../src/lib/server/reminders');
+  const { AWAITING_REMINDER } = await import('../src/features/finance/delivery');
+  const t = { debt_reminders: [{ id: 'rem-a', document_id: 'doc-a' }, { id: 'rem-b', document_id: 'doc-b' }],
+    document_allocation_status: [{ document_id: 'doc-a', awaiting: true }, { document_id: 'doc-b', awaiting: false }] };
+  const db = fakeDb(t, { rpc: { debt_reminder_check: () => ({ state: 'ok', open: 5900, docType: 305, docNumber: 41, customer: 'לקוח דמו', shareToken: TOKEN, tone: 'friendly' }) } }) as any;
+  assert.equal(await reminderAwaiting(db, 'rem-a'), true);
+  assert.equal(await reminderAwaiting(db, 'rem-b'), false);
+  assert.equal(await reminderAwaiting(fakeDb({ debt_reminders: [{ id: 'rem-a', document_id: 'doc-a' }] }) as any, 'rem-a'), false, 'before 6900 (no view): as before');
+  const realFetch = globalThis.fetch; let called = 0;
+  globalThis.fetch = (async () => { called++; return new Response('{}'); }) as any;
+  try {
+    assert.deepEqual(await sendReminderEmail(db, { id: 'mail-a', reminder_id: 'rem-a', business_id: BIZ, to_email: 'customer@example.test' }), { error: AWAITING_REMINDER, final: true });
+  } finally { globalThis.fetch = realFetch; }
+  assert.equal(called, 0, 'nothing sent');
+  assert.match(AWAITING_REMINDER, /ממתין למספר הקצאה/); assert.doesNotMatch(AWAITING_REMINDER, /אושר|מאושר|דווח/);
+});
+
+test('the preview mark of the documents tab and DocView: from the deliveries (2.119), from the prints before 6900', async () => {
+  const { previewMark, wasDelivered } = await import('../src/features/documents/DocumentsTab');
+  const st = (delivered: boolean) => toDeliveryState({ allocation: { required: false, awaiting: false, number: null, manual: false, rule: null }, delivered, original: null, deliveries: delivered ? 1 : 0, printCount: 0 });
+  assert.equal(previewMark({ printCount: 0 }, st(false)), 'מקור (טרם נמסר)');
+  assert.equal(previewMark({ printCount: 0 }, st(true)), 'העתק נאמן למקור', 'the customer opened the link: the next one is a copy');
+  assert.equal(previewMark({ printCount: 0 }, null), 'מקור (טרם הודפס)', 'before 6900 — as before');
+  assert.equal(previewMark({ printCount: 2 }, null), 'העתק נאמן למקור');
+  assert.equal(wasDelivered({ printCount: 1 }, st(false)), true, 'printed before 2.119');
+});
+
+test('no staff path through the customer\'s link: the store\'s order page opens the document in "מסמכים"; the storefront names its channel', () => {
+  const src = (f: string) => readFileSync(path.join(__dirname, '..', f), 'utf8');
+  assert.doesNotMatch(src('src/features/store/StoreOrders.tsx'), /href=\{`\/d\//, 'the order page never opens /d/<token>');
+  assert.match(src('src/features/store/StoreOrders.tsx'), /\/finance\/documents\?open=\$\{x\.id\}/);
+  assert.match(src('src/features/finance/DocumentCenter.tsx'), /params\.get\('open'\)/);
+  assert.match(src('../storefront/src/lib/dashboard.ts'), /\/api\/doc\/\$\{docToken\}\/pdf\?via=storefront/);
+  for (const f of ['src/features/finance/Receivables.tsx', 'src/features/finance/Reminders.tsx']) assert.match(src(f), /awaitingIds\(/, `${f}: asks the database before a reminder`);
+});

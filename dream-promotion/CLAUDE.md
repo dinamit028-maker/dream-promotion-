@@ -346,3 +346,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+- מסירה ללקוח, מקור/העתק וגיבוי (מ-2.119.0, מיגרציה 6900 — רו״ח 25.11.2026):
+  - מספר הקצאה: האם נדרש — רק במסד (`allocation_required` / `allocation_awaiting`, ה-view `document_allocation_status`): 305/320/330, לקוח עם מספר עוסק, לפני מע״מ מהסף ומעלה. מסמך שממתין למספר לא נמסר ללקוח בשום ערוץ. מספר שהוזן לא משתנה — תיקון = חשבונית זיכוי וחשבונית חדשה.
+  - מסירה ללקוח רק דרך `document_share_open` (קישור / PDF / חנות, בשרת) או `document_delivery_record` (הדפסה / PDF / שליחה מהאפליקציה). המסירה הראשונה = "מקור", כל השאר "העתק נאמן למקור". ה-PDF של המקור נשמר ב-`delivered-documents` ולא נמחק ולא מוחלף.
+  - PDF מהאפליקציה רק דרך `staffPdf` ו-`/api/doc/delivery`; קישור של הצוות למסמך — `/finance/documents?open=<id>`, לעולם לא `/d/<token>` (זה צורך את המקור של הלקוח).
+  - גיבוי חודשי (12 חודשים) ושנתי (7 שנים) רק דרך `backup_*` והטיימר `/api/cron/backup`, בדלי `backups`.

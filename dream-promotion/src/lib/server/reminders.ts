@@ -5,6 +5,7 @@ import { businessContact } from './paylink-mail';
 import { emailFrom } from '@/features/store/commerce';
 import { reminderEmail } from '@/features/finance/reminders';
 import type { Tone } from '@/features/finance/receivables';
+import { AWAITING_REMINDER } from '@/features/finance/delivery';
 
 /**
  * Scheduled debt reminders on the dashboard's server (docs/FINANCE_ADDITIONS_HE.md T5; migration 20261010004400).
@@ -49,6 +50,18 @@ const STATE_HE: Record<string, string> = {
   sent: 'כבר נשלחה', failed: 'נכשלה', not_found: 'לא נמצאה',
 };
 
+/**
+ * 2.119 (migration 20261126006900): does the reminder's document wait for its allocation number? The database's rule — the view
+ * document_allocation_status (service role: the row of the reminder's own document). Before that migration (no view) — no.
+ */
+export async function reminderAwaiting(db: Db, reminderId: string): Promise<boolean> {
+  const { data: q } = await db.from('debt_reminders').select('document_id').eq('id', reminderId).maybeSingle();
+  const doc = (q as { document_id?: string } | null)?.document_id;
+  if (!doc) return false;
+  const { data, error } = await db.from('document_allocation_status').select('awaiting').eq('document_id', doc).maybeSingle();
+  return !error && (data as { awaiting?: boolean } | null)?.awaiting === true;
+}
+
 /** a reminder's email (email_outbox kind debt_reminder) — asked again first; nothing goes for a debt that is not open */
 export async function sendReminderEmail(db: Db, e: { id: string; reminder_id?: string | null; business_id: string; to_email: string })
   : Promise<{ id: string } | { error: string; final: boolean }> {
@@ -57,6 +70,8 @@ export async function sendReminderEmail(db: Db, e: { id: string; reminder_id?: s
   if (error) return { error: String(error.message ?? error).slice(0, 200), final: false };
   const s = (data ?? {}) as Record<string, any>;
   if (s.state !== 'ok') return { error: `לא נשלח: ${STATE_HE[String(s.state)] ?? String(s.state)}`, final: true };
+  // 2.119: the email carries the customer's link — not for a document waiting for its allocation number
+  if (await reminderAwaiting(db, e.reminder_id)) return { error: AWAITING_REMINDER, final: true };
   const who = await businessContact(db, e.business_id);
   // the business's store's verified sending domain, when it has one; else the platform's sending address
   const { data: st } = await db.from('stores').select('id').eq('business_id', e.business_id).order('created_at').limit(1).maybeSingle();

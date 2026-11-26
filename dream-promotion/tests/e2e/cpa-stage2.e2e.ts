@@ -189,6 +189,33 @@ async function main() {
       } finally { await ctx.close(); }
     });
 
+    await step(`${view}: ?open=<id> opens the document (the store's order page links there); an unknown id opens nothing`, async () => {
+      fake = new FakeSupabase(seed(), { businessId: BIZ, userId: OWNER, email: 'owner@example.test' });
+      const { ctx, page } = await open(`/finance/documents?open=${DOC}`, view);
+      try {
+        await dialog(page).getByRole('heading', { name: 'חשבונית מס 41' }).waitFor();
+        assert.equal(fake.tables.document_deliveries.length, 0, 'opening it on the screen is not a delivery');
+        await page.goto(`${BASE}/finance/documents?open=d0000000-0000-4000-8000-000000000999`, { waitUntil: 'domcontentloaded' });
+        await page.getByText(/^חשבונית מס 41 · /).first().waitFor();
+        await page.waitForTimeout(800);
+        assert.equal(await page.getByRole('dialog').count(), 0, 'nothing opened');
+      } finally { await ctx.close(); }
+    });
+
+    await step(`${view}: a debt reminder of a document waiting for its number — not sent, and the owner is told why`, async () => {
+      fake = new FakeSupabase(seed(), { businessId: BIZ, userId: OWNER, email: 'owner@example.test' });
+      const { ctx, page } = await open('/finance/receivables', view);
+      try {
+        await page.getByRole('button', { name: 'תזכורת' }).first().click();
+        const d = dialog(page);
+        await d.getByText(/^התזכורת לא נשלחה: המסמך ממתין למספר הקצאה מרשות המסים/).waitFor();
+        assert.equal(await d.getByRole('link', { name: 'שליחה בוואטסאפ' }).count(), 0, 'no WhatsApp link');
+        assert.equal(await d.getByRole('button', { name: 'העתקה' }).isDisabled(), true);
+        await shot(page, `${tag}6-reminder-awaiting.png`);
+        await axe(page, `${view} reminder awaiting`);
+      } finally { await ctx.close(); }
+    });
+
     await step(`${view}: the customer's page — the mark it is given, and the waiting message`, async () => {
       share = { status: 409, json: { code: 'awaiting_allocation', message: 'x' } };
       const a = await open(`/d/${TOKEN}`, view);

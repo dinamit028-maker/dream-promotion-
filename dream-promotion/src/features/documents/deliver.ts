@@ -35,6 +35,21 @@ export async function deliveryState(documentId: string): Promise<StateResult> {
   return state ? { ok: true, state } : { ok: false, missing: false, message: 'לא הצלחנו לבדוק את המסמך. נסו שוב.' };
 }
 
+/**
+ * which of these documents wait for their allocation number (the view document_allocation_status — the database's rule; the caller's
+ * RLS). Before migration 20261126006900 (no view) — none.
+ */
+export async function awaitingIds(ids: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const list = [...new Set(ids.filter(Boolean))];
+  for (let i = 0; i < list.length; i += 100) {
+    const { data, error } = await supabase().from('document_allocation_status').select('document_id').eq('awaiting', true).in('document_id', list.slice(i, i + 100));
+    if (error) return out;
+    for (const r of (data ?? []) as { document_id: string }[]) out.add(r.document_id);
+  }
+  return out;
+}
+
 /** the allocation-number line of a delivered document, from the database's state (a real number only — a test one never) */
 export const stateAllocationLine = (s: DeliveryState | null) =>
   s?.allocation.number ? allocationPrintLine({ kind: 'real', number: s.allocation.number, manual: s.allocation.manual }) : null;

@@ -10,7 +10,7 @@ import { cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from './sale-
 import { toRefund } from '@/features/register/refunds';
 import { saleFromRow } from '@/features/store/commerce';
 import { israelParts } from '@/lib/il-time';
-import { docBody, printDocRow } from '@/features/documents/DocumentsTab';
+import { docBody, previewMark, printDocRow, wasDelivered } from '@/features/documents/DocumentsTab';
 import { deliveryState, linkMayGo, sendDocLink, staffPdf } from '@/features/documents/deliver';
 import { AWAITING_STAFF, WRONG_NUMBER_NOTE, needFromState, type DeliveryState } from './delivery';
 import { useFinance } from './FinanceScreen';
@@ -89,8 +89,8 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
 
   const allocLine = alloc ? allocationPrintLine(alloc.state) : null;
   // the screen's preview: what the next delivery will be (2.119: any delivery — a print, the link, a PDF — not only a print)
-  const delivered = delivery ? delivery.delivered || doc.printCount > 0 : doc.printCount > 0;
-  const html = useMemo(() => docBody({ ...doc, cancelled: Boolean(cancelled) } as DocRow, business, delivered ? 'העתק נאמן למקור' : delivery ? 'מקור (טרם נמסר)' : 'מקור (טרם הודפס)', { allocation: allocLine }),
+  const delivered = wasDelivered(doc, delivery);
+  const html = useMemo(() => docBody({ ...doc, cancelled: Boolean(cancelled) } as DocRow, business, previewMark(doc, delivery), { allocation: allocLine }),
     [doc, business, allocLine, cancelled, delivered, delivery]);
   const awaiting = Boolean(delivery?.allocation.awaiting);
   const fullyCredited = credited > 0 && Math.round(credited * 100) >= Math.round(doc.total * 100);

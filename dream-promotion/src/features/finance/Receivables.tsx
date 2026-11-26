@@ -16,6 +16,8 @@ import { loadLines, plansReady } from './plans-data';
 import { reminderDoc } from './reminders';
 import { daysBehind, overdueDocs, type LateDoc } from './overview-lists';
 import { ReminderQueue } from './Reminders';
+import { awaitingIds } from '@/features/documents/deliver';
+import { AWAITING_REMINDER } from './delivery';
 import { receivablesCsv } from './reports';
 import { Note, Pill, Stat, ddmmyyyy, download, ils, todayIL } from './ui';
 import type { DocRow } from '@/features/documents/documents';
@@ -177,6 +179,9 @@ function Reminder({ r, line, onClose }: { r: Receivable; line: Line | null; onCl
   const [template, setTemplate] = useState(reminderTemplate(tone));
   const [ai, setAi] = useState<{ busy: boolean; note: string | null }>({ busy: false, note: null });
   useEffect(() => { setTemplate(reminderTemplate(tone)); setAi({ busy: false, note: null }); }, [tone]);
+  // 2.119: the message carries the customer's link — not for a document waiting for its allocation number (null: still asking)
+  const [waits, setWaits] = useState<boolean | null>(null);
+  useEffect(() => { let alive = true; void awaitingIds([r.id]).then((s) => { if (alive) setWaits(s.has(r.id)); }); return () => { alive = false; }; }, [r.id]);
   const text = fillReminder(template, {
     name: r.customerName.split(' ')[0] || '', doc: line ? reminderDoc(r.docType, r.docNumber, line.n, line.ofN) : `${DOC_LABEL[r.docType]} מס׳ ${r.docNumber}`,
     amount: ils(line ? line.open : r.balance), due: ddmmyyyy(line ? line.dueDate : r.dueDate) || 'מועד התשלום',
@@ -200,10 +205,10 @@ function Reminder({ r, line, onClose }: { r: Receivable; line: Line | null; onCl
       <p className="whitespace-pre-wrap rounded-2xl bg-surface-2 p-3 text-sm" dir="rtl">{text}</p>
       {ai.note && <p className="mt-2 text-xs text-muted">{ai.note}</p>}
       <div className="mt-3 flex flex-wrap gap-2">
-        {url ? <a href={url} target="_blank" rel="noopener" onClick={() => { void logEvent('reminder.sent', 'documents', r.id, { tone, balance: r.balance }); if (r.leadId) addActivity(r.leadId, 'whatsapp', `תזכורת תשלום: ${DOC_LABEL[r.docType]} ${r.docNumber} · ${ils(r.balance)}`); onClose(); }}
+        {waits ? <Note tone="warn">{AWAITING_REMINDER}</Note> : waits === null ? <Spinner /> : url ? <a href={url} target="_blank" rel="noopener" onClick={() => { void logEvent('reminder.sent', 'documents', r.id, { tone, balance: r.balance }); if (r.leadId) addActivity(r.leadId, 'whatsapp', `תזכורת תשלום: ${DOC_LABEL[r.docType]} ${r.docNumber} · ${ils(r.balance)}`); onClose(); }}
           className="inline-flex min-h-11 items-center rounded-full bg-primary px-5 text-sm font-semibold text-white">שליחה בוואטסאפ</a>
           : <Note tone="warn">אין טלפון ללקוח — אפשר להעתיק את הנוסח.</Note>}
-        <Button variant="ghost" onClick={() => void navigator.clipboard?.writeText(text)}>העתקה</Button>
+        <Button variant="ghost" disabled={waits !== false} onClick={() => void navigator.clipboard?.writeText(text)}>העתקה</Button>
         <Button variant="ghost" disabled={ai.busy} onClick={() => void reword()}>{ai.busy ? <Spinner /> : '✨ ניסוח אחר'}</Button>
       </div>
       <p className="mt-2 text-xs text-muted">שום דבר לא נשלח מעצמו: וואטסאפ נפתח עם הנוסח, ואתם שולחים.</p>

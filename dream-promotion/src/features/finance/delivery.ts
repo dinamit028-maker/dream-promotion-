@@ -18,6 +18,8 @@ export const deliveryMark = (original: boolean) => (original ? MARK_ORIGINAL : M
 export const AWAITING_TITLE = 'המסמך ממתין למספר הקצאה מרשות המסים';
 export const AWAITING_CUSTOMER = `${AWAITING_TITLE}. הוא יהיה זמין כאן מיד אחרי שהעסק יקבל את המספר.`;
 export const AWAITING_STAFF = `${AWAITING_TITLE}. אי אפשר למסור אותו ללקוח (הדפסה, PDF, קישור או שליחה) לפני שמזינים את המספר שהתקבל — במסך המסמך, "הזנת מספר שהתקבל".`;
+/** a debt reminder carries the customer's link — not for a document waiting for its number (the reminder is not sent) */
+export const AWAITING_REMINDER = 'התזכורת לא נשלחה: המסמך ממתין למספר הקצאה מרשות המסים, ואי אפשר לשלוח ללקוח קישור אליו לפני שמזינים את המספר (במסך המסמך).';
 export const WRONG_NUMBER_NOTE = 'מספר הקצאה שנשמר לא משתנה. אם הוזן מספר שגוי — מפיקים חשבונית זיכוי על המסמך הזה וחשבונית חדשה, ולכל אחת מזינים את המספר שהתקבל לה (כשהיא דורשת מספר).';
 
 export type DeliveryChannel = 'link' | 'pdf' | 'storefront' | 'print' | 'email' | 'whatsapp';
