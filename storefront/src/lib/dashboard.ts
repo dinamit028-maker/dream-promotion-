@@ -57,12 +57,12 @@ export async function notifyLead(requestId: string): Promise<boolean> {
   }
 }
 
-/** the document's PDF, from the dashboard, by its share token — served on the business's own domain */
+/** the document's PDF, from the dashboard, by its share token — served on the business's own domain (2.119: recorded there as a delivery of channel 'storefront') */
 export async function documentPdf(docToken: string): Promise<Response | null> {
   const base = (process.env.DASHBOARD_URL ?? '').replace(/\/+$/, '');
   if (!/^https?:\/\//.test(base) || !/^[0-9a-f]{32,128}$/.test(docToken)) return null;
   try {
-    const r = await fetch(`${base}/api/doc/${docToken}/pdf`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+    const r = await fetch(`${base}/api/doc/${docToken}/pdf?via=storefront`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
     return r.ok ? r : null;
   } catch {
     return null;
