@@ -72,7 +72,7 @@ commit;
 select pg_temp.check((select location_id from public.documents where idempotency_key = 'l:two') = '00000000-0000-0000-0000-0000000693c2'
   and coalesce((select location_id from public.documents where idempotency_key = 'l:main'), '00000000-0000-0000-0000-0000000693b1') = '00000000-0000-0000-0000-0000000693b1', 'two documents, two locations');
 create temp table dv3 (k text, delivery_id uuid, path text);
-grant select on dv3 to authenticated;
+grant select on dv3 to authenticated; grant select, insert on dv3 to service_role;
 begin;
 set local role service_role;
 select pg_temp.as_server();
@@ -133,10 +133,10 @@ commit;
 
 -- ---- 2. keyset paging over a composite key whose first column varies ---------------------------------------------------------------
 -- 4 deposits × 3 cheques each (random ids: the pairs interleave)
-insert into public.bank_deposits (id, business_id, location_id, number, deposited_on)
-select gen_random_uuid(), '00000000-0000-0000-0000-0000000693b1', '00000000-0000-0000-0000-0000000693b1', n, public.il_today() from generate_series(1, 4) n;
-insert into public.payments (id, business_id, direction, amount, method, paid_on, source)
-select gen_random_uuid(), '00000000-0000-0000-0000-0000000693b1', 'in', 10, 'cheque', public.il_today(), 'document' from generate_series(1, 12);
+insert into public.bank_deposits (id, business_id, location_id, number, deposited_on, cheques)
+select gen_random_uuid(), '00000000-0000-0000-0000-0000000693b1', '00000000-0000-0000-0000-0000000693b1', n, public.il_today(), 30 from generate_series(1, 4) n;
+insert into public.payments (id, business_id, direction, amount, method, paid_on, source, document_id)
+select gen_random_uuid(), '00000000-0000-0000-0000-0000000693b1', 'in', 10, 'cheque', public.il_today(), 'document', pg_temp.d('l:main') from generate_series(1, 12);
 create temp table pay693 as select row_number() over (order by id) as n, id from public.payments where business_id = '00000000-0000-0000-0000-0000000693b1';
 insert into public.bank_deposit_cheques (deposit_id, business_id, location_id, payment_id, amount)
 select d.id, d.business_id, d.location_id, p.id, 10
@@ -171,17 +171,19 @@ select pg_temp.check(pg_temp.walk(11) = '2 pages', 'one less than the table: 11 
 select pg_temp.check(pg_temp.walk(12) = '1 pages', 'exactly the table: one page, no "more"');
 select pg_temp.check(pg_temp.walk(100) = '1 pages', 'more than the table: one page');
 -- past the end: the last row's key gives an empty page, nothing more
-select pg_temp.check((select (x ->> 'count')::int = 0 and not (x ->> 'more')::boolean and x -> 'last' is null
+select pg_temp.check((select (x ->> 'count')::int = 0 and not (x ->> 'more')::boolean and jsonb_typeof(x -> 'last') = 'null'
                         from (select public.backup_export_after('00000000-0000-0000-0000-0000000693b1', 'bank_deposit_cheques',
                           (select jsonb_build_object('deposit_id', deposit_id, 'payment_id', payment_id) from public.bank_deposit_cheques where business_id = '00000000-0000-0000-0000-0000000693b1' order by deposit_id desc, payment_id desc limit 1), 5) x) y),
   'after the last row: an empty page');
 -- a row added between two pages (a live business): the walk neither repeats nor skips what was there
 create temp table walk_state as select public.backup_export_after('00000000-0000-0000-0000-0000000693b1', 'bank_deposit_cheques', null, 5) as pg1;
-insert into public.payments (id, business_id, direction, amount, method, paid_on, source) values ('00000000-0000-0000-0000-0000000693f1', '00000000-0000-0000-0000-0000000693b1', 'in', 10, 'cheque', public.il_today(), 'document');
+insert into public.payments (id, business_id, direction, amount, method, paid_on, source, document_id) values ('00000000-0000-0000-0000-0000000693f1', '00000000-0000-0000-0000-0000000693b1', 'in', 10, 'cheque', public.il_today(), 'document', pg_temp.d('l:main'));
 insert into public.bank_deposit_cheques (deposit_id, business_id, location_id, payment_id, amount)
 select id, business_id, location_id, '00000000-0000-0000-0000-0000000693f1', 10 from public.bank_deposits where business_id = '00000000-0000-0000-0000-0000000693b1' order by number limit 1;
-select pg_temp.check((select (select count(*) from jsonb_array_elements(pg1 -> 'rows')) = 5 from walk_state)
-  and (select count(distinct (r ->> 'deposit_id') || '/' || (r ->> 'payment_id'))
-         from (select jsonb_array_elements(pg1 -> 'rows') r from walk_state
-               union all select jsonb_array_elements(public.backup_export_after('00000000-0000-0000-0000-0000000693b1', 'bank_deposit_cheques', pg1 -> 'last', 100) -> 'rows') from walk_state) z) = 13,
-  'a row inserted between two pages is in the file once (or not at all) — never a repeat, never one of the 12 missing');
+create temp table walk_rows as
+  select (r ->> 'deposit_id') || '/' || (r ->> 'payment_id') as k, r ->> 'payment_id' as pid
+    from (select jsonb_array_elements(pg1 -> 'rows') r from walk_state
+          union all select jsonb_array_elements(public.backup_export_after('00000000-0000-0000-0000-0000000693b1', 'bank_deposit_cheques', pg1 -> 'last', 100) -> 'rows') from walk_state) z;
+select pg_temp.check((select count(*) from walk_rows) = (select count(distinct k) from walk_rows), 'no row twice across the two pages');
+select pg_temp.check((select count(distinct k) from walk_rows where pid <> '00000000-0000-0000-0000-0000000693f1') = 12,
+  'every one of the 12 rows that were there is in the file, a row added meanwhile or not');
