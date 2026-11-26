@@ -32,7 +32,9 @@
 
 ---
 
-## מצב מיגרציות (נכון ל-26 בנובמבר 2026, אחרי 6900; 7000 ממתינה להרצה)
+## מצב מיגרציות (נכון ל-26 בנובמבר 2026, אחרי 7000)
+
+**7000 `cpa_rules_stage3` (2.120.0) — הוחלה על המסד החי ב-26.11.2026, אחרי המיזוג והפריסה (PR #120). אומת בקריאה בלבד: 10 שורות הוחזרו; `new_tables` = 2; md5 שנראו בצילום זהים לגרסה שנבדקה — document_numbering_state (ce968273…), document_share_open (069c9f0a…), documents_before_insert (c8f587e9…), documents_validate (3e87d64c…), location_fill (9452e2f2…); השאר לא נראו בצילום.**
 
 **6900 `cpa_rules_stage2` (2.119.0) — הוחלה על המסד החי ב-26.11.2026, אחרי המיזוג והפריסה (PR #119). אומת בקריאה בלבד: 3 טבלאות חדשות (`document_deliveries`, `document_delivery_files`, `backup_runs`), 2 דליים פרטיים (`delivered-documents`, `backups`), הטריגר על `storage.objects` נוצר (1), ו-md5 של `finance_summary` (…fa258416ccc6143cec = bdd9be6d…) ו-`sf_order_view` (663f29db29053f5918d09d2…) זהים לגרסה שנבדקה.**
 
