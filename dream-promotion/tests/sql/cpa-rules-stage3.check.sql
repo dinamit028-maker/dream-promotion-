@@ -357,6 +357,66 @@ select pg_temp.check(pg_temp.num('c70e:old') = 1 and pg_temp.num('c70e:main') = 
   and (pg_temp.d('c70e:back:l5')).location_id = '00000000-0000-0000-0000-0000007000c5',
   'exempt: receipts 1 (before), 01000001, 02000001; the refund receipts in L5''s series (02000002, 02000003), on receipts of the main location');
 
+-- ---- a register refund at another location than its sale: its document is of the refund's location (the owner's decision 2) --
+-- M: a counted product; a register at L2; a member limited to L2 (m4); a sale at the main location with its 320, refunded at L2
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000007000a6', 'branch@multi-70.example.test');
+insert into public.business_members (business_id, user_id, role, access, locations)
+  values ('00000000-0000-0000-0000-0000007000b1', '00000000-0000-0000-0000-0000007000a6', 'editor', 'full', array['00000000-0000-0000-0000-0000007000c2'::uuid]);
+update public.profiles set current_business_id = '00000000-0000-0000-0000-0000007000b1' where id = '00000000-0000-0000-0000-0000007000a6';
+insert into public.registers (id, business_id, location_id, name)
+  values ('00000000-0000-0000-0000-0000007000d2', '00000000-0000-0000-0000-0000007000b1', '00000000-0000-0000-0000-0000007000c2', 'קופת סניף לדוגמה'),
+         ('00000000-0000-0000-0000-0000007000d5', '00000000-0000-0000-0000-0000007000b3', '00000000-0000-0000-0000-0000007000c5', 'קופת סניף פטור לדוגמה');
+insert into public.catalog_items (id, user_id, business_id, name, price, kind, track_stock, stock_qty)
+  values ('00000000-0000-0000-0000-0000007000f1', '00000000-0000-0000-0000-0000007000a1', '00000000-0000-0000-0000-0000007000b1', 'קרם לדוגמה', 118, 'product', true, 10);
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
+insert into public.sales (id, user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at)
+values ('00000000-0000-0000-0000-000000700051', '00000000-0000-0000-0000-0000007000a1',
+  '[{"name":"קרם לדוגמה","price":118,"qty":1,"itemId":"00000000-0000-0000-0000-0000007000f1","kind":"product"}]', 118, 118, 18, 18, 'cash', 'paid', now());
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 320, 100, 'sale:00000000-0000-0000-0000-000000700051',
+  '{"sale_id": "00000000-0000-0000-0000-000000700051", "source": "pos"}'));
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007000a6');
+insert into public.sale_refunds (id, user_id, sale_id, amount, vat_amount, method, items, restock, reason, register_id)
+values ('00000000-0000-0000-0000-000000700061', '00000000-0000-0000-0000-0000007000a6', '00000000-0000-0000-0000-000000700051', 118, 18, 'card',
+  '[{"name":"קרם לדוגמה","price":118,"qty":1,"itemId":"00000000-0000-0000-0000-0000007000f1","kind":"product"}]', true, 'הוחזר בסניף אחר',
+  '00000000-0000-0000-0000-0000007000d2');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a6', 330, 100, 'refund:00000000-0000-0000-0000-000000700061',
+  -- (the member limited to L2 does not read the main location's 320: its number, as the register's refund screen has it)
+  jsonb_build_object('base_doc_type', 320, 'base_doc_number', 1000002,
+    'sale_id', '00000000-0000-0000-0000-000000700051', 'refund_id', '00000000-0000-0000-0000-000000700061')));
+commit;
+select pg_temp.check(pg_temp.num('sale:00000000-0000-0000-0000-000000700051') = 1000002
+  and (pg_temp.d('sale:00000000-0000-0000-0000-000000700051')).location_id = '00000000-0000-0000-0000-0000007000b1',
+  'the sale''s 320 at the main location (01000002)');
+select pg_temp.check((pg_temp.d('refund:00000000-0000-0000-0000-000000700061')).location_id = '00000000-0000-0000-0000-0000007000c2'
+  and pg_temp.num('refund:00000000-0000-0000-0000-000000700061') = 5000002,
+  'the refund''s credit invoice: of L2, where the refund was paid out — 05000002 (issued by a member limited to L2)');
+select pg_temp.check((select location_id = '00000000-0000-0000-0000-0000007000c2' and delta = 1 from public.stock_movements
+                       where refund_id = '00000000-0000-0000-0000-000000700061' and item_id = '00000000-0000-0000-0000-0000007000f1'),
+  'the returned product back in stock at L2 (where the refund row is)');
+-- E (exempt): a sale at the main location, refunded at L5 — its refund receipt (below zero) in L5's series
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007000a5');
+insert into public.sales (id, user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at)
+values ('00000000-0000-0000-0000-000000700052', '00000000-0000-0000-0000-0000007000a5', '[{"name":"טיפול","price":80,"qty":1,"kind":"other"}]', 80, 80, 0, 0, 'cash', 'paid', now());
+select pg_temp.issue(pg_temp.rcpt(80, 'sale:00000000-0000-0000-0000-000000700052', '{"sale_id": "00000000-0000-0000-0000-000000700052", "source": "pos"}'));
+insert into public.sale_refunds (id, user_id, sale_id, amount, vat_amount, method, items, restock, reason, register_id)
+values ('00000000-0000-0000-0000-000000700062', '00000000-0000-0000-0000-0000007000a5', '00000000-0000-0000-0000-000000700052', 50, 0, 'cash', '[]', false,
+        'החזר בסניף אחר', '00000000-0000-0000-0000-0000007000d5');
+select pg_temp.issue(pg_temp.rcpt(-50, 'refund:00000000-0000-0000-0000-000000700062', jsonb_build_object('base_doc_type', 400,
+  'base_doc_number', pg_temp.num('sale:00000000-0000-0000-0000-000000700052'), 'sale_id', '00000000-0000-0000-0000-000000700052',
+  'refund_id', '00000000-0000-0000-0000-000000700062')));
+commit;
+select pg_temp.check(pg_temp.num('sale:00000000-0000-0000-0000-000000700052') = 1000002
+  and (pg_temp.d('refund:00000000-0000-0000-0000-000000700062')).location_id = '00000000-0000-0000-0000-0000007000c5'
+  and pg_temp.num('refund:00000000-0000-0000-0000-000000700062') = 2000004,
+  'exempt: the sale''s receipt 01000002; its refund at L5 — a refund receipt of L5 (02000004)');
+
 -- ======================================================================================================================
 -- 5. a deposit is a document 420 — its cash and cheques; cancelled with it, never otherwise
 -- ======================================================================================================================
@@ -436,6 +496,14 @@ select pg_temp.check((public.document_share_open((select share_token from public
                        = '{"ok": false, "code": "not_found"}'::jsonb
   and not exists (select 1 from public.document_deliveries v join public.documents x on x.id = v.document_id where x.doc_type = 420),
   'a 420''s link: not_found, nothing recorded');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
+select pg_temp.refused_with($$select public.document_delivery_record((select id from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e3'), 'print')$$,
+  'deposit_not_delivered', 'a 420 is not printed / sent from the app as a delivery', '55000');
+commit;
+select pg_temp.check(not exists (select 1 from public.document_deliveries v join public.documents x on x.id = v.document_id where x.doc_type = 420),
+  'nothing recorded for a 420');
 select pg_temp.check((public.document_share_open((pg_temp.d('c70m:main:a')).share_token, 'link') ->> 'ok')::boolean, 'another document''s link still opens');
 select pg_temp.check((select count(*) from public.document_deliveries where document_id = (pg_temp.d('c70m:main:a')).id) = 1, '… and is recorded');
 select pg_temp.check(public.cash_desk_cash('00000000-0000-0000-0000-0000007000b1', '00000000-0000-0000-0000-0000007000c2') = 118,

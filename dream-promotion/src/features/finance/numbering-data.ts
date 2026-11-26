@@ -10,6 +10,8 @@ import { branchInfoOf, normalizeCode, toNumberingState, type NumberingState } fr
  * (PGRST202 / 42883): `ready: false` — the settings card is not shown, and the unified file is written as before (1034 = 0, no
  * branch fields). Every write is one function of the database (the owner only — location_owner()).
  */
+/** a switched business whose branch codes could not be read: the file is not made (never 1034 = 0 with 8-digit numbers) */
+export const BRANCH_INFO_MISSING = 'העסק ממספר מסמכים לפי סניף, ולא הצלחנו לקרוא את קודי הסניפים — הקובץ לרשות המסים לא הופק. רעננו את הדף ונסו שוב.';
 export type NumberingLoad = { ok: true; ready: false } | { ok: true; ready: true; state: NumberingState } | { ok: false; error: string };
 export async function loadNumbering(): Promise<NumberingLoad> {
   try {
@@ -40,8 +42,10 @@ export async function setBranchCode(location: string, code: string): Promise<{ o
 export async function loadBranchInfo(docs: Pick<Doc, 'docType' | 'docNumber' | 'baseDocType' | 'baseDocNumber'>[], businessId: string | null): Promise<BranchInfo | null> {
   const st = await loadNumbering();
   if (!st.ok) throw new Error(st.error);
-  const info = st.ready ? branchInfoOf(st.state, businessId) : null;
-  if (!info) return null;
+  if (!st.ready || !st.state.perLocation) return null;
+  // a business that numbers per location is never written without its branch fields (1034 = 1, 1231 …) — no silent file
+  const info = branchInfoOf(st.state, businessId);
+  if (!info || !info.codes.size) throw new Error(BRANCH_INFO_MISSING);
   const have = new Set(docs.map((d) => `${d.docType}:${d.docNumber}`));
   const want = new Map<number, Set<number>>();
   for (const d of docs) {

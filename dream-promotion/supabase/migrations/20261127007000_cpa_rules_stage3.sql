@@ -22,7 +22,8 @@
 --      1256 / 1257) is found by its type and number in the business, as before. documents.series_location_id = the location whose
 --      series numbered it (null = the business's one series: every document before the switch, every document of a business that
 --      never switches — numbered exactly as before). After the switch a credit invoice (330) and a refund receipt (400) are of the
---      location that issues them — their base no longer decides it (location_fill); everything else as before.
+--      location that issues them — their base no longer decides it, and a register's / an order's refund's document is of the refund's
+--      location, not its sale's (location_fill); everything else as before.
 --   2. (answer 18) a bank deposit is a document: bank_deposit_create also issues a 420 "הפקדת בנק" (documents, numbered — per
 --      location after the switch — immutable, documents.deposit_id = the deposit; no customer, no lines, no VAT; its payments = the
 --      D120 lines: the cash — method 1 — and each cheque — method 2 — with its details from the receipt's payment), only when the
@@ -30,16 +31,21 @@
 --      it (document_cancellations, the same reason) — it is never cancelled any other way, and never issued any other way
 --      (dp.deposit_doc, local to the transaction). It moves no money (not 320 / 400: no payments row) and no stock, and is not
 --      income. Deposits recorded before this migration keep no document (not filled in).
--- Replaces (same signatures; md5 of prosrc — compare with the live database before running:
---   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure):
---   documents_before_insert()          of 20261004002000_business_id.sql        — old a359c23999aa55af4caed03c6c54490e
---   location_fill()                    of 20261010004600_locations.sql          — old 22c55035af64c141afcb7d8eadfe7aaf
---   documents_validate()               of 20261125006800_cpa_rules_stage1.sql   — old e5548d72677674ac2dabce186a7b479d
---   document_cancellations_check()     of 20261125006800_cpa_rules_stage1.sql   — old b53c444e7da9734db600da34097e13f3
---   bank_deposit_create(uuid, date, uuid, numeric, uuid[], text) of 20261011005000 — old 70d1de91696e64e7b9b444c6a30f52e2
---   bank_deposit_cancel(uuid, text)    of 20261011005000_cash_bank_goods.sql    — old 3ea735f01acc605d88036cdfce316a33
---   deposit_book(date, date)           of 20261011005000_cash_bank_goods.sql    — old 41dcaa7ad4711e6e5a3680d19b73cdf9
---   document_share_open(text, text)    of 20261126006900_cpa_rules_stage2.sql   — old 2429d169e4f89e4bd605efea4f5e4d4e (a 420: not_found)
+-- Replaces (same signatures). md5 of prosrc — BEFORE running, compare the old one with the live database; AFTER running, the new one:
+--   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure
+--   function                                                       of     old                               new
+--   documents_before_insert()                                      2000   a359c23999aa55af4caed03c6c54490e  c8f587e9e8a6684d097a5ae476088f13
+--   location_fill()                                                4600   22c55035af64c141afcb7d8eadfe7aaf  9452e2f2b2e9b4b8517b8ea37fbff667
+--   documents_validate()                                           6800   e5548d72677674ac2dabce186a7b479d  3e87d64ca55746aa6d1370386c5687f4
+--   document_cancellations_check()                                 6800   b53c444e7da9734db600da34097e13f3  625b00ea9a1d98e58f0f2b6f580655e8
+--   bank_deposit_create(uuid, date, uuid, numeric, uuid[], text)   5000   70d1de91696e64e7b9b444c6a30f52e2  aba23f2946ee19eac9f407ee2bbb9c01
+--   bank_deposit_cancel(uuid, text)                                5000   3ea735f01acc605d88036cdfce316a33  bf2d8b5f0565f08c8206d219c7bbfa48
+--   deposit_book(date, date)                                       5000   41dcaa7ad4711e6e5a3680d19b73cdf9  00ee0edead4aca0dd5303a1b92cfa06a
+--   document_share_open(text, text)                                6900   2429d169e4f89e4bd605efea4f5e4d4e  069c9f0affc97db9fb1e5a04c557c5ff
+--   document_delivery_record(uuid, text)                           6900   44f9741cad327061fa405b8fbeac8de5  84cbf0b906146016e825b49ad16f7756
+-- New (md5 after running): document_numbering_state() ce968273890d4a4023113859fb1030f3, document_numbering_per_location()
+--   22e474acf47c02da78aaf4b32d42087f, location_branch_code_set(uuid, text) 400aef8db50e679d5b5254b177eb9f6b,
+--   business_locations_branch_code() 6fdb0d05ef7a8503f5675801f537fa77, branch_code_next(uuid) f973460e39c21b30722c3675e6e941f2.
 -- Running 2000, 4600, 5000, 6800 or 6900 again after this one brings back an old function (one series per business, a credit where its
 -- invoice is, a deposit without its document, a deposit's link that records a delivery) — then run this one again.
 -- Deploy order: THE CODE FIRST, then this migration: after it, a deposit issues a 420 that the old screens do not know (a list
@@ -50,6 +56,11 @@
 -- update or delete" and the policies "_viewer_delete"; `drop` / `delete` otherwise only in the rollback notes at the end).
 -- Runs after 4600 (locations), 5000 (deposits, the goods documents), 6800 (stage 1) and 6900 (stage 2) — it stops at the top
 -- without them, changing nothing.
+
+-- a busy moment never holds the issuing of documents behind this migration: a table it changes that is locked for more than 5
+-- seconds stops it (its steps on documents and on business_locations are each all-or-nothing, with the message "lock_timeout …"
+-- — nothing of that step changed); it runs again safely: run it again in a quiet moment
+set lock_timeout = '5s';
 
 do $$
 begin
@@ -84,10 +95,18 @@ end $$;
 -- the location whose series numbered the document (7000); null = the business's one series — every document issued before
 -- the business switched, and every document of a business that never does. Set by documents_number only. (The number itself
 -- carries the location: its branch code and then its running number — see section 4.)
-alter table public.documents add column if not exists series_location_id uuid;
--- the deposit a 420 "הפקדת בנק" mirrors (7000); null on every other document
-alter table public.documents add column if not exists deposit_id uuid references public.bank_deposits (id) on delete restrict;
-do $$ begin
+-- one statement on documents, in a block: either all of it or none of it. lock_timeout (top of the file): a busy moment (documents
+-- being issued) stops it after 5 seconds instead of holding every issue behind it — run the migration again in a quiet moment.
+do $$
+begin
+  alter table public.documents
+    add column if not exists series_location_id uuid,
+    add column if not exists deposit_id uuid references public.bank_deposits (id) on delete restrict,
+    -- 420 "הפקדת בנק" (1.31 appendix 1); source 'deposit'
+    drop constraint if exists documents_doc_type_check,
+    add constraint documents_doc_type_check check (doc_type in (100, 200, 210, 300, 305, 320, 330, 400, 420)),
+    drop constraint if exists documents_source_check,
+    add constraint documents_source_check check (source is null or source in ('pos', 'direct', 'quote', 'refund', 'credit', 'receipt', 'deposit'));
   if not exists (select 1 from pg_constraint where conname = 'documents_series_location_fkey' and conrelid = 'public.documents'::regclass) then
     alter table public.documents add constraint documents_series_location_fkey
       foreign key (series_location_id, business_id) references public.business_locations (id, business_id) on delete restrict;
@@ -95,15 +114,10 @@ do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'documents_deposit_type_check' and conrelid = 'public.documents'::regclass) then
     alter table public.documents add constraint documents_deposit_type_check check ((deposit_id is not null) = (doc_type = 420));
   end if;
+  create unique index if not exists documents_deposit_uq on public.documents (deposit_id) where deposit_id is not null;
+exception when lock_not_available then
+  raise exception 'lock_timeout: the documents table is busy right now (documents being issued) — nothing of this step changed; run the migration again in a quiet moment';
 end $$;
--- 420 "הפקדת בנק" (1.31 appendix 1); source 'deposit'
-alter table public.documents drop constraint if exists documents_doc_type_check;
-alter table public.documents add constraint documents_doc_type_check check (doc_type in (100, 200, 210, 300, 305, 320, 330, 400, 420));
-alter table public.documents drop constraint if exists documents_source_check;
-alter table public.documents add constraint documents_source_check
-  check (source is null or source in ('pos', 'direct', 'quote', 'refund', 'credit', 'receipt', 'deposit'));
-
-create unique index if not exists documents_deposit_uq on public.documents (deposit_id) where deposit_id is not null;
 
 -- ============================================================================================================================
 -- 2. numbering per location: the switch (one-way) and the series
@@ -185,10 +199,15 @@ end $$;
 --    the first two digits of its documents' numbers, and the branch id of the unified file (fields 1231, 1270, 1272, 1320, 1374,
 --    1421 — X(7))
 -- ============================================================================================================================
-alter table public.business_locations add column if not exists branch_code text
-  check (branch_code is null or branch_code ~ '^(0[1-9]|[1-9][0-9])$');
-create unique index if not exists business_locations_branch_code_uq on public.business_locations (business_id, branch_code)
-  where branch_code is not null;
+do $$
+begin
+  alter table public.business_locations add column if not exists branch_code text
+    check (branch_code is null or branch_code ~ '^(0[1-9]|[1-9][0-9])$');
+  create unique index if not exists business_locations_branch_code_uq on public.business_locations (business_id, branch_code)
+    where branch_code is not null;
+exception when lock_not_available then
+  raise exception 'lock_timeout: the locations table is busy right now — nothing of this step changed; run the migration again in a quiet moment';
+end $$;
 
 -- the next free code of a business: the smallest of 01–99 no location of it carries (a business has 10 locations at most)
 create or replace function public.branch_code_next(p_business uuid) returns text
@@ -205,7 +224,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   if tg_op = 'UPDATE' then
     if new.branch_code is distinct from old.branch_code then
-      if exists (select 1 from public.documents x where x.business_id = old.business_id and x.series_location_id = old.id) then
+      if exists (select 1 from public.document_series s where s.business_id = old.business_id and s.location_id = old.id and s.last_no > 0) then
         raise exception 'branch_code_fixed: קוד הסניף נקבע — לסניף כבר יש מסמכים בסדרה שלו' using errcode = '23514'; end if;
       if new.branch_code is null and exists (select 1 from public.document_numbering n where n.business_id = new.business_id) then
         raise exception 'branch_code_required: בעסק שממספר לפי סניף לכל סניף יש קוד' using errcode = '23514'; end if;
@@ -219,8 +238,13 @@ begin
 end $$;
 revoke execute on function public.business_locations_branch_code() from public, anon, authenticated;
 -- after b_business_locations_guard (which locks the business on insert: two locations at once never take the same code)
-create or replace trigger c_business_locations_branch_code before insert or update on public.business_locations
-  for each row execute function public.business_locations_branch_code();
+do $$
+begin
+  create or replace trigger c_business_locations_branch_code before insert or update on public.business_locations
+    for each row execute function public.business_locations_branch_code();
+exception when lock_not_available then
+  raise exception 'lock_timeout: the locations table is busy right now — run the migration again in a quiet moment (it runs again safely)';
+end $$;
 
 -- ============================================================================================================================
 -- 4. the numbering (documents_number) — replaces documents_before_insert() of 20261004002000
@@ -318,6 +342,15 @@ begin
         -- an online sale has its order's id: the order's location (the store's)
         select coalesce(o.location_id, o.business_id) into loc from public.orders o where o.id = new.id and o.business_id = new.business_id;
       when 'documents' then
+        -- 7000 (the owner, 26.11.2026): in a business that numbers per location, the document of a refund (a credit invoice 330,
+        -- a refund receipt 400 — the register's or an order's refund) is of the refund's location (the register that paid it
+        -- out), not of its sale's
+        if new.refund_id is not null and new.doc_type in (330, 400)
+           and exists (select 1 from public.document_numbering n where n.business_id = new.business_id) then
+          select coalesce(r.location_id, r.business_id) into loc from public.sale_refunds r
+           where r.id = new.refund_id and r.business_id = new.business_id;
+        end if;
+        if loc is null then
         select coalesce(
           (select coalesce(s.location_id, s.business_id) from public.sales s where s.id = new.sale_id),
           (select coalesce(r.location_id, r.business_id) from public.sale_refunds r where r.id = new.refund_id),
@@ -330,6 +363,7 @@ begin
               and d.doc_number = new.base_doc_number
               and not (new.doc_type in (330, 400) and exists (select 1 from public.document_numbering n where n.business_id = new.business_id))
             limit 1)) into loc;
+        end if;
       when 'payments' then
         select coalesce(
           (select coalesce(d.location_id, d.business_id) from public.documents d where d.id = new.document_id),
@@ -845,6 +879,25 @@ begin
 end $$;
 -- (create or replace keeps its grants: service_role only, as 6900 set them)
 
+-- … and from the app (print / mail / WhatsApp / PDF): a deposit document is never delivered — replaces document_delivery_record()
+--    of 20261126006900 (one line added: a 420 is refused before anything is recorded)
+create or replace function public.document_delivery_record(p_document uuid, p_channel text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare d public.documents;
+begin
+  if coalesce(p_channel, '') not in ('print', 'email', 'whatsapp', 'pdf') then raise exception 'delivery_channel: print, email, whatsapp or pdf' using errcode = '22023'; end if;
+  select * into d from public.documents where id = p_document for update;
+  if not found or not public.document_visible(d) then raise exception 'not allowed' using errcode = '42501'; end if;
+  if d.doc_type = 420 then raise exception 'deposit_not_delivered: מסמך הפקדה לא נמסר ללקוח' using errcode = '55000'; end if;   -- 7000
+  if not public.can_write() then raise exception 'not allowed: read-only role' using errcode = '42501'; end if;
+  if public.allocation_awaiting(d) then
+    raise exception 'awaiting_allocation: המסמך דורש מספר הקצאה — הוא נמסר ללקוח (הדפסה, קישור, שליחה) רק אחרי שהמספר התקבל'
+      using errcode = '55000';
+  end if;
+  return public.document_delivery_add(d, p_channel, auth.uid());
+end $$;
+-- (create or replace keeps its grants: authenticated, as 6900 set them)
+
 -- ============================================================================================================================
 -- 7. the owner's switch, the branch codes, and what the settings screen reads
 -- ============================================================================================================================
@@ -861,7 +914,7 @@ begin
     'business', coalesce((select jsonb_object_agg(c.doc_type::text, c.last_no) from public.document_counters c where c.business_id = b), '{}'::jsonb),
     'locations', coalesce((select jsonb_agg(jsonb_build_object(
         'id', l.id, 'name', l.name, 'active', l.active, 'branchCode', l.branch_code,
-        'codeFixed', exists (select 1 from public.documents x where x.business_id = b and x.series_location_id = l.id),
+        'codeFixed', exists (select 1 from public.document_series s where s.business_id = b and s.location_id = l.id and s.last_no > 0),
         'series', coalesce((select jsonb_agg(jsonb_build_object('docType', s.doc_type, 'count', s.last_no,
                               'last', lpad((l.branch_code::int * 1000000 + s.last_no)::text, 8, '0'),
                               'next', lpad((l.branch_code::int * 1000000 + s.last_no + 1)::text, 8, '0')) order by s.doc_type)
@@ -946,3 +999,4 @@ revoke execute on function public.documents_before_insert(), public.location_fil
 --   * after a business switched or a 420 was issued: no rollback — the numbers given per location and the deposit documents are
 --     documents of the books (they are never changed or removed); fix forward.
 -- ============================================================================================================================
+reset lock_timeout;

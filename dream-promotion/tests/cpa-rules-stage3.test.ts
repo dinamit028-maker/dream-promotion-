@@ -10,6 +10,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DOC_LABEL, baseDocLine, docNumberLabel, isDepositDoc, toDoc, totalLabel } from '../src/features/documents/documents';
 import {
   A000, B110, C100, D110, D120, NO_D110, accountsOf, baseBranchOf, branchOf, buildOpenFormat, docTypeReport, seriesNumber, type BranchInfo, type Doc,
@@ -272,4 +274,10 @@ test('A000: 1034 only from the switch (positions 420 of 466)', () => {
   const a = A000(b, SW, { ...o, perLocation: true });
   assert.equal(a.length, 466); assert.equal(col(a, 420, 420), '1');
   assert.equal(a.slice(0, 419) + a.slice(420), A000(b, SW, o).slice(0, 419) + A000(b, SW, o).slice(420), 'nothing else changes');
+});
+
+test('a deposit\'s document is never delivered by the app\'s delivery route or the customer\'s link (404)', () => {
+  const src = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
+  assert.match(src('src/app/api/doc/delivery/route.ts'), /if \(!d \|\| Number\(\(d as any\)\.doc_type\) === 420\) return Response\.json\(\{ code: 'not_found'[^)]*\}, \{ status: 404 \}\)/);
+  assert.equal((src('src/lib/server/doc-share.ts').match(/Number\(\(d as any\)\.doc_type\) === 420\) return \{ ok: false, status: 404, code: 'not_found' \}/g) ?? []).length, 2);
 });

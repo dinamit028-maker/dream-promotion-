@@ -198,7 +198,11 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
     const codes = await loadDocCodes();   // field 1233 (2.117) — none before migration 20261122006700
     // 2.120 (migration 7000): a business that numbers per location — 1034 = 1 and each document's branch code; else as before
     let branches: Awaited<ReturnType<typeof loadBranchInfo>>;
-    try { branches = await loadBranchInfo(docs.filter((d) => d.docDate >= from && d.docDate <= to), useLocations.getState().state.businessId); }
+    try {
+      // the business's id from the locations' state — loaded now if the app has not loaded it yet (null would drop the branch fields)
+      const bid = useLocations.getState().state.businessId ?? (await useLocations.getState().load()).businessId;
+      branches = await loadBranchInfo(docs.filter((d) => d.docDate >= from && d.docDate <= to), bid);
+    }
     catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : 'לא הצלחנו לקרוא את מספור הסניפים — נסו שוב.' }); setResult(null); setBusy(false); return; }
     const startedAt = new Date().toISOString();
     const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches });
