@@ -158,7 +158,8 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
         {recv && !recv.cancelled && !cancelled && recv.balance > 0 && links.ready && links.links && (
           <PaylinkButton kind="document" target={doc.id} what={`${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
             left={Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100)}
-            customer={{ name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }} onSent={() => void links.reload()} />
+            customer={{ name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }} onSent={() => void links.reload()}
+            blocked={awaiting ? AWAITING_STAFF : null} />
         )}
         {vat && (doc.docType === 305 || doc.docType === 320) && !fullyCredited && <Button variant="ghost" onClick={() => setDialog('credit')}>חשבונית זיכוי</Button>}
         {ga.canDeliver && <Button variant="ghost" onClick={() => setDialog('deliver')}>תעודת משלוח מההזמנה</Button>}
@@ -201,6 +202,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
             kind: 'document', target: doc.id, what: `${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`,
             left: Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100),
             customer: { name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }, onSent: () => void links.reload(),
+            blocked: awaiting ? AWAITING_STAFF : null,
           } : null} />
       )}
       {(doc.docType === 305 || doc.docType === 300) && <DocReminders documentId={doc.id} />}

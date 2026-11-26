@@ -33,8 +33,8 @@
 --      (written by the server only; read by a finance member of the business; never replaced or removed), and
 --      document_delivery_files (append-only: the delivery → the file + its sha256), written by document_delivery_file_add.
 --   5. (answer 20) backups: daily — Supabase's own; monthly (kept 12 months) and yearly (kept 7 years) — private bucket backups
---      (no browser role at all), table backup_runs (the server only; a run goes running → ok / failed, ok → expired, nothing
---      else), backup_tables / backup_export (what to write, per business and table, in pages), backup_run_start / _finish /
+--      (no browser role at all; 500 MB a file — within the project's global upload limit, Settings → Storage), table backup_runs (the server only; a run goes running → ok / failed, ok → expired, nothing
+--      else), backup_tables / backup_export_after (what to write, per business and table, in keyset pages; a link token only as its sha256), backup_due (what is missing), backup_run_start / _finish /
 --      _fail, backup_expirable / backup_expire (refuses a copy younger than its retention, and a monthly copy without a later
 --      yearly copy). A backup file is removed from Storage only after backup_expire (or when its run failed).
 -- Replaces two functions (same signatures; md5 of prosrc — compare with the live database before running:
@@ -80,6 +80,11 @@ begin
   end if;
   if to_regclass('storage.buckets') is null or to_regclass('storage.objects') is null or to_regprocedure('storage.foldername(text)') is null then
     raise exception 'migration 20261126006900 needs Supabase Storage (storage.buckets, storage.objects) — nothing was changed';
+  end if;
+  -- a bucket of that name already there and public: never kept public silently
+  if exists (select 1 from storage.buckets where id in ('delivered-documents', 'backups') and public) then
+    raise exception 'migration 20261126006900: the bucket % already exists and is PUBLIC — make it private (Storage → the bucket → Edit) and check what is in it, then run again; nothing was changed',
+      (select string_agg(id, ', ') from storage.buckets where id in ('delivered-documents', 'backups') and public);
   end if;
 end $$;
 
@@ -240,6 +245,16 @@ begin
     if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = t || '_business_read') then
       execute format('create policy %I on public.%I for select to authenticated using (%s)', t || '_business_read', t, gate);
     end if;
+    -- 3200's rule for every business table (no browser role may write these at all — the grants above; this guards the same)
+    if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = t || '_viewer_insert') then
+      execute format('create policy %I on public.%I as restrictive for insert to authenticated with check ((select public.can_write()))', t || '_viewer_insert', t);
+    end if;
+    if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = t || '_viewer_update') then
+      execute format('create policy %I on public.%I as restrictive for update to authenticated using ((select public.can_write())) with check ((select public.can_write()))', t || '_viewer_update', t);
+    end if;
+    if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = t || '_viewer_delete') then
+      execute format('create policy %I on public.%I as restrictive for delete to authenticated using ((select public.can_write()))', t || '_viewer_delete', t);
+    end if;
   end loop;
 end $$;
 
@@ -361,6 +376,21 @@ revoke execute on function public.document_visible(public.documents), public.doc
   public.document_share_open(text, text), public.document_delivery_record(uuid, text), public.document_delivery_state(uuid),
   public.document_delivery_file_add(uuid, text, bigint) from public, anon, authenticated;
 grant execute on function public.document_share_open(text, text), public.document_delivery_file_add(uuid, text, bigint) to service_role;
+
+-- the originals whose PDF is not kept yet (the server re-renders and stores them): older than 5 minutes, oldest first —
+-- [{delivery_id, document_id, business_id, channel, at, file_path}]
+create or replace function public.delivery_originals_unsaved(p_limit int default 50) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object('delivery_id', v.id, 'document_id', v.document_id, 'business_id', v.business_id,
+           'channel', v.channel, 'at', v.created_at, 'file_path', v.business_id::text || '/' || v.document_id::text || '/' || v.id::text || '.pdf')
+           order by v.created_at, v.id), '[]'::jsonb)
+    from (select v.* from public.document_deliveries v
+           where v.is_original and v.created_at < now() - interval '5 minutes'
+             and not exists (select 1 from public.document_delivery_files f where f.delivery_id = v.id)
+           order by v.created_at, v.id limit greatest(1, least(coalesce(p_limit, 50), 1000))) v;
+$$;
+revoke execute on function public.delivery_originals_unsaved(int) from public, anon, authenticated;
+grant execute on function public.delivery_originals_unsaved(int) to service_role;
 grant execute on function public.document_delivery_record(uuid, text), public.document_delivery_state(uuid) to authenticated;
 
 -- ============================================================================================================================
@@ -436,28 +466,50 @@ language sql stable security definer set search_path = public as $$
   select b.id from public.businesses b order by b.created_at, b.id;
 $$;
 
--- one page of one table of one business, in a fixed order (its primary key): {table, offset, count, total, more, rows}
-create or replace function public.backup_export(p_business uuid, p_table text, p_offset int default 0, p_limit int default 5000) returns jsonb
+-- a row as it goes into a backup: a link token (documents / quotes .share_token — it opens a customer's link) only as its sha256
+create or replace function public.backup_row(j jsonb) returns jsonb
+language sql immutable set search_path = public as $$
+  select case when j ? 'share_token'
+    then (j - 'share_token') || jsonb_build_object('share_token_sha256', encode(sha256(convert_to(coalesce(j->>'share_token', ''), 'UTF8')), 'hex'))
+    else j end;
+$$;
+
+-- one page of one table of one business, by its primary key (keyset): p_after = the "last" of the page before (null — the first
+-- page). {table, count, total (the first page only, else null), more, last, rows}
+create or replace function public.backup_export_after(p_business uuid, p_table text, p_after jsonb default null, p_limit int default 5000) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
-declare ord text; filt text; res jsonb; n int; total bigint;
+declare cols text[]; types text[]; ord text; cond text := 'true'; filt text; res jsonb; n int; total bigint; lastrow jsonb; last jsonb;
 begin
   if p_table is null or not (p_table = any (public.backup_tables())) then raise exception 'backup_table: not a table of the backup' using errcode = '22023'; end if;
-  if p_offset is null or p_offset < 0 or p_limit is null or p_limit < 1 or p_limit > 10000 then
-    raise exception 'backup_page: offset >= 0, limit 1 to 10000' using errcode = '22023'; end if;
+  if p_limit is null or p_limit < 1 or p_limit > 10000 then raise exception 'backup_page: limit 1 to 10000' using errcode = '22023'; end if;
+  if p_after is not null and jsonb_typeof(p_after) <> 'object' then raise exception 'backup_page: p_after is the "last" of the page before' using errcode = '22023'; end if;
   if p_table <> 'tax_allocation_rules' and (p_business is null or not exists (select 1 from public.businesses b where b.id = p_business)) then
     raise exception 'backup_business: no such business' using errcode = 'P0002'; end if;
   if to_regclass('public.' || p_table) is null then
-    return jsonb_build_object('table', p_table, 'offset', p_offset, 'count', 0, 'total', 0, 'more', false, 'missing', true, 'rows', '[]'::jsonb);
+    return jsonb_build_object('table', p_table, 'count', 0, 'total', 0, 'more', false, 'last', null, 'missing', true, 'rows', '[]'::jsonb);
   end if;
-  select string_agg(format('x.%I', a.attname), ', ' order by array_position(i.indkey::int2[], a.attnum)) into ord
+  select array_agg(a.attname::text order by array_position(i.indkey::int2[], a.attnum)),
+         array_agg(format_type(a.atttypid, a.atttypmod) order by array_position(i.indkey::int2[], a.attnum))
+    into cols, types
     from pg_index i join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any (i.indkey::int2[])
    where i.indrelid = ('public.' || p_table)::regclass and i.indisprimary;
-  ord := coalesce(ord, 'x::text');
+  if cols is null then raise exception 'backup_table: % has no primary key', p_table using errcode = '22023'; end if;
+  select string_agg(format('x.%I', c), ', ') into ord from unnest(cols) c;
+  if p_after is not null then
+    if not (p_after ?& cols) then raise exception 'backup_page: p_after needs %', cols using errcode = '22023'; end if;
+    select format('(%s) > (%s)', ord, string_agg(format('(%L::jsonb ->> %L)::%s', p_after::text, c, t), ', ')) into cond
+      from unnest(cols, types) as u(c, t);
+  end if;
   filt := case p_table when 'businesses' then 'x.id = $1' when 'tax_allocation_rules' then 'true' else 'x.business_id = $1' end;
-  execute format('select count(*) from public.%I x where %s', p_table, filt) into total using p_business;
-  execute format('select coalesce(jsonb_agg(to_jsonb(x) order by %s), ''[]''::jsonb), count(*) from (select x.* from public.%I x where %s order by %s offset $2 limit $3) x',
-                 ord, p_table, filt, ord) into res, n using p_business, p_offset, p_limit;
-  return jsonb_build_object('table', p_table, 'offset', p_offset, 'count', n, 'total', total, 'more', p_offset + n < total, 'rows', res);
+  if p_after is null then
+    execute format('select count(*) from public.%I x where %s', p_table, filt) into total using p_business;
+  end if;
+  execute format('select coalesce(jsonb_agg(public.backup_row(j) order by rn) filter (where rn <= $2), ''[]''::jsonb), count(*),
+                         (array_agg(j order by rn) filter (where rn <= $2))[least(count(*), $2)]
+                    from (select to_jsonb(x) as j, row_number() over (order by %s) as rn from public.%I x where %s and %s order by %s limit $2 + 1) y',
+                 ord, p_table, filt, cond, ord) into res, n, lastrow using p_business, p_limit;
+  if lastrow is not null then select jsonb_object_agg(c, lastrow -> c) into last from unnest(cols) c; end if;
+  return jsonb_build_object('table', p_table, 'count', least(n, p_limit), 'total', total, 'more', n > p_limit, 'last', last, 'rows', res);
 end $$;
 
 -- the end of a period (the first day after it)
@@ -520,6 +572,40 @@ begin
   return jsonb_build_object('id', r.id, 'status', 'failed', 'changed', true, 'object_path', r.object_path);
 end $$;
 
+-- the copies that should be there and are not (no run ok or expired): each business, monthly — every month that is over since it
+-- was created or since 11.2026 (the later); yearly — every year that is over since then. Oldest first, so a missed month is
+-- caught up (by the end of the period, then monthly before yearly): [{kind, period, business_id, running}]
+create or replace function public.backup_due(p_today date default null) returns jsonb
+language sql stable security definer set search_path = public as $$
+  with t as (select coalesce(p_today, public.il_today()) as today),
+  b as (select b.id, greatest(date_trunc('month', (b.created_at at time zone 'Asia/Jerusalem'))::date, date '2026-11-01') as since
+          from public.businesses b),
+  want as (
+    select 'monthly'::text as kind, to_char(m, 'YYYY-MM') as period, b.id as business_id, m::date as starts
+      from b, t, generate_series(b.since, (date_trunc('month', t.today) - interval '1 month')::date, interval '1 month') m
+    union all
+    select 'yearly', to_char(y, 'YYYY'), b.id, y::date
+      from b, t, generate_series(date_trunc('year', b.since)::date, (date_trunc('year', t.today) - interval '1 year')::date, interval '1 year') y
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('kind', w.kind, 'period', w.period, 'business_id', w.business_id,
+           'running', exists (select 1 from public.backup_runs r where r.kind = w.kind and r.period = w.period and r.business_id = w.business_id and r.status = 'running'))
+           order by public.backup_period_end(w.kind, w.period), w.kind, w.business_id), '[]'::jsonb)
+    from want w
+   where not exists (select 1 from public.backup_runs r where r.kind = w.kind and r.period = w.period and r.business_id = w.business_id
+                       and r.status in ('ok', 'expired'));
+$$;
+
+-- runs that are over (expired / failed) whose file may still be in Storage — the cron removes it (again):
+-- [{id, kind, period, business_id, status, object_path}]
+create or replace function public.backup_orphans() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(jsonb_build_object('id', r.id, 'kind', r.kind, 'period', r.period, 'business_id', r.business_id,
+           'status', r.status, 'object_path', r.object_path) order by r.started_at, r.id), '[]'::jsonb)
+    from public.backup_runs r
+   where r.status in ('expired', 'failed')
+     and exists (select 1 from storage.objects o where o.bucket_id = 'backups' and o.name = r.object_path);
+$$;
+
 -- may this copy go? ok, past its keep_until, and (monthly) a later yearly copy of the same scope is ok — never a gap
 create or replace function public.backup_may_expire(r public.backup_runs) returns boolean
 language sql stable set search_path = public as $$
@@ -553,11 +639,13 @@ begin
   return jsonb_build_object('id', r.id, 'object_path', r.object_path, 'changed', true);
 end $$;
 
-revoke execute on function public.backup_tables(), public.backup_businesses(), public.backup_export(uuid, text, int, int),
+revoke execute on function public.backup_tables(), public.backup_businesses(), public.backup_export_after(uuid, text, jsonb, int),
+  public.backup_row(jsonb), public.backup_due(date), public.backup_orphans(),
   public.backup_period_end(text, text), public.backup_run_start(text, text, uuid), public.backup_run_finish(uuid, text, bigint, jsonb),
   public.backup_run_fail(uuid, text), public.backup_may_expire(public.backup_runs), public.backup_expirable(), public.backup_expire(uuid)
   from public, anon, authenticated;
-grant execute on function public.backup_tables(), public.backup_businesses(), public.backup_export(uuid, text, int, int),
+grant execute on function public.backup_tables(), public.backup_businesses(), public.backup_export_after(uuid, text, jsonb, int),
+  public.backup_due(date), public.backup_orphans(),
   public.backup_period_end(text, text), public.backup_run_start(text, text, uuid), public.backup_run_finish(uuid, text, bigint, jsonb),
   public.backup_run_fail(uuid, text), public.backup_expirable(), public.backup_expire(uuid) to service_role;
 -- internal helpers: not even the server calls them directly
@@ -571,14 +659,16 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('delivered-documents', 'delivered-documents', false, 10485760, array['application/pdf'])
 on conflict (id) do nothing;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('backups', 'backups', false, null, array['application/gzip', 'application/json', 'application/octet-stream'])
+values ('backups', 'backups', false, 524288000, array['application/gzip', 'application/json', 'application/octet-stream'])  -- 500 MB
 on conflict (id) do nothing;
 do $$
 declare
   rule constant text := 'bucket_id = ''delivered-documents'' and (storage.foldername(name))[1] = (select public.current_business_id())::text'
     || ' and (select public.current_business_id()) in (select public.accessible_business_ids())'
     || ' and (select public.current_business_id()) in (select public.finance_business_ids())'
-    || ' and (select public.my_access()) <> ''register'' and not (select public.calendar_member())';
+    || ' and (select public.my_access()) <> ''register'' and not (select public.calendar_member())'
+    -- the file's record, read under the reader's RLS — its location gate too (a member of one location: that location's files only)
+    || ' and exists (select 1 from public.document_delivery_files f where f.object_path = objects.name)';
 begin
   -- a finance member of the business reads its delivered files (a short signed link from the server works as well)
   if not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'delivered_documents_read') then
@@ -807,7 +897,9 @@ end $$;
 --     (the two buckets: empty them from the dashboard, then delete them)
 --   drop function public.backup_expire(uuid), public.backup_expirable(), public.backup_may_expire(public.backup_runs),
 --     public.backup_run_fail(uuid, text), public.backup_run_finish(uuid, text, bigint, jsonb), public.backup_run_start(text, text, uuid),
---     public.backup_period_end(text, text), public.backup_export(uuid, text, int, int), public.backup_businesses(), public.backup_tables();
+--     public.backup_period_end(text, text), public.backup_export_after(uuid, text, jsonb, int), public.backup_row(jsonb),
+--     public.backup_due(date), public.backup_orphans(), public.backup_businesses(), public.backup_tables();
+--   drop function public.delivery_originals_unsaved(int);
 --   drop table public.backup_runs;  (its trigger function: drop function public.backup_runs_guard();)
 --   drop function public.document_delivery_file_add(uuid, text, bigint), public.document_delivery_state(uuid),
 --     public.document_delivery_record(uuid, text), public.document_share_open(text, text),

@@ -133,20 +133,71 @@ export async function keepDelivered(db: SupabaseClient, delivery: Delivery, byte
   if (!delivery.original) return { kept: false };
   if (!FILE_PATH.test(delivery.filePath) || !bytes.byteLength) return { kept: false, error: 'bad_path' };
   try {
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    let file = bytes;
     const up = await db.storage.from(DELIVERED_BUCKET).upload(delivery.filePath, bytes, { contentType: 'application/pdf', upsert: false });
-    // already there (a retry after a lost answer): the database compares the sha256 — the same file is fine, another one is refused
-    if (up.error && !/exists|duplicate|409/i.test(`${(up.error as any).statusCode ?? ''} ${up.error.message ?? ''}`)) {
-      console.error('[doc-share] keep delivered file: upload', (up.error as any).statusCode ?? 'error');
-      return { kept: false, error: 'upload' };
+    if (up.error) {
+      if (!/exists|duplicate|409/i.test(`${(up.error as any).statusCode ?? ''} ${up.error.message ?? ''}`)) {
+        console.error('[doc-share] keep delivered file: upload', (up.error as any).statusCode ?? 'error');
+        return { kept: false, error: 'upload' };
+      }
+      // already there (an earlier try uploaded it and lost the answer): the file there is the one kept — its own sha256 and size are
+      // recorded, never those of this new rendering
+      const there = await storedFile(db, delivery.filePath);
+      if (!there) return { kept: false, error: 'upload' };
+      file = there;
     }
-    const { error } = await db.rpc('document_delivery_file_add', { p_delivery: delivery.deliveryId, p_sha256: sha256, p_bytes: bytes.byteLength });
+    const sha256 = createHash('sha256').update(file).digest('hex');
+    const { error } = await db.rpc('document_delivery_file_add', { p_delivery: delivery.deliveryId, p_sha256: sha256, p_bytes: file.byteLength });
     if (error) { console.error('[doc-share] keep delivered file: record', error.code ?? 'error'); return { kept: false, error: 'record' }; }
     return { kept: true };
   } catch (e: any) {
     console.error('[doc-share] keep delivered file', e?.name ?? 'error');
     return { kept: false, error: 'exception' };
   }
+}
+
+/** a kept file's bytes (delivered-documents), or null */
+export async function storedFile(db: SupabaseClient, filePath: string): Promise<Uint8Array | null> {
+  if (!FILE_PATH.test(filePath)) return null;
+  const { data, error } = await db.storage.from(DELIVERED_BUCKET).download(filePath);
+  if (error || !data) return null;
+  return new Uint8Array(await (data as Blob).arrayBuffer());
+}
+
+/**
+ * the original's PDF of a delivery, when it was kept (document_delivery_files): the same bytes, from delivered-documents — a repeated
+ * request returns what was kept, never a new rendering (whose time and signature would differ). null: not kept (yet).
+ */
+export async function keptOriginal(db: SupabaseClient, delivery: Delivery): Promise<Uint8Array | null> {
+  if (!delivery.original) return null;
+  const { data, error } = await db.from('document_delivery_files').select('object_path').eq('delivery_id', delivery.deliveryId).maybeSingle();
+  if (error || !data) return null;
+  return storedFile(db, String((data as any).object_path ?? ''));
+}
+
+/**
+ * 6 נוסף, the retry (2.119): originals whose PDF was not kept (the save after the answer failed — delivery_originals_unsaved of
+ * 6900) are rendered again, with the mark "מקור", and kept with document_delivery_file_add. For link / print the kept file is always
+ * the server's rendering of what was shown; for a PDF the first try kept the very bytes sent, and this retry keeps a new rendering
+ * of the same document (its creation time and signature differ). Never throws; counts only in its answer.
+ */
+export async function keepUnsavedOriginals(db: SupabaseClient, deadline: number, clock: () => number = Date.now): Promise<{ ready: boolean; kept: number; failed: number }> {
+  const out = { ready: true, kept: 0, failed: 0 };
+  const { data, error } = await db.rpc('delivery_originals_unsaved', { p_limit: 50 });
+  if (error) return { ...out, ready: false };
+  for (const x of (Array.isArray(data) ? data : []) as any[]) {
+    if (clock() > deadline) break;
+    const delivery = toDelivery({ ok: true, delivery_id: x.delivery_id, document_id: x.document_id, business_id: x.business_id, channel: x.channel, original: true,
+      at: x.at, print_count: 0, file_path: x.file_path });
+    if (!delivery) { out.failed++; continue; }
+    try {
+      const { data: d } = await db.from('documents').select('*').eq('id', delivery.documentId).maybeSingle();
+      if (!d) { out.failed++; continue; }
+      const pdf = await documentPdf(await presentDocument(db, d as Record<string, unknown>), delivery.mark);
+      if ((await keepDelivered(db, delivery, pdf.bytes)).kept) out.kept++; else out.failed++;
+    } catch (e: any) { out.failed++; console.error('[doc-share] keep an unsaved original', e?.name ?? 'error'); }
+  }
+  return out;
 }
 
 /**

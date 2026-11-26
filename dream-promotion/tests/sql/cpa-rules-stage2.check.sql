@@ -82,7 +82,9 @@ drop policy if exists delivered_documents_no_update on storage.objects; drop pol
 drop policy if exists backups_server_only on storage.objects;
 drop function public.backup_expire(uuid), public.backup_expirable(), public.backup_may_expire(public.backup_runs),
   public.backup_run_fail(uuid, text), public.backup_run_finish(uuid, text, bigint, jsonb), public.backup_run_start(text, text, uuid),
-  public.backup_period_end(text, text), public.backup_export(uuid, text, int, int), public.backup_businesses(), public.backup_tables();
+  public.backup_period_end(text, text), public.backup_export_after(uuid, text, jsonb, int), public.backup_row(jsonb),
+  public.backup_due(date), public.backup_orphans(), public.backup_businesses(), public.backup_tables();
+drop function public.delivery_originals_unsaved(int);
 drop table public.backup_runs; drop function public.backup_runs_guard();
 drop function public.document_delivery_file_add(uuid, text, bigint), public.document_delivery_state(uuid),
   public.document_delivery_record(uuid, text), public.document_share_open(text, text),
@@ -346,7 +348,11 @@ select pg_temp.check((select count(*) from storage.objects where bucket_id = 'de
 commit;
 
 -- ---- 5. backups --------------------------------------------------------------------------------------------------------------
-select pg_temp.check(not has_function_privilege('authenticated', 'public.backup_export(uuid, text, integer, integer)', 'execute')
+select pg_temp.check(not has_function_privilege('authenticated', 'public.backup_export_after(uuid, text, jsonb, integer)', 'execute')
+  and not has_function_privilege('authenticated', 'public.backup_due(date)', 'execute')
+  and not has_function_privilege('authenticated', 'public.backup_orphans()', 'execute')
+  and not has_function_privilege('authenticated', 'public.delivery_originals_unsaved(integer)', 'execute')
+  and has_function_privilege('service_role', 'public.delivery_originals_unsaved(integer)', 'execute')
   and not has_function_privilege('anon', 'public.backup_run_start(text, text, uuid)', 'execute')
   and not has_function_privilege('authenticated', 'public.backup_expire(uuid)', 'execute')
   and has_function_privilege('service_role', 'public.backup_expire(uuid)', 'execute')
@@ -356,18 +362,31 @@ select pg_temp.check(not ('payment_accounts' = any (public.backup_tables())) and
 begin;
 set local role service_role;
 select pg_temp.as_server();
--- the export: one business, its rows only, in pages
-select pg_temp.check((select (x ->> 'total')::int = 7 and (x ->> 'count')::int = 2 and (x ->> 'more')::boolean
-                        and (select bool_and(r ->> 'business_id' = '00000000-0000-0000-0000-0000000690b1') from jsonb_array_elements(x -> 'rows') r)
-                        from public.backup_export('00000000-0000-0000-0000-0000000690b1', 'documents', 0, 2) x), 'a page of Alpha''s documents');
-select pg_temp.check((select (x ->> 'count')::int = 1 and not (x ->> 'more')::boolean from public.backup_export('00000000-0000-0000-0000-0000000690b1', 'documents', 6, 2) x),
-  'the last page');
-select pg_temp.check((select string_agg(r ->> 'id', ',') from jsonb_array_elements((public.backup_export('00000000-0000-0000-0000-0000000690b1', 'documents', 0, 100)) -> 'rows') r)
-  = (select string_agg(id::text, ',' order by id) from public.documents where business_id = '00000000-0000-0000-0000-0000000690b1'), 'in the order of the key, every row once');
-select pg_temp.check((public.backup_export(null, 'tax_allocation_rules') ->> 'total')::int = 4
-  and (public.backup_export('00000000-0000-0000-0000-0000000690b2', 'businesses') ->> 'total')::int = 1, 'the rules (all) and the business itself');
-select pg_temp.refused_with($$select public.backup_export('00000000-0000-0000-0000-0000000690b1', 'payment_accounts')$$, 'backup_table', 'never the terminal keys');
-select pg_temp.refused_with($$select public.backup_export(null, 'documents')$$, 'backup_business', 'a business''s table needs the business');
+-- the export: one business, its rows only, in keyset pages (after the last key), the total on the first page only
+create temp table pg1 as select public.backup_export_after('00000000-0000-0000-0000-0000000690b1', 'documents', null, 3) as x;
+create temp table pg2 as select public.backup_export_after('00000000-0000-0000-0000-0000000690b1', 'documents', (select x -> 'last' from pg1), 3) as x;
+create temp table pg3 as select public.backup_export_after('00000000-0000-0000-0000-0000000690b1', 'documents', (select x -> 'last' from pg2), 3) as x;
+select pg_temp.check((select (x ->> 'total')::int = 7 and (x ->> 'count')::int = 3 and (x ->> 'more')::boolean
+                        and (select array_agg(k) from jsonb_object_keys(x -> 'last') k) = array['id'] from pg1), 'the first page: 3 of 7, the total, more, its last key');
+select pg_temp.check((select x -> 'total' = 'null'::jsonb and (x ->> 'count')::int = 3 and (x ->> 'more')::boolean from pg2), 'the second page: no count again');
+select pg_temp.check((select (x ->> 'count')::int = 1 and not (x ->> 'more')::boolean from pg3), 'the last page');
+select pg_temp.check((select string_agg(r ->> 'id', ',' order by n, o) from (select 1 n, x from pg1 union all select 2, x from pg2 union all select 3, x from pg3) p,
+                        jsonb_array_elements(p.x -> 'rows') with ordinality e(r, o))
+  = (select string_agg(id::text, ',' order by id) from public.documents where business_id = '00000000-0000-0000-0000-0000000690b1'),
+  'the three pages: every row of Alpha once, in the order of the key');
+select pg_temp.check((select bool_and(r ->> 'business_id' = '00000000-0000-0000-0000-0000000690b1' and not (r ? 'share_token')
+                             and r ->> 'share_token_sha256' = encode(sha256(convert_to((select share_token from public.documents d where d.id = (r ->> 'id')::uuid), 'UTF8')), 'hex'))
+                        from pg1, jsonb_array_elements(pg1.x -> 'rows') r), 'no link token in a backup — only its sha256');
+-- a key of two columns (finance_counters: business, kind)
+insert into public.finance_counters (business_id, kind, last_no) values ('00000000-0000-0000-0000-0000000690b1', 'expense', 0), ('00000000-0000-0000-0000-0000000690b1', 'quote', 0)
+  on conflict do nothing;
+select pg_temp.check((select (public.backup_export_after('00000000-0000-0000-0000-0000000690b1', 'finance_counters', x -> 'last', 1) #>> '{rows,0,kind}') = 'quote'
+                        from (select public.backup_export_after('00000000-0000-0000-0000-0000000690b1', 'finance_counters', null, 1) x) f), 'a key of two columns pages too');
+select pg_temp.refused_with($$select public.backup_export_after('00000000-0000-0000-0000-0000000690b1', 'documents', '{"nope": 1}', 3)$$, 'backup_page', 'p_after needs the key');
+select pg_temp.check((public.backup_export_after(null, 'tax_allocation_rules') ->> 'total')::int = 4
+  and (public.backup_export_after('00000000-0000-0000-0000-0000000690b2', 'businesses') ->> 'total')::int = 1, 'the rules (all) and the business itself');
+select pg_temp.refused_with($$select public.backup_export_after('00000000-0000-0000-0000-0000000690b1', 'payment_accounts')$$, 'backup_table', 'never the terminal keys');
+select pg_temp.refused_with($$select public.backup_export_after(null, 'documents')$$, 'backup_business', 'a business''s table needs the business');
 -- a run: the period must be over; the same period again is the same run; the file only at its path
 select pg_temp.refused_with($$select public.backup_run_start('monthly', to_char(public.il_today(), 'YYYY-MM'))$$, 'backup_period_open', 'this month is not over');
 select pg_temp.refused_with($$select public.backup_run_start('yearly', to_char(public.il_today(), 'YYYY'))$$, 'backup_period_open', 'nor this year');
@@ -442,3 +461,106 @@ select pg_temp.check(not has_function_privilege('authenticated', 'public.documen
   and not has_function_privilege('anon', 'public.allocation_required(public.documents)', 'execute'), 'internal functions stay internal');
 select pg_temp.check((select prosecdef from pg_proc where oid = 'public.allocation_required(public.documents)'::regprocedure) is false
   and (select prosecdef from pg_proc where oid = 'public.finance_summary(date, date)'::regprocedure) is false, 'the rule and the summary run as the caller (their RLS)');
+
+-- ---- review of 2.119: locations, public buckets, the unsaved originals, orphan files, what is due, viewer policies ---------------
+-- a member of one location reads the delivered PDFs of that location only
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000690e4', 'branch@alpha-69.example.test');
+insert into public.business_locations (id, business_id, name) values ('00000000-0000-0000-0000-0000000690a2', '00000000-0000-0000-0000-0000000690b1', 'סניף שני');
+insert into public.business_members (business_id, user_id, role, access, locations) values
+  ('00000000-0000-0000-0000-0000000690b1', '00000000-0000-0000-0000-0000000690e4', 'editor', 'full', array['00000000-0000-0000-0000-0000000690b1']::uuid[]);
+update public.profiles set current_business_id = '00000000-0000-0000-0000-0000000690b1' where id = '00000000-0000-0000-0000-0000000690e4';
+select pg_temp.check(exists (select 1 from public.business_locations where id = '00000000-0000-0000-0000-0000000690b1'), 'Alpha''s main location has the business''s id');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000690e1', 320, 200, '{"idempotency_key":"a:branch2","location_id":"00000000-0000-0000-0000-0000000690a2"}'));
+select pg_temp.check((select location_id from public.documents where id = pg_temp.d('a:branch2')) = '00000000-0000-0000-0000-0000000690a2', 'a document of the second location');
+begin;
+set local role service_role;
+select pg_temp.as_server();
+create temp table dv2 as select (public.document_share_open(pg_temp.tok('a:branch2')) ->> 'delivery_id')::uuid as id;
+insert into storage.objects (bucket_id, name) select 'delivered-documents', '00000000-0000-0000-0000-0000000690b1/' || pg_temp.d('a:branch2') || '/' || id || '.pdf' from dv2;
+select public.document_delivery_file_add((select id from dv2), repeat('9', 64), 500);
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000690e1');
+select pg_temp.check((select count(*) from storage.objects where bucket_id = 'delivered-documents') = 2, 'the owner reads both locations'' PDFs');
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000690e4');
+select pg_temp.check((select count(*) from storage.objects where bucket_id = 'delivered-documents') = 1
+  and exists (select 1 from storage.objects o, dv where o.bucket_id = 'delivered-documents' and o.name = dv.business_id || '/' || dv.document_id || '/' || dv.id || '.pdf'),
+  'a member of the main location: its PDF only');
+select pg_temp.check(not exists (select 1 from storage.objects o where o.bucket_id = 'delivered-documents' and o.name like '%' || pg_temp.d('a:branch2') || '%')
+  and (select count(*) from public.document_delivery_files) = 1, 'never the other location''s — not the file, not its record');
+commit;
+
+-- the originals whose PDF is not kept: older than 5 minutes, oldest first
+begin;
+set local role service_role;
+select pg_temp.as_server();
+select pg_temp.check(public.delivery_originals_unsaved() = '[]'::jsonb, 'every original is new (less than 5 minutes) — none yet');
+commit;
+alter table public.document_deliveries disable trigger document_deliveries_append_only;
+update public.document_deliveries set created_at = created_at - interval '10 minutes';
+alter table public.document_deliveries enable trigger document_deliveries_append_only;
+begin;
+set local role service_role;
+select pg_temp.as_server();
+select pg_temp.check((select count(*) from jsonb_array_elements(public.delivery_originals_unsaved()) e) = (select count(*) from public.document_deliveries v
+                        where v.is_original and not exists (select 1 from public.document_delivery_files f where f.delivery_id = v.id))
+  and (select count(*) from jsonb_array_elements(public.delivery_originals_unsaved()) e) >= 3, 'the originals without a kept PDF');
+select pg_temp.check(not exists (select 1 from jsonb_array_elements(public.delivery_originals_unsaved()) e
+                       where (e ->> 'delivery_id')::uuid in (select delivery_id from public.document_delivery_files))
+  and not exists (select 1 from jsonb_array_elements(public.delivery_originals_unsaved()) e
+                    where (e ->> 'delivery_id')::uuid in (select id from public.document_deliveries where not is_original)), 'never a kept one, never a copy');
+select pg_temp.check((select bool_and(e ->> 'file_path' = (e ->> 'business_id') || '/' || (e ->> 'document_id') || '/' || (e ->> 'delivery_id') || '.pdf')
+                        from jsonb_array_elements(public.delivery_originals_unsaved()) e), 'with the path to store it at');
+select pg_temp.check(jsonb_array_length(public.delivery_originals_unsaved(1)) = 1
+  and (public.delivery_originals_unsaved(1) -> 0 ->> 'at')::timestamptz = (select min(v.created_at) from public.document_deliveries v
+        where v.is_original and not exists (select 1 from public.document_delivery_files f where f.delivery_id = v.id)), 'the oldest first, as many as asked');
+-- orphan files: the yearly run of 2025 that failed (its file never uploaded) — none; a failed run with its file — listed until removed
+select pg_temp.check(public.backup_orphans() = '[]'::jsonb, 'no orphan file yet');
+create temp table run4 as select public.backup_run_start('yearly', '2024', '00000000-0000-0000-0000-0000000690b2') as r;
+insert into storage.objects (bucket_id, name) select 'backups', r ->> 'object_path' from run4;
+select public.backup_run_fail((r ->> 'id')::uuid, 'the finish never came') from run4;
+select pg_temp.check((select jsonb_path_query_array(public.backup_orphans(), '$[*].id') = jsonb_build_array(r ->> 'id') from run4), 'a failed run with its file — an orphan');
+delete from storage.objects where bucket_id = 'backups' and name = (select r ->> 'object_path' from run4);
+select pg_temp.check(public.backup_orphans() = '[]'::jsonb, 'removed — no orphan');
+commit;
+-- what is due: every month that is over since the business was created or 11.2026 (the later), every year that is over
+update public.businesses set created_at = '2026-09-15 10:00+03' where id = '00000000-0000-0000-0000-0000000690b2';
+begin;
+set local role service_role;
+select pg_temp.as_server();
+select pg_temp.check((select jsonb_agg(e - 'running' order by o) from jsonb_array_elements(public.backup_due('2027-02-10')) with ordinality x(e, o)
+                       where e ->> 'business_id' = '00000000-0000-0000-0000-0000000690b2')
+  = '[{"kind": "monthly", "period": "2026-11", "business_id": "00000000-0000-0000-0000-0000000690b2"},
+      {"kind": "monthly", "period": "2026-12", "business_id": "00000000-0000-0000-0000-0000000690b2"},
+      {"kind": "yearly", "period": "2026", "business_id": "00000000-0000-0000-0000-0000000690b2"},
+      {"kind": "monthly", "period": "2027-01", "business_id": "00000000-0000-0000-0000-0000000690b2"}]'::jsonb,
+  'Beta on 10.2.2027: November, December, the year 2026, January — oldest first');
+select pg_temp.check(not exists (select 1 from jsonb_array_elements(public.backup_due('2026-11-30')) e where e ->> 'business_id' = '00000000-0000-0000-0000-0000000690b2'),
+  'on 30.11.2026 nothing is over yet');
+commit;
+-- (November is not over today: its run is written as it would be on 1.12.2026)
+insert into public.backup_runs (id, kind, period, business_id, object_path) values ('00000000-0000-0000-0000-0000000690c5', 'monthly', '2026-11',
+  '00000000-0000-0000-0000-0000000690b2', '00000000-0000-0000-0000-0000000690b2/monthly/2026-11/00000000-0000-0000-0000-0000000690c5.json.gz');
+update public.backup_runs set status = 'ok', finished_at = now(), sha256 = repeat('1', 64), bytes = 10, row_counts = '{}', keep_until = '2027-12-01'
+ where id = '00000000-0000-0000-0000-0000000690c5';
+begin;
+set local role service_role;
+select pg_temp.as_server();
+select pg_temp.check(not exists (select 1 from jsonb_array_elements(public.backup_due('2027-02-10')) e
+                       where e ->> 'business_id' = '00000000-0000-0000-0000-0000000690b2' and e ->> 'period' = '2026-11'), 'a month that is ok — no longer due');
+commit;
+-- the viewer policies of 3200 on the two new tables
+select pg_temp.check((select count(*) from pg_policies where schemaname = 'public' and tablename in ('document_deliveries', 'document_delivery_files')
+                       and policyname ~ '_viewer_(insert|update|delete)$' and permissive = 'RESTRICTIVE') = 6, 'the viewer policies, restrictive, on both tables');
+-- a public bucket of the same name: the migration stops, changes nothing
+update storage.buckets set public = true where id = 'backups';
+-- (the migration's own guard — its first block, as written in the file)
+\set guard `awk '/^do [$][$]$/ {f=1} f {print} f && /^end [$][$];$/ {exit}' supabase/migrations/20261126006900_cpa_rules_stage2.sql`
+select pg_temp.check(length(:'guard') > 500 and position('PUBLIC' in :'guard') > 0, 'the guard block was read from the migration');
+select pg_temp.refused_with(:'guard', 'the bucket backups already exists and is PUBLIC', 'a public bucket of that name — the migration stops');
+update storage.buckets set public = false where id = 'backups';
+select pg_temp.check((select file_size_limit from storage.buckets where id = 'backups') = 524288000, 'backups: up to 500 MB a file');

@@ -202,7 +202,7 @@ function Reminder({ r, line, onClose }: { r: Receivable; line: Line | null; onCl
     <Modal open onClose={onClose}>
       <h3 className="mb-1 font-display text-lg font-extrabold">תזכורת תשלום · {r.customerName || 'לקוח'}</h3>
       <div className="mb-3 flex flex-wrap gap-1.5">{TONES.map((t) => <Chip key={t.id} on={tone === t.id} onClick={() => setTone(t.id)}>{t.label}</Chip>)}</div>
-      <p className="whitespace-pre-wrap break-all rounded-2xl bg-surface-2 p-3 text-sm" dir="rtl">{text}</p>
+      <p className="whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-surface-2 p-3 text-sm" dir="rtl">{text}</p>
       {ai.note && <p className="mt-2 text-xs text-muted">{ai.note}</p>}
       <div className="mt-3 flex flex-wrap gap-2">
         {block ? <Note tone="warn">{block}</Note> : block === undefined ? <Spinner /> : url ? <a href={url} target="_blank" rel="noopener" onClick={() => { void logEvent('reminder.sent', 'documents', r.id, { tone, balance: r.balance }); if (r.leadId) addActivity(r.leadId, 'whatsapp', `תזכורת תשלום: ${DOC_LABEL[r.docType]} ${r.docNumber} · ${ils(r.balance)}`); onClose(); }}

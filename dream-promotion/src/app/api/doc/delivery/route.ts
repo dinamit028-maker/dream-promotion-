@@ -1,6 +1,6 @@
 import { adminDb, userFromRequest } from '@/lib/server/admin';
 import { LOCKED, canUseBusiness } from '@/lib/server/business';
-import { appDelivery, documentPdf, keepDelivered, pdfHeaders, presentDocument } from '@/lib/server/doc-share';
+import { appDelivery, documentPdf, keepDelivered, keptOriginal, pdfHeaders, presentDocument } from '@/lib/server/doc-share';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +27,12 @@ export async function POST(req: Request) {
   const { data: d } = await db.from('documents').select('*').eq('id', v.delivery.documentId).maybeSingle();
   if (!d) return Response.json({ code: 'not_found', message: 'המסמך לא נמצא.' }, { status: 404 });
   const s = await presentDocument(db, d as Record<string, unknown>);
+  // the original asked again (a retry, a second tap within the window): the very file that was kept — never a new rendering
+  const again = await keptOriginal(db, v.delivery);
+  if (again) {
+    if (want === 'keep') return Response.json({ ok: true, kept: true }, { headers: { 'Cache-Control': 'no-store' } });
+    return new Response(Buffer.from(again), { headers: { ...pdfHeaders(s.doc, false), 'X-Signed': 'kept', 'X-Kept': '1' } });
+  }
   const { bytes, signed } = await documentPdf(s, v.delivery.mark);
   // kept before the answer: the person waits for the file anyway, and the original is kept once (a retry finds it there)
   const kept = v.delivery.original ? (await keepDelivered(db, v.delivery, bytes)).kept : false;

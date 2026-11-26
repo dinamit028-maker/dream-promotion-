@@ -195,11 +195,12 @@ export function SendPaylinkDialog({ kind, target, packageId, what, left, amount:
 }
 
 /** "💳 שלח לינק לתשלום" — opens the dialog */
-export function PaylinkButton(p: Omit<SendProps, 'onClose'> & { size?: 'sm' | 'md'; label?: string }) {
+/** blocked: why the link may not go now (2.119 — an invoice waiting for its allocation number: the link names it and its amount) */
+export function PaylinkButton(p: Omit<SendProps, 'onClose'> & { size?: 'sm' | 'md'; label?: string; blocked?: string | null }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="ghost" size={p.size} onClick={() => setOpen(true)}>{p.label ?? '💳 שלח לינק לתשלום'}</Button>
+      <Button variant="ghost" size={p.size} disabled={Boolean(p.blocked)} title={p.blocked ?? undefined} onClick={() => setOpen(true)}>{p.label ?? '💳 שלח לינק לתשלום'}</Button>
       {open && <SendPaylinkDialog {...p} onClose={() => setOpen(false)} onSent={p.onSent} />}
     </>
   );

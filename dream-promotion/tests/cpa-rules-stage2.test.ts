@@ -26,9 +26,9 @@ import { allocationMissingDocs } from '../src/features/finance/overview-lists';
 import {
   AWAITING_CUSTOMER, AWAITING_STAFF, MARK_COPY, MARK_ORIGINAL, WRONG_NUMBER_NOTE, deliveryMark, isAwaiting, isMissing, needFromState, toDelivery, toDeliveryState,
 } from '../src/features/finance/delivery';
-import { LEGACY_MARK, appDelivery, keepDelivered, pdfMark, softwareLine } from '../src/lib/server/doc-share';
+import { LEGACY_MARK, appDelivery, keepDelivered, keepUnsavedOriginals, keptOriginal, pdfMark, softwareLine } from '../src/lib/server/doc-share';
 import { buildDocPdf } from '../src/lib/server/doc-pdf';
-import { backupCron, backupOne, periodsDue } from '../src/lib/server/backup';
+import { backupCron, backupOne, daysLate, periodEnd, periodsDue, rotate } from '../src/lib/server/backup';
 import { docBody } from '../src/features/documents/DocumentsTab';
 import { toDoc } from '../src/features/documents/documents';
 
@@ -55,6 +55,10 @@ function withStorage(db: any, files: Files, o: { failUpload?: boolean; failRemov
         if (o.failUpload) return { data: null, error: { statusCode: '500', message: 'storage down' } };
         if (files.has(`${bucket}/${key}`)) return { data: null, error: { statusCode: '409', message: 'The resource already exists' } };
         files.set(`${bucket}/${key}`, new Uint8Array(body)); return { data: { path: key }, error: null };
+      },
+      download: async (key: string) => {
+        const f = files.get(`${bucket}/${key}`);
+        return f ? { data: new Blob([Buffer.from(f)]), error: null } : { data: null, error: { statusCode: '404', message: 'Object not found' } };
       },
       remove: async (keys: string[]) => {
         calls.push(...keys.map((k) => ({ op: 'remove', key: `${bucket}/${k}` })));
@@ -443,4 +447,130 @@ test('fail closed: a check that could not be made keeps a reminder from going (t
     : from(t));
   assert.equal(await reminderAwaiting(db, 'rem-c'), 'unknown');
   assert.deepEqual(await sendReminderEmail(db, { id: 'mail-c', reminder_id: 'rem-c', business_id: BIZ, to_email: 'customer@example.test' }), { error: CHECK_FAILED, final: false });
+});
+
+// ---- review round (2.119): the backups' fairness and catch-up, their alerts, the originals kept again, the kept file returned ------
+test('periods: the end of a period, days late, and the business that starts — a different one every day', () => {
+  assert.equal(periodEnd({ kind: 'monthly', period: '2026-11' }), '2026-12-01');
+  assert.equal(periodEnd({ kind: 'monthly', period: '2026-12' }), '2027-01-01');
+  assert.equal(periodEnd({ kind: 'yearly', period: '2026' }), '2027-01-01');
+  assert.equal(daysLate({ kind: 'monthly', period: '2026-10' }, '2026-11-09'), 8);
+  assert.equal(daysLate({ kind: 'monthly', period: '2026-10' }, '2026-11-01'), 0);
+  const l = ['a', 'b', 'c'];
+  const firsts = ['2026-11-26', '2026-11-27', '2026-11-28'].map((d) => rotate(l, d)[0]);
+  assert.equal(new Set(firsts).size, 3, 'three days, three first businesses');
+  assert.deepEqual([...rotate(l, '2026-11-26')].sort(), l, 'everyone is in the order');
+});
+
+function dueDb(o: { due: { kind: string; period: string; business_id: string }[]; slow?: string; rows?: number; keyset?: boolean; orphans?: { object_path: string }[] }) {
+  const runs: any[] = [];
+  const asked: string[] = [];
+  let now = 0;
+  const rowsOf = (b: string, t: string) => (t === 'documents' ? Array.from({ length: o.rows ?? 3 }, (_, i) => ({ id: `${b}-${i}`, business_id: b })) : []);
+  const pageOf = (a: any, offset: number) => {
+    if (a.p_business === o.slow) now += 20_000;   // this business is slow: every page costs 20 s
+    const all = rowsOf(a.p_business, a.p_table); const rows = all.slice(offset, offset + a.p_limit);
+    return { rows, offset, count: rows.length, more: offset + rows.length < all.length, next: offset + rows.length };
+  };
+  const rpc: Record<string, (a: any) => any> = {
+    backup_tables: () => ['documents', 'payments'],
+    backup_businesses: () => [...new Set(o.due.map((d) => d.business_id))],
+    backup_due: () => o.due.filter((d) => !runs.some((r) => r.status === 'ok' && r.kind === d.kind && r.period === d.period && r.business === d.business_id)),
+    backup_orphans: () => o.orphans ?? [],
+    backup_run_start: (a: any) => {
+      const r = runs.find((x) => x.kind === a.p_kind && x.period === a.p_period && x.business === a.p_business && ['running', 'ok'].includes(x.status));
+      if (r) return { id: r.id, object_path: r.object_path, status: r.status };
+      const id = randomUUID(); const n = { id, kind: a.p_kind, period: a.p_period, business: a.p_business, status: 'running', object_path: `${a.p_business}/${a.p_kind}/${a.p_period}/${id}.json.gz` };
+      runs.push(n); asked.push(`${a.p_business.slice(0, 2)} ${a.p_kind} ${a.p_period}`); return n;
+    },
+    backup_export: (a: any) => { asked.push('offset'); return pageOf(a, a.p_offset); },
+    backup_run_finish: (a: any) => { Object.assign(runs.find((x) => x.id === a.p_run), { status: 'ok', sha256: a.p_sha256 }); return { status: 'ok' }; },
+    backup_run_fail: (a: any) => { Object.assign(runs.find((x) => x.id === a.p_run), { status: 'failed', error: a.p_error }); return { status: 'failed' }; },
+    backup_expirable: () => [],
+  };
+  if (o.keyset) rpc.backup_export_after = (a: any) => { asked.push('keyset'); return pageOf(a, Number(a.p_after ?? 0)); };
+  const db = fakeDb({}, { rpc }) as any;
+  const fs: Files = new Map();
+  for (const x of o.orphans ?? []) fs.set(`backups/${x.object_path}`, new Uint8Array([1]));
+  withStorage(db, fs);
+  return { db, runs, asked, files: fs, clock: () => now };
+}
+
+test('backups: missed periods are caught up oldest first; a slow business stops itself, never the others; keyset pages; orphans go', async () => {
+  const S = 'b1000000-0000-4000-8000-0000000000a1', F = 'b2000000-0000-4000-8000-0000000000b2';
+  const due = [{ kind: 'monthly', period: '2026-09', business_id: F }, { kind: 'monthly', period: '2026-10', business_id: F },
+    { kind: 'monthly', period: '2026-10', business_id: S }];
+  // whichever starts the day, the slow one (20 s a page, 3 pages) never finishes in 45 s — the fast one still gets both its months
+  for (const day of ['2026-11-26T08:00:00Z', '2026-11-27T08:00:00Z']) {
+    const x = dueDb({ due, slow: S, rows: 3, keyset: true, orphans: [{ object_path: 'old/failed.json.gz' }] });
+    const alerts: any[] = [];
+    const r = await backupCron(x.db, new Date(day), 45_000, { pageSize: 1, clock: x.clock, alert: async (a) => { alerts.push(a); } });
+    assert.equal(r.ok, 2, `${day}: the fast business's two months`);
+    assert.deepEqual(x.runs.filter((q) => q.business === F).map((q) => [q.period, q.status]), [['2026-09', 'ok'], ['2026-10', 'ok']], 'oldest first');
+    assert.ok(x.runs.filter((q) => q.business === S).every((q) => q.status === 'running'), 'the slow one stopped (resumable), never failed or "ok"');
+    assert.equal(r.outOfTime, true);
+    assert.ok(x.asked.includes('keyset') && !x.asked.includes('offset'), 'keyset paging when the database has it');
+    assert.equal(r.orphansRemoved, 1); assert.equal(x.files.has('backups/old/failed.json.gz'), false);
+  }
+  // without the keyset function: offset paging, the same files
+  const y = dueDb({ due: due.slice(0, 1), rows: 3 });
+  assert.equal((await backupCron(y.db, new Date('2026-11-26T08:00:00Z'), 45_000, { pageSize: 1, clock: y.clock })).ok, 1);
+  assert.ok(y.asked.includes('offset') && !y.asked.includes('keyset'));
+});
+
+test('backups: the super admin is told — a failed run, a file too large, a business stuck in its whole share, a period late by more than 7 days', async () => {
+  const B = 'b3000000-0000-4000-8000-0000000000c3';
+  const x = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: B }], rows: 3 });
+  const alerts: any[] = [];
+  const r = await backupCron(x.db, new Date('2026-11-26T08:00:00Z'), 45_000, { clock: x.clock, maxBytes: 10, alert: async (a) => { alerts.push(a); } });
+  assert.equal(r.tooLarge, 1); assert.equal(x.runs[0].status, 'failed'); assert.match(x.runs[0].error, /^too_large: \d+ bytes$/);
+  assert.equal(alerts.length, 1); assert.equal(alerts[0].tooLarge, 1);
+  assert.equal(alerts[0].lateDue, 1, '2026-10 not done on 26.11 — 25 days late'); assert.equal(alerts[0].oldestLateDays, 25);
+  assert.deepEqual(Object.keys(alerts[0]).sort(), ['failed', 'lateDue', 'oldestLateDays', 'stuck', 'tooLarge'], 'counts only — no business, no path');
+  const z = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: B }], slow: B, rows: 9 });
+  const za: any[] = [];
+  await backupCron(z.db, new Date('2026-11-26T08:00:00Z'), 45_000, { pageSize: 1, clock: z.clock, alert: async (a) => { za.push(a); } });
+  assert.equal(za[0].stuck, 1, 'the only business, in its whole share, did not finish');
+  const ok = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: B }] });
+  const none: any[] = [];
+  await backupCron(ok.db, new Date('2026-11-02T08:00:00Z'), 45_000, { clock: ok.clock, alert: async (a) => { none.push(a); } });
+  assert.deepEqual(none, [], 'all done, nothing late — nobody is bothered');
+});
+
+test('the original kept again: the unsaved ones are rendered with "מקור" and kept; a file already there keeps its own sha256', async () => {
+  install();
+  const db = (globalThis as any).__DP_TEST_ADMIN_DB__;
+  const id = randomUUID(), path1 = `${BIZ}/${DOC}/${id}.pdf`;
+  db.rpc = async (fn: string, a: any) => {
+    if (fn === 'delivery_originals_unsaved') return { data: [{ delivery_id: id, document_id: DOC, business_id: BIZ, channel: 'print', at: '2026-11-26T08:00:00Z', file_path: path1 }], error: null };
+    if (fn === 'document_delivery_file_add') { fileAdds.push(a); return { data: { ok: true }, error: null }; }
+    return { data: null, error: { code: 'PGRST202', message: 'x' } };
+  };
+  assert.deepEqual(await keepUnsavedOriginals(db, Date.now() + 30_000), { ready: true, kept: 1, failed: 0 });
+  const kept = files.get(`delivered-documents/${path1}`)!;
+  assert.equal(fileAdds[0].p_sha256, sha(kept));
+  const dir = mkdtempSync(path.join(tmpdir(), 'dp-6900-keep-')); const f = path.join(dir, 'k.pdf'); writeFileSync(f, kept);
+  assert.match(execFileSync('pdftotext', ['-layout', f, '-']).toString(), /^\W*מקור\W*\s/, 'marked "מקור"');
+  // already there (an earlier try uploaded it): the existing file's sha256 is recorded, never the new rendering's
+  fileAdds.length = 0;
+  const old = new Uint8Array([37, 80, 68, 70, 45, 1, 2, 3]);
+  files.set(`delivered-documents/${path1}`, old);
+  const d = { deliveryId: id, documentId: DOC, businessId: BIZ, channel: 'print' as const, original: true, mark: MARK_ORIGINAL, at: '', printCount: 1, filePath: path1 };
+  assert.deepEqual(await keepDelivered(db, d, new Uint8Array([9, 9, 9])), { kept: true });
+  assert.equal(fileAdds[0].p_sha256, sha(old)); assert.equal(fileAdds[0].p_bytes, old.byteLength);
+  assert.deepEqual([...files.get(`delivered-documents/${path1}`)!], [...old], 'never replaced');
+  // the kept file is what a repeated request gets back
+  tables.document_delivery_files = [{ delivery_id: id, object_path: path1 }];
+  assert.deepEqual([...(await keptOriginal(db, d))!], [...old]);
+  assert.equal(await keptOriginal(db, { ...d, original: false }), null, 'a copy is never served from the kept file');
+  assert.deepEqual(await keepUnsavedOriginals(fakeDb({}) as any, Date.now() + 1000), { ready: false, kept: 0, failed: 0 }, 'before the function: nothing');
+});
+
+test('the screens: a payment link of an invoice waiting for its number is closed; the reminder wraps the link only', () => {
+  const src = (f: string) => readFileSync(path.join(__dirname, '..', f), 'utf8');
+  assert.match(src('src/features/finance/DocView.tsx'), /blocked=\{awaiting \? AWAITING_STAFF : null\}/);
+  assert.match(src('src/features/finance/DocView.tsx'), /blocked: awaiting \? AWAITING_STAFF : null/, 'and the plan\'s payment links');
+  assert.match(src('src/features/finance/Paylinks.tsx'), /disabled=\{Boolean\(p\.blocked\)\}/);
+  assert.match(src('src/features/finance/Receivables.tsx'), /\[overflow-wrap:anywhere\]/); assert.doesNotMatch(src('src/features/finance/Receivables.tsx'), /break-all/);
+  assert.match(src('src/app/api/doc/delivery/route.ts'), /keptOriginal\(db, v\.delivery\)/, 'a repeated request returns the kept file');
 });
