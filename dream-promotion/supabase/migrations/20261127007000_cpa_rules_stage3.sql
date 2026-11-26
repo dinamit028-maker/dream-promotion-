@@ -39,8 +39,9 @@
 --   bank_deposit_create(uuid, date, uuid, numeric, uuid[], text) of 20261011005000 — old 70d1de91696e64e7b9b444c6a30f52e2
 --   bank_deposit_cancel(uuid, text)    of 20261011005000_cash_bank_goods.sql    — old 3ea735f01acc605d88036cdfce316a33
 --   deposit_book(date, date)           of 20261011005000_cash_bank_goods.sql    — old 41dcaa7ad4711e6e5a3680d19b73cdf9
--- Running 2000, 4600, 5000 or 6800 again after this one brings back an old function (one series per business, a credit where its
--- invoice is, a deposit without its document) — then run this one again.
+--   document_share_open(text, text)    of 20261126006900_cpa_rules_stage2.sql   — old 2429d169e4f89e4bd605efea4f5e4d4e (a 420: not_found)
+-- Running 2000, 4600, 5000, 6800 or 6900 again after this one brings back an old function (one series per business, a credit where its
+-- invoice is, a deposit without its document, a deposit's link that records a delivery) — then run this one again.
 -- Deploy order: THE CODE FIRST, then this migration: after it, a deposit issues a 420 that the old screens do not know (a list
 -- would show a document with no name), and the numbers of a business that switches are printed with their leading zero only by
 -- the new screens.
@@ -827,6 +828,23 @@ begin
   return res;
 end $function$;
 
+-- ---- a deposit document is never the customer's: its link opens nothing and records nothing — replaces document_share_open()
+--      of 20261126006900 (one line added: a 420 is "not_found", before any delivery is recorded)
+create or replace function public.document_share_open(p_token text, p_channel text default 'link') returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare d public.documents;
+begin
+  if coalesce(p_channel, '') not in ('link', 'pdf', 'storefront') then raise exception 'delivery_channel: link, pdf or storefront' using errcode = '22023'; end if;
+  if coalesce(p_token, '') !~ '^[a-f0-9]{64}$' then return jsonb_build_object('ok', false, 'code', 'not_found'); end if;
+  select * into d from public.documents where share_token = p_token for update;
+  if not found then return jsonb_build_object('ok', false, 'code', 'not_found'); end if;
+  if d.doc_type = 420 then return jsonb_build_object('ok', false, 'code', 'not_found'); end if;   -- 7000: a deposit, not a customer's document
+  if not public.business_is_active(d.business_id) then return jsonb_build_object('ok', false, 'code', 'unavailable'); end if;
+  if public.allocation_awaiting(d) then return jsonb_build_object('ok', false, 'code', 'awaiting_allocation'); end if;
+  return public.document_delivery_add(d, p_channel, null);
+end $$;
+-- (create or replace keeps its grants: service_role only, as 6900 set them)
+
 -- ============================================================================================================================
 -- 7. the owner's switch, the branch codes, and what the settings screen reads
 -- ============================================================================================================================
@@ -916,7 +934,7 @@ revoke execute on function public.documents_before_insert(), public.location_fil
 -- Rollback (by hand, if ever needed — the documents issued after this one stay, as every document does):
 --   * only while NO business switched (select count(*) from document_numbering = 0) and no 420 was issued
 --     (select count(*) from documents where doc_type = 420 = 0): run again the old versions of the functions above (from the
---     migrations named in the header: 2000, 4600, 6800, 6800, 5000, 5000, 5000); then
+--     migrations named in the header: 2000, 4600, 6800, 6800, 5000, 5000, 5000, 6900); then
 --       drop index documents_deposit_uq;
 --       drop trigger c_business_locations_branch_code on business_locations;
 --       drop function document_numbering_state(), document_numbering_per_location(), location_branch_code_set(uuid, text),

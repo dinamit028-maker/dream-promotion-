@@ -14,6 +14,11 @@
 -- paid in cash / transfer / Bit (method 4, as payments.ts) / card (with its kind, field 1315) — and two refund receipts (400 below
 -- zero on the receipt, base_doc_type 400 + base_doc_number — the accountant, answer 15): one partial, back to the card; one full,
 -- in cash. No tax invoice. scripts/ita-sample.mjs makes its files with ITA_BUSINESS=d3e00000-0000-4000-8000-000000000003.
+-- 2.120 (migration 7000 — the accountant, answers 5 and 18; the owner, 26.11.2026): after the licensed demo's documents, a second
+-- location ("סניף דמו 2", fixed id …00c2), and the owner switches to numbering per location (the main location 01, the second 02):
+-- on 30.10.2026 two 320s at each location (01000001, 01000002 / 02000001, 02000002), a 330 at location 01 on a 320 of location 02;
+-- the money desks on, a deposit of the main location (cash + a cheque in the drawer, with its details) — its 420 "הפקדת בנק" —
+-- and a deposit of location 02 (cash) cancelled by bank_deposit_cancel (its 420 cancelled with it). All dated 30.10.2026.
 --
 -- How: every document is a plain insert into public.documents by the demo owner signed in (role authenticated + JWT subject),
 -- through every trigger (numbering, issuer snapshot, documents_validate, the ledger, the audit log) — the number, the issue time
@@ -50,10 +55,14 @@ do $$ begin
 end $$;
 -- … and each demo document is issued on its own day: issued_at (set to now() by documents_number) becomes its doc_date, Israel
 -- time, from 09:00, 9 minutes after the one before it that day — fictitious and the same on every run. Only the two demo
--- businesses; this trigger exists inside this transaction only (dropped before the commit).
+-- businesses; this trigger exists inside this transaction only (dropped before the commit). A deposit's 420 (7000), which
+-- bank_deposit_create dates today, is dated its deposit's day instead (30.10.2026 — the same on every run).
 create or replace function public.ita_demo_issued_at() returns trigger language plpgsql set search_path = public as $$
 begin
   if new.business_id in ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-000000000003') then
+    if new.doc_type = 420 then
+      select x.deposited_on into new.doc_date from public.bank_deposits x where x.id = new.deposit_id;
+    end if;
     new.issued_at := ((new.doc_date + time '09:00')
                       + make_interval(mins => 9 * (select count(*) from public.documents x
                                                     where x.business_id = new.business_id and x.doc_date = new.doc_date)::int)) at time zone 'Asia/Jerusalem';
@@ -94,6 +103,9 @@ insert into public.business_finance_profile (business_id, user_id, trading_name,
   values ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-0000000000a1', 'דמו רישום', '03-0000000',
           'ita-demo@example.test', 'בנק דמו', '123', '123456', 'net_30', 'מסמך לדוגמה - נתוני דמו בלבד', 'bimonthly')
   on conflict (business_id) do nothing;
+-- 2.120: the money desks on (deposits); a profile made by an earlier seed gets it here
+update public.business_finance_profile set cash_drawers = true
+ where business_id = 'd3e00000-0000-4000-8000-000000000001' and not cash_drawers;
 
 -- ---- the second demo business: an exempt dealer (2.118; fixed ids; nothing that exists is changed) --------------------------
 insert into auth.users (id, email) values ('d3e00000-0000-4000-8000-0000000000a3', 'ita-demo-exempt@example.test')
@@ -419,6 +431,70 @@ begin
         values (r.id, B, U, 'קבלה הופקה בטעות - סכום שגוי');
     end loop;
   end loop;
+end $$;
+
+-- ---- 2.120: numbering per location, and the deposits (migration 7000) --------------------------------------------------
+-- the second location (made after the documents of June–October: they stay of a business with one location)
+reset role;
+insert into public.business_locations (id, business_id, name, kind, sort)
+  values ('d3e00000-0000-4000-8000-0000000000c2', 'd3e00000-0000-4000-8000-000000000001', 'סניף דמו 2', 'branch', 1)
+  on conflict (id) do nothing;
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'd3e00000-0000-4000-8000-0000000000a1';
+set local "request.jwt.claim.role" = 'authenticated';
+
+do $$
+declare
+  B constant uuid := 'd3e00000-0000-4000-8000-000000000001';
+  L2 constant uuid := 'd3e00000-0000-4000-8000-0000000000c2';
+  rate constant numeric := 18;
+  d constant date := date '2026-10-30';   -- a Friday, the last week of the demo
+  shop constant jsonb := '[{"name":"טיפול פנים קלאסי","unit":28000},{"name":"מניקור","unit":9000},{"name":"קרם לחות 50 מל","unit":14900},
+                           {"name":"פדיקור","unit":12000}]';
+  people constant jsonb := '[{"n":"נועה לוי","p":"050-0000001"},{"n":"מיכל כהן","p":"050-0000002"},{"n":"שירה אברהם","p":"050-0000003"},
+                             {"n":"רונית פרץ","p":"050-0000004"}]';
+  j int; key text; calc jsonb; pay jsonb; r record; amt bigint; chq uuid;
+begin
+  if to_regprocedure('public.document_numbering_per_location()') is null then raise exception 'ita-demo: run migration 7000 first'; end if;
+  -- a second run: the business already numbers per location — nothing more
+  if exists (select 1 from public.document_numbering x where x.business_id = B) then
+    raise notice 'ita-demo: numbering per location already seeded — nothing added';
+    return;
+  end if;
+  perform public.document_numbering_per_location();
+
+  -- two 320s at each location: location 01 (cash, card), location 02 (cash, cash)
+  for j in 1..4 loop
+    key := format('direct:ita-demo-loc-%s', j);
+    calc := pg_temp.ita_compute(jsonb_build_array(shop->(j - 1) || '{"qty":1}'), true, 0, rate);
+    amt := round((calc->>'total')::numeric * 100)::bigint;
+    pay := pg_temp.ita_pay(case when j = 2 then 'card' else 'cash' end, amt, d, key || ':pay');
+    perform pg_temp.ita_issue(key, calc || jsonb_build_object('doc_type', 320, 'doc_date', d,
+      'location_id', case when j <= 2 then B else L2 end,
+      'customer_name', people->(j - 1)->>'n', 'customer_phone', people->(j - 1)->>'p', 'payments', pay));
+  end loop;
+
+  -- a credit at location 01 on the first 320 of location 02 (02000001): half of it, one line, VAT inside
+  select x.* into r from public.documents x where x.business_id = B and x.idempotency_key = 'direct:ita-demo-loc-3';
+  amt := round(r.total * 50)::bigint;
+  calc := pg_temp.ita_compute(jsonb_build_array(jsonb_build_object('name', format('זיכוי חלקי - חשבונית מס / קבלה מס׳ %s', lpad(r.doc_number::text, 8, '0')),
+                                                                  'qty', 1, 'unit', amt)), true, 0, rate);
+  perform pg_temp.ita_issue(format('credit:%s:1', r.id), calc || jsonb_build_object('doc_type', 330, 'doc_date', d, 'location_id', B,
+    'base_doc_type', 320, 'base_doc_number', r.doc_number, 'customer_name', r.customer_name, 'customer_phone', r.customer_phone,
+    'notes', 'זיכוי בסניף אחר מהחשבונית'));
+
+  -- a deposit of the main location: 500 in cash and the latest cheque received there (on or before the deposit's day) — its 420
+  select p.id into chq from public.payments p join public.documents x on x.id = p.document_id
+   where p.business_id = B and p.direction = 'in' and p.method = 'cheque' and p.source = 'document' and p.paid_on <= d
+     and coalesce(p.location_id, p.business_id) = B and coalesce(p.reference->>'number', '') <> ''
+     and not exists (select 1 from public.document_cancellations c where c.document_id = p.document_id)
+     and not exists (select 1 from public.bank_deposit_cheques y where y.payment_id = p.id and y.active)
+   order by p.paid_on desc, x.doc_number desc, p.amount desc limit 1;
+  if chq is null then raise exception 'ita-demo: no cheque in the drawer to deposit'; end if;
+  perform public.bank_deposit_create('d3e00000-0000-4000-8000-0000000000e1', d, B, 500, array[chq], 'הפקדה לדוגמה - נתוני דמו');
+  -- a deposit of location 02 (its cash), recorded by mistake and cancelled — its 420 cancelled with it
+  perform public.bank_deposit_create('d3e00000-0000-4000-8000-0000000000e2', d, L2, 100, '{}', 'הפקדה לדוגמה - נרשמה בטעות');
+  perform public.bank_deposit_cancel('d3e00000-0000-4000-8000-0000000000e2', 'נרשמה פעמיים - נתוני דמו');
 end $$;
 
 -- ---- the exempt dealer's documents, as its owner (2.118) ---------------------------------------------------------------------

@@ -429,6 +429,15 @@ select pg_temp.check((select doc_number = 5000001 and series_location_id = '0000
 select pg_temp.check((select reason = 'נרשמה פעמיים' from public.document_cancellations where document_id = (select id from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e2'))
   and not exists (select 1 from public.document_cancellations where document_id = (select id from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e3')),
   'the cancelled deposit''s 420 is cancelled (its reason); the other stays');
+-- a 420's link (its share token) opens nothing and records no delivery — a deposit is not the customer's (the server's call)
+select pg_temp.check((public.document_share_open((select share_token from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e3'), 'link'))
+                       = '{"ok": false, "code": "not_found"}'::jsonb
+  and (public.document_share_open((select share_token from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e1'), 'pdf'))
+                       = '{"ok": false, "code": "not_found"}'::jsonb
+  and not exists (select 1 from public.document_deliveries v join public.documents x on x.id = v.document_id where x.doc_type = 420),
+  'a 420''s link: not_found, nothing recorded');
+select pg_temp.check((public.document_share_open((pg_temp.d('c70m:main:a')).share_token, 'link') ->> 'ok')::boolean, 'another document''s link still opens');
+select pg_temp.check((select count(*) from public.document_deliveries where document_id = (pg_temp.d('c70m:main:a')).id) = 1, '… and is recorded');
 select pg_temp.check(public.cash_desk_cash('00000000-0000-0000-0000-0000007000b1', '00000000-0000-0000-0000-0000007000c2') = 118,
   'L2''s desk: its cash back after the cancel (118)');
 
