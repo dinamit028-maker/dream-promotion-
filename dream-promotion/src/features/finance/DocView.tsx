@@ -12,7 +12,7 @@ import { saleFromRow } from '@/features/store/commerce';
 import { israelParts } from '@/lib/il-time';
 import { docBody, previewMark, printDocRow, wasDelivered } from '@/features/documents/DocumentsTab';
 import { deliveryState, linkMayGo, sendDocLink, staffPdf } from '@/features/documents/deliver';
-import { AWAITING_STAFF, WRONG_NUMBER_NOTE, needFromState, type DeliveryState } from './delivery';
+import { AWAITING_SHORT, AWAITING_STAFF, WRONG_NUMBER_NOTE, needFromState, type DeliveryState } from './delivery';
 import { useFinance } from './FinanceScreen';
 import { composeCredit, composeReceipt, composeRefundReceipt, type CreditMode } from './compose';
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, toAllocationRow, toRule, type AllocationRule, type AllocationRow, type AllocationState } from './allocation';
@@ -159,7 +159,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
           <PaylinkButton kind="document" target={doc.id} what={`${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
             left={Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100)}
             customer={{ name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }} onSent={() => void links.reload()}
-            blocked={awaiting ? AWAITING_STAFF : null} />
+            blocked={awaiting ? AWAITING_STAFF : null} blockedNote={AWAITING_SHORT} />
         )}
         {vat && (doc.docType === 305 || doc.docType === 320) && !fullyCredited && <Button variant="ghost" onClick={() => setDialog('credit')}>חשבונית זיכוי</Button>}
         {ga.canDeliver && <Button variant="ghost" onClick={() => setDialog('deliver')}>תעודת משלוח מההזמנה</Button>}
@@ -202,7 +202,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
             kind: 'document', target: doc.id, what: `${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`,
             left: Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100),
             customer: { name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }, onSent: () => void links.reload(),
-            blocked: awaiting ? AWAITING_STAFF : null,
+            blocked: awaiting ? AWAITING_STAFF : null, blockedNote: AWAITING_SHORT,
           } : null} />
       )}
       {(doc.docType === 305 || doc.docType === 300) && <DocReminders documentId={doc.id} />}

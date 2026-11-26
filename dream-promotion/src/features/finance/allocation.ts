@@ -57,7 +57,8 @@ export function allocationNeed(doc: { docType: number; docDate: string; afterDis
   if (!rule) return no('אין כלל בתוקף לתאריך המסמך');
   if (!rule.docTypes.includes(doc.docType)) return no('סוג המסמך לא דורש מספר הקצאה לפי הכלל');
   if (rule.requiresCustomerDealer && !/^\d{9}$/.test(doc.customerDealer ?? '')) return no('הלקוח לא עוסק (אין מספר עוסק) — לא נדרש');
-  const amount = Math.abs(doc.afterDiscount), sum = `₪${rule.thresholdBeforeVat.toLocaleString('he-IL')}`;
+  // the amount in a left-to-right isolate: "מ-₪5,000" inside Hebrew text never comes out reversed
+  const amount = Math.abs(doc.afterDiscount), sum = `\u2066₪${rule.thresholdBeforeVat.toLocaleString('he-IL')}\u2069`;
   if (rule.inclusive ? amount < rule.thresholdBeforeVat : amount <= rule.thresholdBeforeVat) return no(`מתחת לסף (${sum} לפני מע״מ)`);
   return { required: true, rule, verified: rule.verified, reason: `${rule.inclusive ? `מ-${sum}` : `מעל ${sum}`} לפני מע״מ לעוסק — נדרש מספר הקצאה` };
 }

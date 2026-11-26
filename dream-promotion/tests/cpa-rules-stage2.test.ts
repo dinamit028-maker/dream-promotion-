@@ -85,7 +85,7 @@ test('the allocation rule: 305 / 320 / 330 to a dealer, from the threshold up �
   assert.equal(allocationNeed(d, { entityType: 'exempt_dealer' }, SEED_RULES).required, false);
   assert.equal(allocationNeed({ ...d, docDate: '2026-05-31', afterDiscount: 9999.99 }, co, SEED_RULES).required, false, 'May 2026: 10,000');
   assert.equal(allocationNeed({ ...d, docDate: '2026-05-31', afterDiscount: 10000 }, co, SEED_RULES).required, true);
-  assert.match(allocationNeed(d, co, SEED_RULES).reason, /^מ-₪5,000 לפני מע״מ/);
+  assert.match(allocationNeed(d, co, SEED_RULES).reason, /^מ-\u2066₪5,000\u2069 לפני מע״מ/, 'the amount in a left-to-right isolate');
   // the database before 6900: doc_types {305,320}, no threshold_inclusive — "more than", no credit invoice (as finance_summary of 5100)
   const old = [{ version: 4, effective_from: '2026-06-01', threshold_before_vat: 5000, doc_types: [305, 320], requires_customer_dealer: true, verified: true, source_note: '' }].map(toRule);
   assert.equal(allocationNeed(d, co, old).required, false, 'before 6900: exactly the threshold is not above it');
@@ -117,7 +117,7 @@ test('a delivery and the delivery state, as the database answers them; its error
     rule: { version: 4, effectiveFrom: '2026-06-01', threshold: 5000, inclusive: true, docTypes: [305, 320, 330], verified: true } }, delivered: false, original: null, deliveries: 0, printCount: 0 })!;
   assert.equal(st.allocation.awaiting, true);
   const need = needFromState(st);
-  assert.equal(need.required, true); assert.equal(need.rule!.thresholdBeforeVat, 5000); assert.match(need.reason, /^מ-₪5,000 לפני מע״מ ללקוח עם מספר עוסק/);
+  assert.equal(need.required, true); assert.equal(need.rule!.thresholdBeforeVat, 5000); assert.match(need.reason, /^מ-\u2066₪5,000\u2069 לפני מע״מ ללקוח עם מספר עוסק/);
   assert.equal(needFromState({ ...st, allocation: { ...st.allocation, required: false, awaiting: false } }).required, false);
   assert.equal(toDeliveryState(null), null);
   assert.equal(isAwaiting({ code: '55000', message: 'x' }), true);
@@ -582,6 +582,8 @@ test('the screens: a payment link of an invoice waiting for its number is closed
   assert.match(src('src/features/finance/DocView.tsx'), /blocked=\{awaiting \? AWAITING_STAFF : null\}/);
   assert.match(src('src/features/finance/DocView.tsx'), /blocked: awaiting \? AWAITING_STAFF : null/, 'and the plan\'s payment links');
   assert.match(src('src/features/finance/Paylinks.tsx'), /disabled=\{Boolean\(p\.blocked\)\}/);
+  assert.match(src('src/features/finance/Paylinks.tsx'), /p\.blockedNote \?\? p\.blocked/, 'the why under the closed button — seen on a phone too');
+  assert.match(src('src/features/finance/DocView.tsx'), /blockedNote=\{AWAITING_SHORT\}/);
   assert.match(src('src/features/finance/Receivables.tsx'), /\[overflow-wrap:anywhere\]/); assert.doesNotMatch(src('src/features/finance/Receivables.tsx'), /break-all/);
   assert.match(src('src/app/api/doc/delivery/route.ts'), /keptOriginal\(db, v\.delivery\)/, 'a repeated request returns the kept file');
 });

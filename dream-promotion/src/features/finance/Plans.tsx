@@ -130,7 +130,7 @@ export function PlanLines({ lines, today = todayIL(), link }: { lines: Line[]; t
 export function PlanSection({ documentId, balance, what, canPlan, linkProps, onChanged, say }: {
   documentId: string; balance: number; what: string; canPlan: boolean;
   /** a link for one payment (when links may be sent on this invoice): everything but the amount */
-  linkProps?: { kind: 'document'; target: string; packageId?: string | null; what: string; left: number; customer: { name: string; phone: string; email: string }; onSent: () => void; blocked?: string | null } | null;
+  linkProps?: { kind: 'document'; target: string; packageId?: string | null; what: string; left: number; customer: { name: string; phone: string; email: string }; onSent: () => void; blocked?: string | null; blockedNote?: string | null } | null;
   onChanged?: () => void; say?: (m: string) => void;
 }) {
   const { ready, plan, lines, reload } = usePlan(documentId);

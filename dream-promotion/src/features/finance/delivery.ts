@@ -20,6 +20,8 @@ export const AWAITING_CUSTOMER = `${AWAITING_TITLE}. הוא יהיה זמין כ
 export const AWAITING_STAFF = `${AWAITING_TITLE}. אי אפשר למסור אותו ללקוח (הדפסה, PDF, קישור או שליחה) לפני שמזינים את המספר שהתקבל — במסך המסמך, "הזנת מספר שהתקבל".`;
 /** a debt reminder carries the customer's link — not for a document waiting for its number (the reminder is not sent) */
 export const AWAITING_REMINDER = 'התזכורת לא נשלחה: המסמך ממתין למספר הקצאה מרשות המסים, ואי אפשר לשלוח ללקוח קישור אליו לפני שמזינים את המספר (במסך המסמך).';
+/** under a closed button on a phone (a title is not seen on touch) */
+export const AWAITING_SHORT = 'סגור עד שיוזן מספר ההקצאה מרשות המסים.';
 export const WRONG_NUMBER_NOTE = 'מספר הקצאה שנשמר לא משתנה. אם הוזן מספר שגוי — מפיקים חשבונית זיכוי על המסמך הזה וחשבונית חדשה, ולכל אחת מזינים את המספר שהתקבל לה (כשהיא דורשת מספר).';
 
 export type DeliveryChannel = 'link' | 'pdf' | 'storefront' | 'print' | 'email' | 'whatsapp';
@@ -51,7 +53,9 @@ export const toDeliveryState = (j: any): DeliveryState | null => {
   };
 };
 
-const shekels = (n: number) => `₪${n.toLocaleString('he-IL')}`;
+/** an amount inside Hebrew text: in a left-to-right isolate (U+2066 … U+2069), so "מ-₪5,000" never reads "₪-מ5,000" or "5,000₪-" */
+export const isolatedShekels = (n: number) => `\u2066₪${n.toLocaleString('he-IL')}\u2069`;
+const shekels = isolatedShekels;
 /** the database's answer as the allocation section reads it (allocationState in allocation.ts) — the reason in words */
 export function needFromState(s: DeliveryState): AllocationNeed {
   const r = s.allocation.rule;
