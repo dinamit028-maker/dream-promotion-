@@ -1,15 +1,17 @@
 -- The accountant's answers of 25.11.2026, stage 3 (migration 7000) on a real Postgres (tests/sql/run.sh):
---   1. (answer 5) numbering per location — one-way, by the owner, a business with more than one active location: each new
---      document in its location's series (after the business's last number, or at the owner's start); the same number in two
---      locations; a document's base found in its own location (credit, goods), never a guess; a business that never switches —
---      numbered and answered as before
+--   1. (answer 5; the owner, 26.11.2026) numbering per location — one-way, by the owner, a business with more than one active
+--      location: each new document's number = its location's two-digit branch code, then the location's running number (six
+--      digits): 01000001 …, 05000001 … — never twice in the business; a credit / a refund receipt of the location that issues
+--      it; a business that never switches — numbered and answered as before
 --   2. (answer 18) a deposit issues a 420 "הפקדת בנק" (its cash and cheques as its lines), cancelled with it, never otherwise;
 --      it moves no money, is not income, and its retry is the same document
--- "Before": rows of two businesses written with the unique key of before 7000 (its two new keys taken off, the old one back) —
--- then the migration, once (over rows that exist, as on the live database) and again: every row that was there stays as it was.
--- Fixtures only, fictional: dealer numbers 000000034 / 000000042 (valid check digit), mails *.example.test, bank account 000….
+-- "Before": rows of two businesses (and an exempt one) written before the switch — then the migration twice over them: every row
+-- that was there stays as it was.
+-- Fixtures only, fictional: dealer numbers 000000034 / 000000042 / 000000067 (valid check digit), mails *.example.test, bank
+-- account 000….
 --   "Multi"  M: m1 owner, m2 cashier, m3 editor (full access, not the owner); locations: main (= the business), L2, later L3
 --   "Single" S: s1 owner (one location; never switches)
+--   "Exempt" E: e5 owner (exempt dealer; main + L5)
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
 
@@ -71,11 +73,7 @@ create or replace function pg_temp.snapshot() returns text language sql as $$
                     where n.business_id in ('00000000-0000-0000-0000-0000007000b1', '00000000-0000-0000-0000-0000007000b2')), ''));
 $$;
 
--- ---- "before": the unique key of before 7000 ---------------------------------------------------------------------------------
-drop index if exists public.documents_number_business_uq;
-drop index if exists public.documents_number_location_uq;
-create unique index if not exists documents_business_number_uq on public.documents (business_id, doc_type, doc_number);
-
+-- ---- "before" --------------------------------------------------------------------------------------------------------------
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000007000a1', 'owner@multi-70.example.test'), ('00000000-0000-0000-0000-0000007000a2', 'cashier@multi-70.example.test'),
   ('00000000-0000-0000-0000-0000007000a3', 'editor@multi-70.example.test'), ('00000000-0000-0000-0000-0000007000a4', 'owner@single-70.example.test');
@@ -125,9 +123,8 @@ create temp table before_7000 as select pg_temp.snapshot() as s;
 select pg_temp.check((select s from before_7000) = pg_temp.snapshot(), 'the migration over existing rows: every row stays as it was');
 \ir ../../supabase/migrations/20261127007000_cpa_rules_stage3.sql
 select pg_temp.check((select s from before_7000) = pg_temp.snapshot(), 'the migration again: every row stays as it was');
-select pg_temp.check(to_regclass('public.documents_business_number_uq') is null and to_regclass('public.documents_number_business_uq') is not null
-  and to_regclass('public.documents_number_location_uq') is not null and to_regclass('public.documents_deposit_uq') is not null,
-  'the old unique key is replaced by the two of 7000');
+select pg_temp.check(to_regclass('public.documents_business_number_uq') is not null and to_regclass('public.documents_deposit_uq') is not null,
+  'the unique key stays one number per business and type; one document per deposit');
 select pg_temp.check((select count(*) from public.documents where series_location_id is not null or deposit_id is not null
                        and business_id in ('00000000-0000-0000-0000-0000007000b1', '00000000-0000-0000-0000-0000007000b2')) = 0
   and (select count(*) from public.business_locations where branch_code is not null
@@ -142,7 +139,6 @@ select pg_temp.check(not has_function_privilege('authenticated', 'public.documen
   and not has_function_privilege('authenticated', 'public.branch_code_next(uuid)', 'execute')
   and not has_function_privilege('anon', 'public.document_numbering_per_location()', 'execute')
   and has_function_privilege('authenticated', 'public.document_numbering_per_location()', 'execute')
-  and has_function_privilege('authenticated', 'public.document_series_start(uuid, integer, bigint)', 'execute')
   and has_function_privilege('authenticated', 'public.location_branch_code_set(uuid, text)', 'execute')
   and has_function_privilege('authenticated', 'public.document_numbering_state()', 'execute')
   and has_function_privilege('authenticated', 'public.bank_deposit_create(uuid, date, uuid, numeric, uuid[], text)', 'execute'),
@@ -176,43 +172,39 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000007000a4');
 select pg_temp.refused_with('select public.document_numbering_per_location()', 'numbering_one_location', 'one active location: no numbering per location');
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a3');
 select pg_temp.refused_with('select public.document_numbering_per_location()', 'not allowed', 'an editor (full access, not the owner) does not switch', '42501');
-select pg_temp.refused_with($$select public.document_series_start('00000000-0000-0000-0000-0000007000c2', 305, 50)$$, 'not allowed', 'nor sets a series', '42501');
-select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000c2', '9')$$, 'not allowed', 'nor a branch code', '42501');
+select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000c2', '09')$$, 'not allowed', 'nor sets a branch code', '42501');
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a2');
 select pg_temp.refused_with('select public.document_numbering_per_location()', 'not allowed', 'a cashier does not switch', '42501');
 select pg_temp.refused_with('select public.document_numbering_state()', 'not allowed', 'nor reads the numbering', '42501');
 commit;
 
 -- ======================================================================================================================
--- 2. the owner of M: a branch code and a first number before the switch, then the switch (once)
+-- 2. the owner of M: a branch code before the switch, then the switch (once)
 -- ======================================================================================================================
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
-select pg_temp.check(public.location_branch_code_set('00000000-0000-0000-0000-0000007000c2', 'TA2') ->> 'branchCode' = 'TA2', 'the owner names L2''s code');
-select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000b1', 'ta2')$$, 'branch_code_taken', 'one code per business (letters any case)');
-select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000b1', 'ABCDEFGH')$$, 'branch_code_format', 'up to 7 letters or digits');
-select pg_temp.refused_with($$select public.document_series_start('00000000-0000-0000-0000-0000007000c2', 305, 2)$$, 'series_start_low',
-  'a series starts after the business''s last number of the type (305 #2)');
-select pg_temp.refused_with($$select public.document_series_start('00000000-0000-0000-0000-0000007000c2', 999, 50)$$, 'series_type', 'a document type');
--- L2's tax invoices from 3 — the same number the main location's series gives next: one number, in each location
-select pg_temp.check(public.document_series_start('00000000-0000-0000-0000-0000007000c2', 305, 3) ->> 'start' = '3', 'L2''s tax invoices start at 3');
+select pg_temp.check(public.location_branch_code_set('00000000-0000-0000-0000-0000007000c2', '5') ->> 'branchCode' = '05', 'the owner names L2 05 (5 → 05)');
+select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000b1', '05')$$, 'branch_code_taken', 'one code per business');
+select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000b1', '00')$$, 'branch_code_format', 'not 00');
+select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000b1', '100')$$, 'branch_code_format', 'two digits');
+select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000b1', 'AB')$$, 'branch_code_format', 'digits only');
 select pg_temp.check((select count(*) from public.document_numbering where business_id = '00000000-0000-0000-0000-0000007000b1') = 0,
-  'a first number set does not switch the business');
+  'a branch code does not switch the business');
 select pg_temp.check((public.document_numbering_per_location() ->> 'perLocation')::boolean, 'the owner switches M to numbering per location');
 select pg_temp.check((public.document_numbering_per_location() ->> 'perLocation')::boolean
   and (select count(*) from public.document_numbering where business_id = '00000000-0000-0000-0000-0000007000b1') = 1, 'a second switch changes nothing');
 commit;
-select pg_temp.check((select branch_code from public.business_locations where id = '00000000-0000-0000-0000-0000007000b1') = '1'
-  and (select branch_code from public.business_locations where id = '00000000-0000-0000-0000-0000007000c2') = 'TA2',
-  'the switch gave the main location code 1; L2 keeps the code its owner chose');
+select pg_temp.check((select branch_code from public.business_locations where id = '00000000-0000-0000-0000-0000007000b1') = '01'
+  and (select branch_code from public.business_locations where id = '00000000-0000-0000-0000-0000007000c2') = '05',
+  'the switch gave the main location 01; L2 keeps the 05 its owner chose');
 select pg_temp.refused_with($$update public.document_numbering set per_location_since = now() where business_id = '00000000-0000-0000-0000-0000007000b1'$$,
   'append', 'the switch is never changed (even by the server)');
 select pg_temp.refused_with($$delete from public.document_numbering where business_id = '00000000-0000-0000-0000-0000007000b1'$$,
   'append', 'nor undone');
 
 -- ======================================================================================================================
--- 3. M numbers per location: after the business's last number, or at the owner's start; the same number in two locations
+-- 3. M numbers per location: the branch code, then the location's running number — never twice in the business
 -- ======================================================================================================================
 begin;
 set local role authenticated;
@@ -224,13 +216,16 @@ select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 305, 40
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 320, 100, 'c70m:l2:r', '{"location_id": "00000000-0000-0000-0000-0000007000c2"}'));
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 320, 100, 'c70m:main:r'));
 commit;
-select pg_temp.check(pg_temp.num('c70m:main:a') = 3 and pg_temp.num('c70m:main:b') = 4 and pg_temp.num('c70m:l2:a') = 3 and pg_temp.num('c70m:l2:b') = 4,
-  'tax invoices: main 3, 4 (after the business''s 2); L2 3, 4 (its owner''s start) — 3 and 4 in each location');
-select pg_temp.check(pg_temp.num('c70m:l2:r') = 1 and pg_temp.num('c70m:main:r') = 1, 'invoice-receipts: 1 in each location (the business had none)');
+select pg_temp.check(pg_temp.num('c70m:main:a') = 1000001 and pg_temp.num('c70m:main:b') = 1000002
+  and pg_temp.num('c70m:l2:a') = 5000001 and pg_temp.num('c70m:l2:b') = 5000002,
+  'tax invoices: main 01000001, 01000002; L2 05000001, 05000002');
+select pg_temp.check(pg_temp.num('c70m:l2:r') = 5000001 and pg_temp.num('c70m:main:r') = 1000001, 'invoice-receipts: each location from 1 of its own');
 select pg_temp.check((pg_temp.d('c70m:main:a')).series_location_id = '00000000-0000-0000-0000-0000007000b1'
   and (pg_temp.d('c70m:l2:a')).series_location_id = '00000000-0000-0000-0000-0000007000c2', 'each document names the series that numbered it');
 select pg_temp.check((select last_no from public.document_counters where business_id = '00000000-0000-0000-0000-0000007000b1' and doc_type = 305) = 2,
   'the business''s own series stopped at 2');
+select pg_temp.check((select count(*) = count(distinct (doc_type, doc_number)) from public.documents where business_id = '00000000-0000-0000-0000-0000007000b1'),
+  'no number twice in the business');
 -- the state for the settings screen
 begin;
 set local role authenticated;
@@ -238,89 +233,75 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
 insert into out70 select 'state', public.document_numbering_state();
 commit;
 select pg_temp.check((select (s->>'perLocation')::boolean and (s->>'activeLocations')::int = 2 and s->'business'->>'305' = '2'
-                        and jsonb_array_length(s->'locations') = 2 and s->'locations'->0->>'branchCode' = '1'
-                        and (s->'locations'->1->'series') @> '[{"docType": 305, "start": 3, "last": 4, "next": 5}]'::jsonb
+                        and jsonb_array_length(s->'locations') = 2 and s->'locations'->0->>'branchCode' = '01'
+                        and (s->'locations'->1->'series') @> '[{"docType": 305, "count": 2, "last": "05000002", "next": "05000003"}]'::jsonb
                         and (s->'locations'->0->>'codeFixed')::boolean from (select pg_temp.o('state') as s) x),
-  'the state: per location, two locations with their codes, L2''s 305 series 3..4 next 5; the main code is fixed now');
--- a code stays once the location numbered a document; a series' first number too
+  'the state: per location, two locations with their codes, L2''s tax invoices 05000002, next 05000003 (eight digits); the main code fixed');
+-- a code stays once the location numbered a document
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
-select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000c2', 'X9')$$, 'branch_code_fixed', 'L2 numbered documents: its code stays');
-select pg_temp.refused_with($$select public.document_series_start('00000000-0000-0000-0000-0000007000c2', 305, 900)$$, 'series_started', 'L2''s 305 series started: its start stays');
-select pg_temp.check(public.document_series_start('00000000-0000-0000-0000-0000007000c2', 330, 7) ->> 'start' = '7', 'L2''s credits will start at 7 (none yet)');
+select pg_temp.refused_with($$select public.location_branch_code_set('00000000-0000-0000-0000-0000007000c2', '09')$$, 'branch_code_fixed', 'L2 numbered documents: its code stays');
 commit;
--- a location opened after the switch gets the next code
+-- a location opened after the switch gets the next free code
 insert into public.business_locations (id, business_id, name, kind, sort)
   values ('00000000-0000-0000-0000-0000007000c3', '00000000-0000-0000-0000-0000007000b1', 'סניף שלישי לדוגמה', 'branch', 2);
-select pg_temp.check((select branch_code from public.business_locations where id = '00000000-0000-0000-0000-0000007000c3') = '2',
-  'a location opened after the switch: the next free code (2)');
+select pg_temp.check((select branch_code from public.business_locations where id = '00000000-0000-0000-0000-0000007000c3') = '02',
+  'a location opened after the switch: the next free code (02)');
 
 -- ======================================================================================================================
--- 4. the base of a document: in its location — never a guess between two
+-- 4. a document's base — by its number in the business, as before; a credit is of the location that issues it
 -- ======================================================================================================================
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
--- tax invoice #3 is in two locations: without a location the credit is refused (and takes no number)
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 50, 'c70m:cr:guess', '{"base_doc_type": 305, "base_doc_number": 3}'))$$,
-  'base_location_ambiguous', 'a base number of two locations, no location: refused');
--- with L2: L2's #3 (200 before VAT) — never beyond it, though the main #3 is of 1000
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 300, 'c70m:cr:over',
-  '{"base_doc_type": 305, "base_doc_number": 3, "location_id": "00000000-0000-0000-0000-0000007000c2"}'))$$,
-  'credit_exceeds_original', 'a credit of L2''s #3 is within L2''s #3');
+-- L2 credits the main location's 01000001 (1000 before VAT): in L2's series, never beyond the invoice
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 1200, 'c70m:cr:over',
+  '{"base_doc_type": 305, "base_doc_number": 1000001, "location_id": "00000000-0000-0000-0000-0000007000c2"}'))$$,
+  'credit_exceeds_original', 'a credit is within its invoice');
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 150, 'c70m:cr:l2',
-  '{"base_doc_type": 305, "base_doc_number": 3, "location_id": "00000000-0000-0000-0000-0000007000c2"}'));
-select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 100, 'c70m:cr:main',
-  '{"base_doc_type": 305, "base_doc_number": 3, "location_id": "00000000-0000-0000-0000-0000007000b1"}'));
--- a base of the business's series (before the switch, #1 of the main location): found without a location, as before
-select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 10, 'c70m:cr:old', '{"base_doc_type": 305, "base_doc_number": 1}'));
--- … and from another location, refused as before (location_mismatch)
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 10, 'c70m:cr:old2',
-  '{"base_doc_type": 305, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000c2"}'))$$,
-  'location_mismatch', 'a credit goes where its invoice is');
+  '{"base_doc_type": 305, "base_doc_number": 1000001, "location_id": "00000000-0000-0000-0000-0000007000c2"}'));
+-- no location sent: the location the person works in (the main one), not the invoice's (L2's 05000001)
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 100, 'c70m:cr:main', '{"base_doc_type": 305, "base_doc_number": 5000001}'));
+-- an invoice of before the switch (#2, of L2) credited at the main location
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 330, 10, 'c70m:cr:old',
+  '{"base_doc_type": 305, "base_doc_number": 2, "location_id": "00000000-0000-0000-0000-0000007000b1"}'));
 commit;
-select pg_temp.check(pg_temp.num('c70m:cr:main') = 2 and pg_temp.num('c70m:cr:old') = 3 and pg_temp.num('c70m:cr:l2') = 7,
-  'credits: main 2, 3 (after the business''s credit #1); L2 7 (its owner''s start); no number lost to the refusals');
-select pg_temp.check((select credited from public.receivables where id = (pg_temp.d('c70m:l2:a')).id) = 177
-  and (select credited from public.receivables where id = (pg_temp.d('c70m:main:a')).id) = 118
-  and (select credited from public.receivables where id = (pg_temp.d('c70m:old:main')).id) = 11.8
-  and (select credited from public.receivables where id = (pg_temp.d('c70m:old:l2')).id) = 118
+select pg_temp.check(pg_temp.num('c70m:cr:l2') = 5000001 and (pg_temp.d('c70m:cr:l2')).location_id = '00000000-0000-0000-0000-0000007000c2'
+  and pg_temp.num('c70m:cr:main') = 1000001 and (pg_temp.d('c70m:cr:main')).location_id = '00000000-0000-0000-0000-0000007000b1'
+  and pg_temp.num('c70m:cr:old') = 1000002,
+  'credits: in the series of the location that issues them (05000001; 01000001, 01000002) — no number lost to the refusal');
+select pg_temp.check((select credited from public.receivables where id = (pg_temp.d('c70m:main:a')).id) = 177
+  and (select credited from public.receivables where id = (pg_temp.d('c70m:l2:a')).id) = 118
+  and (select credited from public.receivables where id = (pg_temp.d('c70m:old:l2')).id) = 129.8
+  and (select credited from public.receivables where id = (pg_temp.d('c70m:old:main')).id) = 0
   and (select credited from public.receivables where id = (pg_temp.d('c70m:l2:b')).id) = 0,
-  'receivables: each credit on its own invoice — L2 #3 177, main #3 118, the old ones as before');
--- a receipt on L2's #3: never beyond what is left of L2's #3 (its own credits, not the main one's)
+  'receivables: each credit on its own invoice, wherever it was issued');
+-- a receipt on L2's 05000001 (236 − 118 credited): 118 left
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 400, 70, 'c70m:pay:over',
-  jsonb_build_object('paid_document_id', (pg_temp.d('c70m:l2:a')).id, 'vat_amount', 0, 'total', 70, 'vat_rate', 0,
-    'lines', '[{"name":"תשלום","qty":1,"unitPriceExVat":70,"discountExVat":0,"totalExVat":70,"vatRate":0,"kind":1}]'::jsonb,
-    'payments', jsonb_build_array(jsonb_build_object('method', 1, 'm', 'cash', 'amount', 70, 'date', public.il_today())))))$$,
-  'receipt_exceeds_balance', 'L2 #3 (236 − 177 credited): 59 left');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 400, 120, 'c70m:pay:over',
+  jsonb_build_object('paid_document_id', (pg_temp.d('c70m:l2:a')).id, 'vat_amount', 0, 'total', 120, 'vat_rate', 0,
+    'lines', '[{"name":"תשלום","qty":1,"unitPriceExVat":120,"discountExVat":0,"totalExVat":120,"vatRate":0,"kind":1}]'::jsonb,
+    'payments', jsonb_build_array(jsonb_build_object('method', 1, 'm', 'cash', 'amount', 120, 'date', public.il_today())))))$$,
+  'receipt_exceeds_balance', 'L2''s 05000001: 118 left');
 commit;
--- what a payment link / a plan sees is the same balance
-select pg_temp.check((select balance from public.receivables where id = (pg_temp.d('c70m:l2:a')).id) = 59, 'L2 #3: 59 left to pay');
 
--- ---- goods: a delivery note of each location (#1 and #1); the invoice of L2's; the main one's still cancelled ----------------
+-- ---- goods (not a credit): a document made from a delivery note still goes where the note is --------------------------------
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a1');
-select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 200, 100, 'c70m:dn:main'));
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 200, 100, 'c70m:dn:l2', '{"location_id": "00000000-0000-0000-0000-0000007000c2"}'));
-select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 305, 100, 'c70m:dn:l2:inv',
-  '{"base_doc_type": 200, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000c2"}'));
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 305, 100, 'c70m:dn:l2:inv2',
-  '{"base_doc_type": 200, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000c2"}'))$$,
-  'goods_invoiced', 'L2''s delivery note is invoiced once');
-insert into public.document_cancellations (document_id, business_id, user_id, reason)
-  values ((pg_temp.d('c70m:dn:main')).id, '00000000-0000-0000-0000-0000007000b1', '00000000-0000-0000-0000-0000007000a1', 'הופקה בטעות');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 305, 100, 'c70m:dn:inv:main',
+  '{"base_doc_type": 200, "base_doc_number": 5000001, "location_id": "00000000-0000-0000-0000-0000007000b1"}'))$$,
+  'location_mismatch', 'an invoice of L2''s delivery note is not issued at the main location');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007000a1', 305, 100, 'c70m:dn:inv', '{"base_doc_type": 200, "base_doc_number": 5000001}'));
 commit;
-select pg_temp.check(pg_temp.num('c70m:dn:main') = 1 and pg_temp.num('c70m:dn:l2') = 1 and (pg_temp.d('c70m:dn:l2:inv')).base_doc_number = 1
-  and (pg_temp.d('c70m:dn:l2:inv')).location_id = '00000000-0000-0000-0000-0000007000c2'
-  and exists (select 1 from public.document_cancellations where document_id = (pg_temp.d('c70m:dn:main')).id),
-  'two delivery notes #1; L2''s invoiced; the main one (nothing made from it) cancelled');
+select pg_temp.check(pg_temp.num('c70m:dn:l2') = 5000001 and (pg_temp.d('c70m:dn:inv')).location_id = '00000000-0000-0000-0000-0000007000c2'
+  and pg_temp.num('c70m:dn:inv') = 5000003, 'L2''s delivery note 05000001; its invoice at L2 (05000003)');
 
--- ---- an exempt dealer that numbers per location: a refund receipt on the receipt of its own location ------------------------
+-- ---- an exempt dealer: before the switch a refund receipt goes where its receipt is; after it, where it is issued -----------
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000007000a5', 'owner@exempt-70.example.test');
 insert into public.businesses (id, name, slug) values ('00000000-0000-0000-0000-0000007000b3', 'Exempt 70', 'exempt-70');
 insert into public.business_members (business_id, user_id, role, access)
@@ -330,7 +311,7 @@ insert into public.register_settings (user_id, business_id, business_type, vat_r
   ('00000000-0000-0000-0000-0000007000a5', '00000000-0000-0000-0000-0000007000b3', 'exempt', 0, '000000067', 'עוסקת פטורה לדוגמה', 'הדוגמה', 'עיר דוגמה', 'exempt_dealer');
 insert into public.business_locations (id, business_id, name, kind, sort)
   values ('00000000-0000-0000-0000-0000007000c5', '00000000-0000-0000-0000-0000007000b3', 'סניף פטור לדוגמה', 'clinic', 1);
--- a receipt of the exempt dealer (no VAT); a refund receipt (below zero) on the receipt #p_base
+-- a receipt of the exempt dealer (no VAT); below zero = a refund receipt
 create or replace function pg_temp.rcpt(p_amount numeric, p_key text, p_extra jsonb default '{}') returns jsonb language sql as $$
   select jsonb_build_object('user_id', '00000000-0000-0000-0000-0000007000a5', 'doc_type', 400, 'doc_number', 0, 'doc_date', public.il_today(),
     'customer_name', 'לקוחה לדוגמה', 'before_discount', p_amount, 'discount', 0, 'after_discount', p_amount, 'vat_amount', 0, 'total', p_amount,
@@ -342,22 +323,39 @@ $$;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a5');
-select (public.document_numbering_per_location() ->> 'perLocation');
-select pg_temp.issue(pg_temp.rcpt(100, 'c70e:main'));
-select pg_temp.issue(pg_temp.rcpt(300, 'c70e:l5', '{"location_id": "00000000-0000-0000-0000-0000007000c5"}'));
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.rcpt(-50, 'c70e:back:guess', '{"base_doc_type": 400, "base_doc_number": 1}'))$$,
-  'base_location_ambiguous', 'exempt: receipt #1 of two locations, no location — refused');
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.rcpt(-200, 'c70e:back:over',
-  '{"base_doc_type": 400, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000b3"}'))$$,
-  'refund_receipt_over', 'exempt: the main receipt #1 (100) refunds 100 at most — not the 300 of the other #1');
-select pg_temp.issue(pg_temp.rcpt(-150, 'c70e:back:l5', '{"base_doc_type": 400, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000c5"}'));
-select pg_temp.issue(pg_temp.rcpt(-100, 'c70e:back:main', '{"base_doc_type": 400, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000b3"}'));
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.rcpt(-160, 'c70e:back:l5b', '{"base_doc_type": 400, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000c5"}'))$$,
-  'refund_receipt_over', 'exempt: L5''s #1 has 150 left');
+select pg_temp.issue(pg_temp.rcpt(100, 'c70e:old'));
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.rcpt(-10, 'c70e:back:before',
+  '{"base_doc_type": 400, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000c5"}'))$$,
+  'location_mismatch', 'before the switch: a refund receipt goes where its receipt is (as before)');
 commit;
-select pg_temp.check(pg_temp.num('c70e:main') = 1 and pg_temp.num('c70e:l5') = 1 and pg_temp.num('c70e:back:l5') = 2 and pg_temp.num('c70e:back:main') = 2
+-- a business whose own series reached seven digits does not switch (its numbers would meet the locations'): set by hand here
+insert into public.document_counters (user_id, business_id, doc_type, last_no)
+  values ('00000000-0000-0000-0000-0000007000a5', '00000000-0000-0000-0000-0000007000b3', 100, 1000000);
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007000a5');
+select pg_temp.refused_with('select public.document_numbering_per_location()', 'numbering_long_series', 'a series at 1,000,000: no switch');
+commit;
+update public.document_counters set last_no = 0 where business_id = '00000000-0000-0000-0000-0000007000b3' and doc_type = 100;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007000a5');
+select (public.document_numbering_per_location() ->> 'perLocation');
+select pg_temp.issue(pg_temp.rcpt(300, 'c70e:main'));
+select pg_temp.issue(pg_temp.rcpt(200, 'c70e:l5', '{"location_id": "00000000-0000-0000-0000-0000007000c5"}'));
+-- L5 refunds the main location's receipt 01000001 (300): in L5's series, never beyond the receipt
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.rcpt(-301, 'c70e:back:over',
+  '{"base_doc_type": 400, "base_doc_number": 1000001, "location_id": "00000000-0000-0000-0000-0000007000c5"}'))$$,
+  'refund_receipt_over', 'a refund receipt is within its receipt');
+select pg_temp.issue(pg_temp.rcpt(-150, 'c70e:back:l5', '{"base_doc_type": 400, "base_doc_number": 1000001, "location_id": "00000000-0000-0000-0000-0000007000c5"}'));
+select pg_temp.issue(pg_temp.rcpt(-40, 'c70e:back:old', '{"base_doc_type": 400, "base_doc_number": 1, "location_id": "00000000-0000-0000-0000-0000007000c5"}'));
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.rcpt(-160, 'c70e:back:l5b', '{"base_doc_type": 400, "base_doc_number": 1000001}'))$$,
+  'refund_receipt_over', 'the receipt 01000001 has 150 left');
+commit;
+select pg_temp.check(pg_temp.num('c70e:old') = 1 and pg_temp.num('c70e:main') = 1000001 and pg_temp.num('c70e:l5') = 2000001
+  and pg_temp.num('c70e:back:l5') = 2000002 and pg_temp.num('c70e:back:old') = 2000003
   and (pg_temp.d('c70e:back:l5')).location_id = '00000000-0000-0000-0000-0000007000c5',
-  'exempt: receipts #1 in each location; each refund receipt (#2 of its location) on the receipt of its own location');
+  'exempt: receipts 1 (before), 01000001, 02000001; the refund receipts in L5''s series (02000002, 02000003), on receipts of the main location');
 
 -- ======================================================================================================================
 -- 5. a deposit is a document 420 — its cash and cheques; cancelled with it, never otherwise
@@ -425,9 +423,9 @@ select pg_temp.refused_with($$insert into public.document_cancellations (documen
           '00000000-0000-0000-0000-0000007000a1', 'בטעות')$$, 'cancel_deposit_document', 'a 420 is not cancelled on its own');
 select public.bank_deposit_cancel('00000000-0000-0000-0000-0000007000e2', 'נרשמה פעמיים');
 commit;
-select pg_temp.check((select doc_number = 1 and series_location_id = '00000000-0000-0000-0000-0000007000c2' from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e2')
-  and (select doc_number = 1 and series_location_id = '00000000-0000-0000-0000-0000007000b1' from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e3'),
-  'M: a 420 #1 in each location (numbered per location)');
+select pg_temp.check((select doc_number = 5000001 and series_location_id = '00000000-0000-0000-0000-0000007000c2' from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e2')
+  and (select doc_number = 1000001 and series_location_id = '00000000-0000-0000-0000-0000007000b1' from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e3'),
+  'M: a 420 of each location (05000001, 01000001)');
 select pg_temp.check((select reason = 'נרשמה פעמיים' from public.document_cancellations where document_id = (select id from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e2'))
   and not exists (select 1 from public.document_cancellations where document_id = (select id from public.documents where deposit_id = '00000000-0000-0000-0000-0000007000e3')),
   'the cancelled deposit''s 420 is cancelled (its reason); the other stays');
@@ -444,7 +442,7 @@ select pg_temp.check((select count(*) from public.document_series) = 0 and (sele
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a4');
 select pg_temp.check((select count(*) from public.document_series) = 0 and (select count(*) from public.document_numbering) = 0, 'another business reads none of M''s');
 select pg_temp.as_user('00000000-0000-0000-0000-0000007000a3');
-select pg_temp.check((select count(*) from public.document_series) >= 4 and (select count(*) from public.document_numbering) = 1, 'a finance member of M reads them');
+select pg_temp.check((select count(*) from public.document_series) >= 5 and (select count(*) from public.document_numbering) = 1, 'a finance member of M reads them');
 commit;
 select pg_temp.check((select doc_number from public.documents where idempotency_key = 'c70m:old:main') = 1
   and (select doc_number from public.documents where idempotency_key = 'c70m:old:l2') = 2
@@ -452,3 +450,4 @@ select pg_temp.check((select doc_number from public.documents where idempotency_
 create temp table before_again as select pg_temp.snapshot() as s;
 \ir ../../supabase/migrations/20261127007000_cpa_rules_stage3.sql
 select pg_temp.check((select s from before_again) = pg_temp.snapshot(), 'running it again after the switch and the deposits: nothing changes');
+
