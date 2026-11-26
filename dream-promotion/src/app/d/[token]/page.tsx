@@ -2,22 +2,37 @@
 import { use, useEffect, useState } from 'react';
 import { Spinner } from '@/components/ui/feedback';
 import { docBody, toDoc } from '@/features/documents/DocumentsTab';
+import { AWAITING_CUSTOMER } from '@/features/finance/delivery';
 
-/** The customer's link to a document (sent on WhatsApp): view, print, or download the PDF (signed digitally when set up). */
+/**
+ * The customer's link to a document (sent on WhatsApp): view, print, or download the PDF (signed digitally when set up).
+ * 2.119: the mark is the server's — "מקור" the first time the document reaches the customer, "העתק נאמן למקור" after it (before
+ * migration 20261126006900: "מסמך ממוחשב", as always); a document waiting for its allocation number says so, and shows nothing of it.
+ */
+// one open per page load: every open is a delivery (the first one the original), so a second run of the effect (React's strict
+// mode in development) reads the same answer instead of recording a copy
+const opened = new Map<string, Promise<{ ok: boolean; j: any }>>();
+const openOnce = (token: string) => {
+  if (!opened.has(token)) opened.set(token, fetch(`/api/doc/${token}`, { cache: 'no-store' }).then(async (r) => ({ ok: r.ok, j: await r.json().catch(() => ({})) })));
+  return opened.get(token)!;
+};
+
 export default function SharedDocPage(props: { params: Promise<{ token: string }> }) {
   const params = use(props.params);   // Next 15: a page's params arrive as a promise
   const [html, setHtml] = useState<string | null>(null);
   const [missing, setMissing] = useState<string | false>(false);
   useEffect(() => {
-    fetch(`/api/doc/${params.token}`).then(async (r) => {
-      if (!r.ok) { const j = await r.json().catch(() => ({})); setMissing(j.code === 'unavailable' ? j.message : 'המסמך לא נמצא.'); return; }
-      const j = await r.json();
-      setHtml(docBody({ ...toDoc(j.doc), cancelled: Boolean(j.cancelled) }, j.business, 'מסמך ממוחשב', { allocation: j.allocation ?? null }));
+    openOnce(params.token).then(({ ok, j }) => {
+      if (!ok) {
+        setMissing(j.code === 'unavailable' || j.code === 'error' ? j.message : j.code === 'awaiting_allocation' ? AWAITING_CUSTOMER : 'המסמך לא נמצא.');
+        return;
+      }
+      setHtml(docBody({ ...toDoc(j.doc), cancelled: Boolean(j.cancelled) }, j.business, typeof j.mark === 'string' && j.mark ? j.mark : 'מסמך ממוחשב', { allocation: j.allocation ?? null }));
     }).catch(() => setMissing('המסמך לא נמצא.'));
   }, [params.token]);
   return (
     <main dir="rtl" className="mx-auto min-h-screen max-w-3xl bg-white p-4 text-black print:p-0">
-      {missing ? <p className="mt-16 text-center">{missing}</p> : !html ? <div className="flex justify-center py-16"><Spinner /></div> : <>
+      {missing ? <p role="status" className="mt-16 text-center">{missing}</p> : !html ? <div className="flex justify-center py-16"><Spinner /></div> : <>
         <div className="mb-4 flex flex-wrap justify-end gap-2 print:hidden">
           <a href={`/api/doc/${params.token}/pdf`} target="_blank" rel="noopener" className="rounded-full bg-[#6b3bf5] px-5 py-2.5 font-semibold text-white">🔏 הורדת PDF</a>
           <button type="button" onClick={() => window.print()} className="rounded-full border border-zinc-300 px-5 py-2.5 font-semibold">הדפסה</button>

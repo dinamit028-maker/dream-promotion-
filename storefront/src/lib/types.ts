@@ -154,7 +154,7 @@ export interface OrderView {
   lines: { name: string; variant: string; qty: number; price: number; total: number; image: string }[];
   /** stage 4 (migration 3600) — absent before it runs */
   fulfillment?: 'unfulfilled' | 'processing' | 'ready' | 'shipped' | 'delivered' | 'returned'; tracking?: string; tracking_url?: string;
-  document?: 'not_required' | 'pending' | 'issued' | 'blocked'; doc_token?: string | null; request?: '' | 'cancel' | 'return';
+  document?: 'not_required' | 'pending' | 'issued' | 'blocked'; doc_token?: string | null; doc_awaiting?: boolean; request?: '' | 'cancel' | 'return';
   refunded?: number; state?: string;
 }
 /** sf_lead_request: a request of the site recorded (the same request again: already) — or why not (lib/leads.ts) */

@@ -118,22 +118,26 @@ export function weekCharges<T extends Pick<RecurringPlan, 'status' | 'nextDate' 
 
 // ---- tax invoices above the threshold without an allocation number: finance_summary's "allocationMissing" -----------------------
 export interface AllocDoc { id: string; docType: number; docDate: string; afterDiscount: number; customerDealer?: string | null; issuer?: { entityType?: string | null } | null }
-export interface AllocRule { effectiveFrom: string; thresholdBeforeVat: number }
+/** 2.119: docTypes / inclusive — the rule's required_doc_types / threshold_inclusive (migration 20261126006900); absent — as before it */
+export interface AllocRule { effectiveFrom: string; thresholdBeforeVat: number; docTypes?: number[]; inclusive?: boolean }
 export interface AllocRow { documentId: string; status: string; isTest: boolean }
 /**
- * As the database counts them: a 305 / 320 of the period, of a VAT-charging issuer (the document's own, else the business's), to a
- * customer with a dealer number, above the threshold in force on its date (none in force: never) — and no number approved or typed
- * in for it (a test number is not one).
+ * As the database counts them (allocation_awaiting() of migration 20261126006900 — the list reads the view document_allocation_status
+ * when it is there; this is its fallback, and the same reading): a document of the rule's types (from 2.119 305 / 320 / 330; before it
+ * 305 / 320) of the period, of a VAT-charging issuer (the document's own, else the business's), to a customer with a dealer number
+ * (9 digits), before VAT from the threshold up (2.119; before it — above it) in force on its date (none in force: never) — and no
+ * number approved or typed in for it (a test number is not one).
  */
 export function allocationMissingDocs<T extends AllocDoc>(docs: T[], rules: AllocRule[], allocations: AllocRow[], businessEntity: string): T[] {
   const sorted = [...rules].sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
   const real = new Set(allocations.filter((a) => (a.status === 'approved' || a.status === 'manual') && !a.isTest).map((a) => a.documentId));
   return docs.filter((d) => {
-    if (d.docType !== 305 && d.docType !== 320) return false;
     if (!chargesVat(entityOf(d.issuer?.entityType || businessEntity))) return false;
-    if (!(d.customerDealer ?? '')) return false;
+    if (!/^\d{9}$/.test(d.customerDealer ?? '')) return false;
     const rule = sorted.find((r) => r.effectiveFrom <= d.docDate);
-    if (!rule || !(ag(d.afterDiscount) > ag(rule.thresholdBeforeVat))) return false;
+    if (!rule || !(rule.docTypes ?? [305, 320]).includes(d.docType)) return false;
+    const amount = Math.abs(ag(d.afterDiscount)), limit = ag(rule.thresholdBeforeVat);
+    if (rule.inclusive ? amount < limit : amount <= limit) return false;
     return !real.has(d.id);
   });
 }

@@ -34,6 +34,16 @@ test('"paid" reaches the dashboard with the shared secret; without its settings 
     assert.equal((calls[0].init.headers as Record<string, string>)['x-commerce-secret'], 'commerce-secret-0123456789');
     assert.deepEqual(JSON.parse(String(calls[0].init.body)), { orderId: ID });
     assert.equal(await documentPdf('../../etc'), null, 'only a share token goes to the dashboard');
+    // 2.119: the storefront names its channel; a document waiting for its allocation number is 'awaiting', never a file
+    const asked: string[] = [];
+    globalThis.fetch = (async (url: string) => { asked.push(url); return new Response(JSON.stringify({ code: 'awaiting_allocation', message: 'x' }), { status: 409 }); }) as any;
+    assert.equal(await documentPdf('e'.repeat(64)), 'awaiting');
+    assert.equal(asked[0], `https://dash.example/api/doc/${'e'.repeat(64)}/pdf?via=storefront`);
+    globalThis.fetch = (async () => new Response(JSON.stringify({ code: 'not_found' }), { status: 404 })) as any;
+    assert.equal(await documentPdf('e'.repeat(64)), null);
+    const route = await import('../../src/app/site/[host]/orders/[ref]/document/route');
+    const h = await route.HEAD();
+    assert.equal(h.status, 405, 'HEAD records nothing');
     globalThis.fetch = (async () => { throw new Error('down'); }) as any;
     assert.equal(await notifyPaid(ID), false, 'the dashboard is down: the cron will finish it');
   } finally {

@@ -174,7 +174,7 @@ function DocumentBlock({ d, onChange }: { d: OrderDetail; onChange: () => void }
       {d.docs.length > 0 && (
         <ul className="stack-y-1 text-sm">
           {d.docs.map((x) => (
-            <li key={x.id}><a href={`/d/${x.token}`} target="_blank" rel="noopener" className="text-primary underline underline-offset-2">{DOC_LABEL[x.type] ?? x.type} {x.number}</a></li>
+            <li key={x.id}><a href={`/finance/documents?open=${x.id}`} className="text-primary underline underline-offset-2">{DOC_LABEL[x.type] ?? x.type} {x.number}</a></li>
           ))}
         </ul>
       )}

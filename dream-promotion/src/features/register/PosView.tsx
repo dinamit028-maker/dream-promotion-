@@ -13,6 +13,7 @@ import { cartKey, findByCode, lineName, listsFor, posPrice, priceFor, variantLab
 import { addSerialToLines, removeSerialFromLines, sameSerial, type Serial } from '@/features/catalog/serials';
 import { EMPTY_BILLING, billingError, dealerDigits, type Billing } from './billing';
 import { afterDeposit, type DepositDoc } from '@/features/finance/paylinks';
+import { sendDocLink } from '@/features/documents/deliver';
 
 /**
  * The register, touch-first (UX redesign — same sales logic, CRM link, VAT and documents underneath).
@@ -45,7 +46,7 @@ export interface CheckoutInput {
   saleId?: string;
 }
 /** payUrl: the WhatsApp payment request, opened by a tap on the result screen (a window opened after the save is blocked by phones) */
-export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; payUrl?: string; error?: string; lowStock?: string[] }
+export interface CheckoutResult { ok: boolean; sale?: Sale; docLabel?: string; docUrl?: string; docId?: string; payUrl?: string; error?: string; lowStock?: string[] }
 
 const CATS = [
   { id: 'fav', label: '❤️ מועדפים' }, { id: 'top', label: '🔥 הכי נמכרים' }, { id: 'service', label: '✨ טיפולים' },
@@ -111,6 +112,8 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
   const [paying, setPaying] = useState(false);
   const [done, setDone] = useState<CheckoutResult & { customer: string; phone: string; change: number | null } | null>(null);
   const [waPhone, setWaPhone] = useState('');
+  // 2.119: the document's link is not sent while it waits for its allocation number (sendDocLink asks the database first)
+  const [waNote, setWaNote] = useState<string | null>(null);
   const [held, setHeld] = useState<HeldSale[]>([]);
   const [heldOpen, setHeldOpen] = useState(false);
   const [askResume, setAskResume] = useState<string | null>(null);
@@ -232,7 +235,7 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
   const snap = customer.leadId ? customerSnapshot(customer.leadId, sales) : null;
   const lead = customer.leadId ? leads.find((l) => l.id === customer.leadId) : null;
   const apptToday = customer.leadId ? todayAppts.find((a) => a.leadId === customer.leadId) : null;
-  const reset = () => { setWaPhone(''); setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setBilling(null); setDone(null); setSheet(false); };
+  const reset = () => { setWaPhone(''); setWaNote(null); setLines([]); setCustomer(EMPTY); setDiscount({ kind: 'sum', value: 0 }); setNote(''); setExtras({ discount: false, note: false }); setBilling(null); setDone(null); setSheet(false); };
   const billErr = billing ? billingError(billing) : null;
   const employee = employees.find((e) => e.id === employeeId) ?? null;
 
@@ -590,11 +593,14 @@ export function PosView({ userId, items, variants = [], siteHeld, sales, leads, 
                 <p className="mb-2 text-sm font-semibold">שליחת החשבונית בוואטסאפ</p>
                 <div className="flex gap-2">
                   <Input value={waPhone || done.phone} onChange={(e) => setWaPhone(e.target.value)} placeholder="טלפון הלקוח" inputMode="tel" dir="ltr" className="h-11 min-w-0 flex-1" aria-label="טלפון לשליחת החשבונית" />
-                  <Button variant="primary" disabled={phoneDigits(waPhone || done.phone).length < 9} onClick={() => {
+                  <Button variant="primary" disabled={phoneDigits(waPhone || done.phone).length < 9} onClick={async () => {
                     const url = waLink(waPhone || done.phone, `שלום${done.customer && done.customer !== 'לקוח מזדמן' ? ` ${done.customer.split(' ')[0]}` : ''}, תודה על הקנייה! ${done.docLabel?.replace('הופקה ', '') ?? 'המסמך'}: ${done.docUrl}`);
-                    if (url) window.open(url, '_blank', 'noopener');
+                    setWaNote(null);
+                    if (!url) return;
+                    if (done.docId) setWaNote(await sendDocLink(done.docId, url)); else window.open(url, '_blank', 'noopener');
                   }}>💬 שליחה</Button>
                 </div>
+                {waNote && <p role="alert" className="mt-2 text-sm font-semibold">{waNote}</p>}
               </div>
             )}
             <div className="mt-5 grid gap-2">

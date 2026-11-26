@@ -12,6 +12,7 @@ import {
 } from './plans-data';
 import { Note, Pill, ddmmyyyy, todayIL } from './ui';
 import { formatIL } from '@/lib/il-time';
+import { awaitingIds, reminderBlock, type AwaitingResult } from '@/features/documents/deliver';
 
 /**
  * Scheduled debt reminders (T5, 2.89). Off until the business's owner turns them on — the approval (who, when, these rules) is
@@ -100,7 +101,13 @@ export function ReminderQueue({ business, onChanged }: { business: string; onCha
   const [list, setList] = useState<QueuedReminder[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
-  const load = useCallback(async () => { setList((await remindersReady()) ? await loadQueue() : []); }, []);
+  // 2.119: a reminder of a document waiting for its allocation number is not sent (its link would show the customer nothing)
+  const [awaiting, setAwaiting] = useState<AwaitingResult>({ ok: true, ids: new Set() });
+  const load = useCallback(async () => {
+    const l = (await remindersReady()) ? await loadQueue() : [];
+    setAwaiting(await awaitingIds((l ?? []).map((q) => q.reminder.documentId)));
+    setList(l);
+  }, []);
   useEffect(() => { void load(); }, [load]);
   if (!list?.length) return msg ? <Note tone={msg.tone}>{msg.text}</Note> : null;
   const today = todayIL();
@@ -109,6 +116,9 @@ export function ReminderQueue({ business, onChanged }: { business: string; onCha
     // a debt paid meanwhile opens nothing (the database cancels its reminder)
     const w = paid ? null : window.open('', '_blank');
     setBusy(q.reminder.id); setMsg(null);
+    // asked again just before (a number may have been typed in meanwhile — or not): nothing is marked sent while it waits
+    const block = paid ? null : reminderBlock(await awaitingIds([q.reminder.documentId]), q.reminder.documentId);
+    if (block) { w?.close(); setBusy(null); setMsg({ tone: 'warn', text: block }); await load(); return; }
     const r = await sendQueued(q.reminder.id);
     setBusy(null);
     if (!r.ok || r.data.result !== 'ok') {
@@ -135,7 +145,7 @@ export function ReminderQueue({ business, onChanged }: { business: string; onCha
     <div className="grid gap-1.5 rounded-2xl border border-primary/40 bg-primary-soft/40 p-3 text-sm">
       <p className="font-bold">📨 תזכורות לשליחה בוואטסאפ ({list.length})</p>
       {list.map((q) => {
-        const l = q.line, paid = !l || l.open <= 0;
+        const l = q.line, paid = !l || l.open <= 0, block = paid ? null : reminderBlock(awaiting, q.reminder.documentId), waits = Boolean(block);
         const late = Math.max(0, Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${q.reminder.dueDate}T12:00:00Z`)) / 864e5));
         return (
           <div key={q.reminder.id} className="grid min-w-0 gap-1.5 rounded-xl bg-surface p-2.5">
@@ -145,10 +155,12 @@ export function ReminderQueue({ business, onChanged }: { business: string; onCha
             </span>
             <span className="flex flex-wrap items-center gap-2">
             {paid ? <Pill tone="ok">שולם בינתיים</Pill> : <strong className="tabular-nums">{ils(l!.open)}</strong>}
+            {waits && <Pill tone="bad">{awaiting.ok ? 'ממתין למספר הקצאה' : 'לא ניתן לבדוק כרגע'}</Pill>}
             <span className="flex-1" />
-            <Button size="sm" variant={paid ? 'ghost' : 'primary'} disabled={busy === q.reminder.id} onClick={() => void send(q, paid)}>{busy === q.reminder.id ? <Spinner /> : paid ? 'הסרה' : 'שליחה בוואטסאפ'}</Button>
+            <Button size="sm" variant={paid ? 'ghost' : 'primary'} disabled={busy === q.reminder.id || waits} onClick={() => void send(q, paid)}>{busy === q.reminder.id ? <Spinner /> : paid ? 'הסרה' : 'שליחה בוואטסאפ'}</Button>
             {!paid && <Button size="sm" variant="ghost" disabled={busy === q.reminder.id} onClick={() => void skip(q)}>לא עכשיו</Button>}
             </span>
+            {block && <span className="text-xs text-muted">{block}</span>}
           </div>
         );
       })}

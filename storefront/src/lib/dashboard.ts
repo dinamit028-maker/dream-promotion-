@@ -57,12 +57,17 @@ export async function notifyLead(requestId: string): Promise<boolean> {
   }
 }
 
-/** the document's PDF, from the dashboard, by its share token — served on the business's own domain */
-export async function documentPdf(docToken: string): Promise<Response | null> {
+/** the document's PDF, from the dashboard, by its share token — served on the business's own domain (2.119: recorded there as a delivery of channel 'storefront') */
+/** the words when the document waits for its allocation number (2.119) — the same as the dashboard's page of the customer's link */
+export const AWAITING_TEXT = 'המסמך ממתין למספר הקצאה מרשות המסים. הוא יהיה זמין כאן מיד אחרי שהעסק יקבל את המספר.';
+// 2.119: 'awaiting' — the document waits for its allocation number from the Tax Authority (the dashboard answers 409
+// awaiting_allocation and nothing of the document); it reaches the customer once the business recorded the number
+export async function documentPdf(docToken: string): Promise<Response | 'awaiting' | null> {
   const base = (process.env.DASHBOARD_URL ?? '').replace(/\/+$/, '');
   if (!/^https?:\/\//.test(base) || !/^[0-9a-f]{32,128}$/.test(docToken)) return null;
   try {
-    const r = await fetch(`${base}/api/doc/${docToken}/pdf`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+    const r = await fetch(`${base}/api/doc/${docToken}/pdf?via=storefront`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+    if (r.status === 409) { const j = await r.json().catch(() => ({})); return j?.code === 'awaiting_allocation' ? 'awaiting' : null; }
     return r.ok ? r : null;
   } catch {
     return null;
