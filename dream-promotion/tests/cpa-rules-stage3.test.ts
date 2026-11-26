@@ -189,6 +189,7 @@ test('420 on the screen: no customer and no lines — what was deposited', async
   assert.ok(html.includes('הפקדת בנק מס׳ 01000004'));
   assert.ok(html.includes('הפקדה לבנק'));
   assert.ok(!html.includes('לכבוד'));
+  assert.ok(!html.includes('מסמך פנימי') && !html.includes('class="mark">'), 'a deposit is never delivered: no original / copy mark');
   assert.ok(html.includes('סה״כ הופקד'));
   assert.ok(html.includes('צ׳ק 1001'));
 });

@@ -232,6 +232,7 @@ async function main() {
         await v.getByText(/מסמך הפקדה \(הפקדת בנק\) הופק יחד עם ההפקדה/).waitFor();
         for (const name of ['הדפסת מקור', 'הדפסת העתק', '📄 PDF', '💬 שליחה ללקוח', 'ביטול מסמך', 'חשבונית זיכוי']) assert.equal(await v.getByRole('button', { name }).count(), 0, `no "${name}"`);
         await v.getByText('הפקדה לבנק — המזומן והצ׳קים שהופקדו').waitFor();
+        assert.equal(await v.getByText(/מקור|העתק נאמן למקור/).count(), 0, 'no original / copy mark on a deposit');
         await shot(page, `${tag}6-deposit-docview.png`);
       } finally { await ctx.close(); }
       // the overview's documents: the deposit is not one of them

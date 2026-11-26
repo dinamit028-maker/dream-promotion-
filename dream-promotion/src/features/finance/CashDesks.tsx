@@ -77,7 +77,7 @@ export function CashDesks() {
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
           {DESK_METHODS.map((m) => {
             const v = deskValue(desks, m);
-            return <Stat key={m} label={`קופת ${DESK_LABEL[m]}`} value={ils(v.value)} hint={<><span className="block">{v.sub}</span><span className="block opacity-80">{DESK_HINT[m]}</span></>}
+            return <Stat key={m} label={`קופת ${DESK_LABEL[m]}`} value={ils(v.value)} hint={<><span className="block">{v.sub}</span><span className="block text-muted">{DESK_HINT[m]}</span></>}
               tone={m === 'cheque' && desks.cheques.dueCount ? 'warn' : undefined} onClick={() => { setTab(m === 'cheque' ? 'cheques' : 'moves'); setMethod(m === 'cheque' ? 'all' : m); }} />;
           })}
         </div>
