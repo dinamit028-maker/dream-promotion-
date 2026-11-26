@@ -20,6 +20,9 @@
  * 2.105 (5700): the calendar — an appointment's practitioner (an active one of the team, b_appointment_staff), no two appointments
  * at once (per practitioner; without one — per location), every change in appointment_events (z_appointment_log — read only) and
  * appointment_staff(); before the migration: none of it, and its column is missing.
+ * 2.119 (6900): the allocation-number rule (allocation_required / allocation_awaiting — 305 / 320 / 330, to a 9-digit dealer, before VAT
+ * from the threshold up), the view document_allocation_status, finance_summary's count by it, the deliveries (document_delivery_record
+ * / _state — the first one the original; a print counted the old way refused while the document waits); before the migration: none.
  * The real rules are tested on Postgres in tests/sql — this only lets the real UI run end to end.
  */
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
@@ -117,6 +120,8 @@ export class FakeSupabase {
   attendanceTables = true;
   /** 2.108: migration 5900 (טופס 101) is in the database */
   form101Tables = true;
+  /** 2.119: migration 6900 is in the database (the allocation rule, document_allocation_status, the deliveries) — false: as before it */
+  cpaStage2 = true;
   /** 2.107: the signed-in person's part in attendance (att_role) */
   attendanceRole = 'admin';
   /** the moments of the history: one after another, also within the same millisecond (clock_timestamp() in the database) */
@@ -178,6 +183,45 @@ export class FakeSupabase {
     }
     return out;
   }
+  /** 2.119 (6900): allocation_required() — the rule of the document's date (required_doc_types, threshold_inclusive: their defaults) */
+  allocRule(date: string) {
+    return [...this.t('tax_allocation_rules')].sort((a, b) => String(b.effective_from).localeCompare(String(a.effective_from))).find((r) => String(r.effective_from) <= date) ?? null;
+  }
+  allocRequired(d: Row) {
+    if (!/^\d{9}$/.test(String(d.customer_dealer ?? ''))) return false;
+    const e = d.issuer?.entityType ?? this.t('register_settings')[0]?.entity_type ?? 'licensed_dealer';
+    if (e === 'exempt_dealer' || e === 'nonprofit') return false;
+    const r = this.allocRule(String(d.doc_date));
+    if (!r || !(r.required_doc_types ?? [305, 320, 330]).map(Number).includes(Number(d.doc_type))) return false;
+    const amount = Math.abs(Number(d.after_discount)), limit = Number(r.threshold_before_vat);
+    return r.threshold_inclusive === false ? amount > limit : amount >= limit;
+  }
+  allocNumber(id: string) {
+    return this.t('tax_allocations').filter((a) => a.document_id === id && ['approved', 'manual'].includes(a.status) && !a.is_test)
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))[0] ?? null;
+  }
+  allocAwaiting(d: Row) { return this.allocRequired(d) && !this.allocNumber(d.id); }
+  /** document_allocation_status (security invoker: the documents the caller reads) */
+  allocationStatus() {
+    return this.t('documents').map((d) => {
+      const r = this.allocRule(String(d.doc_date)), n = this.allocNumber(d.id);
+      return { document_id: d.id, business_id: d.business_id, doc_type: d.doc_type, doc_number: d.doc_number, doc_date: d.doc_date, customer_dealer: d.customer_dealer,
+        after_discount: d.after_discount, required: this.allocRequired(d), allocation_number: n?.allocation_number ?? null, awaiting: this.allocAwaiting(d),
+        rule_version: r?.version ?? null, threshold_before_vat: r?.threshold_before_vat ?? null };
+    });
+  }
+  /** document_delivery_add(): the first delivery is the original (a document printed before 6900 was already delivered) */
+  deliveryAdd(d: Row, channel: string, user: string | null) {
+    const list = this.t('document_deliveries');
+    const original = Number(d.print_count ?? 0) === 0 && !list.some((v) => v.document_id === d.id);
+    const id = randomUUID(), at = now();
+    list.push({ id, business_id: d.business_id, document_id: d.id, location_id: d.location_id ?? null, channel, is_original: original, user_id: user, created_at: at });
+    if (channel === 'print') d.print_count = Number(d.print_count ?? 0) + 1;
+    else this.log('document.delivered', d.id, { type: d.doc_type, number: d.doc_number, channel, original, delivery: id });
+    return { ok: true, delivery_id: id, document_id: d.id, business_id: d.business_id, channel, original, mark: original ? 'מקור' : 'העתק נאמן למקור', at,
+      print_count: Number(d.print_count ?? 0), file_path: `${d.business_id}/${d.id}/${id}.pdf` };
+  }
+
   /** finance_summary(): the same rules as the database function, on the fake's rows */
   summary(from: string, to: string) {
     const vat = this.vatBusiness();
@@ -234,7 +278,7 @@ export class FakeSupabase {
           && !this.t('documents').some((d) => d.sale_id === x.id && [305, 320, 400].includes(Number(d.doc_type))));
         return { count: list.length, total: r2(list.reduce((a, x) => a + Number(x.total), 0)) };
       })(),
-      allocationMissing: (() => {
+      allocationMissing: this.cpaStage2 ? docs.filter((d) => this.allocAwaiting(d)).length : (() => {
         const rules = [...this.t('tax_allocation_rules')].sort((a, b) => String(b.effective_from).localeCompare(String(a.effective_from)));
         const ent = this.t('register_settings')[0]?.entity_type;
         return docs.filter((d) => {
@@ -562,6 +606,10 @@ export class FakeSupabase {
     if (table === 'catalog_variants') this.hasVariants(r.item_id);
   }
   private beforeUpdate(table: string, old: Row, patch: Row): string | null {
+    // 2.119 (6900, f_documents_print_allocation): a print counted the old way — not while the document waits for its number
+    if (this.cpaStage2 && table === 'documents' && 'print_count' in patch && Number(patch.print_count) > Number(old.print_count ?? 0) && this.allocAwaiting(old)) {
+      return 'awaiting_allocation: המסמך דורש מספר הקצאה — הוא נמסר ללקוח (הדפסה, קישור, שליחה) רק אחרי שהמספר התקבל';
+    }
     if (F101_TABLES.includes(table)) { const e = form101Update(table, old, patch); if (e) return e; }
     if (this.locationTables && FakeSupabase.LOCATED.includes(table) && 'location_id' in patch && (patch.location_id ?? null) !== (old.location_id ?? null)) {
       return 'location_fixed: a row keeps its location';
@@ -2122,8 +2170,28 @@ export class FakeSupabase {
       this.t('payments').push({ id, business_id: d.business_id, direction: 'out', amount: Number(args.p_amount), method: args.p_method, paid_on: args.p_paid_on ?? this.today(), source: 'credit', document_id: d.id, applies_to: base?.id ?? null, note: args.p_note ?? '', created_at: now() });
       return { status: 200, body: id };
     }
+    // 2.119 (6900): the deliveries from the app — refused while the document waits for its allocation number
+    if (fn === 'document_delivery_record' || fn === 'document_delivery_state') {
+      if (!this.cpaStage2) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+      const d = this.t('documents').find((x) => x.id === args.p_document && x.business_id === this.opts.businessId);
+      if (!d) return { status: 403, body: { code: '42501', message: 'not allowed' } };
+      if (fn === 'document_delivery_record') {
+        if (!['print', 'email', 'whatsapp', 'pdf'].includes(args.p_channel)) return { status: 400, body: { code: '22023', message: 'delivery_channel: print, email, whatsapp or pdf' } };
+        if (this.allocAwaiting(d)) return { status: 400, body: { code: '55000', message: 'awaiting_allocation: המסמך דורש מספר הקצאה — הוא נמסר ללקוח (הדפסה, קישור, שליחה) רק אחרי שהמספר התקבל' } };
+        return { status: 200, body: this.deliveryAdd(d, args.p_channel, this.opts.userId) };
+      }
+      const r = this.allocRule(String(d.doc_date)), n = this.allocNumber(d.id), req = this.allocRequired(d);
+      const o = this.t('document_deliveries').find((v) => v.document_id === d.id && v.is_original);
+      return { status: 200, body: {
+        allocation: { required: req, awaiting: req && !n, number: n?.allocation_number ?? null, manual: n?.status === 'manual',
+          rule: r ? { version: r.version, effectiveFrom: r.effective_from, threshold: Number(r.threshold_before_vat), inclusive: r.threshold_inclusive !== false,
+            docTypes: (r.required_doc_types ?? [305, 320, 330]).map(Number), verified: Boolean(r.verified) } : null },
+        delivered: Boolean(o) || Number(d.print_count ?? 0) > 0, original: o ? { at: o.created_at, channel: o.channel } : null,
+        deliveries: this.t('document_deliveries').filter((v) => v.document_id === d.id).length, printCount: Number(d.print_count ?? 0) } };
+    }
     if (fn === 'record_manual_allocation') {
       if (!/^\d{6,20}$/.test(String(args.p_number ?? ''))) return { status: 400, body: { code: '22023', message: 'an allocation number is digits only' } };
+      if (this.allocNumber(args.p_document)) return { status: 400, body: { code: '23505', message: 'the document already has an allocation number' } };
       this.t('tax_allocations').push({ id: randomUUID(), business_id: this.opts.businessId, document_id: args.p_document, status: 'manual', is_test: false, allocation_number: args.p_number, gateway: 'manual', created_at: now() });
       return { status: 200, body: 'ok' };
     }
@@ -2383,6 +2451,12 @@ export class FakeSupabase {
     const table = m[1];
     if (/^recurring_/.test(table) && !this.recurringTables) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
     if (table === 'receivables') this.tables.receivables = this.receivables();
+    // 2.119 (6900): the view and the deliveries — none before the migration; the deliveries are written by the functions only
+    if (['document_allocation_status', 'document_deliveries', 'document_delivery_files'].includes(table)) {
+      if (!this.cpaStage2) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+      if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
+      if (table === 'document_allocation_status') this.tables.document_allocation_status = this.allocationStatus();
+    }
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();
     // 2.92 (4700): before the migration there are no such tables; the view is computed now
@@ -2458,6 +2532,7 @@ export class FakeSupabase {
       return json(status, list, extra);
     };
     const err = (message: string) => json(400, { code: message.includes('duplicate key') ? '23505' : message.includes('exclusion constraint') ? '23P01'
+      : message.startsWith('awaiting_allocation:') ? '55000'
       : message.startsWith('appointment_staff:') ? '23514' : 'P0001', message, details: null, hint: null });
 
     if (method === 'GET' || method === 'HEAD') {

@@ -15,6 +15,7 @@ import { useLocations } from '@/features/locations/store';
 import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, isRefundReceipt, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
+import { deliveryState, keepOriginal, recordDelivery, staffPdf, stateAllocationLine } from './deliver';
 
 /** Legal documents: list, view & print (original / true copy), credit invoice, and the "ממשק פתוח" export. */
 export { toDoc, type DocRow } from './documents';
@@ -38,9 +39,9 @@ export const SOFTWARE: SoftwareInfo = {
   vendorName: process.env.NEXT_PUBLIC_SOFTWARE_VENDOR_NAME?.trim() || 'Dream Promotion',
 };
 /**
- * Count a print, then print: the first print is "מקור" and every later one "העתק נאמן למקור".
- * The count moves only from the value this screen saw (two screens printing at once never both get "מקור"); if another
- * screen printed meanwhile, the fresh count is taken once more.
+ * Before migration 20261126006900 (no document_delivery_record): count a print, then print — the first print is "מקור" and every
+ * later one "העתק נאמן למקור". The count moves only from the value this screen saw (two screens printing at once never both get
+ * "מקור"); if another screen printed meanwhile, the fresh count is taken once more.
  */
 export async function countPrint(d: DocRow): Promise<DocRow | null> {
   let seen = d.printCount;
@@ -53,13 +54,28 @@ export async function countPrint(d: DocRow): Promise<DocRow | null> {
   }
   return null;
 }
-/** print a document: the window opens on the tap (iPhone blocks a window opened after waiting for the database) */
-export async function printDocRow(d: DocRow, business: Business): Promise<DocRow | null> {
+export type PrintResult = { ok: true; doc: DocRow } | { ok: false; message: string };
+/**
+ * print a document: the window opens on the tap (iPhone blocks a window opened after waiting for the database).
+ * 2.119 (the accountant's answers 1 and 6): the print is a delivery — document_delivery_record(doc, 'print') moves the print count
+ * and says whether it is the original; refused while the document waits for its allocation number (the message says so). The
+ * printed page carries the real allocation number when there is one, and the original's PDF is kept on the server.
+ */
+export async function printDocRow(d: DocRow, business: Business): Promise<PrintResult> {
   const w = window.open('', '_blank');
-  const fresh = await countPrint(d);
-  if (!fresh) { w?.close(); return null; }
-  if (w) { w.document.write(docHtml(fresh, business, fresh.printCount === 1 ? 'מקור' : 'העתק נאמן למקור')); w.document.close(); }
-  return fresh;
+  const r = await recordDelivery(d.id, 'print');
+  if (!r.ok && r.reason === 'missing') {
+    const fresh = await countPrint(d);
+    if (!fresh) { w?.close(); return { ok: false, message: 'ההדפסה לא נרשמה. נסו שוב.' }; }
+    if (w) { w.document.write(docHtml(fresh, business, fresh.printCount === 1 ? 'מקור' : 'העתק נאמן למקור')); w.document.close(); }
+    return { ok: true, doc: fresh };
+  }
+  if (!r.ok) { w?.close(); return { ok: false, message: r.message }; }
+  const fresh: DocRow = { ...d, printCount: r.delivery.printCount || d.printCount + 1 };
+  const st = await deliveryState(d.id);
+  if (w) { w.document.write(docHtml(fresh, business, r.delivery.mark, stateAllocationLine(st.ok ? st.state : null))); w.document.close(); }
+  keepOriginal(r.delivery);
+  return { ok: true, doc: fresh };
 }
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 /**
@@ -85,9 +101,9 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
   const creditNote = (d: DocRow) => { const c = credited.get(`${d.docType}:${d.docNumber}`) ?? 0; return !c ? '' : c >= d.total ? ' · זוכתה' : ` · זוכתה חלקית (${ils(c)})`; };
 
   async function printDoc(d: DocRow) {
-    const fresh = await printDocRow(d, business);
-    if (!fresh) return onError('ההדפסה לא נרשמה. נסו שוב.');
-    setDocs((all) => (all ?? []).map((x) => (x.id === d.id ? fresh : x))); setOpen(fresh);
+    const r = await printDocRow(d, business);
+    if (!r.ok) return onError(r.message);
+    setDocs((all) => (all ?? []).map((x) => (x.id === d.id ? r.doc : x))); setOpen(r.doc);
   }
   const [crediting, setCrediting] = useState(false);
   async function credit(d: DocRow) {
@@ -134,7 +150,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
             <Button variant="primary" onClick={() => printDoc(open)}>{open.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
             {licensed && (open.docType === 320 || open.docType === 305) && !credited.has(`${open.docType}:${open.docNumber}`) &&
               <Button variant="ghost" disabled={crediting} onClick={() => credit(open)}>{crediting ? 'מפיק…' : 'חשבונית מס זיכוי'}</Button>}
-            {open.shareToken && <a href={`/api/doc/${open.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex h-10 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">📄 PDF</a>}
+            <Button variant="ghost" title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)" onClick={() => void staffPdf(open).then((e) => { if (e) onError(e); })}>📄 PDF</Button>
             <Button variant="ghost" onClick={() => setOpen(null)}>סגירה</Button>
           </div>
           <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. לתיקון — חשבונית זיכוי. החזר כספי על חלק מעסקה עושים מהעסקה עצמה (מכירות ודוחות ← העסקה ← החזר כספי).</p>
@@ -227,7 +243,7 @@ ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכו
 ${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${d.docType === 200 ? `<p style="margin-top:28px">${esc(RECEIVED_LINE)}</p>` : ''}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
 <p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${softwareRegistered(SOFTWARE.regNumber) ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;
 }
-const docHtml = (d: Doc, b: Business, mark: string) => page(`${DOC_LABEL[d.docType]} ${d.docNumber}`, docBody(d, b, mark));
+const docHtml = (d: Doc, b: Business, mark: string, allocation: string | null = null) => page(`${DOC_LABEL[d.docType]} ${d.docNumber}`, docBody(d, b, mark, { allocation }));
 
 /** נספח 4: the summary of an open-format run (also in the accountant's package, 2.52.1) */
 export function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string }, b: Business, from: string, to: string) {

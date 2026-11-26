@@ -52,8 +52,24 @@ export function DocumentCenter() {
     let alive = true;
     void (async () => {
       const sb = supabase();
+      // 2.119: the database's own list (the view document_allocation_status — allocation_awaiting(), the rule finance_summary counts by)
+      const v = await sb.from('document_allocation_status').select('document_id, doc_date').eq('awaiting', true).gte('doc_date', alloc.from).lte('doc_date', alloc.to)
+        .order('doc_date', { ascending: false }).limit(2000);
+      if (!v.error) {
+        const ids = ((v.data ?? []) as any[]).map((x) => x.document_id as string);
+        const found: DocRow[] = [];
+        for (let i = 0; i < ids.length; i += 100) {
+          const part = await sb.from('documents').select('*').in('id', ids.slice(i, i + 100));
+          if (part.error) { if (alive) { fail(financeError(part.error)); setMissing([]); } return; }
+          found.push(...((part.data ?? []) as any[]).map(toDoc));
+        }
+        found.sort((a, b) => String(b.docDate).localeCompare(String(a.docDate)) || String(b.issuedAt ?? '').localeCompare(String(a.issuedAt ?? '')));
+        if (alive) setMissing(found);
+        return;
+      }
+      // before migration 20261126006900: the documents and the rule rows, read here (allocationMissingDocs — the same reading)
       const [d, r] = await Promise.all([
-        sb.from('documents').select('*').in('doc_type', [305, 320]).neq('customer_dealer', '').gte('doc_date', alloc.from).lte('doc_date', alloc.to)
+        sb.from('documents').select('*').in('doc_type', [305, 320, 330]).neq('customer_dealer', '').gte('doc_date', alloc.from).lte('doc_date', alloc.to)
           .order('doc_date', { ascending: false }).limit(2000),
         sb.from('tax_allocation_rules').select('*'),
       ]);

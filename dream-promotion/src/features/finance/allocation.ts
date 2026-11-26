@@ -14,17 +14,26 @@ import { chargesVat, entityOf } from './rules';
  */
 export interface AllocationRule {
   version: number; effectiveFrom: string; thresholdBeforeVat: number; docTypes: number[]; requiresCustomerDealer: boolean; verified: boolean; sourceNote: string;
+  /** 2.119 (migration 20261126006900, the accountant 25.11.2026 answer 3א): from the threshold up ("5,000 ומעלה"); false / absent — above it only (before 2.119) */
+  inclusive?: boolean;
 }
-/** the four rows in the database (seeded by 20261004003100, confirmed by 20261011005200) — for tests and before the rules are loaded */
+/**
+ * the four rows in the database (seeded by 20261004003100, confirmed by 20261011005200; 2.119 — migration 20261126006900 — reads them
+ * with required_doc_types {305,320,330} and threshold_inclusive true: the accountant's answers 2 and 3א of 25.11.2026,
+ * docs/ita-registration/CPA_ANSWERS_HE.md) — for tests and before the rules are loaded. The screens ask the database
+ * (document_delivery_state / document_allocation_status); this reading is only what they fall back on.
+ */
 export const CONFIRMED_NOTE = 'אושר מול רואה חשבון (11.10.2026): הסף ותאריך התחולה. לא נבדק כאן מול פרסום רשמי של רשות המסים.';
 export const SEED_RULES: AllocationRule[] = [
-  { version: 1, effectiveFrom: '2024-05-05', thresholdBeforeVat: 25000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
-  { version: 2, effectiveFrom: '2025-01-01', thresholdBeforeVat: 20000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
-  { version: 3, effectiveFrom: '2026-01-01', thresholdBeforeVat: 10000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
-  { version: 4, effectiveFrom: '2026-06-01', thresholdBeforeVat: 5000, docTypes: [305, 320], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE },
+  { version: 1, effectiveFrom: '2024-05-05', thresholdBeforeVat: 25000, docTypes: [305, 320, 330], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE, inclusive: true },
+  { version: 2, effectiveFrom: '2025-01-01', thresholdBeforeVat: 20000, docTypes: [305, 320, 330], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE, inclusive: true },
+  { version: 3, effectiveFrom: '2026-01-01', thresholdBeforeVat: 10000, docTypes: [305, 320, 330], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE, inclusive: true },
+  { version: 4, effectiveFrom: '2026-06-01', thresholdBeforeVat: 5000, docTypes: [305, 320, 330], requiresCustomerDealer: true, verified: true, sourceNote: CONFIRMED_NOTE, inclusive: true },
 ];
 export const toRule = (r: any): AllocationRule => ({
-  version: r.version, effectiveFrom: r.effective_from, thresholdBeforeVat: Number(r.threshold_before_vat), docTypes: (r.doc_types ?? []).map(Number),
+  version: r.version, effectiveFrom: r.effective_from, thresholdBeforeVat: Number(r.threshold_before_vat),
+  // 2.119: required_doc_types / threshold_inclusive (migration 20261126006900); a database before it has doc_types only — "more than"
+  docTypes: (r.required_doc_types ?? r.doc_types ?? []).map(Number), inclusive: r.threshold_inclusive === true,
   requiresCustomerDealer: Boolean(r.requires_customer_dealer), verified: Boolean(r.verified), sourceNote: r.source_note ?? '',
 });
 /** the rule in force on a day (the latest one that started on or before it) */
@@ -35,7 +44,11 @@ export function ruleOn(rules: AllocationRule[], date: string): AllocationRule | 
 }
 
 export interface AllocationNeed { required: boolean; rule: AllocationRule | null; verified: boolean; reason: string }
-/** does this document need an allocation number, under the rule of its date? */
+/**
+ * does this document need an allocation number, under the rule of its date? The same reading as allocation_required() of migration
+ * 20261126006900 — which is THE rule: the screens use the database's answer (document_delivery_state) and fall back on this one only
+ * before that migration (then the rows read "more than", 305 / 320).
+ */
 export function allocationNeed(doc: { docType: number; docDate: string; afterDiscount: number; customerDealer?: string | null },
   issuer: { entityType?: string | null }, rules: AllocationRule[]): AllocationNeed {
   const rule = ruleOn(rules, doc.docDate);
@@ -44,8 +57,9 @@ export function allocationNeed(doc: { docType: number; docDate: string; afterDis
   if (!rule) return no('אין כלל בתוקף לתאריך המסמך');
   if (!rule.docTypes.includes(doc.docType)) return no('סוג המסמך לא דורש מספר הקצאה לפי הכלל');
   if (rule.requiresCustomerDealer && !/^\d{9}$/.test(doc.customerDealer ?? '')) return no('הלקוח לא עוסק (אין מספר עוסק) — לא נדרש');
-  if (doc.afterDiscount <= rule.thresholdBeforeVat) return no(`מתחת לסף (₪${rule.thresholdBeforeVat.toLocaleString('he-IL')} לפני מע״מ)`);
-  return { required: true, rule, verified: rule.verified, reason: `מעל ₪${rule.thresholdBeforeVat.toLocaleString('he-IL')} לפני מע״מ לעוסק — נדרש מספר הקצאה` };
+  const amount = Math.abs(doc.afterDiscount), sum = `₪${rule.thresholdBeforeVat.toLocaleString('he-IL')}`;
+  if (rule.inclusive ? amount < rule.thresholdBeforeVat : amount <= rule.thresholdBeforeVat) return no(`מתחת לסף (${sum} לפני מע״מ)`);
+  return { required: true, rule, verified: rule.verified, reason: `${rule.inclusive ? `מ-${sum}` : `מעל ${sum}`} לפני מע״מ לעוסק — נדרש מספר הקצאה` };
 }
 
 /**

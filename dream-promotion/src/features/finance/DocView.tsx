@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import { supabase } from '@/lib/supabase/client';
-import { authHeaders } from '@/lib/services/http';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { waLink } from '@/features/crm/crm';
@@ -12,6 +11,8 @@ import { toRefund } from '@/features/register/refunds';
 import { saleFromRow } from '@/features/store/commerce';
 import { israelParts } from '@/lib/il-time';
 import { docBody, printDocRow } from '@/features/documents/DocumentsTab';
+import { deliveryState, linkMayGo, sendDocLink, staffPdf } from '@/features/documents/deliver';
+import { AWAITING_STAFF, WRONG_NUMBER_NOTE, needFromState, type DeliveryState } from './delivery';
 import { useFinance } from './FinanceScreen';
 import { composeCredit, composeReceipt, composeRefundReceipt, type CreditMode } from './compose';
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, toAllocationRow, toRule, type AllocationRule, type AllocationRow, type AllocationState } from './allocation';
@@ -50,17 +51,18 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
   const [credited, setCredited] = useState(0);
   const [recv, setRecv] = useState<Receivable | null>(null);
   const [alloc, setAlloc] = useState<{ rows: AllocationRow[]; state: AllocationState } | null>(null);
+  // 2.119: the database's answer (document_delivery_state — the allocation rule, the deliveries so far); null before migration 6900
+  const [delivery, setDelivery] = useState<DeliveryState | null>(null);
   const [dialog, setDialog] = useState<'credit' | 'receipt' | 'cancel' | 'manual' | 'deliver' | 'invoice' | 'return' | 'refund' | null>(null);
   // 2.118: what was refunded on a receipt (its refund receipts — an exempt dealer's money back, the accountant's answer 15)
   const [refunded, setRefunded] = useState<{ left: number; count: number } | null>(null);
-  const [busy, setBusy] = useState(false);
   const links = usePaylinks(doc.docType === 305 || doc.docType === 300 ? { documentId: doc.id } : null);
   // 2.95 (T10): an order / a delivery note — what was made from it, what is left
   const goods = useFollowers(doc);
 
   const load = useCallback(async () => {
     const sb = supabase();
-    const [c, cr, rv, al, rules, rr] = await Promise.all([
+    const [c, cr, rv, al, rules, rr, ds] = await Promise.all([
       sb.from('document_cancellations').select('reason').eq('document_id', doc.id).maybeSingle(),
       doc.docType === 305 || doc.docType === 320 ? sb.from('documents').select('doc_type, total, base_doc_type, base_doc_number').eq('doc_type', 330).eq('base_doc_type', doc.docType).eq('base_doc_number', doc.docNumber)
         : Promise.resolve({ data: [], error: null }),
@@ -70,6 +72,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
       doc.docType === 400 && !isRefundReceipt(doc)
         ? sb.from('documents').select('doc_type, total, base_doc_type, base_doc_number').eq('doc_type', 400).eq('base_doc_type', 400).eq('base_doc_number', doc.docNumber).lt('total', 0)
         : Promise.resolve({ data: null, error: null }),
+      deliveryState(doc.id),
     ]);
     const back = ((rr.data ?? []) as any[]).map((x) => ({ docType: x.doc_type, total: Number(x.total), baseDocType: x.base_doc_type, baseDocNumber: Number(x.base_doc_number) }));
     setRefunded(rr.data ? { left: refundLeft(doc, back), count: back.length } : null);
@@ -77,34 +80,44 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
     setCredited(creditedTotals(((cr.data ?? []) as any[]).map((x) => ({ docType: x.doc_type, total: Number(x.total), baseDocType: x.base_doc_type, baseDocNumber: Number(x.base_doc_number) }))).get(`${doc.docType}:${doc.docNumber}`) ?? 0);
     setRecv(rv.data ? toReceivable(rv.data) : null);
     const rows = ((al.data ?? []) as any[]).map(toAllocationRow);
-    setAlloc({ rows, state: allocationState(rows, allocationNeed(doc, { entityType: doc.issuer?.entityType ?? settings.entity }, rules)) });
+    // the rule is the database's (allocation_required, 2.119); before migration 6900 — the rule rows, read here as before
+    const st = ds.ok ? ds.state : null;
+    setDelivery(st);
+    setAlloc({ rows, state: allocationState(rows, st ? needFromState(st) : allocationNeed(doc, { entityType: doc.issuer?.entityType ?? settings.entity }, rules)) });
   }, [doc, settings.entity]);
   useEffect(() => { void load(); }, [load]);
 
   const allocLine = alloc ? allocationPrintLine(alloc.state) : null;
-  const html = useMemo(() => docBody({ ...doc, cancelled: Boolean(cancelled) } as DocRow, business, doc.printCount ? 'העתק נאמן למקור' : 'מקור (טרם הודפס)', { allocation: allocLine }), [doc, business, allocLine, cancelled]);
+  // the screen's preview: what the next delivery will be (2.119: any delivery — a print, the link, a PDF — not only a print)
+  const delivered = delivery ? delivery.delivered || doc.printCount > 0 : doc.printCount > 0;
+  const html = useMemo(() => docBody({ ...doc, cancelled: Boolean(cancelled) } as DocRow, business, delivered ? 'העתק נאמן למקור' : delivery ? 'מקור (טרם נמסר)' : 'מקור (טרם הודפס)', { allocation: allocLine }),
+    [doc, business, allocLine, cancelled, delivered, delivery]);
+  const awaiting = Boolean(delivery?.allocation.awaiting);
   const fullyCredited = credited > 0 && Math.round(credited * 100) >= Math.round(doc.total * 100);
 
   async function print() {
-    const fresh = await printDocRow(doc, business);
-    if (!fresh) { fail('ההדפסה לא נרשמה. נסו שוב.'); return; }
-    setDoc(fresh); onChanged();
+    const r = await printDocRow(doc, business);
+    if (!r.ok) { fail(r.message); void load(); return; }
+    setDoc(r.doc); onChanged(); void load();
   }
-  function share() {
+  async function pdf() {
+    const e = await staffPdf(doc);
+    if (e) fail(e);
+    void load();
+  }
+  // 2.119: a WhatsApp message with the link is not a delivery (opening the link is — recorded by the server); a document waiting
+  // for its allocation number is not sent at all
+  async function share() {
     const url = `${window.location.origin}/d/${doc.shareToken}`;
     const link = waLink(doc.customerPhone ?? '', `שלום${doc.customerName ? ` ${doc.customerName.split(' ')[0]}` : ''}, מצורף ${DOC_LABEL[doc.docType]} מס׳ ${doc.docNumber} (${ils(doc.total)}): ${url}`);
-    if (!link) { void navigator.clipboard?.writeText(url); say('הקישור הועתק'); return; }
-    window.open(link, '_blank', 'noopener');
+    if (!link) {
+      const e = await linkMayGo(doc.id);
+      if (e) { fail(e); return; }
+      void navigator.clipboard?.writeText(url); say('הקישור הועתק'); return;
+    }
+    const e = await sendDocLink(doc.id, link);
+    if (e) { fail(e); return; }
     void logEvent('document.sent', 'documents', doc.id, { type: doc.docType, number: doc.docNumber, channel: 'whatsapp' });
-  }
-  async function requestAllocation() {
-    setBusy(true);
-    try {
-      const r = await fetch('/api/finance/allocations', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await authHeaders()) }, body: JSON.stringify({ documentId: doc.id }) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) fail(j.message ?? 'הבקשה לא נשלחה.'); else say(j.message ?? 'הבקשה נרשמה');
-    } catch { fail('אין חיבור כרגע. נסו שוב.'); }
-    setBusy(false); await load();
   }
   const afterIssue = (d: DocRow, label: string) => {
     if (d.leadId) {
@@ -128,7 +141,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
             {recv && !recv.cancelled && <Pill tone={recv.balance <= 0 ? 'ok' : 'warn'}>{recv.balance <= 0 ? 'שולם' : `יתרה ${ils(recv.balance)}`}</Pill>}
             {alloc?.state.kind === 'real' && <Pill tone="ok">מספר הקצאה {alloc.state.number}{alloc.state.manual ? ' (ידני)' : ''}</Pill>}
             {alloc?.state.kind === 'test' && <Pill tone="info">מספר בדיקה — לא אמיתי</Pill>}
-            {alloc?.state.kind === 'missing' && <Pill tone="bad">חסר מספר הקצאה</Pill>}
+            {alloc?.state.kind === 'missing' && <Pill tone="bad">{awaiting ? 'ממתין למספר הקצאה' : 'חסר מספר הקצאה'}</Pill>}
             {goods.state?.invoices.map((x) => <Pill key={`i${x.docNumber}`} tone="ok">חויבה: {DOC_LABEL[x.docType]} {x.docNumber}</Pill>)}
             {goods.state?.deliveries.map((x) => <Pill key={`d${x.docNumber}`} tone="info">תעודת משלוח {x.docNumber}</Pill>)}
             {goods.state?.returns.map((x) => <Pill key={`r${x.docNumber}`} tone="warn">תעודת החזרה {x.docNumber}</Pill>)}
@@ -138,9 +151,9 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
       </div>
       <div className="max-h-[50vh] overflow-auto rounded-xl bg-white p-2 text-black" dangerouslySetInnerHTML={{ __html: html }} />
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" onClick={() => void print()}>{doc.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
-        {doc.shareToken && <a href={`/api/doc/${doc.shareToken}/pdf`} target="_blank" rel="noopener" className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold hover:border-primary">📄 PDF</a>}
-        {doc.shareToken && <Button variant="ghost" onClick={share}>💬 שליחה ללקוח</Button>}
+        <Button variant="primary" disabled={awaiting} onClick={() => void print()}>{delivered ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
+        {(doc.shareToken || delivery) && <Button variant="ghost" disabled={awaiting} title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)" onClick={() => void pdf()}>📄 PDF</Button>}
+        {doc.shareToken && <Button variant="ghost" disabled={awaiting} onClick={() => void share()}>💬 שליחה ללקוח</Button>}
         {recv && !recv.cancelled && recv.balance > 0 && <Button variant="ghost" onClick={() => setDialog('receipt')}>קבלה על תשלום</Button>}
         {recv && !recv.cancelled && !cancelled && recv.balance > 0 && links.ready && links.links && (
           <PaylinkButton kind="document" target={doc.id} what={`${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
@@ -166,15 +179,19 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
         <SaleReceiptsDue key={`${doc.id}:${refunded?.count ?? 0}`} doc={doc} onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${d.docNumber} · ${ils(-d.total)}`)} />
       )}
       {alloc && (alloc.state.kind === 'missing' || alloc.state.kind === 'error' || alloc.state.kind === 'test') && (
-        <div className="mt-3 grid gap-2 rounded-2xl border border-line p-3 text-sm">
+        <section aria-label="מספר הקצאה" className={`mt-3 grid gap-2 rounded-2xl border p-3 text-sm ${awaiting ? 'border-red-500/50' : 'border-line'}`}>
+          {awaiting && <p role="status" className="font-bold">{AWAITING_STAFF}</p>}
           <p><strong>מספר הקצאה:</strong> {alloc.state.kind === 'missing' ? alloc.state.reason : alloc.state.kind === 'error' ? `הבקשה האחרונה נכשלה — ${alloc.state.message}` : 'יש רק מספר בדיקה (סביבת בדיקות).'}
             {alloc.state.kind === 'missing' && !alloc.state.verified && <span className="block text-xs text-muted">הסף נלקח ממקורות משניים ולא אומת מול פרסום רשמי — לאשר עם רו״ח.</span>}</p>
+          {/* the owner, 26.11.2026: no connection to the Tax Authority yet — the number is asked for in the Tax Authority's own system
+              and typed in here (the request from here, /api/finance/allocations, waits for the connection) */}
+          <p className="text-xs text-muted">מבקשים את המספר במערכת של רשות המסים (באזור האישי) ומזינים אותו כאן. {WRONG_NUMBER_NOTE}</p>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void requestAllocation()}>{busy ? <Spinner /> : 'בקשה מרשות המסים'}</Button>
-            <Button size="sm" variant="ghost" onClick={() => setDialog('manual')}>הזנת מספר שהתקבל</Button>
+            <Button size="sm" variant={awaiting ? 'primary' : 'ghost'} onClick={() => setDialog('manual')}>הזנת מספר שהתקבל</Button>
           </div>
-        </div>
+        </section>
       )}
+      {alloc?.state.kind === 'real' && <p className="mt-2 text-xs text-muted">{WRONG_NUMBER_NOTE}</p>}
       {links.links && <PaylinkList links={links.links} showLabel={false} onChanged={() => { void links.reload(); void load(); onChanged(); }} />}
       {/* 2.89: a payment plan of what is owed (its payments: each with its own date, in "חייבים" and in the reminders) */}
       {recv && !recv.cancelled && !cancelled && (
@@ -463,6 +480,8 @@ function ManualAllocation({ doc, onClose, onDone }: { doc: DocRow; onClose: () =
     <Modal open onClose={onClose}>
       <h3 className="mb-1 font-display text-lg font-extrabold">מספר הקצאה שהתקבל מרשות המסים</h3>
       <p className="mb-3 text-sm text-muted">רק מספר שקיבלתם בפועל מרשות המסים (למשל באזור האישי). הוא יסומן "הוזן ידנית" על המסמך ובייצוא.</p>
+      {/* the accountant's answer 4 (as decided 25.11.2026): a recorded number never changes — tax_allocations is append-only */}
+      <div className="mb-3"><Note>בדקו את המספר לפני השמירה: אחרי השמירה אי אפשר לשנות או למחוק אותו. {WRONG_NUMBER_NOTE}</Note></div>
       <Input value={num} onChange={(e) => setNum(e.target.value.replace(/\D/g, '').slice(0, 20))} inputMode="numeric" dir="ltr" aria-label="מספר הקצאה" />
       {error && <div className="mt-2"><Note tone="warn">{error}</Note></div>}
       <div className="mt-3 flex gap-2"><Button variant="primary" disabled={num.length < 6} onClick={() => void go()}>שמירה</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>

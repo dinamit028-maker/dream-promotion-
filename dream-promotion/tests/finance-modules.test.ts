@@ -84,7 +84,10 @@ test('allocation numbers: the rule of the document\'s date, what is required, an
     'the same note as the migration writes');
   const doc = { docType: 305, docDate: TODAY, afterDiscount: 6000, customerDealer: '514000012' };
   assert.equal(allocationNeed(doc, { entityType: 'company' }, SEED_RULES).required, true);
-  assert.equal(allocationNeed({ ...doc, afterDiscount: 5000 }, { entityType: 'company' }, SEED_RULES).required, false, 'exactly the threshold: not above it');
+  // 2.119 (the accountant 25.11.2026, answer 3א — "5,000 ומעלה"; migration 20261126006900): the threshold itself needs a number;
+  // the rows of a database before that migration read "more than" (tests/cpa-rules-stage2.test.ts)
+  assert.equal(allocationNeed({ ...doc, afterDiscount: 5000 }, { entityType: 'company' }, SEED_RULES).required, true, 'exactly the threshold: from it up');
+  assert.equal(allocationNeed({ ...doc, afterDiscount: 4999.99 }, { entityType: 'company' }, SEED_RULES).required, false, 'below the threshold');
   assert.equal(allocationNeed({ ...doc, customerDealer: '' }, { entityType: 'company' }, SEED_RULES).required, false, 'a private customer');
   assert.equal(allocationNeed({ ...doc, docType: 300 }, { entityType: 'company' }, SEED_RULES).required, false, 'not a tax invoice');
   assert.equal(allocationNeed(doc, { entityType: 'exempt_dealer' }, SEED_RULES).required, false);

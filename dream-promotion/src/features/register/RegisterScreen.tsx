@@ -11,6 +11,7 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { CashRegister, CornersIn, CornersOut } from '@/components/ui/Icon';
 import { phoneDigits, waLink } from '@/features/crm/crm';
 import { DocumentsTab, docInsertRow, printDocRow, toDoc, type DocRow } from '@/features/documents/DocumentsTab';
+import { sendDocLink, staffPdf } from '@/features/documents/deliver';
 import { DOC_LABEL, creditFor, creditForRefund, creditedTotals, docFromSale, isRefundReceipt } from '@/features/documents/documents';
 import { enablePush, needsHomeScreen, notifySale, pushKeyReady, pushSupported, sendTest } from './notifications';
 import { ShiftTab } from './ShiftTab';
@@ -246,13 +247,13 @@ export function RegisterScreen() {
   const licensed = settings.businessType === 'licensed';
   // 2.118: the accountant's answer 15 is an exempt dealer's (a nonprofit's refund — an open question; the database refuses it)
   const exemptDealer = entityOf(settings.entityType, settings.businessType) === 'exempt_dealer';
-  async function issueDocumentFull(s: Sale, leadId: string | null): Promise<{ label: string; token: string } | null> {
+  async function issueDocumentFull(s: Sale, leadId: string | null): Promise<{ label: string; token: string; id: string } | null> {
     if (!business.ready || !userId) return null;
     const d = docFromSale(s, { licensed, docDate: israelParts(Date.now()).date });
     // one document per sale, whatever happens (a double tap, a retry after a lost answer): the key "sale:<id>" (2.51)
     const out = await issueDocumentRow({ ...docInsertRow(userId, d, { saleId: s.id, leadId, vatRate: d.lines[0]?.vatRate ?? 0 }), idempotency_key: `sale:${s.id}`, source: 'pos' });
     if (!out.ok) { setError(`המכירה נשמרה, אבל המסמך לא הופק (${out.error}) אפשר להפיק אותו ב"כספים ← הכנסות".`); return null; }
-    return { label: `הופקה ${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}`, token: out.doc.shareToken ?? '' };
+    return { label: `הופקה ${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}`, token: out.doc.shareToken ?? '', id: out.doc.id };
   }
   /** every paid sale gets its legal document (numbered by the database, never editable) */
   async function issueDocument(s: Sale, leadId: string | null): Promise<string> {
@@ -328,7 +329,7 @@ export function RegisterScreen() {
     if (!c.paidNow && !replay && leadId) addActivity(leadId, 'note', `בקשת תשלום: ${ils(sale.total)}`);
     const doc = c.paidNow ? await issueDocumentFull(sale, leadId) : null;   // idempotent: "sale:<id>"
     if (!replay) void notifySale(sale.id); // the managers' phones — never blocks the sale
-    return { ok: true, sale, docLabel: doc?.label, docUrl: doc?.token ? `${window.location.origin}/d/${doc.token}` : undefined, payUrl: payUrl ?? undefined, lowStock: low };
+    return { ok: true, sale, docLabel: doc?.label, docUrl: doc?.token ? `${window.location.origin}/d/${doc.token}` : undefined, docId: doc?.id, payUrl: payUrl ?? undefined, lowStock: low };
   }
 
   const payRequestUrl = (s: Sale) => (settings.payLink && waLink(s.customerPhone, payRequestText({ name: s.customerName, total: s.total, items: s.items.map((l) => l.name).join(', '), business: brand.name, link: settings.payLink }))) || null;
@@ -859,13 +860,15 @@ function SaleDetail({ sale, onClose, business, refunds, employees, licensed, onR
 }) {
   const [docs, setDocs] = useState<DocRow[] | null>(null);
   const [phone, setPhone] = useState('');
+  // 2.119: a delivery the database refused (a document waiting for its allocation number) — said here, in words
+  const [docNote, setDocNote] = useState<string | null>(null);
   const loadDocs = useCallback(async (s: Sale) => {
     const { data } = await supabase().from('documents').select('*').eq('sale_id', s.id).order('issued_at');
     setDocs((data ?? []).map(toDoc));
   }, []);
   useEffect(() => {
     if (!sale) return;
-    setDocs(null); setPhone(sale.customerPhone);
+    setDocs(null); setPhone(sale.customerPhone); setDocNote(null);
     void loadDocs(sale);
   }, [sale, loadDocs]);
   if (!sale) return null;
@@ -894,20 +897,27 @@ function SaleDetail({ sale, onClose, business, refunds, employees, licensed, onR
         <div key={d.id} className="mb-2 rounded-2xl bg-surface-2 p-3 text-sm">
           <p className="font-semibold">{DOC_LABEL[d.docType]} מס׳ {d.docNumber} · {ils(d.total)}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={async () => { const f = await printDocRow(d, business as any); if (f) setDocs((all) => (all ?? []).map((x) => (x.id === f.id ? f : x))); }}>
+            <Button size="sm" variant="ghost" onClick={async () => {
+              setDocNote(null);
+              const r = await printDocRow(d, business as any);
+              if (!r.ok) { setDocNote(r.message); return; }
+              setDocs((all) => (all ?? []).map((x) => (x.id === r.doc.id ? r.doc : x)));
+            }}>
               {d.printCount ? 'הדפסת העתק' : 'הדפסת מקור'}
             </Button>
             {d.shareToken && <>
-              <a href={`/api/doc/${d.shareToken}/pdf`} target="_blank" rel="noopener" className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold hover:border-primary">🔏 PDF</a>
+              <Button size="sm" variant="ghost" title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)" onClick={async () => { setDocNote(null); setDocNote(await staffPdf(d)); }}>🔏 PDF</Button>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="טלפון" inputMode="tel" dir="ltr" className="h-9 w-36 py-1" aria-label="טלפון לשליחה" />
-              <Button size="sm" variant="primary" disabled={phoneDigits(phone).length < 9} onClick={() => {
+              <Button size="sm" variant="primary" disabled={phoneDigits(phone).length < 9} onClick={async () => {
                 const url = waLink(phone, `שלום, ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} מ${business.name}: ${window.location.origin}/d/${d.shareToken}`);
-                if (url) window.open(url, '_blank', 'noopener');
+                setDocNote(null);
+                if (url) setDocNote(await sendDocLink(d.id, url));
               }}>💬 שליחה בוואטסאפ</Button>
             </>}
           </div>
         </div>
       ))}
+      {docNote && <p role="alert" className="mb-2 rounded-2xl bg-amber-500/15 p-3 text-sm font-semibold">{docNote}</p>}
       {sale.status !== 'cancelled' && !hasRefunds && refundLeft(sale, refunds) > 0 && (
         <button type="button" className="mt-2 text-xs text-muted underline" onClick={() => onCancel(sale)}>
           {sale.status === 'paid' ? 'ביטול רישום (נרשם בטעות, לא התקבל כסף)' : 'ביטול בקשת התשלום'}
