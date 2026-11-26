@@ -323,8 +323,16 @@ select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, 15
 select pg_temp.check((select doc_number from public.documents where idempotency_key = 'sg-300') = 1 and (select doc_number from public.documents where idempotency_key = 'sg-400') = 1,
   'SaGabot numbers its own documents from 1');
 select pg_temp.check((select issuer->>'entityType' from public.documents where idempotency_key = 'sg-400') = 'exempt_dealer', 'the receipt says "exempt dealer"');
--- a receipt issued by mistake is cancelled: the money goes off the books, the receipt stays as it was
+-- 6800 (the accountant, answer 8): a receipt is no longer cancelled by marking "בוטל"
+select pg_temp.refused_with($$insert into public.document_cancellations (document_id, user_id, reason) values ((select id from public.documents where idempotency_key = 'sg-400'), '00000000-0000-0000-0000-00000000000b', 'הופקה בטעות')$$,
+  'cancel_receipt_not_allowed', 'a receipt is not cancelled by marking (6800)');
+-- a receipt cancelled before 6800 (as then: the cancellation's check set aside by the superuser for this one row) stays cancelled:
+-- the money went off the books, the receipt stays as it was
+reset role;
+alter table public.document_cancellations disable trigger b_document_cancellations_check;
 insert into public.document_cancellations (document_id, user_id, reason) values ((select id from public.documents where idempotency_key = 'sg-400'), '00000000-0000-0000-0000-00000000000b', 'הופקה בטעות');
+alter table public.document_cancellations enable trigger b_document_cancellations_check;
+set local role authenticated;
 select pg_temp.check((select count(*) from public.payments where source = 'cancel' and direction = 'out' and amount = 150) = 1, 'a cancelled receipt reverses its money');
 select pg_temp.refused($$insert into public.document_cancellations (document_id, user_id, reason) values ((select id from public.documents where idempotency_key = 'sg-400'), '00000000-0000-0000-0000-00000000000b', 'שוב')$$,
   'a receipt cancelled twice');
@@ -347,19 +355,30 @@ select pg_temp.check((select stock_qty from public.catalog_items where id = '000
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, 40, 0, 0, jsonb_build_object('idempotency_key', 'sg-400-oops',
   'lines', jsonb_build_array(jsonb_build_object('name', 'שמפו', 'qty', 1, 'unitPriceExVat', 40, 'totalExVat', 40, 'vatRate', 0, 'kind', 1, 'itemId', '00000000-0000-0000-0000-0000000c0003')))));
 select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0003') = 2, 'one out on a receipt that stands alone');
-insert into public.document_cancellations (document_id, user_id, reason) values ((select id from public.documents where idempotency_key = 'sg-400-oops'), '00000000-0000-0000-0000-00000000000b', 'הופקה בטעות');
-select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0003') = 3, 'cancelling it brings the product back');
-select pg_temp.check(exists (select 1 from public.stock_movements where item_id = '00000000-0000-0000-0000-0000000c0003' and reason = 'cancel' and delta = 1
-  and document_id = (select id from public.documents where idempotency_key = 'sg-400-oops')), 'logged as a cancellation of that receipt');
-select pg_temp.check((public.finance_summary(public.il_today() - 1, public.il_today()) -> 'revenue' ->> 'net')::numeric = 400 + 80, 'the cancelled receipt is not income; the paid one is');
+-- 6800: the receipt is not cancelled — the exempt dealer refunds it with a refund receipt (a 400 below zero, on it), whose line
+-- marked "restock" brings the product back
+select pg_temp.refused_with($$insert into public.document_cancellations (document_id, user_id, reason) values ((select id from public.documents where idempotency_key = 'sg-400-oops'), '00000000-0000-0000-0000-00000000000b', 'הופקה בטעות')$$,
+  'cancel_receipt_not_allowed', 'a receipt is not cancelled by marking (6800)');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, -40, 0, 0, jsonb_build_object('idempotency_key', 'sg-400-oops-back',
+  'base_doc_type', 400, 'base_doc_number', (select doc_number from public.documents where idempotency_key = 'sg-400-oops'),
+  'lines', jsonb_build_array(jsonb_build_object('name', 'שמפו', 'qty', 1, 'unitPriceExVat', -40, 'totalExVat', -40, 'vatRate', 0, 'kind', 1, 'restock', true, 'itemId', '00000000-0000-0000-0000-0000000c0003')))));
+select pg_temp.check((select stock_qty from public.catalog_items where id = '00000000-0000-0000-0000-0000000c0003') = 3, 'the refund receipt brings the product back');
+select pg_temp.check(exists (select 1 from public.stock_movements where item_id = '00000000-0000-0000-0000-0000000c0003' and reason = 'refund' and delta = 1
+  and document_id = (select id from public.documents where idempotency_key = 'sg-400-oops-back')), 'logged as a refund of that receipt');
+select pg_temp.check((public.finance_summary(public.il_today() - 1, public.il_today()) -> 'revenue' ->> 'net')::numeric = 400 + 80, 'the refunded receipt is not income (40 − 40); the paid one is');
 -- closing the books: yesterday's documents and expenses are frozen
-select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, 50, 0, 0, jsonb_build_object('doc_date', public.il_today() - 1, 'idempotency_key', 'sg-yday')));
+-- (6800: a document is dated the day it is issued — this one was issued yesterday: the date's own trigger set aside for it only)
+reset role;
+alter table public.documents disable trigger d_documents_issue_day;
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 300, 50, 0, 0, jsonb_build_object('doc_date', public.il_today() - 1, 'idempotency_key', 'sg-yday')));
+alter table public.documents enable trigger d_documents_issue_day;
+set local role authenticated;
 select pg_temp.refused_with($$select public.lock_finance_period(public.il_today())$$, 'has ended', 'closing today');
 select pg_temp.check(public.lock_finance_period(public.il_today() - 1, 'דוח דו-חודשי') = public.il_today() - 1, 'the books are closed until yesterday');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-00000000000b', 400, 50, 0, 0, jsonb_build_object('doc_date', public.il_today() - 1)))$$,
   'period_locked', 'a document dated in a closed period');
 select pg_temp.refused_with($$insert into public.document_cancellations (document_id, user_id, reason) values ((select id from public.documents where idempotency_key = 'sg-yday'), '00000000-0000-0000-0000-00000000000b', 'טעות')$$,
-  'period_locked', 'cancelling a receipt of a closed period');
+  'period_locked', 'cancelling a document of a closed period');
 select pg_temp.refused_with($$insert into public.expenses (user_id, supplier_name, doc_date, amount_before_vat, vat_amount, total) values ('00000000-0000-0000-0000-00000000000b', 'x', public.il_today() - 1, 10, 0, 10)$$,
   'period_locked', 'an expense dated in a closed period');
 select pg_temp.refused($$update public.finance_period_locks set period_end = '2000-01-01'$$, 'closed books reopen');

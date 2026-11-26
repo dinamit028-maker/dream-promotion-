@@ -1,11 +1,11 @@
 import { txKind, type Doc, type DocLine } from '@/features/documents/openformat';
 import type { ItemKind } from '@/features/catalog/catalog';
-import { DOC_LABEL, creditFor } from '@/features/documents/documents';
+import { DOC_LABEL, creditFor, refundReceiptFor } from '@/features/documents/documents';
 import { dealerDigits, validIsraeliId } from '@/features/register/billing';
 import { israelParts } from '@/lib/il-time';
 import { ag, netOfGross, sh, vatOfGross, vatOfNet } from './vat';
 import { canIssue, chargesVat, type EntityType } from './rules';
-import { chequeErrors, toDocPayment, withholdingErrors, type PaymentEntry } from './payments';
+import { chequeErrors, isCardKind, payCode, toDocPayment, withholdingErrors, type PaymentEntry } from './payments';
 
 /**
  * The accounting engine's document builder: what the user typed → a legal document, agorot-exact.
@@ -85,10 +85,23 @@ export function paymentErrors(payments: PaymentEntry[], totalA: number, today: s
     if (!(p.amount > 0)) e.push('כל תשלום צריך סכום גדול מאפס');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date) || p.date > today) e.push('תאריך תשלום לא תקין (לא בעתיד)');
     if (p.method === 'cheque') e.push(...chequeErrors(p.cheque));   // every missing field of the cheque, each in its own line
+    // 2.118 (the accountant's answer 13): a card payment names its kind — field 1315, asked at issue (no silent default here)
+    if (p.method === 'card' && !isCardKind(p.cardKind)) e.push(CARD_KIND_MISSING);
   }
   const paidA = payments.reduce((a, p) => a + ag(p.amount), 0);
   if (!e.length && paidA !== totalA) e.push(`סכום התשלומים (${ils(sh(paidA))}) שונה מסכום המסמך (${ils(sh(totalA))})`);
   return e;
+}
+export const CARD_KIND_MISSING = 'בתשלום בכרטיס אשראי בוחרים את סוג העסקה: רגיל, תשלומים, קרדיט, חיוב נדחה או אחר';
+/**
+ * The date of a new document (2.118 — the accountant's answer 16, docs/ita-registration/CPA_ANSWERS_HE.md, 25.11.2026): always the
+ * day it is issued, Israel time (todayIL / il_today()). The database refuses any other day (d_documents_issue_day of migration
+ * 20261125006800, 'doc_date_not_today'); here the screens say it first. A day ahead keeps its old message ("בעתיד").
+ */
+export function docDateErrors(docDate: string, today: string): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(docDate) || docDate > today) return ['תאריך המסמך לא יכול להיות בעתיד'];
+  if (docDate !== today) return ['תאריך המסמך הוא תמיד יום ההפקה (היום) — אי אפשר להפיק מסמך בתאריך קודם'];
+  return [];
 }
 export const customerOf = (c: ComposeCustomer) => ({
   customerName: c.name.trim().slice(0, 120), customerPhone: (c.phone ?? '').trim().slice(0, 30), customerDealer: dealerDigits(c.dealer ?? ''),
@@ -118,7 +131,7 @@ export function composeDocument(input: ComposeInput): ComposeResult {
     // 2.94: tax withheld at source — a percent that is one, the customer who withheld it, never all of the payment
     errors.push(...withholdingErrors(input.payments ?? [], { total: totals.total, customerName: input.customer.name }));
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.docDate) || input.docDate > today) errors.push('תאריך המסמך לא יכול להיות בעתיד');
+  errors.push(...docDateErrors(input.docDate, today));
   if ((t === 305 || t === 300) && input.dueDate && input.dueDate < input.docDate) errors.push('מועד התשלום לפני תאריך המסמך');
   if ((input.notes ?? '').length > 1000) errors.push('ההערות ארוכות מדי (עד 1,000 תווים)');
   if (errors.length) return { ok: false, errors: [...new Set(errors)] };
@@ -147,7 +160,7 @@ export function composeReceipt(inv: OpenInvoice, o: { entity: EntityType; vatRat
   if (inv.docType !== 305 && inv.docType !== 300) errors.push('קבלה מופקת על חשבונית מס או חשבונית עסקה');
   if (paidA <= 0) errors.push('הסכום חייב להיות גדול מאפס');
   if (paidA > ag(inv.balance)) errors.push(`הסכום גדול מהיתרה לתשלום (${ils(inv.balance)})`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(o.docDate) || o.docDate > today) errors.push('תאריך המסמך לא יכול להיות בעתיד');
+  errors.push(...docDateErrors(o.docDate, today));
   errors.push(...paymentErrors(o.payments, paidA, today));
   errors.push(...withholdingErrors(o.payments, { total: sh(paidA), customerName: inv.customerName }));
   if (errors.length) return { ok: false, errors: [...new Set(errors)] };
@@ -171,6 +184,33 @@ export function composeReceipt(inv: OpenInvoice, o: { entity: EntityType; vatRat
     doc: { docType: 400, docDate: o.docDate, ...cust, beforeDiscount: sh(paidA), discount: 0, afterDiscount: sh(paidA), vatAmount: 0, total: sh(paidA), issuedBy: '', lines: [line], payments, notes: (o.notes ?? '').trim() } };
 }
 
+/**
+ * 2.118 — an exempt dealer's money back on a receipt from the money screens (the accountant's answer 15): a refund receipt (a 400
+ * below zero, refundReceiptFor). Only an exempt dealer (a VAT business credits — 330); never beyond what is left on the receipt
+ * (`left` — refundLeft; the database checks it again in a lock); the payments say how the money went back (above zero here, as
+ * typed; written below zero), a card one with its kind; no tax withheld. Hebrew errors.
+ */
+export function composeRefundReceipt(base: Doc, o: { entity: EntityType; left: number; payments: PaymentEntry[]; docDate: string; today?: string; notes?: string; lines?: DocLine[] }): ComposeResult {
+  const today = o.today ?? todayIL();
+  const errors: string[] = [];
+  if (o.entity !== 'exempt_dealer') errors.push('קבלה במינוס (החזר כספי) — רק לעוסק פטור. בעסק שגובה מע״מ מחזירים כסף בחשבונית מס זיכוי');
+  if (base.docType !== 400 || !(ag(base.total) > 0)) errors.push('החזר כספי מופק על קבלה');
+  const amountA = o.payments.reduce((a, p) => a + ag(p.amount || 0), 0);
+  if (o.payments.some((p) => p.method === 'withholding')) errors.push('בהחזר כספי אין ניכוי במקור');
+  if (amountA <= 0) errors.push('הסכום חייב להיות גדול מאפס');
+  else if (amountA > ag(o.left)) errors.push(`ההחזר גדול ממה שנשאר להחזיר על הקבלה (${ils(o.left)})`);
+  errors.push(...paymentErrors(o.payments, amountA, today));
+  errors.push(...docDateErrors(o.docDate, today));
+  if ((o.notes ?? '').length > 1000) errors.push('ההערות ארוכות מדי (עד 1,000 תווים)');
+  if (errors.length) return { ok: false, errors: [...new Set(errors)] };
+  const doc = refundReceiptFor(base, {
+    payments: o.payments.map((p) => ({ method: payCode(p.method), amount: p.amount, m: p.method, ...(p.method === 'card' && isCardKind(p.cardKind) ? { cardKind: p.cardKind } : {}) })),
+    docDate: o.docDate, lines: o.lines, notes: (o.notes ?? '').trim(),
+  });
+  const t = doc.total;
+  return { ok: true, doc, totals: { subtotal: t, discount: 0, beforeDiscount: t, discountExVat: 0, afterDiscount: t, vatRate: 0, vatAmount: 0, total: t } };
+}
+
 export type CreditMode = { kind: 'full' } | { kind: 'amount'; amount: number } | { kind: 'lines'; qty: number[]; restock: boolean };
 /**
  * A credit invoice (330) for a tax invoice (305 / 320): the whole of what is left, a sum (VAT inside it), or chosen lines
@@ -179,7 +219,7 @@ export type CreditMode = { kind: 'full' } | { kind: 'amount'; amount: number } |
 export function composeCredit(base: Doc, mode: CreditMode, creditedSoFar: number, docDate: string, o: { reason?: string; today?: string } = {}): ComposeResult {
   const today = o.today ?? todayIL();
   if (base.docType !== 305 && base.docType !== 320) return { ok: false, errors: ['חשבונית זיכוי מופקת על חשבונית מס (305) או חשבונית מס / קבלה (320)'] };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(docDate) || docDate > today) return { ok: false, errors: ['תאריך המסמך לא יכול להיות בעתיד'] };
+  if (docDateErrors(docDate, today).length) return { ok: false, errors: docDateErrors(docDate, today) };
   const leftA = ag(base.total) - ag(creditedSoFar);
   if (leftA <= 0) return { ok: false, errors: ['החשבונית כבר זוכתה במלואה'] };
   const rate = base.lines[0]?.vatRate ?? 0;
@@ -232,11 +272,18 @@ export function docInvariants(d: Pick<NewDoc, 'docType' | 'lines' | 'payments' |
   if (d.lines.length && linesA !== ag(d.beforeDiscount)) e.push(`lines ${linesA} ≠ before ${ag(d.beforeDiscount)}`);
   if (ag(d.afterDiscount) !== ag(d.beforeDiscount) - ag(d.discount)) e.push('after ≠ before − discount');
   if (ag(d.total) !== ag(d.afterDiscount) + ag(d.vatAmount)) e.push('total ≠ after + vat');
-  if (d.discount < 0 || d.beforeDiscount < 0 || d.vatAmount < 0 || d.total <= 0) e.push('negative / zero');
+  // 2.118 (migration 6800): an exempt dealer's refund receipt — a 400 below zero, no discount and no VAT, every payment below zero
+  const refund = d.docType === 400 && ag(d.total) < 0;
+  if (refund) { if (ag(d.discount) !== 0 || ag(d.vatAmount) !== 0 || ag(d.beforeDiscount) >= 0) e.push('refund receipt: no discount, no VAT, below zero'); }
+  else if (d.discount < 0 || d.beforeDiscount < 0 || d.vatAmount < 0 || d.total <= 0) e.push('negative / zero');
   if (Math.abs(ag(d.vatAmount) - Math.round((ag(d.afterDiscount) * rate) / 100)) > 1) e.push(`vat ${ag(d.vatAmount)} vs ${Math.round((ag(d.afterDiscount) * rate) / 100)}`);
   if (d.docType === 320 || d.docType === 400) {
     const paidA = d.payments.reduce((a, p) => a + ag(p.amount), 0);
     if (Math.abs(paidA - ag(d.total)) > 1) e.push('payments ≠ total');
+    if (d.payments.some((p) => (refund ? !(ag(p.amount) < 0) || p.m === 'withholding' : !(ag(p.amount) > 0)))) e.push(refund ? 'refund payments: below zero, no withholding' : 'payments: above zero');
+    // 2.118 (6800, answer 13): a card payment names its kind (1–5); no other payment carries one
+    if (d.payments.some((p) => p.method === 3 && !(Number.isInteger(p.cardKind) && Number(p.cardKind) >= 1 && Number(p.cardKind) <= 5))) e.push('card payment without its kind');
+    if (d.payments.some((p) => p.method !== 3 && p.cardKind != null)) e.push('a kind on a payment that is not a card');
   } else if (d.payments.length) e.push('payments on a non-receipt');
   return e;
 }

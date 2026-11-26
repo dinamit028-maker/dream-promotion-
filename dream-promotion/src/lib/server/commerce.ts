@@ -6,7 +6,9 @@ import { orderRef } from './order-link';
 import { sendPaylinkEmail } from './paylink-mail';
 import { sendReminderEmail } from './reminders';
 import { documentRow } from '@/features/finance/rows';
-import { creditForRefund, toDoc } from '@/features/documents/documents';
+import { creditForRefund, isRefundReceipt, refundLeft, refundReceiptForRefund, toDoc } from '@/features/documents/documents';
+import { refundReceiptError } from '@/features/finance/rows';
+import { entityOf } from '@/features/finance/rules';
 import { toRefund } from '@/features/register/refunds';
 import { israelParts } from '@/lib/il-time';
 import {
@@ -165,10 +167,13 @@ async function sendOne(db: Db, e: { id: string; order_id: string; store_id: stri
 /**
  * A refund recorded from the order's page (the money already went back in the payment company's screen). The database's
  * own triggers check the ceiling under a lock, write the ledger, restock, and update the order. A licensed business's
- * invoice gets its credit invoice (330) on the key refund:<id>, as the register does.
+ * invoice gets its credit invoice (330) on the key refund:<id>, as the register does. 2.118 (the accountant's answer 15): an
+ * exempt dealer's receipt gets a refund receipt (a 400 below zero, with the refund — its money out and stock are the refund's)
+ * on the same key; to the card it was paid with — its kind as the receipt's card payment, else regular (one online charge).
+ * Until migration 6800 is in the database it is refused: the refund stays recorded, `credit` says why (never an error).
  */
 export async function recordOrderRefund(businessId: string, userId: string, saleId: string, plan: RefundPlan)
-  : Promise<{ ok: true; refundId: string; credit: 'issued' | 'not_required' | string } | { ok: false; error: unknown }> {
+  : Promise<{ ok: true; refundId: string; credit: 'issued' | 'refund_issued' | 'not_required' | string; receipt?: boolean } | { ok: false; error: unknown }> {
   const db = adminDb();
   const id = crypto.randomUUID();
   const { error } = await db.from('sale_refunds').insert({
@@ -178,14 +183,33 @@ export async function recordOrderRefund(businessId: string, userId: string, sale
   if (error) return { ok: false, error };
   const [{ data: s }, { data: docs }] = await Promise.all([
     db.from('sales').select('*').eq('id', saleId).eq('business_id', businessId).maybeSingle(),
-    db.from('documents').select('*').eq('business_id', businessId).eq('sale_id', saleId).in('doc_type', [320, 305]).order('issued_at').limit(1),
+    db.from('documents').select('*').eq('business_id', businessId).eq('sale_id', saleId).in('doc_type', [320, 305, 400]).order('issued_at'),
   ]);
-  const orig = (docs ?? [])[0];
-  if (!s || !orig) return { ok: true, refundId: id, credit: 'not_required' };
+  const all = ((docs ?? []) as any[]).map(toDoc);
+  const tax = all.find((d) => d.docType === 320 || d.docType === 305);
+  const receipt = all.find((d) => d.docType === 400 && !isRefundReceipt(d));
+  if (!s || (!tax && !receipt)) return { ok: true, refundId: id, credit: 'not_required' };
   const sale = saleFromRow(s);
+  if (!tax && receipt) {
+    // the accountant's answer 15 is an exempt dealer's: a nonprofit's receipt gets nothing (an open question — the database refuses it)
+    const { data: rs } = await db.from('register_settings').select('entity_type, business_type').eq('business_id', businessId).maybeSingle();
+    if (entityOf(rs?.entity_type, rs?.business_type) !== 'exempt_dealer') return { ok: true, refundId: id, credit: 'not_required' };
+    const { data: r } = await db.from('sale_refunds').select('*').eq('id', id).maybeSingle();
+    const refund = toRefund(r ?? { id, sale_id: saleId, amount: plan.amount, vat_amount: 0, method: plan.method, items: plan.items });
+    if (Math.round(refundLeft(receipt, all) * 100) < Math.round(refund.amount * 100)) return { ok: true, refundId: id, receipt: true, credit: 'על הקבלה כבר הוחזר כמעט הכול.' };
+    const back = refundReceiptForRefund(receipt, refund, sale, today());
+    const row = {
+      ...documentRow(back, { userId, idempotencyKey: `refund:${id}`, vatRate: 0, saleId, leadId: sale.leadId, refundId: id, source: 'refund' }),
+      business_id: businessId,
+    };
+    const ins = await db.from('documents').insert(row).select('id').single();
+    if (ins.error) return { ok: true, refundId: id, receipt: true, credit: refundReceiptError(ins.error) };
+    return { ok: true, refundId: id, receipt: true, credit: 'refund_issued' };
+  }
+  const orig = tax!;
   const { data: r } = await db.from('sale_refunds').select('*').eq('id', id).maybeSingle();
   const refund = toRefund(r ?? { id, sale_id: saleId, amount: plan.amount, vat_amount: plan.vatAmount, items: plan.items });
-  const credit = creditForRefund(toDoc(orig), refund, sale, today());
+  const credit = creditForRefund(orig, refund, sale, today());
   const row = {
     ...documentRow(credit, { userId, idempotencyKey: `refund:${id}`, vatRate: credit.lines[0]?.vatRate ?? 0, saleId, leadId: sale.leadId, refundId: id }),
     business_id: businessId,

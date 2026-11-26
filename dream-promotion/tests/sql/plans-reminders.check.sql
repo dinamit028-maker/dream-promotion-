@@ -10,6 +10,14 @@
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
 
+-- 6800 (the date of a document is the day it is issued): the documents of past days here are history — as if each one was issued
+-- on its own day. The date's own trigger (d_documents_issue_day) is set aside for this file only, by the superuser; on again at the
+-- end (tests/sql/cpa-rules-stage1.check.sql checks the rule itself).
+do $$ begin
+  if exists (select 1 from pg_trigger where tgname = 'd_documents_issue_day' and tgrelid = 'public.documents'::regclass) then
+    alter table public.documents disable trigger d_documents_issue_day; end if;
+end $$;
+
 create or replace function pg_temp.check(ok boolean, msg text) returns void language plpgsql as $$
 begin if ok is not true then raise exception 'CHECK FAILED: %', msg; end if; end $$;
 create or replace function pg_temp.refused(stmt text, msg text) returns void language plpgsql as $$
@@ -255,7 +263,10 @@ select pg_temp.check((public.payment_plan_create('00000000-0000-0000-0000-000000
   jsonb_build_array(jsonb_build_object('amount', 500, 'due', public.il_today() + 10), jsonb_build_object('amount', 500, 'due', public.il_today() + 40)))->>'result') = 'ok',
   'the staff (money open) make a plan of what is left (₪1,000)');
 commit;
+-- a receipt cancelled before 6800 (since 6800 a receipt is not cancelled by marking — as then: the check set aside for this row only)
+alter table public.document_cancellations disable trigger b_document_cancellations_check;
 insert into public.document_cancellations (document_id, user_id, reason) values ('00000000-0000-0000-0000-00000000f410', '00000000-0000-0000-0000-00000000f401', 'הופקה בטעות');
+alter table public.document_cancellations enable trigger b_document_cancellations_check;
 select pg_temp.check(pg_temp.lines('00000000-0000-0000-0000-00000000f010') = '1:500 2:500 -:180', 'more owed than the plan: a line of its own');
 select pg_temp.check((select due_date = public.il_today() from public.receivable_lines where document_id = '00000000-0000-0000-0000-00000000f010' and n is null),
   'due at the invoice''s date');
@@ -553,3 +564,9 @@ set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-00000000f401');
 select pg_temp.check((public.finance_audit_verify()->>'ok')::boolean, 'the audit chain of clinic A is intact');
 commit;
+
+-- 6800: the date's own trigger on again
+do $$ begin
+  if exists (select 1 from pg_trigger where tgname = 'd_documents_issue_day' and tgrelid = 'public.documents'::regclass) then
+    alter table public.documents enable trigger d_documents_issue_day; end if;
+end $$;

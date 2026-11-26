@@ -5,7 +5,7 @@ import { cx } from '@/lib/utils';
 import { israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import type { Lead } from '@/types';
-import { EMPTY_CHEQUE, PAY_METHODS, WITHHOLDING, chequeErrors, type DocPayMethod, type PaymentEntry } from './payments';
+import { CARD_KINDS, EMPTY_CHEQUE, PAY_METHODS, WITHHOLDING, chequeErrors, type DocPayMethod, type PaymentEntry } from './payments';
 import type { ComposeCustomer, ComposeLine } from './compose';
 import type { CatalogItem, ItemKind } from '@/features/catalog/catalog';
 import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
@@ -211,7 +211,8 @@ export function PaymentsEditor({ payments, onChange, total, today, withholding =
       {payments.map((p, i) => (
         <div key={i} className="grid gap-1.5 rounded-2xl border border-line p-2">
           <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_8.5rem] gap-1.5">
-            <SmallSelect value={p.method} onChange={(e) => set(i, { method: e.target.value as DocPayMethod, ...(e.target.value === 'cheque' && !p.cheque ? { cheque: { ...EMPTY_CHEQUE } } : {}) })} aria-label={`אמצעי תשלום ${i + 1}`}>
+            <SmallSelect value={p.method} onChange={(e) => set(i, { method: e.target.value as DocPayMethod, ...(e.target.value === 'cheque' && !p.cheque ? { cheque: { ...EMPTY_CHEQUE } } : {}),
+              ...(e.target.value !== 'card' ? { cardKind: null } : {}) })} aria-label={`אמצעי תשלום ${i + 1}`}>
               {PAY_METHODS.map((m) => <option key={m.id} value={m.id}>{m.icon} {m.label}</option>)}
               {(withholding || p.method === 'withholding') && <option value={WITHHOLDING.id}>{WITHHOLDING.icon} {WITHHOLDING.label}</option>}
             </SmallSelect>
@@ -229,6 +230,16 @@ export function PaymentsEditor({ payments, onChange, total, today, withholding =
               {Object.values(p.cheque ?? {}).some(Boolean) && chequeErrors(p.cheque).length > 0 && (
                 <p aria-live="polite" className="col-span-2 text-xs text-warn sm:col-span-5">{chequeErrors(p.cheque).join(' · ')}</p>
               )}
+            </div>
+          )}
+          {/* 2.118 (the accountant's answer 13): a card payment's kind — field 1315 of the unified file; a required choice, no default */}
+          {p.method === 'card' && (
+            <div role="radiogroup" aria-label={`סוג עסקת האשראי ${i + 1}`} aria-required="true" className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-semibold">סוג העסקה *</span>
+              {CARD_KINDS.map((k) => (
+                <Chip key={k.id} on={p.cardKind === k.id} onClick={() => set(i, { cardKind: k.id })} className="min-h-9" role="radio" aria-checked={p.cardKind === k.id}>{k.label}</Chip>
+              ))}
+              {!p.cardKind && <span aria-live="polite" className="text-xs text-warn">בוחרים לפני ההפקה</span>}
             </div>
           )}
           {p.method === 'withholding' && (

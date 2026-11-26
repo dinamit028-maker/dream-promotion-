@@ -48,7 +48,7 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
 
   async function go() {
     if (!plan.ok) return;
-    if (!window.confirm(`להחזיר ${ils(plan.refund.amount)} ב${methodLabel(method)}?${licensed && docsReady ? ' תופק חשבונית מס זיכוי.' : ''}`)) return;
+    if (!window.confirm(`להחזיר ${ils(plan.refund.amount)} ב${methodLabel(method)}?${docsReady ? (licensed ? ' תופק חשבונית מס זיכוי.' : ' תופק קבלה במינוס (החזר כספי).') : ''}`)) return;
     setBusy(true); setMsg(null);
     const r = await onRefund({ ...plan.refund, id: refundId.current });
     setBusy(false);
@@ -144,7 +144,7 @@ export function RefundPanel({ sale, refunds, employees, licensed, docsReady, onR
             {plan.ok ? `החזר: ${ils(plan.refund.amount)}` : REFUND_ERROR_HE[plan.error]}
           </p>
           {plan.ok && licensed && !docsReady && <p className="text-xs text-muted">פרטי העסק למסמכים לא מלאים — ההחזר יירשם בלי חשבונית זיכוי.</p>}
-          {plan.ok && !licensed && <p className="text-xs text-muted">בעוסק פטור לא מופקת חשבונית זיכוי — ההחזר נרשם בקופה ובדוחות. מומלץ להחתים את הלקוח/ה על אישור ההחזר.</p>}
+          {plan.ok && !licensed && <p className="text-xs text-muted">{docsReady ? 'בעוסק פטור ההחזר מתועד בקבלה במינוס על הקבלה של העסקה (לפי רואה החשבון). אפשר גם להדפיס אישור החזר ולהחתים עליו את הלקוח/ה.' : 'פרטי העסק למסמכים לא מלאים — ההחזר יירשם בלי קבלה במינוס.'}</p>}
           <div className="grid grid-cols-2 gap-2">
             <Button variant="ghost" onClick={() => setOpen(false)}>ביטול</Button>
             <Button variant="primary" disabled={!plan.ok || busy} onClick={go}>{busy ? <><Spinner />רושם…</> : 'אישור ההחזר'}</Button>

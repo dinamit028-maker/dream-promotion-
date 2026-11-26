@@ -239,7 +239,9 @@ function RefundBlock({ d, onChange }: { d: OrderDetail; onChange: () => void }) 
     const r = await refundOrder({ orderId: o.id, mode, qty, amount: Number(amount) || 0, restock, reason, confirmed });
     setBusy(false);
     if (!r.ok) { setMsg({ ok: false, text: r.error }); return; }
-    const credit = r.data.credit === 'issued' ? ' הופקה חשבונית זיכוי.' : r.data.credit === 'not_required' ? '' : ` חשבונית הזיכוי לא הופקה: ${r.data.credit}`;
+    // 2.118: an exempt dealer's refund is a refund receipt (a receipt below zero), a licensed one's — a credit invoice
+    const credit = r.data.credit === 'issued' ? ' הופקה חשבונית זיכוי.' : r.data.credit === 'refund_issued' ? ' הופקה קבלה במינוס (החזר כספי).'
+      : r.data.credit === 'not_required' ? '' : ` ${r.data.receipt ? 'הקבלה במינוס' : 'חשבונית הזיכוי'} לא הופקה: ${r.data.credit}`;
     setMsg({ ok: true, text: `נרשם החזר של ${ils(r.data.amount)}.${credit}` });
     setConfirmed(false);
     onChange();

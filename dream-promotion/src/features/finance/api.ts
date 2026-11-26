@@ -7,7 +7,7 @@ import { toDoc, type DocRow } from '@/features/documents/documents';
  * rights): the business worked in now, its money open to the caller, never a cashier — the database decides,
  * the screens only follow. Errors come back in Hebrew.
  */
-export { FINANCE_MIGRATION, financeError, documentRow, type IssueExtra } from './rows';
+export { FINANCE_MIGRATION, financeError, documentRow, refundReceiptError, refundReceiptWaits, REFUND_RECEIPT_WAITS, type IssueExtra } from './rows';
 import { financeError } from './rows';
 
 /**

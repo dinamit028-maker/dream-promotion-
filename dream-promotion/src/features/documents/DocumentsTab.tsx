@@ -12,7 +12,7 @@ import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './
 import { ScopeNote } from './ScopeNote';
 import { multiLocation } from '@/features/locations/locations';
 import { useLocations } from '@/features/locations/store';
-import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
+import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, isRefundReceipt, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
 
@@ -62,8 +62,12 @@ export async function printDocRow(d: DocRow, business: Business): Promise<DocRow
   return fresh;
 }
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-/** an amount as written on the document; anything that is not a number prints nothing (never raw text) */
-const n2 = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n.toFixed(2) : ''; };
+/**
+ * an amount as written on the document; anything that is not a number prints nothing (never raw text). 2.118: an amount below zero
+ * (a refund receipt's) is left to right — "-80.00", not "80.00-" in the RTL page; an amount above zero is written as before, byte
+ * for byte (tests/cpa-rules-stage1.test.ts — the HTML of a document issued before 2.118)
+ */
+export const n2 = (v: unknown) => { const n = Number(v); return !Number.isFinite(n) ? '' : n < 0 ? `<span dir="ltr">${n.toFixed(2)}</span>` : n.toFixed(2); };
 const ddmmyyyy = (d: unknown) => String(d ?? '').split('-').reverse().join('/');
 
 export function DocumentsTab({ userId, business, licensed, onError }: { userId: string; business: Business & { ready: boolean }; licensed: boolean; onError: (m: string) => void }) {
@@ -114,7 +118,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
         <div className="grid grid-cols-1 gap-2">
           {docs.map((d) => (
             <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
-              <span className="min-w-0 flex-1"><strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber} · {d.customerName || 'לקוח מזדמן'}</strong>
+              <span className="min-w-0 flex-1"><strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber}{isRefundReceipt(d) ? ' · החזר כספי' : ''} · {d.customerName || 'לקוח מזדמן'}</strong>
                 <span className="text-xs text-muted">{ddmmyyyy(d.docDate)}{creditNote(d)}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</span></span>
               <strong className="tabular-nums">{ils(d.total)}</strong>
             </button>
@@ -218,7 +222,7 @@ ${baseDocLine(d) ? `<p>${esc(baseDocLine(d))}</p>` : ''}
 <table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>
 <table><tr><td>סה״כ לפני הנחה</td><td>${n2(d.beforeDiscount)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${n2(d.discount)}</td></tr>` : ''}
 <tr><td>${vatRow ? 'סה״כ לפני מע״מ' : 'סה״כ'}</td><td>${n2(d.afterDiscount)}</td></tr>${vatRow}
-<tr class="tot"><td>${esc(totalLabel(d.docType))}</td><td>${n2(d.total)} ₪</td></tr></table>
+<tr class="tot"><td>${esc(totalLabel(d.docType, d.total))}</td><td>${n2(d.total)} ₪</td></tr></table>
 ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכום</th></tr>${pays}</table>` : ''}
 ${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${d.docType === 200 ? `<p style="margin-top:28px">${esc(RECEIVED_LINE)}</p>` : ''}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
 <p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${softwareRegistered(SOFTWARE.regNumber) ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;

@@ -16,6 +16,19 @@ export function financeError(e: unknown): string {
   if (/period_locked/.test(m)) return 'הספרים סגורים לתקופה הזו — אי אפשר להפיק או לשנות בה מסמכים והוצאות.';
   if (/credit_exceeds_original/.test(m)) return 'הזיכוי גדול ממה שנשאר לזכות על החשבונית.';
   if (/cancel_not_allowed/.test(m)) return 'חשבונית מס מתקנים בחשבונית זיכוי, לא בביטול.';
+  // 2.118 (migration 20261125006800 — the accountant's answers of 25.11.2026, stage 1)
+  if (/doc_date_not_today/.test(m)) return 'תאריך המסמך הוא תמיד יום ההפקה (היום). כנראה שהשעון של המכשיר לא מדויק, או שהמסך היה פתוח מאתמול — רעננו ונסו שוב.';
+  if (/cancel_receipt_not_allowed/.test(m)) return 'קבלה לא מבטלים. מחזירים כסף בקבלה במינוס ("החזר כספי" — עוסק פטור) או בחשבונית זיכוי.';
+  if (/refund_receipt_not_exempt/.test(m)) return 'קבלה במינוס (החזר כספי) — רק לעוסק פטור. בעסק שגובה מע״מ מחזירים כסף בחשבונית מס זיכוי.';
+  if (/refund_receipt_over/.test(m)) { const n = /להחזר (-?[0-9.]+)/.exec(m)?.[1]; return `ההחזר גדול ממה שנשאר להחזיר על הקבלה${n ? ` (נשארו ₪${Number(n).toLocaleString('he-IL')})` : ''}. אולי כבר נרשם החזר ממכשיר אחר — רעננו ובדקו.`; }
+  if (/refund_receipt_base: [^\n]*בוטלה/.test(m)) return 'הקבלה שעליה ההחזר בוטלה — אין עליה החזר.';
+  if (/refund_receipt_base/.test(m)) return 'הקבלה שעליה ההחזר לא נמצאה בעסק.';
+  if (/refund_receipt_alone/.test(m)) return 'קבלה במינוס לא משלמת חשבונית ולא מופקת מהצעה או מטיוטה.';
+  if (/refund_receipt_payments/.test(m)) return 'בקבלה במינוס כל תשלום הוא כסף שהוחזר (סכום, אמצעי תשלום) — בלי ניכוי במקור.';
+  if (/refund_receipt_refund/.test(m)) return 'הקבלה במינוס לא תואמת להחזר שנרשם (סכום או עסקה). רעננו ונסו שוב.';
+  if (/card_kind_missing/.test(m)) return 'בתשלום בכרטיס אשראי בוחרים את סוג העסקה: רגיל, תשלומים, קרדיט, חיוב נדחה או אחר.';
+  if (/card_kind_not_card/.test(m)) return 'סוג עסקת אשראי — רק בתשלום בכרטיס אשראי.';
+  if (/register_settings_deductions_file_check/.test(m)) return 'מספר תיק ניכויים — 9 ספרות (או ריק).';
   if (/paid transaction invoice/.test(m)) return 'חשבונית עסקה ששולמה לא מבוטלת — קודם מבטלים את הקבלה שלה.';
   if (/quote_status/.test(m)) return 'אי אפשר להעביר את ההצעה למצב הזה.';
   if (/decided quote/.test(m)) return 'הצעה שהוחלט עליה לא משתנה — אפשר לשכפל אותה להצעה חדשה.';
@@ -103,6 +116,21 @@ export function financeError(e: unknown): string {
   if (/a reason is required/.test(m)) return 'צריך לכתוב סיבה (5 תווים לפחות).';
   if (/42501|row-level security|permission denied|not allowed/i.test(m)) return 'אין הרשאה לפעולה הזו.';
   return 'משהו השתבש. נסו שוב.';
+}
+
+/**
+ * 2.118: the refusal of a refund receipt (a 400 below zero) — call these ONLY for a refund receipt. Until migration 20261125006800
+ * runs on the database, its old checks (documents_validate of 20261011005000) refuse it: first a base document on a receipt
+ * ("only a credit invoice points to a base document (or a document made from an order or a delivery note)"), and without one
+ * "totals: amounts are positive and the total is above zero". Then say so plainly — and where to complete it after the update
+ * (nothing retries by itself). Anything else — financeError.
+ */
+export const REFUND_RECEIPT_WAITS = 'הקבלה במינוס (החזר כספי) לא הופקה: מסד הנתונים עוד לא עודכן (מיגרציה 20261125006800). ההחזר עצמו נרשם. אחרי העדכון משלימים אותה מהקבלה המקורית ב"כספים ← מסמכים": בקבלה של מכירה (קופה או אתר) — "הפקת הקבלה במינוס", בכל קבלה אחרת — "החזר כספי".';
+const OLD_DB = /only a credit invoice points to a base document|totals: amounts are positive|each payment needs a method \(1–9\), an amount above zero/;
+/** the old database (before 6800) refused the refund receipt */
+export const refundReceiptWaits = (e: unknown) => OLD_DB.test(`${(e as any)?.message ?? e ?? ''} ${(e as any)?.details ?? ''}`);
+export function refundReceiptError(e: unknown): string {
+  return refundReceiptWaits(e) ? REFUND_RECEIPT_WAITS : financeError(e);
 }
 
 export interface IssueExtra {

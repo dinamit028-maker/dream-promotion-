@@ -11,7 +11,7 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { CashRegister, CornersIn, CornersOut } from '@/components/ui/Icon';
 import { phoneDigits, waLink } from '@/features/crm/crm';
 import { DocumentsTab, docInsertRow, printDocRow, toDoc, type DocRow } from '@/features/documents/DocumentsTab';
-import { DOC_LABEL, creditFor, creditForRefund, creditedTotals, docFromSale } from '@/features/documents/documents';
+import { DOC_LABEL, creditFor, creditForRefund, creditedTotals, docFromSale, isRefundReceipt } from '@/features/documents/documents';
 import { enablePush, needsHomeScreen, notifySale, pushKeyReady, pushSupported, sendTest } from './notifications';
 import { ShiftTab } from './ShiftTab';
 import { PosView, type CheckoutInput, type CheckoutResult, type PosItem, type TodayAppt } from './PosView';
@@ -23,7 +23,9 @@ import { METHODS, computeSale, ils, isPosSale, methodLabel, payRequestText, sale
 import { refundLeft, refundSummary, toRefund, type RefundPlan } from './refunds';
 import { MOVE_HE, applyStock, heldConflict, heldMap, lowStockList, planAdjust, stockLevel, stockText, type Held } from './stock';
 import { billingColumns } from './billing';
-import { issueDocumentRow } from '@/features/finance/api';
+import { REFUND_RECEIPT_WAITS, financeError, issueDocumentRow, refundReceiptError, refundReceiptWaits } from '@/features/finance/api';
+import { CANCEL_NOTE, cancelReceiptDoc, refundReceiptDoc } from '@/features/finance/sale-receipts';
+import { entityOf } from '@/features/finance/rules';
 import { MIGRATION_3300, applyVariantStock, catalogError, lineName, toCatalogItem, toVariant, variantLevel, variantStockText, variantsOf, type CatalogItem, type CatalogVariant } from '@/features/catalog/catalog';
 import { PublishSwitch, type EditorFocus } from '@/features/catalog/PublishSwitch';
 import { ProductEditorDialog } from '@/features/catalog/ProductEditor';
@@ -40,8 +42,10 @@ import { loadDeposits } from '@/features/finance/deposits-data';
 type Item = PosItem & { sort: number };
 const KIND_HE: Record<Item['kind'], string> = { service: 'טיפול/שירות', product: 'מוצר', package: 'חבילה', other: 'אחר' };
 type Settings = { businessType: 'exempt' | 'licensed'; vatRate: number; payLink: string;
-  dealerNumber: string; companyNumber: string; legalName: string; street: string; houseNo: string; city: string; zip: string };
-const DEFAULTS: Settings = { businessType: 'licensed', vatRate: 18, payLink: '', dealerNumber: '', companyNumber: '', legalName: '', street: '', houseNo: '', city: '', zip: '' };
+  dealerNumber: string; companyNumber: string; legalName: string; street: string; houseNo: string; city: string; zip: string; deductionsFile: string;
+  /** register_settings.entity_type as saved (2.118: only an exempt dealer refunds with a refund receipt — entityOf) */
+  entityType: string };
+const DEFAULTS: Settings = { businessType: 'licensed', vatRate: 18, payLink: '', dealerNumber: '', companyNumber: '', legalName: '', street: '', houseNo: '', city: '', zip: '', deductionsFile: '', entityType: '' };
 const toSale = (r: any): Sale => ({
   id: r.id, leadId: r.lead_id, appointmentId: r.appointment_id, customerName: r.customer_name ?? '', customerPhone: r.customer_phone ?? '',
   items: r.items ?? [], subtotal: Number(r.subtotal), discount: Number(r.discount), total: Number(r.total), vatRate: Number(r.vat_rate), vatAmount: Number(r.vat_amount),
@@ -157,7 +161,9 @@ export function RegisterScreen() {
       for (const r of [st, it, sa]) if (r.error) throw r.error;
       if (st.data) setSettings({ businessType: st.data.business_type, vatRate: Number(st.data.vat_rate), payLink: st.data.pay_link ?? '',
         dealerNumber: st.data.dealer_number ?? '', companyNumber: st.data.company_number ?? '', legalName: st.data.legal_name ?? '',
-        street: st.data.street ?? '', houseNo: st.data.house_no ?? '', city: st.data.city ?? '', zip: st.data.zip ?? '' });
+        street: st.data.street ?? '', houseNo: st.data.house_no ?? '', city: st.data.city ?? '', zip: st.data.zip ?? '',
+        // 2.118: field 1016 of the unified file (read only here; saved in the money settings) — none before migration 6800
+        deductionsFile: typeof st.data.deductions_file === 'string' ? st.data.deductions_file : '', entityType: st.data.entity_type ?? '' });
       setItems((it.data ?? []).map(toItem));
       setCatalog((it.data ?? []).map(toCatalogItem));
       setBook(await loadPriceBook());
@@ -233,11 +239,13 @@ export function RegisterScreen() {
 
   const vat = { type: settings.businessType, rate: settings.vatRate };
   const business = {
-    dealerNumber: settings.dealerNumber, companyNumber: settings.companyNumber, name: settings.legalName || brand.name,
+    dealerNumber: settings.dealerNumber, companyNumber: settings.companyNumber, deductionsFile: settings.deductionsFile, name: settings.legalName || brand.name,
     street: settings.street, houseNo: settings.houseNo, city: settings.city, zip: settings.zip,
     ready: /^[0-9]{9}$/.test(settings.dealerNumber) && Boolean(settings.legalName || brand.name),
   };
   const licensed = settings.businessType === 'licensed';
+  // 2.118: the accountant's answer 15 is an exempt dealer's (a nonprofit's refund — an open question; the database refuses it)
+  const exemptDealer = entityOf(settings.entityType, settings.businessType) === 'exempt_dealer';
   async function issueDocumentFull(s: Sale, leadId: string | null): Promise<{ label: string; token: string } | null> {
     if (!business.ready || !userId) return null;
     const d = docFromSale(s, { licensed, docDate: israelParts(Date.now()).date });
@@ -343,7 +351,7 @@ export function RegisterScreen() {
     const paid = s.status === 'paid';
     if (paid && refunds.some((r) => r.saleId === s.id)) { setError('על העסקה כבר נרשם החזר — ממשיכים ב"החזר כספי", לא בביטול.'); return; }
     if (!window.confirm(paid
-      ? 'לבטל את הרישום? רק אם העסקה נרשמה בטעות ולא התקבל כסף. אם הופקה חשבונית מס — תופק עליה חשבונית זיכוי. (אם התקבל כסף — "החזר כספי")'
+      ? `לבטל את הרישום? רק אם העסקה נרשמה בטעות ולא התקבל כסף. ${licensed ? 'אם הופקה חשבונית מס — תופק עליה חשבונית זיכוי.' : 'אם הופקה קבלה — תופק עליה קבלה במינוס (הקבלה לא מבוטלת).'} (אם התקבל כסף — "החזר כספי")`
       : 'לבטל את בקשת התשלום?')) return;
     const { error: e } = await supabase().from('sales').update({ status: 'cancelled' }).eq('id', s.id);
     if (e) { setError(errText(e)); return; }
@@ -362,11 +370,24 @@ export function RegisterScreen() {
         const ins = await issueDocumentRow({ ...docInsertRow(userId, c, { saleId: s.id, leadId: s.leadId, vatRate: c.lines[0]?.vatRate ?? 0 }), idempotency_key: `cancel:${s.id}` });
         note = !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.doc.docNumber}`;
       }
-      // an exempt dealer's receipt of a sale entered by mistake is cancelled (the receipt stays, marked "בוטל" — 2.51)
-      const receipt = docs.find((d) => d.docType === 400);
-      if (!licensed && receipt) {
-        const { error: ce } = await supabase().from('document_cancellations').insert({ document_id: receipt.id, user_id: userId, reason: 'המכירה בוטלה בקופה (נרשמה בטעות)' });
-        note = ce ? (/schema cache|does not exist|PGRST20/.test(ce.message) ? '' : ' · הקבלה לא בוטלה — אפשר לבטל אותה ב"כספים ← מסמכים"') : ` · קבלה מס׳ ${receipt.docNumber} סומנה כמבוטלת`;
+      // an exempt dealer's receipt of a sale entered by mistake: 2.118 (the accountant's answers 8 and 15) — a receipt is no longer
+      // cancelled by marking; what it took in goes back with a refund receipt (a 400 below zero) for what is left on it, on the key
+      // cancel:<sale> (the credit invoice's key above — one or the other, never both). The sale's cancellation moved the stock back:
+      // the refund receipt carries the sale and no "restock". Its money out is the refund receipt's own (the database writes it).
+      const receipt = docs.find((d) => d.docType === 400 && !isRefundReceipt(d));
+      if (!licensed && receipt && !exemptDealer) note = ' · הקבלה נשארת (קבלה לא מבטלים) — מה לעשות בה בעמותה: לבירור עם רואה החשבון';
+      if (!licensed && receipt && exemptDealer) {
+        const back = cancelReceiptDoc(receipt, docs, israelParts(Date.now()).date, refunds.filter((r) => r.saleId === s.id));
+        if (back) {
+          const ins = await issueDocumentRow({ ...docInsertRow(userId, back, { saleId: s.id, leadId: s.leadId, vatRate: 0 }), notes: back.notes ?? '', idempotency_key: `cancel:${s.id}`, source: 'refund' });
+          if (ins.ok) note = ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`;
+          else if (refundReceiptWaits(ins.raw ?? ins.error)) {
+            // before migration 6800 the database refuses a refund receipt — and still cancels a receipt: as before 2.118, so the
+            // books stay right in that window (the money of the receipt goes out of the ledger)
+            const { error: ce } = await supabase().from('document_cancellations').insert({ document_id: receipt.id, user_id: userId, reason: CANCEL_NOTE });
+            note = !ce ? ` · קבלה מס׳ ${receipt.docNumber} סומנה כמבוטלת` : ` · הקבלה לא בוטלה ולא הופקה עליה קבלה במינוס (${financeError(ce)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "הפקת הקבלה במינוס"`;
+          } else note = ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "הפקת הקבלה במינוס"`;
+        }
       }
     }
     say(`הרישום בוטל${note}`); setOpenSale(null);
@@ -392,6 +413,23 @@ export function RegisterScreen() {
     setRefunds((all) => [r, ...all.filter((x) => x.id !== r.id)]);
     if (r.restock && !replay) { setItems((all) => applyStock(all, r.items, -1)); setVariants((all) => applyVariantStock(all, r.items, -1)); void loadLevels(); }
     let message = `ההחזר נרשם: ${ils(r.amount)} ב${methodLabel(r.method)}`;
+    // 2.118 (the accountant's answer 15): an exempt dealer's refund is a receipt below zero on the sale's receipt, with the refund
+    // (refund_id — its money out and its stock are the refund's own) on the key refund:<refund id>. The printable slip stays
+    // (for the customer's signature). Until migration 6800 is in the database it is refused — the refund itself stays recorded.
+    if (business.ready && !licensed && exemptDealer) {
+      const { data } = await supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at');
+      const docs = (data ?? []).map(toDoc);
+      const orig = docs.find((d) => d.docType === 400 && !isRefundReceipt(d)) ?? null;
+      const back = orig ? refundReceiptDoc(orig, docs, r, sale, israelParts(Date.now()).date) : null;
+      if (orig && !back) message += ' · על הקבלה כבר הוחזר כמעט הכול — לא הופקה קבלה במינוס';
+      else if (orig && back) {
+        const ins = await issueDocumentRow({ ...docInsertRow(userId, back, { saleId: sale.id, leadId: sale.leadId, vatRate: 0 }), refund_id: r.id, idempotency_key: `refund:${r.id}`, source: 'refund' });
+        // not issued: nothing retries by itself — the receipt's own view completes it (DocView, the same key: never two)
+        message += ins.ok ? ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`
+          : refundReceiptWaits(ins.raw ?? ins.error) ? ` · ${REFUND_RECEIPT_WAITS}`
+          : ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${orig.docNumber} ← "הפקת הקבלה במינוס"`;
+      }
+    }
     if (business.ready && licensed) {
       const { data } = await supabase().from('documents').select('*').eq('sale_id', sale.id).order('issued_at');
       const docs = (data ?? []).map(toDoc);

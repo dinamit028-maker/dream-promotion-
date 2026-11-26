@@ -67,12 +67,12 @@ begin
   foreach t in array array['documents', 'document_counters', 'payments', 'document_cancellations', 'finance_audit_log', 'register_settings',
                            'business_finance_profile', 'business_members', 'business_locations', 'stock_movements', 'leads'] loop
     execute format('insert into ita_snap select %L, %s, md5(coalesce(string_agg(x.r, ''|'' order by x.r), '''')) || '':'' || count(*)
-                      from (select t::text as r from public.%I t where t.business_id <> ''d3e00000-0000-4000-8000-000000000001'') x', t, p_run, t);
+                      from (select t::text as r from public.%I t where t.business_id not in (''d3e00000-0000-4000-8000-000000000001'', ''d3e00000-0000-4000-8000-000000000003'')) x', t, p_run, t);
   end loop;
   insert into ita_snap select 'businesses', p_run, md5(coalesce(string_agg(b::text, '|' order by b.id), '')) || ':' || count(*)
-    from public.businesses b where b.id <> 'd3e00000-0000-4000-8000-000000000001';
+    from public.businesses b where b.id not in ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-000000000003');
   insert into ita_snap select 'profiles', p_run, md5(coalesce(string_agg(p::text, '|' order by p.id), '')) || ':' || count(*)
-    from public.profiles p where p.id <> 'd3e00000-0000-4000-8000-0000000000a1';
+    from public.profiles p where p.id not in ('d3e00000-0000-4000-8000-0000000000a1', 'd3e00000-0000-4000-8000-0000000000a3');
 end $$;
 select pg_temp.others(0);
 select pg_temp.check((select count(*) from public.documents where business_id <> 'd3e00000-0000-4000-8000-000000000001') >= 3,
@@ -90,7 +90,13 @@ create or replace function pg_temp.demo(p_run int) returns void language sql as 
   union all select 'demo:counters', p_run, coalesce(string_agg(doc_type || '=' || last_no, ',' order by doc_type), '')
     from public.document_counters where business_id = 'd3e00000-0000-4000-8000-000000000001'
   union all select 'demo:audit', p_run, count(*)::text from public.finance_audit_log where business_id = 'd3e00000-0000-4000-8000-000000000001'
-  union all select 'demo:settings', p_run, md5(r::text) from public.register_settings r where business_id = 'd3e00000-0000-4000-8000-000000000001';
+  union all select 'demo:settings', p_run, md5(r::text) from public.register_settings r where business_id = 'd3e00000-0000-4000-8000-000000000001'
+  -- 2.118: the exempt dealer's demo
+  union all select 'exempt:documents', p_run, count(*)::text || ':' || coalesce(sum(doc_number), 0) || ':' || coalesce(sum(total), 0)
+    from public.documents where business_id = 'd3e00000-0000-4000-8000-000000000003'
+  union all select 'exempt:payments', p_run, count(*)::text || ':' || coalesce(sum(amount), 0) from public.payments where business_id = 'd3e00000-0000-4000-8000-000000000003'
+  union all select 'exempt:audit', p_run, count(*)::text from public.finance_audit_log where business_id = 'd3e00000-0000-4000-8000-000000000003'
+  union all select 'exempt:settings', p_run, md5(r::text) from public.register_settings r where business_id = 'd3e00000-0000-4000-8000-000000000003';
 $$;
 select pg_temp.demo(1);
 select pg_temp.others(1);
@@ -149,7 +155,11 @@ select pg_temp.check((select array_agg(distinct (p->>'method')::int order by (p-
   'payments by cash, cheque, card, transfer and other');
 select pg_temp.check((select bool_and(p->'cheque'->>'number' ~ '^[0-9]+$' and p->'cheque'->>'bank' <> '' and p->'cheque'->>'dueDate' <> '')
                         from ita_docs, jsonb_array_elements(payments) p where p->>'method' = '2'), 'every cheque with its bank, number and due date');
-select pg_temp.check((select count(distinct p->>'m') from ita_docs, jsonb_array_elements(payments) p where p->>'method' = '9') = 3, 'other: Bit, other, withheld at source');
+-- 2.118 (the accountant, answer 12): Bit is method 4 (with m 'bit'); "other" (9) — other and tax withheld at source
+select pg_temp.check((select array_agg(distinct p->>'m' order by p->>'m') from ita_docs, jsonb_array_elements(payments) p where p->>'method' = '9') = array['other', 'withholding'],
+  'other (9): other, withheld at source');
+select pg_temp.check(exists (select 1 from ita_docs, jsonb_array_elements(payments) p where p->>'m' = 'bit')
+                     and not exists (select 1 from ita_docs, jsonb_array_elements(payments) p where p->>'m' = 'bit' and p->>'method' <> '4'), 'Bit: method 4');
 select pg_temp.check((select count(*) from ita_docs where jsonb_array_length(payments) > 1) > 20, 'receipts paid in more than one way');
 -- customers: several, some businesses with a valid ע.מ / ח.פ, some walk-in
 select pg_temp.check((select count(distinct customer_dealer) from ita_docs where customer_dealer <> '') >= 5
@@ -164,6 +174,44 @@ select pg_temp.check((select count(*) * 446 + sum(jsonb_array_length(lines)) * 3
   'BKMVDATA under 4MB');
 select pg_temp.check((select count(*) from public.business_locations where business_id = 'd3e00000-0000-4000-8000-000000000001') = 1,
   'the demo has its one main location (no location line on its documents)');
+
+-- ---- the exempt dealer's demo (2.118) --------------------------------------------------------------------------------------
+create temp view ita_x as select * from public.documents where business_id = 'd3e00000-0000-4000-8000-000000000003';
+select pg_temp.check((select entity_type = 'exempt_dealer' and business_type = 'exempt' and dealer_number = '000000117' and pg_temp.valid_id(dealer_number)
+                        from public.register_settings where business_id = 'd3e00000-0000-4000-8000-000000000003'), 'an exempt dealer with a valid fictional number');
+select pg_temp.check((select array_agg(distinct doc_type) from ita_x) = array[400], 'an exempt dealer: receipts only, no tax invoice');
+select pg_temp.check((select count(*) from ita_x where total > 0) between 20 and 40, 'between 20 and 40 receipts');
+select pg_temp.check((select bool_and(vat_amount = 0) from ita_x), 'no VAT');
+select pg_temp.check(not exists (select 1 from (select doc_number, row_number() over (order by doc_number) n from ita_x) t where doc_number <> n),
+  'numbered 1..n without a gap');
+select pg_temp.check(not exists (select 1 from ita_x a join ita_x b on b.doc_number > a.doc_number and b.doc_date < a.doc_date), 'numbers in the order of the dates');
+select pg_temp.check((select array_agg(distinct p->>'m' order by p->>'m') from ita_x, jsonb_array_elements(payments) p) = array['bit', 'card', 'cash', 'transfer']
+                     and not exists (select 1 from ita_x, jsonb_array_elements(payments) p where p->>'m' = 'bit' and p->>'method' <> '4'),
+  'cash, transfer, Bit (4) and card');
+select pg_temp.check((select bool_and(p->>'cardKind' in ('1', '2')) from ita_x, jsonb_array_elements(payments) p where p->>'method' = '3')
+                     and exists (select 1 from ita_x, jsonb_array_elements(payments) p where p->>'cardKind' = '2'), 'every card payment with its kind (regular, installments)');
+-- the refund receipts: two, each on a receipt; one partial back to the card, one full in cash
+select pg_temp.check((select count(*) from ita_x where total < 0) = 2
+                     and (select bool_and(r.base_doc_type = 400 and r.source = 'refund' and -r.total <= o.total)
+                            from ita_x r join ita_x o on o.doc_type = 400 and o.doc_number = r.base_doc_number where r.total < 0), 'two refund receipts, each on its receipt');
+select pg_temp.check(exists (select 1 from ita_x r join ita_x o on o.doc_number = r.base_doc_number, jsonb_array_elements(r.payments) p
+                              where r.total < 0 and -r.total < o.total and p->>'method' = '3' and p->>'cardKind' = '1'), 'a partial refund, back to the card');
+select pg_temp.check(exists (select 1 from ita_x r join ita_x o on o.doc_number = r.base_doc_number, jsonb_array_elements(r.payments) p
+                              where r.total < 0 and -r.total = o.total and p->>'method' = '1'), 'a full refund, in cash');
+select pg_temp.check((select coalesce(sum(amount), 0) from public.payments where business_id = 'd3e00000-0000-4000-8000-000000000003' and direction = 'out')
+                   = (select -sum(total) from ita_x where total < 0), 'the refunds'' money out, once');
+select pg_temp.check(not exists (select 1 from public.document_cancellations c join ita_x x on x.id = c.document_id), 'nothing cancelled');
+
+-- every demo document was issued on its day (issued_at, Israel time = doc_date), in the order of its numbers; the seed's own
+-- trigger for it is gone
+select pg_temp.check(not exists (select 1 from public.documents where business_id in ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-000000000003')
+                                   and (issued_at at time zone 'Asia/Jerusalem')::date <> doc_date), 'issued on the day of its date');
+select pg_temp.check(not exists (select 1 from public.documents a join public.documents b on b.business_id = a.business_id and b.doc_type = a.doc_type
+                                   and b.doc_number > a.doc_number and b.issued_at < a.issued_at
+                                  where a.business_id in ('d3e00000-0000-4000-8000-000000000001', 'd3e00000-0000-4000-8000-000000000003')),
+  'issue times in the order of the numbers');
+select pg_temp.check(to_regprocedure('public.ita_demo_issued_at()') is null
+                     and not exists (select 1 from pg_trigger where tgname = 'z_ita_demo_issued_at'), 'the seed left no trigger behind');
 
 -- ---- the seed again: nothing added -----------------------------------------------------------------------------------
 \ir ita-demo.seed.sql

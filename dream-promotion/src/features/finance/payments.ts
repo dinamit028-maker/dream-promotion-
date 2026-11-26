@@ -13,12 +13,16 @@ export type PayMethod = 'cash' | 'card' | 'transfer' | 'bit' | 'cheque' | 'other
 export type DocPayMethod = PayMethod | 'withholding';
 export const WITHHOLDING = { id: 'withholding' as const, label: 'ניכוי במקור', icon: '🧾', code: 9 };
 
-/** unified-file field 1306: 1 cash, 2 cheque, 3 credit card, 4 bank transfer, 9 other (Bit / PayBox are apps → other) */
+/**
+ * unified-file field 1306: 1 cash, 2 cheque, 3 credit card, 4 bank transfer, 9 other (spec 1.31 §4.5, p. 14, field 1306).
+ * Bit / PayBox → 4 (bank transfer): the accountant's answer 12 (docs/ita-registration/CPA_ANSWERS_HE.md, 25.11.2026) — the money
+ * moves between bank accounts. Before 2.118 it was 9 ("other"): documents issued then keep their 9 (a document is not changed).
+ */
 export const PAY_METHODS: { id: PayMethod; label: string; icon: string; code: number }[] = [
   { id: 'cash', label: 'מזומן', icon: '💵', code: 1 },
   { id: 'transfer', label: 'העברה בנקאית', icon: '🏦', code: 4 },
   { id: 'card', label: 'כרטיס אשראי', icon: '💳', code: 3 },
-  { id: 'bit', label: 'Bit / PayBox', icon: '📱', code: 9 },
+  { id: 'bit', label: 'Bit / PayBox', icon: '📱', code: 4 },
   { id: 'cheque', label: 'צ׳ק', icon: '🧾', code: 2 },
   { id: 'other', label: 'אחר', icon: '•', code: 9 },
 ];
@@ -54,13 +58,28 @@ export function chequeErrors(c: Cheque | undefined): string[] {
 /** the first of chequeErrors, or null */
 export const chequeError = (c: Cheque | undefined): string | null => chequeErrors(c)[0] ?? null;
 
-/** pct: tax withheld at source — the percent on the customer's certificate (optional) */
-export interface PaymentEntry { method: DocPayMethod; amount: number; date: string; cheque?: Cheque; pct?: number | null }
+/**
+ * Field 1315 "סוג עסקת האשראי" (spec 1.31 §4.5, p. 14, checked against the official text 25.11.2026): 1 regular, 2 installments,
+ * 3 credit, 4 deferred charge, 5 other. The accountant's answer 13 (25.11.2026): asked when the document is issued — so a card
+ * payment of a new receipt names it ("cardKind" in the document; migration 6800 refuses a card payment without it, and a kind on
+ * any other payment). Documents issued before keep none (the file writes 1 for their card payments, as before — openformat.ts).
+ */
+export type CardKind = 1 | 2 | 3 | 4 | 5;
+export const CARD_KINDS: { id: CardKind; label: string }[] = [
+  { id: 1, label: 'רגיל' }, { id: 2, label: 'תשלומים' }, { id: 3, label: 'קרדיט' }, { id: 4, label: 'חיוב נדחה' }, { id: 5, label: 'אחר' },
+];
+export const isCardKind = (v: unknown): v is CardKind => v === 1 || v === 2 || v === 3 || v === 4 || v === 5;
+export const cardKindLabel = (v: unknown) => CARD_KINDS.find((k) => k.id === v)?.label ?? '';
+
+/** pct: tax withheld at source — the percent on the customer's certificate (optional); cardKind — a card payment's kind (1315) */
+export interface PaymentEntry { method: DocPayMethod; amount: number; date: string; cheque?: Cheque; pct?: number | null; cardKind?: CardKind | null }
 /** a payment as a document stores it (D120): the code for the file, the method itself, a cheque's details, a withholding's percent */
 export const toDocPayment = (p: PaymentEntry) => ({
   method: payCode(p.method), amount: Math.round(p.amount * 100) / 100, date: p.date, m: p.method,
   ...(p.method === 'cheque' && p.cheque ? { cheque: { ...p.cheque, bank: p.cheque.bank.trim(), branch: p.cheque.branch.trim(), account: p.cheque.account.trim(), number: p.cheque.number.trim() } } : {}),
   ...(p.method === 'withholding' && p.pct != null ? { pct: Math.round(p.pct * 100) / 100 } : {}),
+  // 2.118: a card payment's kind (field 1315) — on a card payment only (the database refuses it on any other)
+  ...(p.method === 'card' && isCardKind(p.cardKind) ? { cardKind: p.cardKind } : {}),
 });
 /** a withholding's percent: 0–100, up to two decimals, or none — null when fine (the database checks the same) */
 export function withholdingPctError(pct: number | null | undefined): string | null {

@@ -83,7 +83,7 @@ test('documents from the document center pass every database check (2,000 random
     // split the payment in two when it is a receipt
     const first = Math.round(total * 100 * r()) / 100;
     const payments = docType === 320 || docType === 400
-      ? [{ method: 'cash' as const, amount: first, date: TODAY }, { method: 'card' as const, amount: Math.round((total - first) * 100) / 100, date: TODAY }].filter((p) => p.amount > 0) : [];
+      ? [{ method: 'cash' as const, amount: first, date: TODAY }, { method: 'card' as const, amount: Math.round((total - first) * 100) / 100, date: TODAY, cardKind: (1 + Math.floor(r() * 5)) as 1 | 2 | 3 | 4 | 5 }].filter((p) => p.amount > 0) : [];
     const res = composeDocument({ ...draft, payments });
     assert.ok(res.ok, `document ${k}: ${!res.ok && res.errors.join(', ')}`);
     if (!res.ok) continue;
@@ -155,7 +155,7 @@ test('receipts for open invoices: 400 for a 305, 320 for a VAT business\'s 300, 
   const t300 = composeDocument({ docType: 300, entity: 'company', vatRate: 18, pricesIncludeVat: true, lines: [{ name: 'חולצה', qty: 2, unitPrice: 59, itemId: 'i1' }], customer: { name: 'x' }, docDate: TODAY, today: TODAY });
   assert.ok(t300.ok);
   if (!t300.ok) return;
-  const whole = composeReceipt({ ...t300.doc, docNumber: 3, balance: t300.doc.total }, { entity: 'company', vatRate: 18, payments: [{ method: 'card', amount: 118, date: TODAY }], docDate: TODAY, today: TODAY });
+  const whole = composeReceipt({ ...t300.doc, docNumber: 3, balance: t300.doc.total }, { entity: 'company', vatRate: 18, payments: [{ method: 'card', amount: 118, date: TODAY, cardKind: 1 }], docDate: TODAY, today: TODAY });
   assert.ok(whole.ok && whole.doc.docType === 320 && whole.doc.total === 118 && whole.doc.lines[0].itemId === 'i1');
   if (whole.ok) assert.deepEqual(docInvariants(whole.doc, 18), []);
   const part = composeReceipt({ ...t300.doc, docNumber: 3, balance: 118 }, { entity: 'company', vatRate: 18, payments: [{ method: 'cash', amount: 50, date: TODAY }], docDate: TODAY, today: TODAY });
@@ -202,11 +202,12 @@ test('credit invoices: full mirror, a sum, chosen lines (their share of the disc
 });
 
 test('payments: the unified-file codes, cheque details, the ledger totals', () => {
-  assert.deepEqual([payCode('cash'), payCode('cheque'), payCode('card'), payCode('transfer'), payCode('bit'), payCode('other')], [1, 2, 3, 4, 9, 9]);
+  // 2.118 (the accountant's answer 12): Bit / PayBox is a bank transfer (4) in field 1306 — it was 9 before
+  assert.deepEqual([payCode('cash'), payCode('cheque'), payCode('card'), payCode('transfer'), payCode('bit'), payCode('other')], [1, 2, 3, 4, 4, 9]);
   assert.equal(chequeError({ bank: '12', branch: '345', account: '678', number: '', dueDate: '' }), 'מספר הצ׳ק — ספרות בלבד');
   assert.equal(chequeError({ bank: '1234', branch: '', account: '', number: '5', dueDate: '' }), 'מספר הבנק — עד 3 ספרות');
   assert.equal(chequeError({ bank: '', branch: '', account: '', number: '5', dueDate: '' }), 'מספר הבנק — חובה בצ׳ק', '2.117.4: bank, branch and account are required (1307–1310)');
   assert.equal(chequeError({ bank: '12', branch: '345', account: '678', number: '5', dueDate: '' }), null);
-  assert.deepEqual(toDocPayment({ method: 'bit', amount: 10.005, date: TODAY }), { method: 9, amount: 10.01, date: TODAY, m: 'bit' });
+  assert.deepEqual(toDocPayment({ method: 'bit', amount: 10.005, date: TODAY }), { method: 4, amount: 10.01, date: TODAY, m: 'bit' });
   assert.deepEqual(ledgerTotals([{ direction: 'in', amount: 0.1 }, { direction: 'in', amount: 0.2 }, { direction: 'out', amount: 0.05 }]), { in: 0.3, out: 0.05, net: 0.25, withheld: 0 });
 });

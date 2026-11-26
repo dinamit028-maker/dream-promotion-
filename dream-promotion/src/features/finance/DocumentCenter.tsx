@@ -4,7 +4,7 @@ import { useApp } from '@/lib/store';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
-import { DOC_LABEL, creditedTotals, toDoc, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, creditedTotals, isRefundReceipt, toDoc, type DocRow } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { Composer, type ComposerMode } from './Composer';
 import { DocView } from './DocView';
@@ -178,7 +178,7 @@ export function DocumentCenter() {
           {docs.map((d) => (
             <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
               <span className="min-w-0 flex-1">
-                <strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber} · {d.customerName || 'לקוח מזדמן'}</strong>
+                <strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber}{isRefundReceipt(d) ? ' · החזר כספי' : ''} · {d.customerName || 'לקוח מזדמן'}</strong>
                 <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">{ddmmyyyy(d.docDate)}{d.dueDate ? ` · לתשלום עד ${ddmmyyyy(d.dueDate)}` : ''}{d.source === 'pos' ? ' · קופה' : ''}{where(d) ? ` · ${where(d)}` : ''}{status(d)}</span>
               </span>
               <strong className="tabular-nums">{ils(d.total)}</strong>

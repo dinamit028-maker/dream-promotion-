@@ -6,12 +6,16 @@ import { authHeaders } from '@/lib/services/http';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { waLink } from '@/features/crm/crm';
-import { DOC_LABEL, creditedTotals, toDoc, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, creditedTotals, isRefundReceipt, refundLeft, toDoc, type DocRow } from '@/features/documents/documents';
+import { cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from './sale-receipts';
+import { toRefund } from '@/features/register/refunds';
+import { saleFromRow } from '@/features/store/commerce';
+import { israelParts } from '@/lib/il-time';
 import { docBody, printDocRow } from '@/features/documents/DocumentsTab';
 import { useFinance } from './FinanceScreen';
-import { composeCredit, composeReceipt, type CreditMode } from './compose';
+import { composeCredit, composeReceipt, composeRefundReceipt, type CreditMode } from './compose';
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, toAllocationRow, toRule, type AllocationRule, type AllocationRow, type AllocationState } from './allocation';
-import { documentRow, financeError, issueDocumentRow, logEvent } from './api';
+import { documentRow, financeError, issueDocumentRow, logEvent, refundReceiptError } from './api';
 import { followKey } from './keys';
 import { PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
 import { toReceivable, type Receivable } from './receivables';
@@ -46,7 +50,9 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
   const [credited, setCredited] = useState(0);
   const [recv, setRecv] = useState<Receivable | null>(null);
   const [alloc, setAlloc] = useState<{ rows: AllocationRow[]; state: AllocationState } | null>(null);
-  const [dialog, setDialog] = useState<'credit' | 'receipt' | 'cancel' | 'manual' | 'deliver' | 'invoice' | 'return' | null>(null);
+  const [dialog, setDialog] = useState<'credit' | 'receipt' | 'cancel' | 'manual' | 'deliver' | 'invoice' | 'return' | 'refund' | null>(null);
+  // 2.118: what was refunded on a receipt (its refund receipts — an exempt dealer's money back, the accountant's answer 15)
+  const [refunded, setRefunded] = useState<{ left: number; count: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const links = usePaylinks(doc.docType === 305 || doc.docType === 300 ? { documentId: doc.id } : null);
   // 2.95 (T10): an order / a delivery note — what was made from it, what is left
@@ -54,14 +60,19 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
 
   const load = useCallback(async () => {
     const sb = supabase();
-    const [c, cr, rv, al, rules] = await Promise.all([
+    const [c, cr, rv, al, rules, rr] = await Promise.all([
       sb.from('document_cancellations').select('reason').eq('document_id', doc.id).maybeSingle(),
       doc.docType === 305 || doc.docType === 320 ? sb.from('documents').select('doc_type, total, base_doc_type, base_doc_number').eq('doc_type', 330).eq('base_doc_type', doc.docType).eq('base_doc_number', doc.docNumber)
         : Promise.resolve({ data: [], error: null }),
       doc.docType === 305 || doc.docType === 300 ? sb.from('receivables').select('*').eq('id', doc.id).maybeSingle() : Promise.resolve({ data: null, error: null }),
       [305, 320, 330].includes(doc.docType) ? sb.from('tax_allocations').select('*').eq('document_id', doc.id).order('created_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
       allocationRules(),
+      doc.docType === 400 && !isRefundReceipt(doc)
+        ? sb.from('documents').select('doc_type, total, base_doc_type, base_doc_number').eq('doc_type', 400).eq('base_doc_type', 400).eq('base_doc_number', doc.docNumber).lt('total', 0)
+        : Promise.resolve({ data: null, error: null }),
     ]);
+    const back = ((rr.data ?? []) as any[]).map((x) => ({ docType: x.doc_type, total: Number(x.total), baseDocType: x.base_doc_type, baseDocNumber: Number(x.base_doc_number) }));
+    setRefunded(rr.data ? { left: refundLeft(doc, back), count: back.length } : null);
     setCancelled(c.data ? { reason: (c.data as any).reason } : null);
     setCredited(creditedTotals(((cr.data ?? []) as any[]).map((x) => ({ docType: x.doc_type, total: Number(x.total), baseDocType: x.base_doc_type, baseDocNumber: Number(x.base_doc_number) }))).get(`${doc.docType}:${doc.docNumber}`) ?? 0);
     setRecv(rv.data ? toReceivable(rv.data) : null);
@@ -112,6 +123,8 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
           <div className="mt-1 flex flex-wrap gap-1.5">
             {cancelled && <Pill tone="bad">בוטל · {cancelled.reason}</Pill>}
             {credited > 0 && <Pill tone={fullyCredited ? 'bad' : 'warn'}>{fullyCredited ? 'זוכתה' : `זוכתה חלקית (${ils(credited)})`}</Pill>}
+            {isRefundReceipt(doc) && <Pill tone="warn">החזר כספי{doc.baseDocNumber ? ` על קבלה ${doc.baseDocNumber}` : ''}</Pill>}
+            {refunded && refunded.count > 0 && <Pill tone={refunded.left <= 0 ? 'bad' : 'warn'}>{refunded.left <= 0 ? 'הוחזרה במלואה' : `הוחזר חלק (נשארו ${ils(refunded.left)})`}</Pill>}
             {recv && !recv.cancelled && <Pill tone={recv.balance <= 0 ? 'ok' : 'warn'}>{recv.balance <= 0 ? 'שולם' : `יתרה ${ils(recv.balance)}`}</Pill>}
             {alloc?.state.kind === 'real' && <Pill tone="ok">מספר הקצאה {alloc.state.number}{alloc.state.manual ? ' (ידני)' : ''}</Pill>}
             {alloc?.state.kind === 'test' && <Pill tone="info">מספר בדיקה — לא אמיתי</Pill>}
@@ -138,12 +151,20 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
         {ga.canDeliver && <Button variant="ghost" onClick={() => setDialog('deliver')}>תעודת משלוח מההזמנה</Button>}
         {ga.canInvoice && <Button variant={doc.docType === 200 ? 'primary' : 'ghost'} onClick={() => setDialog('invoice')}>{doc.docType === 200 ? 'הפקת חשבונית' : 'חשבונית מההזמנה'}</Button>}
         {ga.canReturn && <Button variant="ghost" onClick={() => setDialog('return')}>תעודת החזרה</Button>}
-        {(doc.docType === 300 || doc.docType === 400 || isGoods(doc.docType)) && !cancelled && !doc.saleId
+        {/* 2.118 (the accountant's answer 8): a receipt (400) is never cancelled by marking — only 300 and the goods documents */}
+        {(doc.docType === 300 || isGoods(doc.docType)) && !cancelled && !doc.saleId
           && !(goods.state && (goods.state.invoices.length || goods.state.deliveries.length || goods.state.returns.length))
           && <Button variant="ghost" onClick={() => setDialog('cancel')}>ביטול מסמך</Button>}
+        {/* 2.118 (answer 15): an exempt dealer gives money back on a receipt with a refund receipt (a receipt below zero) */}
+        {doc.docType === 400 && !isRefundReceipt(doc) && settings.entity === 'exempt_dealer' && !cancelled && !doc.saleId && refunded && refunded.left > 0
+          && <Button variant="ghost" onClick={() => setDialog('refund')}>החזר כספי</Button>}
       </div>
-      {/* a register sale's document is cancelled with its sale (money and stock come back with it) */}
-      {(doc.docType === 300 || doc.docType === 400) && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">המסמך הופק ממכירה בקופה — מבטלים אותו מהעסקה עצמה (קופה ← מכירות ודוחות), כדי שגם הכסף והמלאי יחזרו.</p>}
+      {/* a register sale's document is cancelled / refunded with its sale (money and stock come back with it) */}
+      {doc.docType === 300 && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">המסמך הופק ממכירה בקופה — מבטלים אותו מהעסקה עצמה (קופה ← מכירות ודוחות), כדי שגם הכסף והמלאי יחזרו.</p>}
+      {doc.docType === 400 && !isRefundReceipt(doc) && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">הקבלה הופקה ממכירה (בקופה או באתר) — החזר כספי עושים מהעסקה עצמה (קופה ← מכירות ודוחות, או דף ההזמנה), כדי שגם המלאי יחזור. שם תופק הקבלה במינוס.</p>}
+      {doc.docType === 400 && !isRefundReceipt(doc) && !cancelled && doc.saleId && settings.entity === 'exempt_dealer' && (
+        <SaleReceiptsDue key={`${doc.id}:${refunded?.count ?? 0}`} doc={doc} onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${d.docNumber} · ${ils(-d.total)}`)} />
+      )}
       {alloc && (alloc.state.kind === 'missing' || alloc.state.kind === 'error' || alloc.state.kind === 'test') && (
         <div className="mt-3 grid gap-2 rounded-2xl border border-line p-3 text-sm">
           <p><strong>מספר הקצאה:</strong> {alloc.state.kind === 'missing' ? alloc.state.reason : alloc.state.kind === 'error' ? `הבקשה האחרונה נכשלה — ${alloc.state.message}` : 'יש רק מספר בדיקה (סביבת בדיקות).'}
@@ -168,10 +189,14 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
       {(doc.docType === 305 || doc.docType === 300) && <DocReminders documentId={doc.id} />}
       <p className="mt-2 text-xs text-muted">{isGoods(doc.docType)
         ? 'המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. אם הופק בטעות — מבטלים אותו (עם סיבה), כל עוד לא הופק ממנו מסמך אחר.'
-        : 'המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (קבלה / חשבונית עסקה, נרשם עם סיבה).'}</p>
+        : doc.docType === 400
+          ? 'המערכת לא מאפשרת לשנות, למחוק או לבטל קבלה שהופקה. כסף שהוחזר — בקבלה במינוס ("החזר כספי", עוסק פטור) או בחשבונית זיכוי (עסק שגובה מע״מ).'
+          : 'המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (חשבונית עסקה, נרשם עם סיבה).'}</p>
 
       {dialog === 'receipt' && recv && <ReceiptDialog doc={doc} balance={recv.balance} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
       {dialog === 'credit' && <CreditDialog doc={doc} credited={credited} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה חשבונית מס זיכוי מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
+      {dialog === 'refund' && refunded && <RefundReceiptDialog doc={doc} left={refunded.left} count={refunded.count} onClose={() => setDialog(null)}
+        onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${d.docNumber} · ${ils(-d.total)}`)} />}
       {dialog === 'cancel' && <CancelDialog doc={doc} userId={userId} onClose={() => setDialog(null)} onDone={() => afterIssue(doc, `${DOC_LABEL[doc.docType]} מס׳ ${doc.docNumber} בוטל/ה`)} />}
       {dialog === 'manual' && <ManualAllocation doc={doc} onClose={() => setDialog(null)} onDone={() => { setDialog(null); say('מספר ההקצאה נשמר'); void load(); }} />}
       {goods.state && dialog === 'deliver' && <FromBaseDialog base={doc} targets={[200]} left={goods.state.left} title="תעודת משלוח מההזמנה" onClose={() => setDialog(null)}
@@ -204,7 +229,8 @@ export function ReceiptDialog({ doc, balance, onClose, onIssued }: { doc: DocRow
   }, [doc.id]);
   async function go() {
     if (!key) return;
-    const r = composeReceipt({ ...doc, balance }, { entity: settings.entity, vatRate: settings.vatRate, payments, docDate: today, today });
+    const now = todayIL();   // the document's day — taken at issue, not when the dialog opened
+    const r = composeReceipt({ ...doc, balance }, { entity: settings.entity, vatRate: settings.vatRate, payments, docDate: now, today: now });
     if (!r.ok) { setErrors(r.errors); return; }
     setBusy(true);
     const out = await issueDocumentRow(documentRow(r.doc, { userId, idempotencyKey: key, vatRate: r.totals.vatRate, leadId: doc.leadId ?? null, paidDocumentId: doc.id }));
@@ -250,16 +276,19 @@ function CreditDialog({ doc, credited, onClose, onIssued }: { doc: DocRow; credi
   const preview = composeCredit(doc, mode, credited, today, { reason, today });
   async function go() {
     if (!key) return;
-    if (!preview.ok) { setErrors(preview.errors); return; }
-    if (!window.confirm(`להפיק חשבונית מס זיכוי על ${ils(preview.doc.total)}? החשבונית המקורית נשארת כמו שהיא.`)) return;
+    // the document's day — taken at issue, not when the dialog opened
+    const now = todayIL();
+    const fresh = composeCredit(doc, mode, credited, now, { reason, today: now });
+    if (!fresh.ok) { setErrors(fresh.errors); return; }
+    if (!window.confirm(`להפיק חשבונית מס זיכוי על ${ils(fresh.doc.total)}? החשבונית המקורית נשארת כמו שהיא.`)) return;
     setBusy(true);
-    const out = await issueDocumentRow(documentRow(preview.doc, { userId, idempotencyKey: key, vatRate: preview.totals.vatRate, leadId: doc.leadId ?? null, saleId: doc.saleId }));
+    const out = await issueDocumentRow(documentRow(fresh.doc, { userId, idempotencyKey: key, vatRate: fresh.totals.vatRate, leadId: doc.leadId ?? null, saleId: doc.saleId }));
     if (!out.ok) { setBusy(false); setErrors([out.error]); return; }
-    if (out.again && Math.round(out.doc.total * 100) !== Math.round(preview.doc.total * 100)) {
+    if (out.again && Math.round(out.doc.total * 100) !== Math.round(fresh.doc.total * 100)) {
       setBusy(false); setErrors(['כבר הופקה חשבונית זיכוי על החשבונית הזו, כנראה ממכשיר אחר. סגרו ופתחו שוב כדי לראות כמה נשאר לזכות.']); return;
     }
     if (refund.on && !out.again) {
-      const { error } = await supabase().rpc('record_credit_refund', { p_document: out.doc.id, p_method: refund.method, p_amount: out.doc.total, p_paid_on: today, p_note: reason.slice(0, 300) });
+      const { error } = await supabase().rpc('record_credit_refund', { p_document: out.doc.id, p_method: refund.method, p_amount: out.doc.total, p_paid_on: now, p_note: reason.slice(0, 300) });
       if (error) fail(`חשבונית הזיכוי הופקה, אבל ההחזר לא נרשם: ${financeError(error)}`);
     }
     setBusy(false); onIssued(out.doc);
@@ -295,6 +324,111 @@ function CreditDialog({ doc, credited, onClose, onIssued }: { doc: DocRow; credi
   );
 }
 
+/**
+ * 2.118 — an exempt dealer's money back on a receipt (the accountant's answer 15): a refund receipt (a 400 below zero) on it,
+ * never beyond what is left (the database checks again, in a lock). Its key is the receipt's next refund (followKey 'refund' —
+ * two devices at once share it: one refund receipt). How the money went back is asked as any payment (a card — with its kind).
+ * The money out is the refund receipt's own (the database writes it); nothing goes back to stock from here (a count does that).
+ */
+function RefundReceiptDialog({ doc, left, count, onClose, onIssued }: { doc: DocRow; left: number; count: number; onClose: () => void; onIssued: (d: DocRow) => void }) {
+  const { userId, settings } = useFinance();
+  const today = todayIL();
+  const first = doc.payments.find((p) => p.m !== 'withholding');
+  const [payments, setPayments] = useState<PaymentEntry[]>([{ method: (first?.m && PAY_METHODS.some((m) => m.id === first.m) ? first.m : 'cash') as PayMethod, amount: left, date: today }]);
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const key = followKey('refund', doc.id, count);
+  async function go() {
+    const r = composeRefundReceipt(doc, { entity: settings.entity, left, payments: payments.map((p) => ({ ...p, date: todayIL() })), docDate: todayIL(), today: todayIL(), notes: reason });
+    if (!r.ok) { setErrors(r.errors); return; }
+    if (!window.confirm(`להפיק קבלה במינוס (החזר כספי) על ${ils(-r.doc.total)}? הקבלה המקורית נשארת כמו שהיא.`)) return;
+    setBusy(true);
+    const out = await issueDocumentRow(documentRow(r.doc, { userId, idempotencyKey: key, vatRate: 0, leadId: doc.leadId ?? null, source: 'refund' }));
+    setBusy(false);
+    if (!out.ok) { setErrors([refundReceiptError(out.raw ?? out.error)]); return; }
+    if (out.again && Math.round(out.doc.total * 100) !== Math.round(r.doc.total * 100)) {
+      setErrors(['כבר הופקה קבלה במינוס על הקבלה הזו, כנראה ממכשיר אחר. סגרו ופתחו שוב כדי לראות כמה נשאר להחזיר.']); return;
+    }
+    onIssued(out.doc);
+  }
+  return (
+    <Modal open onClose={onClose}>
+      <h3 className="mb-1 font-display text-lg font-extrabold">החזר כספי על קבלה {doc.docNumber}</h3>
+      <p className="mb-3 text-sm text-muted">תופק קבלה במינוס על הכסף שהוחזר ללקוח (עוסק פטור). אפשר להחזיר עד {ils(left)}. רישום החזר שנעשה — לא העברת כסף; שום כרטיס לא מזוכה כאן.</p>
+      <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} />
+      <Field label="סיבה (מופיעה על המסמך, לא חובה)"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} className="min-h-14" /></Field>
+      {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
+      <div className="mt-4 flex gap-2"><Button variant="primary" disabled={busy} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת קבלה במינוס'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>
+    </Modal>
+  );
+}
+
+/**
+ * 2.118: a sale's receipt whose refund receipt did not go out when the sale was cancelled or refunded (the database refused it before
+ * migration 6800, or the answer was lost) — completed here, on the same key the register used (cancel:<sale> / refund:<refund id>),
+ * so it can never be issued twice. The builders are the register's own (sale-receipts.ts).
+ */
+function SaleReceiptsDue({ doc, onIssued }: { doc: DocRow; onIssued: (d: DocRow) => void }) {
+  const { userId } = useFinance();
+  const [due, setDue] = useState<{ sale: any; refunds: any[]; allRefunds: any[]; cancel: boolean; docs: DocRow[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const sb = supabase();
+    const [sl, rf, ds] = await Promise.all([
+      sb.from('sales').select('*').eq('id', doc.saleId!).maybeSingle(),
+      sb.from('sale_refunds').select('*').eq('sale_id', doc.saleId!),
+      sb.from('documents').select('*').eq('sale_id', doc.saleId!).order('issued_at'),
+    ]);
+    if (sl.error || rf.error || ds.error || !sl.data) { setDue(null); return; }
+    const docs = ((ds.data ?? []) as any[]).map(toDoc);
+    const m = missingSaleReceipts({ saleStatus: sl.data.status, refunds: (rf.data ?? []) as any[], docs, receiptCancelled: false });
+    setDue({ sale: sl.data, refunds: m.refunds, allRefunds: (rf.data ?? []) as any[], cancel: m.cancel, docs });
+  }, [doc.saleId]);
+  useEffect(() => { void load(); }, [load]);
+  if (!due || (!due.refunds.length && !due.cancel)) return null;
+  async function go() {
+    if (!due) return;
+    setBusy(true); setError(null);
+    const today = todayIL();
+    const sale = saleFromRow(due.sale);
+    const allRefunds = (due.allRefunds ?? []) as any[];
+    let docs = due.docs;
+    let last: DocRow | null = null;
+    let stop: string | null = null;
+    // the refunds first, in order; the cancellation only once every refund before it has its refund receipt — never the same money twice
+    for (const r of due.refunds.map(toRefund)) {
+      const back = refundReceiptDoc(doc, docs, r, sale, today);
+      if (!back) { stop = `ההחזר של ${ils(r.amount)} גדול ממה שנשאר על הקבלה — לא הופקה קבלה במינוס. לבירור עם רואה החשבון.`; break; }
+      const out = await issueDocumentRow(documentRow(back, { userId, idempotencyKey: `refund:${r.id}`, vatRate: 0, saleId: sale.id, leadId: sale.leadId, refundId: r.id, source: 'refund' }));
+      if (!out.ok) { stop = refundReceiptError(out.raw ?? out.error); break; }
+      docs = [...docs, out.doc]; last = out.doc;
+    }
+    if (!stop && due.cancel) {
+      const back = cancelReceiptDoc(doc, docs, today, allRefunds.map((r) => ({ amount: Number(r.amount) })));
+      if (back) {
+        const out = await issueDocumentRow(documentRow(back, { userId, idempotencyKey: `cancel:${sale.id}`, vatRate: 0, saleId: sale.id, leadId: sale.leadId, source: 'refund' }));
+        if (!out.ok) stop = refundReceiptError(out.raw ?? out.error); else last = out.doc;
+      } else if (!last) stop = 'אין מה להשלים: על הקבלה לא נשאר כסף להחזיר.';
+    }
+    setBusy(false);
+    // stopped: the reason stays on screen (what was issued before it is kept — the box shows what is still missing)
+    if (stop) { setError(stop); if (last) void load(); return; }
+    if (last) onIssued(last); else setError('אין מה להשלים.');
+  }
+  // each refund with its day: the refund receipt is dated today (answer 16) — the owner sees what it is for before issuing it
+  const what = [...(due.cancel ? ['המכירה בוטלה בקופה'] : []),
+    ...due.refunds.map((r) => `החזר של ${ils(Number(r.amount))} מתאריך \u200e${r.created_at ? israelParts(Date.parse(r.created_at)).date.split('-').reverse().join('/') : ''}`)];
+  return (
+    <div className="mt-3 grid gap-2 rounded-2xl border border-line p-3 text-sm">
+      <p><strong>חסרה קבלה במינוס:</strong> {what.join(' · ')} — והקבלה במינוס לא הופקה אז. היא תופק בתאריך של היום.</p>
+      {error && <Note tone="warn">{error}</Note>}
+      <div><Button size="sm" variant="primary" disabled={busy} onClick={() => void go()}>{busy ? <Spinner /> : 'הפקת הקבלה במינוס'}</Button></div>
+    </div>
+  );
+}
+
 function CancelDialog({ doc, userId, onClose, onDone }: { doc: DocRow; userId: string; onClose: () => void; onDone: () => void }) {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -309,7 +443,7 @@ function CancelDialog({ doc, userId, onClose, onDone }: { doc: DocRow; userId: s
   return (
     <Modal open onClose={onClose}>
       <h3 className="mb-1 font-display text-lg font-extrabold">ביטול {DOC_LABEL[doc.docType]} {doc.docNumber}</h3>
-      <p className="mb-3 text-sm text-muted">המסמך נשאר כמו שהוא ומסומן "בוטל" (גם בממשק הפתוח). {doc.docType === 400 ? 'הכסף שלו יוצא מיומן התשלומים.' : ''} {!doc.saleId && doc.docType !== 100 && doc.lines.some((l) => l.itemId) ? (doc.docType === 210 ? 'הפריטים שחזרו בה יוצאים שוב מהמלאי.' : 'המוצרים שבו חוזרים למלאי.') : ''} רק אם הופק בטעות.</p>
+      <p className="mb-3 text-sm text-muted">המסמך נשאר כמו שהוא ומסומן "בוטל" (גם בממשק הפתוח). {!doc.saleId && doc.docType !== 100 && doc.lines.some((l) => l.itemId) ? (doc.docType === 210 ? 'הפריטים שחזרו בה יוצאים שוב מהמלאי.' : 'המוצרים שבו חוזרים למלאי.') : ''} רק אם הופק בטעות.</p>
       <Field label="סיבה"><Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></Field>
       {error && <Note tone="warn">{error}</Note>}
       <div className="mt-3 flex gap-2"><Button variant="primary" disabled={busy || reason.trim().length < 2} onClick={() => void go()}>ביטול המסמך</Button><Button variant="ghost" onClick={onClose}>חזרה</Button></div>

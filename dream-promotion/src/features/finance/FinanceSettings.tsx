@@ -19,6 +19,7 @@ import { ReminderSettingsCard } from './Reminders';
 import { useReportsReady } from './reports-data';
 import { ADVANCE_NOTE, advancePctError } from './statements';
 import { useCashReady } from './cash-data';
+import { useDeductionsReady } from './settings-data';
 
 /**
  * Money settings: the business's legal identity (what every document prints — and keeps, as it was, from 2.51), VAT,
@@ -50,6 +51,8 @@ export function FinanceSettings() {
   const [advance, setAdvance] = useState(profile.advancePct == null ? '' : String(profile.advancePct));
   // 2.95: the desks and the bank; "selling products" — once migration 20261011005000 is in the database
   const cashOk = useCashReady();
+  // 2.118: the deductions file number (field 1016) — saved only once migration 20261125006800 added its column
+  const deductionsOk = useDeductionsReady();
   useEffect(() => {
     try { setTaxBack(new URLSearchParams(window.location.search).get('tax')); } catch { /* no address to read */ }
   }, []);
@@ -67,13 +70,16 @@ export function FinanceSettings() {
   const warn = rateWarning(s.vatRate, todayIL(), chargesVat(s.entity));
   async function save() {
     if (s.dealerNumber && !/^\d{9}$/.test(s.dealerNumber)) { fail('מספר עוסק / ח.פ — 9 ספרות'); return; }
+    if (deductionsOk && s.deductionsFile.trim() && !/^\d{9}$/.test(s.deductionsFile.trim())) { fail('מספר תיק ניכויים — 9 ספרות (או ריק)'); return; }
     const advanceBad = reportsOk ? advancePctError(advance) : null;
     if (advanceBad) { fail(advanceBad); return; }
     if (cashOk && !(Number.isInteger(p.chequeRemindDays) && p.chequeRemindDays >= 0 && p.chequeRemindDays <= 30)) { fail('תזכורת לצ׳ק — בין 0 ל-30 ימים לפני הפירעון'); return; }
     setBusy(true);
     const sb = supabase();
     const a = await sb.from('register_settings').upsert({ user_id: userId, entity_type: s.entity, business_type: businessTypeOf(s.entity), vat_rate: chargesVat(s.entity) ? s.vatRate : 0,
-      dealer_number: s.dealerNumber, company_number: s.companyNumber, legal_name: s.legalName.trim(), street: s.street.trim(), house_no: s.houseNo.trim(), city: s.city.trim(), zip: s.zip.trim() }, { onConflict: 'business_id' });
+      dealer_number: s.dealerNumber, company_number: s.companyNumber, legal_name: s.legalName.trim(), street: s.street.trim(), house_no: s.houseNo.trim(), city: s.city.trim(), zip: s.zip.trim(),
+      // empty = none (null — the database refuses an empty text)
+      ...(deductionsOk ? { deductions_file: s.deductionsFile.trim() || null } : {}) }, { onConflict: 'business_id' });
     const b = a.error ? a : await sb.from('business_finance_profile').upsert({ user_id: userId, trading_name: p.tradingName.trim(), phone: p.phone.trim(), email: p.email.trim(),
       bank_name: p.bankName.trim(), bank_branch: p.bankBranch.trim(), bank_account: p.bankAccount.trim(), payment_terms: p.paymentTerms, quote_valid_days: p.quoteValidDays,
       doc_note: p.docNote.trim(), vat_period: p.vatPeriod, accountant_name: p.accountantName.trim(), accountant_email: p.accountantEmail.trim(),
@@ -105,6 +111,11 @@ export function FinanceSettings() {
         <div className="grid gap-2 sm:grid-cols-2">
           <Field label={s.entity === 'company' ? 'ח.פ / מספר עוסק (9 ספרות)' : 'מספר עוסק (9 ספרות)'}><Input value={s.dealerNumber} onChange={(e) => setSv('dealerNumber', e.target.value.replace(/\D/g, '').slice(0, 9))} inputMode="numeric" dir="ltr" /></Field>
           <Field label="מספר ח.פ / ע״ר (אם שונה)"><Input value={s.companyNumber} onChange={(e) => setSv('companyNumber', e.target.value.replace(/\D/g, '').slice(0, 9))} inputMode="numeric" dir="ltr" /></Field>
+          {/* the hint outside Field — Field ties its label to a single input child only */}
+          {deductionsOk && <div>
+            <Field label="מספר תיק ניכויים (9 ספרות, אם יש)"><Input value={s.deductionsFile} onChange={(e) => setSv('deductionsFile', e.target.value.replace(/\D/g, '').slice(0, 9))} inputMode="numeric" dir="ltr" aria-describedby="deductions-hint" /></Field>
+            <p id="deductions-hint" className="-mt-3 mb-4 text-xs text-muted">נכנס לקובץ לרשות המסים (מבנה אחיד, שדה 1016). לא מופיע על המסמכים.</p>
+          </div>}
           <Field label="השם הרשום"><Input value={s.legalName} onChange={(e) => setSv('legalName', e.target.value)} /></Field>
           <Field label="שם מסחרי (לא חובה)"><Input value={p.tradingName} onChange={(e) => setPv('tradingName', e.target.value)} /></Field>
           <Field label="רחוב"><Input value={s.street} onChange={(e) => setSv('street', e.target.value)} /></Field>

@@ -44,6 +44,8 @@ export const EMPTY_PROFILE: Profile = { tradingName: '', phone: '', email: '', b
   docNote: '', vatPeriod: 'bimonthly', accountantName: '', accountantEmail: '', advancePct: null, cashDrawers: false, chequeRemindDays: 3, sellsProducts: false };
 export interface Settings {
   entity: EntityType; vatRate: number; dealerNumber: string; companyNumber: string; legalName: string; street: string; houseNo: string; city: string; zip: string; payLink: string;
+  /** 2.118 (migration 20261125006800): the deductions file number (field 1016) — '' when none, or before the migration */
+  deductionsFile: string;
 }
 interface Ctx {
   userId: string; settings: Settings; profile: Profile; business: Business & { entityType: string; ready: boolean }; vat: boolean;
@@ -61,6 +63,7 @@ export const useFinance = () => { const c = useContext(FinanceCtx); if (!c) thro
 export const toSettings = (r: any): Settings => ({
   entity: entityOf(r?.entity_type, r?.business_type), vatRate: Number(r?.vat_rate ?? 18), dealerNumber: r?.dealer_number ?? '', companyNumber: r?.company_number ?? '',
   legalName: r?.legal_name ?? '', street: r?.street ?? '', houseNo: r?.house_no ?? '', city: r?.city ?? '', zip: r?.zip ?? '', payLink: r?.pay_link ?? '',
+  deductionsFile: typeof r?.deductions_file === 'string' ? r.deductions_file : '',
 });
 export const toProfile = (r: any): Profile => (!r ? EMPTY_PROFILE : {
   tradingName: r.trading_name ?? '', phone: r.phone ?? '', email: r.email ?? '', bankName: r.bank_name ?? '', bankBranch: r.bank_branch ?? '', bankAccount: r.bank_account ?? '',
@@ -131,7 +134,7 @@ function FinanceProvider({ children }: { children: ReactNode }) {
     return {
       userId, settings: s, profile: state.profile, access: state.access, catalog: state.catalog, vat: chargesVat(s.entity), reload: load, say, fail: setError, go, params, clearParams,
       products: state.products, productsReady: state.productsReady, reloadCatalog,
-      business: { dealerNumber: s.dealerNumber, companyNumber: s.companyNumber, name: s.legalName || brand.name, street: s.street, houseNo: s.houseNo, city: s.city, zip: s.zip,
+      business: { dealerNumber: s.dealerNumber, companyNumber: s.companyNumber, deductionsFile: s.deductionsFile, name: s.legalName || brand.name, street: s.street, houseNo: s.houseNo, city: s.city, zip: s.zip,
         entityType: s.entity, ready: /^[0-9]{9}$/.test(s.dealerNumber) && Boolean(s.legalName || brand.name) },
     };
   }, [state, userId, brand.name, load, say, go, params, clearParams, reloadCatalog]);

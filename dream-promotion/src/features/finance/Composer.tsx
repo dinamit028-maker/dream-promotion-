@@ -14,7 +14,7 @@ import { validUntilFor, type ComposerBody, type Quote } from './quotes';
 import { documentRow, financeError, issueDocumentRow, newKey } from './api';
 import { quoteKey } from './keys';
 import type { PaymentEntry } from './payments';
-import { CustomerFields, LinesEditor, Note, PaymentsEditor, ils, todayIL } from './ui';
+import { CustomerFields, LinesEditor, Note, PaymentsEditor, ddmmyyyy, ils, todayIL } from './ui';
 import { useReportsReady } from './reports-data';
 import { documentDateRateNote } from './vat';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
@@ -52,7 +52,8 @@ export function Composer({ mode, initial, onClose, onDone }: {
   const [pricesIncludeVat, setPricesIncludeVat] = useState(initial?.pricesIncludeVat ?? true);
   const [discount, setDiscount] = useState<Discount>(initial?.discount ?? { kind: 'sum', value: 0 });
   const today = todayIL();
-  const [docDate, setDocDate] = useState(today);
+  // 2.118 (the accountant's answer 16): a document is dated the day it is issued — never chosen (the database refuses any other day)
+  const docDate = today;
   const [terms, setTerms] = useState(initial?.terms ?? profile.paymentTerms);
   const [dueDate, setDueDate] = useState<string>(initial?.dueDate ?? dueDateFor(today, initial?.terms ?? profile.paymentTerms));
   const [payments, setPayments] = useState<PaymentEntry[]>((initial?.payments as PaymentEntry[] | undefined) ?? []);
@@ -100,7 +101,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
 
   const body = (): ComposerBody => ({ lines, pricesIncludeVat, discount, customer, notes, terms, dueDate, payments });
   const input = () => ({ docType, entity: settings.entity, vatRate: settings.vatRate, pricesIncludeVat, lines, discount, customer, payments: receipt ? payments : [],
-    docDate, dueDate: docType === 305 || docType === 300 ? dueDate : null, notes, today, goods: profile.sellsProducts });
+    docDate: todayIL(), dueDate: docType === 305 || docType === 300 ? dueDate : null, notes, today: todayIL(), goods: profile.sellsProducts });
 
   async function saveDraft() {
     setBusy(true); setErrors([]);
@@ -196,7 +197,7 @@ export function Composer({ mode, initial, onClose, onDone }: {
         </Field>
         {mode.kind === 'document' ? (
           <>
-            <Field label="תאריך המסמך"><Input type="date" value={docDate} max={today} onChange={(e) => setDocDate(e.target.value || today)} /></Field>
+            <Field label="תאריך המסמך"><p className="flex min-h-11 items-center text-sm">{ddmmyyyy(docDate)} <span className="ms-1.5 text-xs text-muted">(יום ההפקה — תמיד היום)</span></p></Field>
             {!draftId && <LocationField value={locationId} onChange={setLocationId} />}
           </>
         ) : (
