@@ -67,10 +67,10 @@ export const maxBytes = (env: Record<string, string | undefined> = process.env) 
   const n = Number(env.BACKUP_MAX_BYTES);
   return Number.isFinite(n) && n > 0 ? n : 45 * 1024 * 1024;
 };
-/** the JSON of one business's rows, before gzip — above it the export stops (BACKUP_MAX_RAW_BYTES, else 300 MB), out of memory's way */
+/** the JSON of one business's rows, before gzip — above it the export stops (BACKUP_MAX_RAW_BYTES, else 100 MB) — well under the function's memory: rows, the string and gzip together are several times the raw size; a gzip of ~100 MB raw is near the 45 MB file cap anyway */
 export const maxRawBytes = (env: Record<string, string | undefined> = process.env) => {
   const n = Number(env.BACKUP_MAX_RAW_BYTES);
-  return Number.isFinite(n) && n > 0 ? n : 300 * 1024 * 1024;
+  return Number.isFinite(n) && n > 0 ? n : 100 * 1024 * 1024;
 };
 /** a period refused as too large is not exported again with the same limits; it is told about once a week (Sunday, in Israel) */
 export const tooLargeAgain = (lastError: string, caps: { file: number; raw: number }) =>
@@ -232,7 +232,7 @@ export async function backupCron(db: SupabaseClient, now: Date | number = Date.n
         let r: Outcome;
         try { r = await backupOne(db, run, item, item.business, tables, until, o.pageSize, clock, { maxBytes: caps.file, maxRawBytes: caps.raw }); }
         catch (e: any) {
-          // one business's exception (out of memory, a bad row) never stops the others: its run fails, the next one goes on
+          // one business's exception (a bad row, a RangeError) never stops the others — a real out-of-memory kills the function; the raw cap keeps it away: its run fails, the next one goes on
           r = 'failed';
           await db.rpc('backup_run_fail', { p_run: run.id, p_error: `exception: ${String(e?.name ?? 'error').slice(0, 60)}` }).then(() => null, () => null);
         }
