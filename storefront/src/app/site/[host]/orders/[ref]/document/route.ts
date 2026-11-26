@@ -20,6 +20,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!site?.live) return none();
   const order = await orderOfRef(site.storeId, ref);
   if (!order?.doc_token) return none();
+  if (order.doc_awaiting) return new Response(AWAITING_TEXT, { status: 409, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
   const r = await documentPdf(order.doc_token);
   if (r === 'awaiting') return new Response(AWAITING_TEXT, { status: 409, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
   if (!r?.body) return none();

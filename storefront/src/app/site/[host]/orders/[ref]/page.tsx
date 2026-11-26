@@ -35,7 +35,9 @@ export default async function OrderPage({ params }: Props) {
           {order.fulfillment === 'shipped' && order.tracking && (
             <p>מספר מעקב: <bdi dir="ltr">{order.tracking}</bdi>{order.tracking_url ? <> · <a href={order.tracking_url} target="_blank" rel="noopener noreferrer">מעקב אחר המשלוח</a></> : null}</p>
           )}
-          {!order.test && (order.doc_token
+          {!order.test && (order.doc_token && order.doc_awaiting
+            ? <p className="muted">המסמך ממתין למספר הקצאה מרשות המסים. הוא יופיע כאן מיד אחרי שהעסק יקבל את המספר.</p>
+            : order.doc_token
             ? <p><a href={`/orders/${encodeURIComponent(ref)}/document`} target="_blank" rel="noopener">המסמך של ההזמנה (PDF)</a></p>
             : <p className="muted">החשבונית תופיע כאן בקרוב.</p>)}
         </section>

@@ -173,6 +173,21 @@ select pg_temp.check((select count(*) from public.document_allocation_status whe
   and (select count(*) from public.document_allocation_status) = 7, 'the view: Alpha''s documents only, the same 3 awaiting, the number');
 commit;
 
+-- the store's order page: "doc_awaiting" next to "doc_token" (a row of orders as the page passes it — only the fields it reads)
+create or replace function pg_temp.order_view(p_doc uuid) returns jsonb language sql as $$
+  select public.sf_order_view(jsonb_populate_record(null::public.orders, jsonb_build_object('id', gen_random_uuid(),
+    'business_id', '00000000-0000-0000-0000-0000000690b1', 'document_id', p_doc)));
+$$;
+select pg_temp.check(pg_temp.order_view(pg_temp.d('a:big')) @> jsonb_build_object('doc_awaiting', true, 'doc_token', pg_temp.tok('a:big')),
+  'the order''s page: its document waits for the number — doc_awaiting true (the token as before)');
+select pg_temp.check(pg_temp.order_view(pg_temp.d('a:alloc')) @> jsonb_build_object('doc_awaiting', false, 'doc_token', pg_temp.tok('a:alloc')),
+  'with its number — doc_awaiting false');
+select pg_temp.check(pg_temp.order_view(null) @> '{"doc_awaiting": false, "doc_token": null}'::jsonb, 'no document yet — false, no token');
+select pg_temp.check(pg_temp.order_view(pg_temp.d('b:big')) @> '{"doc_awaiting": false, "doc_token": null}'::jsonb, 'another business''s document — nothing of it');
+select pg_temp.check(not has_function_privilege('anon', 'public.sf_order_view(public.orders)', 'execute')
+  and not has_function_privilege('authenticated', 'public.sf_order_view(public.orders)', 'execute')
+  and (select prosecdef from pg_proc where oid = 'public.sf_order_view(public.orders)'::regprocedure), 'the order view: still the servers'' only, security definer');
+
 -- ---- 2. an allocation number never changes -------------------------------------------------------------------------------------
 select pg_temp.refused_with($$update public.tax_allocations set allocation_number = '987654321' where document_id = pg_temp.d('a:alloc')$$, 'append-only', 'a number is never edited');
 select pg_temp.refused_with($$delete from public.tax_allocations where document_id = pg_temp.d('a:alloc')$$, 'append-only', 'a number is never removed');

@@ -19,6 +19,8 @@
 --        * a print counted the old way (documents.print_count + 1) — new trigger f_documents_print_allocation refuses it too.
 --      finance_summary's "allocationMissing" counts allocation_awaiting() (replaces 5100's finance_summary — same signature).
 --      View document_allocation_status (security invoker — the RLS of documents / tax_allocations) for the lists.
+--      The storefront's order page (sf_order_view, the object sf_order / the order's page return): also "doc_awaiting"
+--      (boolean, false without a document) — the store shows "ממתין למספר הקצאה" instead of the document's link.
 --   2. (answer 4) an allocation number, once recorded, never changes: tax_allocations is append-only (3100,
 --      tax_allocations_append_only), one real number per document (tax_allocations_one_real_uq), record_manual_allocation
 --      refuses a second one. Nothing to add: a wrong number is corrected by a credit invoice (330) and a new invoice.
@@ -35,18 +37,20 @@
 --      else), backup_tables / backup_export (what to write, per business and table, in pages), backup_run_start / _finish /
 --      _fail, backup_expirable / backup_expire (refuses a copy younger than its retention, and a monthly copy without a later
 --      yearly copy). A backup file is removed from Storage only after backup_expire (or when its run failed).
--- Replaces one function (same signature; md5 of prosrc — compare with the live database before running:
---   md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.finance_summary(date, date)'::regprocedure):
---   finance_summary(date, date) of 20261011005100_journal_entries.sql — old 060b20715ec06fdc9bfa3094b9be78d0
--- Running 5100 again after this one brings the old count back ("more than", 305 / 320 only) — then run this one again.
+-- Replaces two functions (same signatures; md5 of prosrc — compare with the live database before running:
+--   md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure):
+--   finance_summary(date, date)  of 20261011005100_journal_entries.sql  — old 060b20715ec06fdc9bfa3094b9be78d0 ("allocationMissing")
+--   sf_order_view(public.orders) of 20261006003600_commerce_finance.sql — old 45b913e37b7757de6e56b6a8d0549d3c (adds "doc_awaiting")
+-- Running 5100 again after this one brings the old count back ("more than", 305 / 320 only), and 3600 the order's page without
+-- "doc_awaiting" — then run this one again.
 -- On Storage: the buckets, their policies, and a trigger on storage.objects (storage_objects_keep — nothing in the two new
 -- buckets is replaced or removed, even by the server, but an expired / failed backup). If the database refuses the trigger
 -- (the role is not the owner of storage.objects) the migration says so in a NOTICE and goes on: the policies still keep every
 -- browser role out; check with  select tgname from pg_trigger where tgrelid = 'storage.objects'::regclass.
--- Deploy order: this migration first (nothing of today's app calls the new functions, and the app keeps working: a print of a
--- document awaiting its number is refused — the screen shows its error); then the app that calls document_share_open /
--- document_delivery_record / document_delivery_state and the backup cron.
--- Runs after 3100 (Dream Finance), 4600 (locations), 5100 (journal entries) and 6800 (stage 1) — it stops at the top without them.
+-- Deploy order: THE CODE FIRST, then this migration. The new app falls back to the 2.118 behaviour while these functions are
+-- missing; this migration under the old app would block a print of a document awaiting its number without explaining why, and
+-- the old link (/d/<token>, which reads documents directly) would still show a document awaiting its number.
+-- Runs after 3100 (Dream Finance), 3600 (commerce finance), 4600 (locations), 5100 (journal entries) and 6800 (stage 1) — it stops at the top without them.
 -- The word `delete` is in it (triggers "before update or delete" and the Storage guard; no `delete` statement, no `drop` but in
 -- the rollback notes at the end).
 
@@ -70,6 +74,9 @@ begin
   end if;
   if to_regprocedure('public.documents_issue_day()') is null then
     raise exception 'migration 20261126006900 runs after 20261125006800 (the accountant''s answers, stage 1) — run it first; nothing was changed';
+  end if;
+  if to_regprocedure('public.sf_order_view(public.orders)') is null then
+    raise exception 'migration 20261126006900 runs after 20261006003600 (commerce finance) — run it first; nothing was changed';
   end if;
   if to_regclass('storage.buckets') is null or to_regclass('storage.objects') is null or to_regprocedure('storage.foldername(text)') is null then
     raise exception 'migration 20261126006900 needs Supabase Storage (storage.buckets, storage.objects) — nothing was changed';
@@ -647,6 +654,28 @@ do $$ begin
 end $$;
 
 -- ============================================================================================================================
+-- 1 (store). the order's page: whether its document waits for the allocation number
+-- ============================================================================================================================
+-- sf_order_view (20261006003600's): the same object, plus "doc_awaiting" (boolean; false when there is no document)
+create or replace function public.sf_order_view(o public.orders) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'id', o.id, 'number', o.number, 'status', o.payment_status, 'test', o.is_test, 'currency', o.currency,
+    'subtotal', trim_scale(o.subtotal), 'discount', trim_scale(o.discount), 'shipping', trim_scale(o.shipping), 'total', trim_scale(o.total),
+    'coupon', o.coupon_code, 'method', o.delivery_method, 'name', o.customer_name, 'provider', o.provider, 'page', o.provider_page,
+    'created_at', o.created_at, 'expires_at', o.expires_at, 'paid_at', o.paid_at,
+    'fulfillment', o.fulfillment_status, 'tracking', o.tracking_number, 'tracking_url', o.tracking_url,
+    'document', o.document_status, 'request', o.request_kind, 'refunded', trim_scale(o.refunded_total), 'state', o.state,
+    'doc_token', (select d.share_token from public.documents d where d.id = o.document_id and d.business_id = o.business_id),
+    -- 2.119: the document waits for its allocation number — the store shows "ממתין למספר הקצאה" instead of the link
+    'doc_awaiting', coalesce((select public.allocation_awaiting(d) from public.documents d where d.id = o.document_id and d.business_id = o.business_id), false),
+    'lines', coalesce((select jsonb_agg(jsonb_build_object('name', x.name, 'variant', x.variant_label, 'qty', x.qty,
+                                                           'price', trim_scale(x.unit_price), 'total', trim_scale(x.line_total), 'image', x.image_url)
+                                        order by x.position) from public.order_lines x where x.order_id = o.id), '[]'::jsonb))
+$$;
+revoke execute on function public.sf_order_view(public.orders) from public, anon, authenticated;
+
+-- ============================================================================================================================
 -- 1 (end). the money summary: "allocationMissing" by the one rule
 -- ============================================================================================================================
 -- the money summary (20261011005100's): the same, but "allocationMissing" counts allocation_awaiting() — 305 / 320 / 330, from
@@ -785,7 +814,8 @@ end $$;
 --     public.document_delivery_add(public.documents, text, uuid), public.document_visible(public.documents);
 --   drop table public.document_delivery_files, public.document_deliveries;
 --   drop trigger f_documents_print_allocation on public.documents; drop function public.documents_print_allocation();
---   finance_summary: run section 3 of 20261011005100_journal_entries.sql again (its finance_summary only), then
+--   finance_summary: run section 3 of 20261011005100_journal_entries.sql again (its finance_summary only); sf_order_view: run
+--   its definition in 20261006003600_commerce_finance.sql again (section 6); then
 --   drop view public.document_allocation_status;
 --   drop function public.allocation_awaiting(public.documents), public.allocation_number_of(uuid),
 --     public.allocation_required(public.documents), public.allocation_rule_on(date);
