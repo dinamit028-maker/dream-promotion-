@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { ils } from '@/features/register/money';
 import { israelParts } from '@/lib/il-time';
 import { QUOTE_STATUS_HE, type QuoteStatus } from '@/features/finance/quotes';
@@ -127,7 +127,7 @@ export function CrmFinance({ leadId }: { leadId: string }) {
             {!data.docs.length ? <p className="text-muted">לא הופקו מסמכים ללקוח הזה.</p> : (
               <section aria-label="מסמכים" className="grid gap-0.5">
                 <p className="mt-1 font-semibold">🧾 מסמכים</p>
-                <ul className="grid gap-0.5">{data.docs.map((d) => <li key={d.id} className="flex justify-between gap-2"><span>{DOC_LABEL[d.type]} {d.number} · {d.date.split('-').reverse().join('/')}</span><span className="tabular-nums">{ils(d.total)}</span></li>)}</ul>
+                <ul className="grid gap-0.5">{data.docs.map((d) => <li key={d.id} className="flex justify-between gap-2"><span>{DOC_LABEL[d.type]} {docNumberLabel(d.number)} · {d.date.split('-').reverse().join('/')}</span><span className="tabular-nums">{ils(d.total)}</span></li>)}</ul>
               </section>
             )}
             {data.payments.length > 0 && (

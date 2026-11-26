@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/feedback';
-import { DOC_LABEL, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { documentRow, financeError, issueDocumentRow } from './api';
 import { followKey } from './keys';
@@ -73,20 +73,20 @@ export function FromBaseDialog({ base, targets, left, fixedQty, title, onClose, 
     const now = todayIL();
     const res = docFromBase(base, take, { ...opts, docDate: now, today: now });
     if (!res.ok) { setErrors(res.errors); return; }
-    if (!window.confirm(`להפיק ${DOC_LABEL[type]} על ${ils(res.doc.total)} מתוך ${DOC_LABEL[base.docType]} ${base.docNumber}?`)) return;
+    if (!window.confirm(`להפיק ${DOC_LABEL[type]} על ${ils(res.doc.total)} מתוך ${DOC_LABEL[base.docType]} ${docNumberLabel(base)}?`)) return;
     setBusy(true); setErrors([]);
     const out = await issueDocumentRow(documentRow(res.doc, { userId, idempotencyKey: key, vatRate: res.totals.vatRate, leadId: base.leadId ?? null }));
     setBusy(false);
     if (!out.ok) { setErrors([out.error]); return; }
     if (out.again && (out.doc.docType !== type || Math.round(out.doc.total * 100) !== Math.round(res.doc.total * 100))) {
-      setErrors([`כבר הופק מסמך מ${DOC_LABEL[base.docType]} הזה (${DOC_LABEL[out.doc.docType]} ${out.doc.docNumber}), כנראה ממכשיר אחר. סגרו ופתחו שוב.`]); return;
+      setErrors([`כבר הופק מסמך מ${DOC_LABEL[base.docType]} הזה (${DOC_LABEL[out.doc.docType]} ${docNumberLabel(out.doc)}), כנראה ממכשיר אחר. סגרו ופתחו שוב.`]); return;
     }
     onIssued(out.doc);
   }
   return (
     <Modal open onClose={onClose} wide>
       <h3 className="mb-1 font-display text-lg font-extrabold">{title}</h3>
-      <p className="mb-3 text-sm text-muted">מתוך {DOC_LABEL[base.docType]} {base.docNumber}{base.customerName ? ` · ${base.customerName}` : ''}. המחירים כמו במסמך המקורי.</p>
+      <p className="mb-3 text-sm text-muted">מתוך {DOC_LABEL[base.docType]} {docNumberLabel(base)}{base.customerName ? ` · ${base.customerName}` : ''}. המחירים כמו במסמך המקורי.</p>
       {targets.length > 1 && (
         <div className="mb-3 flex flex-wrap gap-1.5" role="radiogroup" aria-label="סוג המסמך">
           {targets.map((t) => <Chip key={t} on={type === t} onClick={() => setType(t)} role="radio" aria-checked={type === t}>{DOC_LABEL[t]}</Chip>)}

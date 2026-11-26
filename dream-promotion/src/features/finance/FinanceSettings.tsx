@@ -20,6 +20,7 @@ import { useReportsReady } from './reports-data';
 import { ADVANCE_NOTE, advancePctError } from './statements';
 import { useCashReady } from './cash-data';
 import { useDeductionsReady } from './settings-data';
+import { NumberingSettings } from './Numbering';
 
 /**
  * Money settings: the business's legal identity (what every document prints — and keeps, as it was, from 2.51), VAT,
@@ -177,6 +178,9 @@ export function FinanceSettings() {
         </Card>
       )}
       <div><Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'שומר…' : 'שמירת ההגדרות'}</Button></div>
+
+      {/* 2.120 (migration 7000): numbering per location — the owner, with more than one active location, after the migration only */}
+      <NumberingSettings say={say} fail={fail} />
 
       <Card className="p-4"><PaylinkSettings userId={userId} /></Card>
       <Card className="p-4"><ReminderSettingsCard userId={userId} businessId={access.business} /></Card>

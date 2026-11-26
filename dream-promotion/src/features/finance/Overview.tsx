@@ -42,8 +42,15 @@ export interface Summary {
   manual: ManualSummary;
 }
 const num = (v: unknown) => Number(v ?? 0);
+/**
+ * 2.120 (migration 7000): finance_summary().documents counts every document type of the period — from 7000 also the bank deposits'
+ * documents (420). A deposit is not income and no customer's document: it stays out of "מסמכים בתקופה" / "לפי סוג מסמך" (the
+ * deposits have their own screen — קופות ← הפקדות). Every other type exactly as the database answers.
+ */
+export const documentsOf = (v: unknown): Summary['documents'] =>
+  Object.fromEntries(Object.entries(v && typeof v === 'object' ? (v as Summary['documents']) : {}).filter(([t]) => t !== '420'));
 export const toSummary = (j: any): Summary => ({
-  ...j, revenue: { net: num(j.revenue?.net), vat: num(j.revenue?.vat), gross: num(j.revenue?.gross) },
+  ...j, documents: documentsOf(j.documents), revenue: { net: num(j.revenue?.net), vat: num(j.revenue?.vat), gross: num(j.revenue?.gross) },
   expenses: { ...j.expenses, net: num(j.expenses?.net), vat: num(j.expenses?.vat), vatDeductible: num(j.expenses?.vatDeductible), total: num(j.expenses?.total), count: num(j.expenses?.count),
     byCategory: (j.expenses?.byCategory ?? []).map((c: any) => ({ ...c, net: num(c.net), vat: num(c.vat), total: num(c.total), count: num(c.count) })) },
   vatPayable: num(j.vatPayable), profit: num(j.profit),

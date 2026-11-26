@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
-import { DOC_LABEL, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { DocView, loadDoc } from './DocView';
 import { financeHref } from './routes';
@@ -241,7 +241,7 @@ function PlanView({ plan: p, customer, charges, refs, onClose, onEdit, onRetry, 
                     </div>
                     {d && c.documentId && (
                       <button type="button" className="justify-self-start text-xs font-semibold text-primary" onClick={() => void openDoc(c.documentId!)}>
-                        {DOC_LABEL[d.docType]} מס׳ {d.docNumber} · {ils(d.total)} ←
+                        {DOC_LABEL[d.docType]} מס׳ {docNumberLabel(d)} · {ils(d.total)} ←
                       </button>
                     )}
                     {c.status === 'draft' && c.draftId && draftDone?.open !== false && (

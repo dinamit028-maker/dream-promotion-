@@ -25,7 +25,8 @@ export async function POST(req: Request) {
   if (!v.ok) return Response.json({ code: v.code, message: v.message }, { status: v.status });
   if (!(await canUseBusiness(userId, v.delivery.businessId))) return Response.json(LOCKED, { status: 403 });
   const { data: d } = await db.from('documents').select('*').eq('id', v.delivery.documentId).maybeSingle();
-  if (!d) return Response.json({ code: 'not_found', message: 'המסמך לא נמצא.' }, { status: 404 });
+  // 2.120: a bank deposit's document (420) is the business's own — never delivered (as the customer's link: 404)
+  if (!d || Number((d as any).doc_type) === 420) return Response.json({ code: 'not_found', message: 'המסמך לא נמצא.' }, { status: 404 });
   const s = await presentDocument(db, d as Record<string, unknown>);
   // the original asked again (a retry, a second tap within the window): the very file that was kept — never a new rendering
   const again = await keptOriginal(db, v.delivery);

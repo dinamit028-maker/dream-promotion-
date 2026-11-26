@@ -1,4 +1,5 @@
 import { MIGRATION_4200, PACKAGE_LIMITS } from '@/features/catalog/catalog';
+import { docNumberLabel } from '@/features/documents/documents';
 import type { ComposeLine } from './compose';
 import { csv } from './reports';
 import { financeError } from './rows';
@@ -244,7 +245,7 @@ const money = (n: number) => n.toFixed(2);
 export function packagesCsv(list: ClientPackage[], today: string): string {
   return csv(['לקוח/ה', 'חבילה', 'טיפולים', 'נוצלו', 'נותרו', 'מחיר', 'שולם', 'זוכה', 'מסמך', 'נמכרה', 'בתוקף עד', 'מצב'],
     list.map((p) => [p.customerName, p.name, p.sessionsTotal, p.used, p.remaining, money(p.price), money(p.paid), money(p.credited),
-      p.docType ? `${DOC_SHORT[p.docType] ?? p.docType} ${p.docNumber ?? ''}${p.docCancelled ? ' (בוטל)' : ''}` : '', ddmmyyyy(p.soldOn), ddmmyyyy(p.validUntil),
+      p.docType ? `${DOC_SHORT[p.docType] ?? p.docType} ${docNumberLabel(p.docNumber)}${p.docCancelled ? ' (בוטל)' : ''}` : '', ddmmyyyy(p.soldOn), ddmmyyyy(p.validUntil),
       STATE_HE[packageState(p, today)]]));
 }
 

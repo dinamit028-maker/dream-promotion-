@@ -1,4 +1,5 @@
 import type { NewDoc } from './compose';
+import { numberingError } from './numbering';
 
 /**
  * The documents row and the Hebrew of a database refusal — plain functions, used by the money screens (api.ts) and by the
@@ -11,6 +12,9 @@ const missing = (m: string) => /schema cache|does not exist|PGRST20[24]|42P01|42
 export function financeError(e: unknown): string {
   const m = `${(e as any)?.message ?? e ?? ''} ${(e as any)?.code ?? ''} ${(e as any)?.details ?? ''}`;
   if (missing(m)) return FINANCE_MIGRATION;
+  // 2.120 (migration 20261127007000): numbering per location, branch codes, the bank deposit's document (420)
+  const numbering = numberingError(m);
+  if (numbering) return numbering;
   if (/business_details_missing/.test(m)) return 'חסרים פרטי העסק למסמכים (מספר עוסק בן 9 ספרות) — ממלאים ב"הגדרות".';
   if (/doc_type_not_allowed/.test(m)) return 'סוג המסמך הזה לא מתאים לסוג העסק (עוסק פטור לא מפיק חשבונית מס).';
   if (/period_locked/.test(m)) return 'הספרים סגורים לתקופה הזו — אי אפשר להפיק או לשנות בה מסמכים והוצאות.';

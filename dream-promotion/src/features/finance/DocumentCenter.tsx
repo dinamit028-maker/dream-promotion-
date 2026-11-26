@@ -4,7 +4,7 @@ import { useApp } from '@/lib/store';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
-import { DOC_LABEL, creditedTotals, isRefundReceipt, toDoc, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, creditedTotals, isDepositDoc, isRefundReceipt, toDoc, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { Composer, type ComposerMode } from './Composer';
 import { DocView } from './DocView';
@@ -157,7 +157,7 @@ export function DocumentCenter() {
       </div>
       <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
         <Chip on={type === null} onClick={() => setType(null)} className="shrink-0">הכל</Chip>
-        {[305, 320, 330, 300, 400, ...(profile.sellsProducts ? [100, 200, 210] : [])].map((t) => <Chip key={t} on={type === t} onClick={() => setType(t)} className="shrink-0">{DOC_LABEL[t]}</Chip>)}
+        {[305, 320, 330, 300, 400, ...(profile.sellsProducts ? [100, 200, 210] : []), ...(profile.cashDrawers ? [420] : [])].map((t) => <Chip key={t} on={type === t} onClick={() => setType(t)} className="shrink-0">{DOC_LABEL[t]}</Chip>)}
       </div>
 
       {drafts.length > 0 && (
@@ -187,7 +187,7 @@ export function DocumentCenter() {
             {!missing.length ? <Note>לכל החשבוניות בתקופה יש מספר הקצאה (או שלא נדרש).</Note> : missing.map((d) => (
               <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
                 <span className="min-w-0 flex-1">
-                  <strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber} · {d.customerName || 'לקוח'}</strong>
+                  <strong className="block truncate">{DOC_LABEL[d.docType]} {docNumberLabel(d)} · {d.customerName || 'לקוח'}</strong>
                   <span className="text-xs text-muted">{ddmmyyyy(d.docDate)} · לפני מע״מ {ils(d.afterDiscount)} · ע.מ {d.customerDealer}</span>
                 </span>
                 <Pill tone="bad">חסר מספר הקצאה</Pill>
@@ -204,7 +204,7 @@ export function DocumentCenter() {
           {docs.map((d) => (
             <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
               <span className="min-w-0 flex-1">
-                <strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber}{isRefundReceipt(d) ? ' · החזר כספי' : ''} · {d.customerName || 'לקוח מזדמן'}</strong>
+                <strong className="block truncate">{DOC_LABEL[d.docType]} {docNumberLabel(d)}{isRefundReceipt(d) ? ' · החזר כספי' : ''} · {isDepositDoc(d) ? 'הפקדה לבנק' : d.customerName || 'לקוח מזדמן'}</strong>
                 <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">{ddmmyyyy(d.docDate)}{d.dueDate ? ` · לתשלום עד ${ddmmyyyy(d.dueDate)}` : ''}{d.source === 'pos' ? ' · קופה' : ''}{where(d) ? ` · ${where(d)}` : ''}{status(d)}</span>
               </span>
               <strong className="tabular-nums">{ils(d.total)}</strong>
@@ -221,7 +221,7 @@ export function DocumentCenter() {
       {open && <DocView doc={open} onClose={() => setOpen(null)} onChanged={() => void load(false)} />}
       {composer && <Composer mode={composer.mode} initial={composer.initial} onClose={() => setComposer(null)}
         onDone={(r) => {
-          if (r.kind === 'issued') { setComposer(null); say(`הופקה ${DOC_LABEL[r.doc.docType]} מס׳ ${r.doc.docNumber} · ${ils(r.doc.total)}`); setOpen(r.doc); void load(false); void loadDrafts(); }
+          if (r.kind === 'issued') { setComposer(null); say(`הופקה ${DOC_LABEL[r.doc.docType]} מס׳ ${docNumberLabel(r.doc)} · ${ils(r.doc.total)}`); setOpen(r.doc); void load(false); void loadDrafts(); }
           else if (r.kind === 'draft') { setComposer(null); say('הטיוטה נשמרה'); void loadDrafts(); }
         }} />}
     </div>

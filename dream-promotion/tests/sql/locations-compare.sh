@@ -68,9 +68,9 @@ q "insert into public.stores (id, user_id, business_id, name, slug) values ('000
            'buyer@cmp.test', 'pickup', now(), 'mock', now() + interval '15 minutes');" >/dev/null
 
 # every row of the tables 4600 touches, without the columns it adds (and the empty ones a later migration adds: 5500, the
-# company that runs the site — stores.legal_*)
+# company that runs the site — stores.legal_*; 7000, documents.series_location_id / deposit_id — checked empty below)
 TABLES="sales register_shifts sale_refunds documents document_drafts payments expenses appointments orders stores"
-LATER="- 'legal_name' - 'legal_number' - 'legal_number_kind' - 'legal_address' - 'legal_country' - 'a11y_widget' - 'staff_id'"
+LATER="- 'legal_name' - 'legal_number' - 'legal_number_kind' - 'legal_address' - 'legal_country' - 'a11y_widget' - 'staff_id' - 'series_location_id' - 'deposit_id'"
 rows() {
   local out=""
   for t in $TABLES; do
@@ -117,5 +117,7 @@ after_rows=$(rows); after_owner=$(seen "$O"); after_cashier=$(seen "$K")
 [ "$before_cashier" = "$after_cashier" ] || { diff <(echo "$before_cashier") <(echo "$after_cashier"); fail "the cashier sees something else after 4600"; }
 r=$(q "select count(*) filter (where location_id is not null) from public.sales where business_id = '$B'")
 [ "$r" = "0" ] || fail "4600 wrote a location into old rows (got $r)"
+r=$(q "select count(*) filter (where series_location_id is not null or deposit_id is not null) from public.documents where business_id = '$B'")
+[ "$r" = "0" ] || fail "7000 wrote a series or a deposit into old documents (got $r)"
 echo "ok: one location, before and after 4600 → $(echo "$before_rows" | wc -l) tables' rows unchanged; the owner and the cashier see the same rows, sums and summary"
 as_pg dropdb "$DB" >/dev/null

@@ -122,6 +122,15 @@ export class FakeSupabase {
   form101Tables = true;
   /** 2.119: migration 6900 is in the database (the allocation rule, document_allocation_status, the deliveries) — false: as before it */
   cpaStage2 = true;
+  /** 2.120: migration 7000 is in the database (numbering per location — the owner's switch, branch codes, a series per location;
+   *  a bank deposit's document 420) — false: as before it (no such functions, a deposit with no document, one series) */
+  cpaStage3 = true;
+  /** 2.120: when the business switched to numbering per location (document_numbering.per_location_since); null — one series */
+  numberingSince: string | null = null;
+  /** 2.120: a location's series of a document type: "location:type" → its last running number (document_series) */
+  series = new Map<string, number>();
+  /** 2.120: the deposit whose document is being issued / cancelled now (dp.deposit_doc — local to bank_deposit_create / _cancel) */
+  private depositDoc: string | null = null;
   /** 2.107: the signed-in person's part in attendance (att_role) */
   attendanceRole = 'admin';
   /** the moments of the history: one after another, also within the same millisecond (clock_timestamp() in the database) */
@@ -430,12 +439,30 @@ export class FakeSupabase {
       }
       const goods = this.goodsCheck(r);
       if (goods) return goods;
+      // 2.120 (7000): a 420 only with its deposit (bank_deposit_create); never a deposit on another document
+      if ((r.deposit_id != null && r.doc_type !== 420) || (r.doc_type === 420 && (!this.cpaStage3 || !r.deposit_id || this.depositDoc !== r.deposit_id))) {
+        return this.cpaStage3 ? 'deposit_document_only: מסמך הפקדה (420) מופק רק יחד עם ההפקדה (bank_deposit_create)'
+          : 'new row for relation "documents" violates check constraint "documents_doc_type_check"';
+      }
       const st = this.t('register_settings')[0] ?? {};
-      const n = (this.counters.get(r.doc_type) ?? 0) + 1; this.counters.set(r.doc_type, n);
+      // 2.120 (7000): numbering per location — the location's branch code, then its running number of the type (code × 1,000,000 + n)
+      let n: number;
+      r.series_location_id = null;
+      if (this.cpaStage3 && this.numberingSince) {
+        const loc = this.rowLocation(r);
+        const code = this.places().locations.find((l) => l.id === loc)?.branch_code;
+        if (!code || !/^(0[1-9]|[1-9][0-9])$/.test(code)) return 'branch_code_missing: לסניף אין קוד סניף (01–99)';
+        const k = `${loc}:${r.doc_type}`, last = this.series.get(k) ?? 0;
+        if (last >= 999999) return 'series_full: הסדרה של הסניף הגיעה ל-999,999 מסמכים מהסוג הזה';
+        this.series.set(k, last + 1);
+        n = Number(code) * 1_000_000 + last + 1;
+        r.series_location_id = loc;
+      } else { n = (this.counters.get(r.doc_type) ?? 0) + 1; this.counters.set(r.doc_type, n); }
+      if (!this.cpaStage3) { delete r.series_location_id; delete r.deposit_id; }
       Object.assign(r, { doc_number: n, issued_at: now(), print_count: 0, link_no: ++this.linkNo, share_token: randomBytes(32).toString('hex'),
         issuer: { name: st.legal_name ?? '', dealerNumber: st.dealer_number ?? '', entityType: st.entity_type ?? (st.business_type === 'exempt' ? 'exempt_dealer' : 'licensed_dealer'), vatRate: st.vat_rate,
           ...this.issuerLocation(r) },
-        source: r.source ?? (r.refund_id ? 'refund' : r.sale_id ? 'pos' : r.paid_document_id ? 'receipt' : r.quote_id ? 'quote' : r.doc_type === 330 ? 'credit' : 'direct'),
+        source: r.doc_type === 420 ? 'deposit' : r.source ?? (r.refund_id ? 'refund' : r.sale_id ? 'pos' : r.paid_document_id ? 'receipt' : r.quote_id ? 'quote' : r.doc_type === 330 ? 'credit' : 'direct'),
         due_date: r.doc_type === 305 || r.doc_type === 300 ? r.due_date ?? null : null, notes: r.notes ?? '' });
     }
     if (table === 'quotes') {
@@ -462,6 +489,11 @@ export class FakeSupabase {
     if (table === 'document_cancellations') { const e = this.goodsCancelCheck(r.document_id); if (e) return e; }
     // 2.118 (migration 6800): a receipt is not cancelled by marking
     if (table === 'document_cancellations' && this.t('documents').some((d) => d.id === r.document_id && d.doc_type === 400)) return 'cancel_receipt_not_allowed: a receipt is refunded, not cancelled';
+    // 2.120 (7000): a deposit's document is cancelled only with its deposit (bank_deposit_cancel)
+    if (table === 'document_cancellations' && this.t('documents').some((d) => d.id === r.document_id && d.doc_type === 420
+      && (this.depositDoc !== d.deposit_id || this.t('bank_deposits').find((x) => x.id === d.deposit_id)?.status !== 'cancelled'))) {
+      return 'cancel_deposit_document: מסמך הפקדה מבוטל רק יחד עם ההפקדה (ביטול הפקדה)';
+    }
     if (table === 'sales') { r.status ??= 'paid'; r.payments ??= []; r.discount ??= 0; r.note ??= ''; }
     if (table === 'store_coupons') { r.code = String(r.code ?? '').toUpperCase(); r.active ??= true; r.used_count = 0; r.min_subtotal ??= 0; }
     // 3500: a sale of the register does not take units held for an order on the site (c_sales_reserved); 4700: the held units are
@@ -794,7 +826,8 @@ export class FakeSupabase {
       if (table === 'sales') from = find('orders', r.id);
       if (table === 'documents') {
         from = find('sales', r.sale_id) ?? find('sale_refunds', r.refund_id) ?? find('documents', r.paid_document_id) ?? find('document_drafts', r.draft_id)
-          ?? (r.base_doc_number != null ? this.t('documents').find((d) => d.doc_type === r.base_doc_type && d.doc_number === r.base_doc_number) : undefined);
+          ?? (r.base_doc_number != null && !(this.cpaStage3 && this.numberingSince && (r.doc_type === 330 || r.doc_type === 400))
+            ? this.t('documents').find((d) => d.doc_type === r.base_doc_type && d.doc_number === r.base_doc_number) : undefined);
       }
       if (table === 'payments') from = find('documents', r.document_id) ?? find('documents', r.applies_to) ?? find('sale_refunds', r.refund_id) ?? find('sales', r.sale_id) ?? find('expenses', r.expense_id);
       if (from) loc = this.rowLocation(from);
@@ -1687,6 +1720,55 @@ export class FakeSupabase {
       && !(p.expense_id && this.t('expenses').some((e) => e.id === p.expense_id && e.status === 'void'))
       && !this.t('bank_deposit_cheques').some((x) => x.payment_id === p.id && x.active);
   }
+  /** 2.120: a deposit's document as bank_deposit_create / deposit_book answer it — the key only when it has one */
+  private depositDocKey(id: string): Row {
+    const x = this.cpaStage3 ? this.t('documents').find((d) => d.deposit_id === id) : undefined;
+    return x ? { document: { id: x.id, number: x.doc_number } } : {};
+  }
+  /** 2.120 (7000): document_numbering_state / document_numbering_per_location / location_branch_code_set */
+  numberingRpc(fn: string, args: any): { status: number; body: any } | null {
+    if (!['document_numbering_state', 'document_numbering_per_location', 'location_branch_code_set'].includes(fn)) return null;
+    if (!this.cpaStage3) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const refuse = (code: string, message: string) => ({ status: 400, body: { code, message, details: null, hint: null } });
+    const b = this.opts.businessId;
+    const { locations } = this.places();
+    const fixed = (id: string) => this.t('documents').some((d) => d.series_location_id === id);
+    const nextCode = () => { for (let g = 1; g <= 99; g++) { const c = String(g).padStart(2, '0'); if (!locations.some((l) => l.branch_code === c)) return c; } return null; };
+    const state = () => ({
+      perLocation: Boolean(this.numberingSince), since: this.numberingSince, activeLocations: locations.filter((l) => l.active).length,
+      business: Object.fromEntries([...this.counters].map(([t, n]) => [String(t), n])),
+      locations: locations.filter((l) => this.mayUse(l.id)).map((l) => ({ id: l.id, name: l.name, active: l.active, branchCode: l.branch_code ?? null, codeFixed: fixed(l.id),
+        series: l.branch_code ? [...this.series].filter(([k]) => k.startsWith(`${l.id}:`)).map(([k, n]) => ({ docType: Number(k.split(':')[1]), count: n,
+          last: String(Number(l.branch_code) * 1_000_000 + n).padStart(8, '0'), next: String(Number(l.branch_code) * 1_000_000 + n + 1).padStart(8, '0') }))
+          .sort((x, y) => x.docType - y.docType) : [] })),
+    });
+    if (fn === 'document_numbering_state') return { status: 200, body: state() };
+    const owner = this.owner && !this.memberLocations;
+    if (!owner) return refuse('42501', 'not allowed');
+    if (fn === 'document_numbering_per_location') {
+      if (this.numberingSince) return { status: 200, body: state() };
+      if (locations.filter((l) => l.active).length < 2) return refuse('23514', 'numbering_one_location: מספור לפי סניף — לעסק עם יותר מסניף פעיל אחד');
+      if ([...this.counters.values()].some((n) => n >= 1_000_000)) return refuse('23514', 'numbering_long_series: לעסק כבר יש מספר מסמך של 7 ספרות');
+      for (const l of locations) if (!l.branch_code) { const row = this.t('business_locations').find((x) => x.id === l.id)!; row.branch_code = nextCode(); }
+      this.numberingSince = now();
+      this.log('numbering.per_location', b, { locations: locations.filter((l) => l.active).length });
+      return { status: 200, body: state() };
+    }
+    // location_branch_code_set
+    const row = this.t('business_locations').find((l) => l.id === args.p_location);
+    if (!row) return refuse('22023', 'branch_code_location: a location of the business');
+    let code: string | null = String(args.p_code ?? '').trim() || null;
+    if (code && /^[1-9]$/.test(code)) code = `0${code}`;
+    if (code && !/^(0[1-9]|[1-9][0-9])$/.test(code)) return refuse('22023', 'branch_code_format: קוד סניף — שתי ספרות, 01 עד 99');
+    if (code && this.t('business_locations').some((l) => l.id !== row.id && l.branch_code === code)) return refuse('23505', 'branch_code_taken: הקוד הזה כבר של סניף אחר');
+    if ((row.branch_code ?? null) !== code) {
+      if (fixed(row.id)) return refuse('23514', 'branch_code_fixed: קוד הסניף נקבע — לסניף כבר יש מסמכים בסדרה שלו');
+      if (!code && this.numberingSince) return refuse('23514', 'branch_code_required: בעסק שממספר לפי סניף לכל סניף יש קוד');
+      row.branch_code = code;
+    }
+    this.log('location.branch_code', row.id, { code });
+    return { status: 200, body: { location: row.id, branchCode: code } };
+  }
   private cashRpc(fn: string, args: any): { status: number; body: any } | null {
     const names = ['cash_desks', 'cheque_book', 'deposit_book', 'bank_deposit_create', 'bank_deposit_cancel', 'bank_import', 'bank_book', 'bank_candidates', 'bank_match',
       'bank_unmatch', 'bank_line_handle', 'bank_line_reopen'];
@@ -1745,13 +1827,13 @@ export class FakeSupabase {
             const p = this.t('payments').find((y) => y.id === x.payment_id)!, dd = doc(p.document_id);
             return { payment: x.payment_id, amount: Number(x.amount), number: String(p.reference?.number ?? ''), bank: String(p.reference?.bank ?? ''), dueDate: iso(p.reference?.dueDate),
               customer: dd?.customer_name ?? '', docType: dd?.doc_type ?? null, docNumber: dd?.doc_number ?? null };
-          }) })));
+          }), ...this.depositDocKey(d.id) })));
     }
     if (fn === 'bank_deposit_create') {
       const id = String(args.p_id ?? '');
       if (!id) return bad('22023', 'deposit_id: a new deposit has an id');
       const same = this.t('bank_deposits').find((d) => d.id === id);
-      if (same) return ok({ id, number: same.number, created: false });
+      if (same) return ok({ id, number: same.number, created: false, ...this.depositDocKey(id) });
       const date = String(args.p_date ?? '');
       if (!iso(date) || date > today) return bad('22023', 'deposit_date: a deposit is dated today or before');
       if (this.finance.lockedUntil && date <= this.finance.lockedUntil) return bad('23514', `period_locked: the books are closed until ${this.finance.lockedUntil}`);
@@ -1771,8 +1853,25 @@ export class FakeSupabase {
       this.t('bank_deposits').push({ id, business_id: this.opts.businessId, location_id: loc, number, deposited_on: date, cash, cheques, note: String(args.p_note ?? '').trim().slice(0, 300),
         status: 'active', cancel_reason: '', cancelled_at: null, user_id: this.opts.userId, created_at: now() });
       for (const p of chq) this.t('bank_deposit_cheques').push({ deposit_id: id, business_id: this.opts.businessId, location_id: loc, payment_id: p!.id, amount: Number(p!.amount), active: true });
+      // 2.120 (7000): the deposit is a document of the books — 420 "הפקדת בנק", its lines the cash and each cheque (only with the
+      // business's dealer number; no customer, no lines, no VAT; numbered — per location after the switch)
+      if (this.cpaStage3 && /^[0-9]{9}$/.test(String(this.t('register_settings')[0]?.dealer_number ?? ''))) {
+        const pays = [...(cash > 0 ? [{ method: 1, m: 'cash', amount: cash, date }] : []),
+          ...chq.map((p) => ({ method: 2, m: 'cheque', amount: Number(p!.amount), date,
+            ...(/^[0-9]{1,10}$/.test(String(p!.reference?.number ?? '')) ? { cheque: Object.fromEntries(Object.entries({ number: p!.reference?.number, bank: p!.reference?.bank,
+              branch: p!.reference?.branch, account: p!.reference?.account, dueDate: p!.reference?.dueDate }).filter(([, v]) => v != null && v !== '')) } : {}) }))];
+        const row: Row = { user_id: this.opts.userId, business_id: this.opts.businessId, location_id: loc, doc_type: 420, doc_number: 0, doc_date: today, lines: [], payments: pays,
+          before_discount: r2(cash + cheques), discount: 0, after_discount: r2(cash + cheques), vat_amount: 0, total: r2(cash + cheques), vat_rate: 0,
+          customer_name: '', customer_phone: '', customer_dealer: '', customer_street: '', customer_city: '', customer_email: '',
+          idempotency_key: `deposit:${id}`, deposit_id: id, issued_by: '' };
+        this.depositDoc = id;
+        const e = this.beforeInsert('documents', row);
+        this.depositDoc = null;
+        if (e) return bad('23514', e);
+        this.t('documents').push(row); this.afterInsert('documents', row);
+      }
       this.log('deposit.created', id, { number, date, cash, cheques: chq.length, total: r2(cash + cheques) });
-      return ok({ id, number, created: true });
+      return ok({ id, number, created: true, ...this.depositDocKey(id) });
     }
     if (fn === 'bank_deposit_cancel') {
       const d = this.t('bank_deposits').find((x) => x.id === args.p_id);
@@ -1783,6 +1882,15 @@ export class FakeSupabase {
       if (this.t('bank_matches').some((m) => m.deposit_id === d.id && m.active)) return bad('23514', 'deposit_matched: the bank already matched this deposit — undo that match first');
       Object.assign(d, { status: 'cancelled', cancel_reason: String(args.p_reason).trim(), cancelled_at: now() });
       for (const x of this.t('bank_deposit_cheques').filter((y) => y.deposit_id === d.id)) x.active = false;
+      // 2.120 (7000): its document (420) is cancelled with it
+      const dd = this.cpaStage3 ? this.t('documents').find((x) => x.deposit_id === d.id) : undefined;
+      if (dd && !this.docCancelled(dd.id)) {
+        const c: Row = { document_id: dd.id, business_id: this.opts.businessId, user_id: this.opts.userId, reason: String(args.p_reason).trim().slice(0, 300) };
+        this.depositDoc = d.id;
+        const e = this.beforeInsert('document_cancellations', c);
+        this.depositDoc = null;
+        if (!e) { this.t('document_cancellations').push(c); this.afterInsert('document_cancellations', c); }
+      }
       this.log('deposit.cancelled', d.id, { number: d.number, reason: d.cancel_reason });
       return ok({ id: d.id, result: 'cancelled' });
     }
@@ -1977,6 +2085,8 @@ export class FakeSupabase {
     if (reported) return reported;
     const cashed = this.cashRpc(fn, args);
     if (cashed) return cashed;
+    const numbered = this.numberingRpc(fn, args);
+    if (numbered) return numbered;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
     // 2.105 (migration 5700): the team for the calendar — names, colours, who is a practitioner; never a number

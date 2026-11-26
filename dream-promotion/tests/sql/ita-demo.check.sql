@@ -107,15 +107,43 @@ select pg_temp.check((select register_settings.entity_type = 'licensed_dealer' a
                         and legal_name <> '' and street <> '' and city <> '' and zip <> ''
                         from public.register_settings where business_id = 'd3e00000-0000-4000-8000-000000000001'),
   'the demo is a licensed dealer with a valid dealer number and full issuer details');
-select pg_temp.check((select array_agg(distinct doc_type order by doc_type) from ita_docs) = array[300, 305, 320, 330, 400],
-  'every document type of a licensed dealer: 300, 305, 320, 330, 400');
--- numbered 1..n per type, no gap, no double, and the counter at n
+select pg_temp.check((select array_agg(distinct doc_type order by doc_type) from ita_docs) = array[300, 305, 320, 330, 400, 420],
+  'every document type of a licensed dealer: 300, 305, 320, 330, 400 — and 420, its deposits (7000)');
+-- the business's one series (every document before the switch): numbered 1..n per type, no gap, no double, and the counter at n
 select pg_temp.check(not exists (
-  select 1 from (select doc_type, count(*) n, max(doc_number) mx, min(doc_number) mn, count(distinct doc_number) dn from ita_docs group by doc_type) t
+  select 1 from (select doc_type, count(*) n, max(doc_number) mx, min(doc_number) mn, count(distinct doc_number) dn
+                   from ita_docs where series_location_id is null group by doc_type) t
    left join public.document_counters c on c.business_id = 'd3e00000-0000-4000-8000-000000000001' and c.doc_type = t.doc_type
    where t.mn <> 1 or t.mx <> t.n or t.dn <> t.n or c.last_no is distinct from t.n), 'numbered 1..n per type, without gaps, and the counter is at n');
-select pg_temp.check(not exists (select 1 from ita_docs d where d.doc_number <> (select count(*) from ita_docs x where x.doc_type = d.doc_type and x.link_no <= d.link_no)),
+select pg_temp.check(not exists (select 1 from ita_docs d where d.series_location_id is null
+                                   and d.doc_number <> (select count(*) from ita_docs x where x.doc_type = d.doc_type and x.series_location_id is null and x.link_no <= d.link_no)),
   'the numbers of each type follow the order of issue');
+-- ---- 2.120 (7000): after the switch — each location's series: its branch code, then 1, 2 … per type ----------------------
+select pg_temp.check((select count(*) from public.document_numbering where business_id = 'd3e00000-0000-4000-8000-000000000001') = 1
+  and (select string_agg(branch_code, ',' order by branch_code) from public.business_locations where business_id = 'd3e00000-0000-4000-8000-000000000001') = '01,02',
+  'the demo numbers per location: the main location 01, the second 02');
+select pg_temp.check((select string_agg(doc_type || ':' || lpad(doc_number::text, 8, '0') || '@' || l.branch_code, ' ' order by x.link_no)
+                        from ita_docs x join public.business_locations l on l.id = x.series_location_id)
+  = '320:01000001@01 320:01000002@01 320:02000001@02 320:02000002@02 330:01000001@01 420:01000001@01 420:02000001@02',
+  'after the switch: 320 01000001, 01000002 / 02000001, 02000002; the 330 01000001; the deposits 420 01000001 / 02000001');
+select pg_temp.check((select x.location_id = 'd3e00000-0000-4000-8000-000000000001' and x.base_doc_type = 320 and x.base_doc_number = 2000001
+                             and b.location_id = 'd3e00000-0000-4000-8000-0000000000c2' and x.total = round(b.total / 2, 2)
+                        from ita_docs x join ita_docs b on b.doc_type = 320 and b.doc_number = x.base_doc_number
+                       where x.doc_type = 330 and x.series_location_id is not null),
+  'the 330 of location 01 credits half of 320 02000001 of location 02');
+select pg_temp.check((select doc_date = date '2026-10-30' and lines = '[]'::jsonb and vat_amount = 0 and total = 500 + (payments->1->>'amount')::numeric
+                             and payments->0 @> '{"method": 1, "amount": 500}'::jsonb and payments->1->>'method' = '2'
+                             and payments->1->'cheque' ?& array['number', 'bank', 'branch', 'account', 'dueDate']
+                             and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)
+                        from ita_docs x where deposit_id = 'd3e00000-0000-4000-8000-0000000000e1'),
+  'the deposit of location 01: a 420 of 30.10.2026 — 500 in cash and a cheque with all its details');
+select pg_temp.check((select doc_date = date '2026-10-30' and total = 100 and exists (select 1 from public.document_cancellations c where c.document_id = x.id)
+                        from ita_docs x where deposit_id = 'd3e00000-0000-4000-8000-0000000000e2')
+  and (select status from public.bank_deposits where id = 'd3e00000-0000-4000-8000-0000000000e2') = 'cancelled'
+  and (select status from public.bank_deposits where id = 'd3e00000-0000-4000-8000-0000000000e1') = 'active',
+  'the deposit of location 02: cancelled, and its 420 with it');
+select pg_temp.check((select bool_and(business_id = 'd3e00000-0000-4000-8000-000000000001') from public.business_finance_profile
+                       where business_id = 'd3e00000-0000-4000-8000-000000000001' and cash_drawers), 'the money desks are on');
 select pg_temp.check((select bool_and(doc_date between date '2026-06-01' and date '2026-10-31' and extract(isodow from doc_date) <> 6 and doc_date < public.il_today())
                         from ita_docs), 'dated June–October 2026, in the past, no Saturday');
 select pg_temp.check((select count(distinct date_trunc('month', doc_date)) from ita_docs) = 5, 'five months of documents');
@@ -141,15 +169,15 @@ select pg_temp.check(not exists (select 1 from ita_docs inv where inv.doc_type i
         + (select coalesce(sum(c.total), 0) from ita_docs c where c.doc_type = 330 and c.base_doc_type = inv.doc_type and c.base_doc_number = inv.doc_number)),
   'never paid beyond the invoice');
 -- cancellations: only 300 / 400, some of each; a cancelled receipt's money is reversed in the ledger
-select pg_temp.check((select array_agg(distinct d.doc_type order by d.doc_type) from public.document_cancellations c join ita_docs d on d.id = c.document_id) = array[300, 400],
-  'cancellations of 300 and of 400 only');
+select pg_temp.check((select array_agg(distinct d.doc_type order by d.doc_type) from public.document_cancellations c join ita_docs d on d.id = c.document_id) = array[300, 400, 420],
+  'cancellations of 300 and of 400 only (and the cancelled deposit''s 420)');
 select pg_temp.check(not exists (select 1 from public.document_cancellations c join ita_docs d on d.id = c.document_id
                                   where d.doc_type = 300 and exists (select 1 from ita_docs p where p.paid_document_id = d.id)), 'a cancelled 300 was never paid');
 select pg_temp.check((select coalesce(sum(amount), 0) from public.payments where business_id = 'd3e00000-0000-4000-8000-000000000001' and direction = 'out')
                    = (select coalesce(sum((p->>'amount')::numeric), 0) from public.document_cancellations c join ita_docs d on d.id = c.document_id,
-                        jsonb_array_elements(d.payments) p), 'the money of every cancelled receipt went back off the books, nothing else');
+                        jsonb_array_elements(d.payments) p where d.doc_type in (320, 400)), 'the money of every cancelled receipt went back off the books, nothing else');
 select pg_temp.check((select count(*) from public.payments where business_id = 'd3e00000-0000-4000-8000-000000000001' and direction = 'in')
-                   = (select sum(jsonb_array_length(payments)) from ita_docs), 'one ledger row per payment of a receipt');
+                   = (select sum(jsonb_array_length(payments)) from ita_docs where doc_type in (320, 400)), 'one ledger row per payment of a receipt (a 420 moves no money)');
 -- payments: cash, cheque (with its details), card, transfer, other (Bit, other, tax withheld at source)
 select pg_temp.check((select array_agg(distinct (p->>'method')::int order by (p->>'method')::int) from ita_docs, jsonb_array_elements(payments) p) = array[1, 2, 3, 4, 9],
   'payments by cash, cheque, card, transfer and other');
@@ -172,8 +200,9 @@ select pg_temp.check((select count(*) + sum(jsonb_array_length(lines)) + sum(jso
   'between 2,000 and 6,000 records of C100 + D110 + D120');
 select pg_temp.check((select count(*) * 446 + sum(jsonb_array_length(lines)) * 341 + sum(jsonb_array_length(payments)) * 224 from ita_docs) < 4000000,
   'BKMVDATA under 4MB');
-select pg_temp.check((select count(*) from public.business_locations where business_id = 'd3e00000-0000-4000-8000-000000000001') = 1,
-  'the demo has its one main location (no location line on its documents)');
+select pg_temp.check((select count(*) from public.business_locations where business_id = 'd3e00000-0000-4000-8000-000000000001') = 2
+  and not exists (select 1 from ita_docs where doc_date < date '2026-10-30' and issuer ? 'location'),
+  'the demo has its main location and, from 30.10.2026, a second one (no location line on the documents before it)');
 
 -- ---- the exempt dealer's demo (2.118) --------------------------------------------------------------------------------------
 create temp view ita_x as select * from public.documents where business_id = 'd3e00000-0000-4000-8000-000000000003';

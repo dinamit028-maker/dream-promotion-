@@ -48,8 +48,17 @@ const docs = docRows.map(toDoc).map((d) => ({ ...d, cancelled: cancels.has(d.id)
 const hasCodes = q(`select to_json(to_regclass('public.member_doc_codes') is not null)`);
 const codes = docCodesMap(hasCodes ? q(`select coalesce(json_agg(json_build_object('user_id', user_id, 'code', code)), '[]') from member_doc_codes where business_id='${BIZ}'`) : []);
 
+// 2.120 (migration 20261127007000): a business that numbers per location — 1034 = 1 and each document's branch code, as pack()
+// does (loadBranchInfo); a database before 7000 / a business that did not switch — none (the file as before)
+const switched = q(`select to_json(to_regclass('public.document_numbering') is not null and exists (select 1 from document_numbering where business_id='${BIZ}'))`);
+let branches = null;
+if (switched) {
+  const locs = q(`select coalesce(json_agg(json_build_object('id', id, 'code', branch_code)), '[]') from business_locations where business_id='${BIZ}' and branch_code is not null`);
+  const baseRows = q(`select coalesce(json_agg(json_build_object('k', doc_type || ':' || doc_number, 'loc', location_id)), '[]') from documents where business_id='${BIZ}'`);
+  branches = { perLocation: true, businessId: BIZ, codes: new Map(locs.map((l) => [l.id, l.code])), baseLocations: new Map(baseRows.map((r) => [r.k, r.loc])) };
+}
 const startedAt = new Date().toISOString();
-const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes });
+const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches });
 const dir = join(out, ...f.dir.split('\\'));
 rmSync(join(out, 'OPENFRMT'), { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });

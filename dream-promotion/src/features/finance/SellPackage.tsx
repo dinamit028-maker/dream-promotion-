@@ -5,7 +5,7 @@ import { useApp } from '@/lib/store';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import type { Lead } from '@/types';
 import { accessState, documentRow, issueDocumentRow } from './api';
 import { composeDocument, computeLines, type ComposeCustomer } from './compose';
@@ -167,7 +167,7 @@ export function SellPackageDialog({ leadId, existing, basics: given, onClose, on
           return;
         }
         if (!out.again) {
-          addActivity(customer.id, 'purchase', `נמכרה חבילה: ${pkg!.name} (${sessionsLabel(sessions)}) · ${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber} · ${ils(out.doc.total)}`);
+          addActivity(customer.id, 'purchase', `נמכרה חבילה: ${pkg!.name} (${sessionsLabel(sessions)}) · ${DOC_LABEL[out.doc.docType]} מס׳ ${docNumberLabel(out.doc)} · ${ils(out.doc.total)}`);
           // the customer's value, as the document composer adds it (a transaction invoice counts when its receipt comes)
           if (out.doc.docType !== 300) {
             const l = useApp.getState().leads.find((x) => x.id === customer.id);

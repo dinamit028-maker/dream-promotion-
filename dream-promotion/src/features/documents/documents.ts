@@ -1,5 +1,5 @@
 import { paymentsOf, type Line, type Method, type Sale } from '@/features/register/money';
-import { txKind, type Doc, type DocLine } from './openformat';
+import { seriesNumber, txKind, type Doc, type DocLine } from './openformat';
 import { netOfGross } from '@/features/finance/vat';
 import { withSerials } from '@/features/catalog/serials';
 
@@ -11,17 +11,47 @@ import { withSerials } from '@/features/catalog/serials';
  */
 export const DOC_LABEL: Record<number, string> = { 300: 'חשבונית עסקה', 305: 'חשבונית מס', 320: 'חשבונית מס / קבלה', 330: 'חשבונית מס זיכוי', 400: 'קבלה',
   // 2.95 (T10): for a business that sells products — the unified file's codes
-  100: 'הזמנה', 200: 'תעודת משלוח', 210: 'תעודת החזרה' };
+  100: 'הזמנה', 200: 'תעודת משלוח', 210: 'תעודת החזרה',
+  // 2.120 (migration 20261127007000 — the accountant's answer 18): a bank deposit is a document of the books, issued only with the
+  // deposit (bank_deposit_create) — 1.31 appendix 1 (§5.1, p. 18): 420 "הפקדת בנק"
+  420: 'הפקדת בנק' };
+/** a bank deposit's document (420): no customer, no lines — never in a customer's list, never delivered, cancelled only with its deposit */
+export const isDepositDoc = (d: { docType: number }) => d.docType === 420;
+/** the line of a deposit's document where a customer's name would be */
+export const DEPOSIT_LINE = 'הפקדה לבנק — המזומן והצ׳קים שהופקדו';
+/** what the document's screen says of a deposit's document */
+export const DEPOSIT_DOC_NOTE = 'מסמך הפקדה (הפקדת בנק) הופק יחד עם ההפקדה, והוא של העסק — לא נמסר ללקוח. לא משנים ולא מוחקים אותו; הוא מבוטל רק יחד עם ההפקדה (כספים ← קופות ← הפקדות).';
+/**
+ * A document's number as it is shown and written — everywhere (the screens, the print, the PDF, the link, WhatsApp, the CSV, the
+ * unified file's 1204 / 1257 / 1304 / 1357 / 1359). 2.120 (migration 20261127007000 — the accountant's answer 5, the owner's
+ * decision of 26.11.2026): after a business numbers per location, a number is the location's two-digit branch code and then its
+ * six-digit running number — stored as the number (doc_number = code × 1,000,000 + n: 1000001), shown with its eight digits
+ * (01000001). A number of a location's series is ≥ 1,000,001 (the code is 01 at least); the business's own series is always below
+ * 1,000,000 (document_numbering_per_location refuses a business that reached it) — so the number alone tells which it is, also for
+ * a base document (1257) whose row is not at hand. Every number below 1,000,000 is shown exactly as before (String(n)).
+ * Source for the leading zeros in the file: 1.31 §2.4ד (p. 6): digits only may be written with leading zeros, the same way in
+ * every field that carries the number (checked against horaot-131.pdf, 26.11.2026).
+ */
+export function docNumberLabel(d: number | string | null | undefined | { docNumber: number | string | null | undefined; seriesLocationId?: string | null }): string {
+  const o = d != null && typeof d === 'object' ? d : null;
+  const raw = o ? o.docNumber : (d as number | string | null | undefined);
+  if (raw == null || raw === '') return '';
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n < 0) return String(raw);
+  // the file's own rule (seriesNumber, openformat.ts) — the screens and the file write a number the same way
+  return o?.seriesLocationId && n <= 99_999_999 ? String(n).padStart(8, '0') : seriesNumber(n);
+}
 /** the total's name on a printed document — 2.118: a refund receipt (a 400 below zero, new) "סה״כ הוחזר"; every other as before */
 export const totalLabel = (t: number, total = 0) =>
-  t === 400 && total < 0 ? 'סה״כ הוחזר'
+  t === 420 ? 'סה״כ הופקד'   // 2.120: a bank deposit (new)
+    : t === 400 && total < 0 ? 'סה״כ הוחזר'
     : t === 330 ? 'סה״כ זיכוי' : t === 400 || t === 320 ? 'סה״כ שולם' : t === 100 ? 'סה״כ הזמנה' : t === 200 ? 'סה״כ' : t === 210 ? 'סה״כ החזרה' : 'סה״כ לתשלום';
 /** a delivery note's last line: who received the goods (signed on paper) */
 export const RECEIVED_LINE = 'קיבלתי את הסחורה המפורטת לעיל — שם: ____________________   חתימה: ____________________';
 /** the line on a document naming the document it stands on (fields 1256/1257): a credit invoice's invoice, an invoice's delivery note / order */
 export function baseDocLine(d: { docType: number; baseDocType?: number | null; baseDocNumber?: number | null }): string {
   if (!d.baseDocNumber || !d.baseDocType) return '';
-  const what = `${DOC_LABEL[d.baseDocType] ?? 'מסמך'} מס׳ ${d.baseDocNumber}`;
+  const what = `${DOC_LABEL[d.baseDocType] ?? 'מסמך'} מס׳ ${docNumberLabel(d.baseDocNumber)}`;
   return d.docType === 330 ? `זיכוי עבור ${what}` : d.docType === 210 ? `החזרה על ${what}`
     : d.docType === 400 && d.baseDocType === 400 ? `החזר כספי על ${what}` : `על פי ${what}`;   // 2.118: a refund receipt (new only)
 }
@@ -67,6 +97,10 @@ export interface DocRow extends Doc {
   paidDocumentId?: string | null; quoteId?: string | null; refundId?: string | null;
   /** 2.91 (T12א): the location it was issued in (none = the main one, or before locations) */
   locationId?: string | null;
+  /** 2.120 (migration 7000): the location whose series numbered it (none = the business's one series — every document before) */
+  seriesLocationId?: string | null;
+  /** 2.120 (migration 7000): the bank deposit a 420 mirrors */
+  depositId?: string | null;
 }
 /** the issuer to print: the document's own snapshot, else (before 2.51) the business as it is today */
 export function issuerFor(d: { issuer?: Issuer | null }, fallback: { name: string; dealerNumber: string; companyNumber?: string; street?: string; houseNo?: string; city?: string; zip?: string; entityType?: string }): Issuer {
@@ -83,6 +117,9 @@ export const toDoc = (r: any): DocRow => ({
   leadId: r.lead_id ?? null, dueDate: r.due_date ?? null, notes: r.notes ?? '', customerEmail: r.customer_email ?? '', issuer: r.issuer ?? null, source: r.source ?? null,
   paidDocumentId: r.paid_document_id ?? null, quoteId: r.quote_id ?? null, refundId: r.refund_id ?? null, locationId: r.location_id ?? null,
   userId: r.user_id ?? null,
+  // 2.120 (migration 7000) — only when the row has them (a database before it has neither column: the document as before)
+  ...(r.series_location_id ? { seriesLocationId: String(r.series_location_id) } : {}),
+  ...(r.deposit_id ? { depositId: String(r.deposit_id) } : {}),
 });
 
 export function docFromSale(sale: Pick<Sale, 'items' | 'discount' | 'total' | 'vatAmount' | 'vatRate' | 'method' | 'customerName' | 'customerPhone' | 'payments'>
@@ -141,7 +178,7 @@ export function creditForRefund(orig: Doc, refund: { amount: number; vatAmount: 
       const totA = exVat(Math.round(ag(l.price) * l.qty * factor));
       return { name: withSerials(l.name, l.serials), qty: l.qty, unitPriceExVat: sh(Math.round(totA / l.qty)), discountExVat: 0, totalExVat: sh(totA), vatRate: rate, kind: txKind(l) };
     })
-    : [{ name: `החזר חלקי — ${DOC_LABEL[orig.docType]} מס׳ ${orig.docNumber}`, qty: 1, unitPriceExVat: sh(afterA), discountExVat: 0, totalExVat: sh(afterA), vatRate: rate, kind: 1 as const }];
+    : [{ name: `החזר חלקי — ${DOC_LABEL[orig.docType]} מס׳ ${docNumberLabel(orig.docNumber)}`, qty: 1, unitPriceExVat: sh(afterA), discountExVat: 0, totalExVat: sh(afterA), vatRate: rate, kind: 1 as const }];
   const sumA = lines.reduce((a, l) => a + ag(l.totalExVat), 0);
   if (sumA !== afterA) { const last = lines[lines.length - 1]; last.totalExVat = sh(ag(last.totalExVat) + (afterA - sumA)); } // the last line absorbs the agora
   return {
@@ -173,7 +210,7 @@ export function refundReceiptFor(base: Pick<Doc, 'docType' | 'docNumber' | 'tota
   const baseCard = base.payments.find((p) => p.method === 3)?.cardKind;
   const lines: DocLine[] = o.lines?.length
     ? o.lines.map((l) => ({ ...l, unitPriceExVat: -Math.abs(l.unitPriceExVat), totalExVat: -Math.abs(l.totalExVat), discountExVat: 0, vatRate: 0 }))
-    : [{ name: `החזר כספי — קבלה מס׳ ${base.docNumber}`, qty: 1, unitPriceExVat: -sh(amountA), discountExVat: 0, totalExVat: -sh(amountA), vatRate: 0, kind: 1 }];
+    : [{ name: `החזר כספי — קבלה מס׳ ${docNumberLabel(base.docNumber)}`, qty: 1, unitPriceExVat: -sh(amountA), discountExVat: 0, totalExVat: -sh(amountA), vatRate: 0, kind: 1 }];
   const linesA = lines.reduce((a, l) => a + ag(l.totalExVat), 0);
   if (linesA !== -amountA) { const last = lines[lines.length - 1]; last.totalExVat = sh(ag(last.totalExVat) + (-amountA - linesA)); } // the last line absorbs the agora
   return {

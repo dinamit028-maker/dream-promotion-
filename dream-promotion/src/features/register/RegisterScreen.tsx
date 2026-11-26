@@ -12,7 +12,7 @@ import { CashRegister, CornersIn, CornersOut } from '@/components/ui/Icon';
 import { phoneDigits, waLink } from '@/features/crm/crm';
 import { DocumentsTab, docInsertRow, printDocRow, toDoc, type DocRow } from '@/features/documents/DocumentsTab';
 import { sendDocLink, staffPdf } from '@/features/documents/deliver';
-import { DOC_LABEL, creditFor, creditForRefund, creditedTotals, docFromSale, isRefundReceipt } from '@/features/documents/documents';
+import { DOC_LABEL, creditFor, creditForRefund, creditedTotals, docFromSale, isRefundReceipt, docNumberLabel } from '@/features/documents/documents';
 import { enablePush, needsHomeScreen, notifySale, pushKeyReady, pushSupported, sendTest } from './notifications';
 import { ShiftTab } from './ShiftTab';
 import { PosView, type CheckoutInput, type CheckoutResult, type PosItem, type TodayAppt } from './PosView';
@@ -253,7 +253,7 @@ export function RegisterScreen() {
     // one document per sale, whatever happens (a double tap, a retry after a lost answer): the key "sale:<id>" (2.51)
     const out = await issueDocumentRow({ ...docInsertRow(userId, d, { saleId: s.id, leadId, vatRate: d.lines[0]?.vatRate ?? 0 }), idempotency_key: `sale:${s.id}`, source: 'pos' });
     if (!out.ok) { setError(`המכירה נשמרה, אבל המסמך לא הופק (${out.error}) אפשר להפיק אותו ב"כספים ← הכנסות".`); return null; }
-    return { label: `הופקה ${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}`, token: out.doc.shareToken ?? '', id: out.doc.id };
+    return { label: `הופקה ${DOC_LABEL[out.doc.docType]} מס׳ ${docNumberLabel(out.doc)}`, token: out.doc.shareToken ?? '', id: out.doc.id };
   }
   /** every paid sale gets its legal document (numbered by the database, never editable) */
   async function issueDocument(s: Sale, leadId: string | null): Promise<string> {
@@ -369,7 +369,7 @@ export function RegisterScreen() {
       if (licensed && orig && !docs.some((d) => d.docType === 330)) {
         const c = creditFor(orig, israelParts(Date.now()).date);
         const ins = await issueDocumentRow({ ...docInsertRow(userId, c, { saleId: s.id, leadId: s.leadId, vatRate: c.lines[0]?.vatRate ?? 0 }), idempotency_key: `cancel:${s.id}` });
-        note = !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.doc.docNumber}`;
+        note = !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${docNumberLabel(ins.doc)}`;
       }
       // an exempt dealer's receipt of a sale entered by mistake: 2.118 (the accountant's answers 8 and 15) — a receipt is no longer
       // cancelled by marking; what it took in goes back with a refund receipt (a 400 below zero) for what is left on it, on the key
@@ -381,13 +381,13 @@ export function RegisterScreen() {
         const back = cancelReceiptDoc(receipt, docs, israelParts(Date.now()).date, refunds.filter((r) => r.saleId === s.id));
         if (back) {
           const ins = await issueDocumentRow({ ...docInsertRow(userId, back, { saleId: s.id, leadId: s.leadId, vatRate: 0 }), notes: back.notes ?? '', idempotency_key: `cancel:${s.id}`, source: 'refund' });
-          if (ins.ok) note = ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`;
+          if (ins.ok) note = ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${docNumberLabel(ins.doc)}`;
           else if (refundReceiptWaits(ins.raw ?? ins.error)) {
             // before migration 6800 the database refuses a refund receipt — and still cancels a receipt: as before 2.118, so the
             // books stay right in that window (the money of the receipt goes out of the ledger)
             const { error: ce } = await supabase().from('document_cancellations').insert({ document_id: receipt.id, user_id: userId, reason: CANCEL_NOTE });
-            note = !ce ? ` · קבלה מס׳ ${receipt.docNumber} סומנה כמבוטלת` : ` · הקבלה לא בוטלה ולא הופקה עליה קבלה במינוס (${financeError(ce)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "הפקת הקבלה במינוס"`;
-          } else note = ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${receipt.docNumber} ← "הפקת הקבלה במינוס"`;
+            note = !ce ? ` · קבלה מס׳ ${docNumberLabel(receipt)} סומנה כמבוטלת` : ` · הקבלה לא בוטלה ולא הופקה עליה קבלה במינוס (${financeError(ce)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${docNumberLabel(receipt)} ← "הפקת הקבלה במינוס"`;
+          } else note = ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${docNumberLabel(receipt)} ← "הפקת הקבלה במינוס"`;
         }
       }
     }
@@ -426,9 +426,9 @@ export function RegisterScreen() {
       else if (orig && back) {
         const ins = await issueDocumentRow({ ...docInsertRow(userId, back, { saleId: sale.id, leadId: sale.leadId, vatRate: 0 }), refund_id: r.id, idempotency_key: `refund:${r.id}`, source: 'refund' });
         // not issued: nothing retries by itself — the receipt's own view completes it (DocView, the same key: never two)
-        message += ins.ok ? ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${ins.doc.docNumber}`
+        message += ins.ok ? ` · הופקה קבלה במינוס (החזר כספי) מס׳ ${docNumberLabel(ins.doc)}`
           : refundReceiptWaits(ins.raw ?? ins.error) ? ` · ${REFUND_RECEIPT_WAITS}`
-          : ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${orig.docNumber} ← "הפקת הקבלה במינוס"`;
+          : ` · הקבלה במינוס לא הופקה (${refundReceiptError(ins.raw ?? ins.error)}). משלימים ב"כספים ← מסמכים" — קבלה מס׳ ${docNumberLabel(orig)} ← "הפקת הקבלה במינוס"`;
       }
     }
     if (business.ready && licensed) {
@@ -442,7 +442,7 @@ export function RegisterScreen() {
       } else if (orig) {
         const c = creditForRefund(orig, r, sale, israelParts(Date.now()).date);
         const ins = await issueDocumentRow({ ...docInsertRow(userId, c, { saleId: sale.id, leadId: sale.leadId, vatRate: c.lines[0]?.vatRate ?? 0 }), refund_id: r.id, idempotency_key: `refund:${r.id}` });
-        message += !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${ins.doc.docNumber}`;
+        message += !ins.ok ? ' · חשבונית הזיכוי לא הופקה — אפשר להפיק ב"מסמכים"' : ` · הופקה חשבונית מס זיכוי מס׳ ${docNumberLabel(ins.doc)}`;
       }
     }
     if (sale.leadId && !replay) {
@@ -895,7 +895,7 @@ function SaleDetail({ sale, onClose, business, refunds, employees, licensed, onR
       <p className="mb-2 font-semibold">מסמכים</p>
       {docs === null ? <Spinner /> : !docs.length ? <p className="text-sm text-muted">לא הופק מסמך לעסקה הזו.</p> : docs.map((d) => (
         <div key={d.id} className="mb-2 rounded-2xl bg-surface-2 p-3 text-sm">
-          <p className="font-semibold">{DOC_LABEL[d.docType]} מס׳ {d.docNumber} · {ils(d.total)}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</p>
+          <p className="font-semibold">{DOC_LABEL[d.docType]} מס׳ {docNumberLabel(d)} · {ils(d.total)}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="ghost" onClick={async () => {
               setDocNote(null);
@@ -909,7 +909,7 @@ function SaleDetail({ sale, onClose, business, refunds, employees, licensed, onR
               <Button size="sm" variant="ghost" title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)" onClick={async () => { setDocNote(null); setDocNote(await staffPdf(d)); }}>🔏 PDF</Button>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="טלפון" inputMode="tel" dir="ltr" className="h-9 w-36 py-1" aria-label="טלפון לשליחה" />
               <Button size="sm" variant="primary" disabled={phoneDigits(phone).length < 9} onClick={async () => {
-                const url = waLink(phone, `שלום, ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} מ${business.name}: ${window.location.origin}/d/${d.shareToken}`);
+                const url = waLink(phone, `שלום, ${DOC_LABEL[d.docType]} מס׳ ${docNumberLabel(d)} מ${business.name}: ${window.location.origin}/d/${d.shareToken}`);
                 setDocNote(null);
                 if (url) setDocNote(await sendDocLink(d.id, url));
               }}>💬 שליחה בוואטסאפ</Button>

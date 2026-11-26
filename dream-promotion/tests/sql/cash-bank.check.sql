@@ -346,8 +346,12 @@ select pg_temp.check(pg_temp.r('vd') = pg_temp.r('od'), 'the viewer reads the de
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-000000e50a04');
+-- (7000 adds "document" — the deposit's 420; checked in tests/sql/cpa-rules-stage3.check.sql — the rest of the answer is as before)
 select pg_temp.check((public.bank_deposit_create('00000000-0000-0000-0000-000000e50e01', public.il_today(), null, 400, array[pg_temp.pay('d-r2', 'cheque')], 'סניף הבנק ברחוב הדקל')
-                      = '{"id": "00000000-0000-0000-0000-000000e50e01", "number": 1, "created": true}'::jsonb), 'the first deposit: 400 in cash and a cheque of 1000');
+                      - 'document' = '{"id": "00000000-0000-0000-0000-000000e50e01", "number": 1, "created": true}'::jsonb), 'the first deposit: 400 in cash and a cheque of 1000');
+select pg_temp.check((select doc_type = 420 and total = 1400 and payments @> '[{"method": 1, "amount": 400}, {"method": 2, "amount": 1000}]'::jsonb
+                        from public.documents where deposit_id = '00000000-0000-0000-0000-000000e50e01'),
+  '7000: the first deposit is a 420 document of 1400 — its cash and its cheque');
 select pg_temp.check((public.bank_deposit_create('00000000-0000-0000-0000-000000e50e01', public.il_today(), null, 999, '{}', '')->>'created')::boolean = false,
   'the same id again is the same deposit (a second tap)');
 select pg_temp.refused_with($$select public.bank_deposit_create('00000000-0000-0000-0000-000000e50e09', public.il_today(), null, 100, '{}', '')$$,

@@ -1,6 +1,6 @@
 import { txKind, type Doc, type DocLine } from '@/features/documents/openformat';
 import type { ItemKind } from '@/features/catalog/catalog';
-import { DOC_LABEL, creditFor, refundReceiptFor } from '@/features/documents/documents';
+import { DOC_LABEL, creditFor, refundReceiptFor, docNumberLabel } from '@/features/documents/documents';
 import { dealerDigits, validIsraeliId } from '@/features/register/billing';
 import { israelParts } from '@/lib/il-time';
 import { ag, netOfGross, sh, vatOfGross, vatOfNet } from './vat';
@@ -166,7 +166,7 @@ export function composeReceipt(inv: OpenInvoice, o: { entity: EntityType; vatRat
   if (errors.length) return { ok: false, errors: [...new Set(errors)] };
   const cust = { customerName: inv.customerName, customerPhone: inv.customerPhone ?? '', customerDealer: inv.customerDealer ?? '', customerStreet: inv.customerStreet ?? '', customerCity: inv.customerCity ?? '' };
   const payments = o.payments.map(toDocPayment);
-  const ref = `${DOC_LABEL[inv.docType]} מס׳ ${inv.docNumber}`;
+  const ref = `${DOC_LABEL[inv.docType]} מס׳ ${docNumberLabel(inv)}`;
   if (inv.docType === 300 && chargesVat(o.entity)) {
     const whole = paidA === ag(inv.total) && ag(inv.balance) === ag(inv.total);
     if (whole) {
@@ -223,7 +223,7 @@ export function composeCredit(base: Doc, mode: CreditMode, creditedSoFar: number
   const leftA = ag(base.total) - ag(creditedSoFar);
   if (leftA <= 0) return { ok: false, errors: ['החשבונית כבר זוכתה במלואה'] };
   const rate = base.lines[0]?.vatRate ?? 0;
-  const ref = `${DOC_LABEL[base.docType]} מס׳ ${base.docNumber}`;
+  const ref = `${DOC_LABEL[base.docType]} מס׳ ${docNumberLabel(base)}`;
   const notes = (o.reason ?? '').trim().slice(0, 1000);
   const shell = { docType: 330, docDate, customerName: base.customerName, customerPhone: base.customerPhone ?? '', customerDealer: base.customerDealer ?? '',
     customerStreet: base.customerStreet ?? '', customerCity: base.customerCity ?? '', baseDocType: base.docType, baseDocNumber: base.docNumber, issuedBy: base.issuedBy ?? '', payments: [] };

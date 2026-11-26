@@ -5,7 +5,7 @@ import { Button, Card, Field, Input, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { formatIL, israelParts, israelToIso } from '@/lib/il-time';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { ils, methodLabel, type Refund, type Sale } from './money';
 import { cashDifference, daySummary, shiftDay, toShift, type DocLite, type Shift } from './shift';
 import { locationOf, registerOf } from '@/features/locations/locations';
@@ -184,7 +184,7 @@ function DaySummaryCard({ sum, day }: { sum: Summary; day: string }) {
       <p className="mb-1 text-sm font-semibold">מסמכים שהופקו היום</p>
       {!sum.docs.length ? <p className="text-sm text-muted">לא הופקו מסמכים.</p> : (
         <ul className="grid gap-1 text-sm tabular-nums">
-          {sum.docs.map((d) => <li key={d.docType} className="flex justify-between"><span>{DOC_LABEL[d.docType] ?? d.docType}</span><span>{d.from === d.to ? `מס׳ ${d.from}` : `מס׳ ${d.from}–${d.to}`} ({d.count})</span></li>)}
+          {sum.docs.map((d) => <li key={`${d.docType}:${d.from}`} className="flex justify-between"><span>{DOC_LABEL[d.docType] ?? d.docType}</span><span>{d.from === d.to ? `מס׳ ${docNumberLabel(d.from)}` : `מס׳ ${docNumberLabel(d.from)}–${docNumberLabel(d.to)}`} ({d.count})</span></li>)}
         </ul>
       )}
     </Card>
@@ -210,7 +210,7 @@ th{background:#f2f2f2}.tot td{font-weight:bold}h1{font-size:20px;margin:0}h2{fon
 ${shift?.note ? `<p>הערה: ${esc(shift.note)}</p>` : ''}
 <h2>סיכום היום</h2><table>${row('מכירות', ils(sum.total))}${sum.refunds ? row('החזרים', `−${ils(sum.refunds)} (${sum.refundCount})`) + row('הכנסות נטו', ils(sum.net), 'tot') : ''}${row('מתוכו מע״מ', ils(sum.vat))}${row('מספר עסקאות', String(sum.count))}${row('הנחות', ils(sum.discounts))}${row('ממתין לתשלום', `${ils(sum.pendingTotal)} (${sum.pendingCount})`)}</table>
 <h2>לפי אמצעי תשלום</h2><table><tr><th>אמצעי</th><th>עסקאות</th><th>סכום</th></tr>${sum.byMethod.map((m) => `<tr><td>${esc(methodLabel(m.method))}</td><td>${m.count}</td><td>${esc(ils(m.total))}</td></tr>`).join('') || '<tr><td colspan="3">אין מכירות</td></tr>'}</table>
-<h2>מסמכים שהופקו</h2><table><tr><th>סוג</th><th>מספרים</th><th>כמות</th></tr>${sum.docs.map((d) => `<tr><td>${esc(DOC_LABEL[d.docType] ?? d.docType)}</td><td>${d.from === d.to ? d.from : `${d.from}–${d.to}`}</td><td>${d.count}</td></tr>`).join('') || '<tr><td colspan="3">לא הופקו מסמכים</td></tr>'}</table>
+<h2>מסמכים שהופקו</h2><table><tr><th>סוג</th><th>מספרים</th><th>כמות</th></tr>${sum.docs.map((d) => `<tr><td>${esc(DOC_LABEL[d.docType] ?? d.docType)}</td><td>${d.from === d.to ? docNumberLabel(d.from) : `${docNumberLabel(d.from)}–${docNumberLabel(d.to)}`}</td><td>${d.count}</td></tr>`).join('') || '<tr><td colspan="3">לא הופקו מסמכים</td></tr>'}</table>
 <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
 }
 function printReport(w: Window | null, shift: Shift | null, sum: Summary, business: string, interim?: { day: string; openingCash: number }) {

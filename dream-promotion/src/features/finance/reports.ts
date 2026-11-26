@@ -1,4 +1,4 @@
-import { DOC_LABEL, docPayLabel } from '@/features/documents/documents';
+import { DOC_LABEL, docPayLabel, docNumberLabel } from '@/features/documents/documents';
 import type { DocRow } from '@/features/documents/documents';
 import { categoryLabel, SUPPLIER_DOC_TYPES, vatDeductible, type Expense } from './expenses';
 import { LEDGER_SOURCE_HE, payLabel, type LedgerRow } from './payments';
@@ -38,9 +38,9 @@ const day = (d: string | null | undefined) => (d ? d.split('-').reverse().join('
 
 export function documentsCsv(docs: (DocRow & { cancelled?: boolean; allocation?: string })[]) {
   return csv(['סוג', 'מספר', 'תאריך', 'לקוח', 'ע.מ / ח.פ לקוח', 'לפני הנחה', 'הנחה', 'לפני מע״מ', 'מע״מ', 'סה״כ', 'אמצעי תשלום', 'מסמך בסיס', 'מועד תשלום', 'מספר הקצאה', 'סטטוס'],
-    docs.map((d) => [DOC_LABEL[d.docType] ?? d.docType, d.docNumber, day(d.docDate), d.customerName, d.customerDealer ?? '', money(d.beforeDiscount), money(d.discount),
+    docs.map((d) => [DOC_LABEL[d.docType] ?? d.docType, docNumberLabel(d), day(d.docDate), d.customerName, d.customerDealer ?? '', money(d.beforeDiscount), money(d.discount),
       money(d.afterDiscount), money(d.vatAmount), money(d.total), d.payments.map((p) => `${docPayLabel(p)} ${money(p.amount)}`).join(' + '),
-      d.baseDocNumber ? `${DOC_LABEL[d.baseDocType ?? 0] ?? ''} ${d.baseDocNumber}` : '', day(d.dueDate), d.allocation ?? '', d.cancelled ? 'בוטל' : '']));
+      d.baseDocNumber ? `${DOC_LABEL[d.baseDocType ?? 0] ?? ''} ${docNumberLabel(d.baseDocNumber)}` : '', day(d.dueDate), d.allocation ?? '', d.cancelled ? 'בוטל' : '']));
 }
 export function expensesCsv(list: Expense[], businessChargesVat: boolean) {
   return csv(['מספר', 'תאריך', 'ספק', 'ע.מ ספק', 'סוג מסמך', 'מספר מסמך', 'מספר הקצאה', 'קטגוריה', 'תיאור', 'לפני מע״מ', 'מע״מ', 'סה״כ', '% מע״מ לקיזוז', 'מע״מ לקיזוז', 'שולם', 'סטטוס', 'קובץ'],
@@ -60,7 +60,7 @@ export function receivablesCsv(list: Receivable[], today: string, lines?: Map<st
   return csv(['סוג', 'מספר', 'תאריך', 'לקוח', 'טלפון', 'סה״כ', 'זוכה', 'שולם', 'יתרה', 'לתשלום עד', 'סטטוס'],
     list.map((r) => {
       const b = byLines(r, lines?.get(r.id), today);
-      return [DOC_LABEL[r.docType] ?? r.docType, r.docNumber, day(r.docDate), r.customerName, r.customerPhone, money(r.total), money(r.credited), money(r.paid),
+      return [DOC_LABEL[r.docType] ?? r.docType, docNumberLabel(r), day(r.docDate), r.customerName, r.customerPhone, money(r.total), money(r.credited), money(r.paid),
         money(r.balance), day(b.dueDate), STATUS_HE[b.status] + (b.planned ? ' (פריסה)' : '')];
     }));
 }
