@@ -1,7 +1,7 @@
 'use client';
 import { supabase } from '@/lib/supabase/client';
 import { authHeaders } from '@/lib/services/http';
-import { AWAITING_STAFF, isAwaiting, isMissing, toDelivery, toDeliveryState, type Delivery, type DeliveryState } from '@/features/finance/delivery';
+import { AWAITING_REMINDER, AWAITING_STAFF, CHECK_FAILED, isAwaiting, isMissing, toDelivery, toDeliveryState, type Delivery, type DeliveryState } from '@/features/finance/delivery';
 import { allocationPrintLine } from '@/features/finance/allocation';
 
 /**
@@ -37,18 +37,21 @@ export async function deliveryState(documentId: string): Promise<StateResult> {
 
 /**
  * which of these documents wait for their allocation number (the view document_allocation_status — the database's rule; the caller's
- * RLS). Before migration 20261126006900 (no view) — none.
+ * RLS). Before migration 20261126006900 (no view) — none. Any other error: ok false — the caller keeps the action closed (fail closed).
  */
-export async function awaitingIds(ids: string[]): Promise<Set<string>> {
+export type AwaitingResult = { ok: true; ids: Set<string> } | { ok: false };
+export async function awaitingIds(ids: string[]): Promise<AwaitingResult> {
   const out = new Set<string>();
   const list = [...new Set(ids.filter(Boolean))];
   for (let i = 0; i < list.length; i += 100) {
     const { data, error } = await supabase().from('document_allocation_status').select('document_id').eq('awaiting', true).in('document_id', list.slice(i, i + 100));
-    if (error) return out;
+    if (error) return isMissing(error) ? { ok: true, ids: new Set() } : { ok: false };
     for (const r of (data ?? []) as { document_id: string }[]) out.add(r.document_id);
   }
-  return out;
+  return { ok: true, ids: out };
 }
+/** may a reminder of this document go: null — yes; otherwise the words why not (waiting for its number, or the check failed) */
+export const reminderBlock = (a: AwaitingResult, documentId: string): string | null => (!a.ok ? CHECK_FAILED : a.ids.has(documentId) ? AWAITING_REMINDER : null);
 
 /** the allocation-number line of a delivered document, from the database's state (a real number only — a test one never) */
 export const stateAllocationLine = (s: DeliveryState | null) =>

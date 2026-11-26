@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { UNAVAILABLE } from '@/lib/server/business';
 import { adminDb } from '@/lib/server/admin';
-import { documentPdf, keepDelivered, later, publicDoc, sharedDocument, shareRefusal } from '@/lib/server/doc-share';
+import { documentPdf, headRefusal, keepDelivered, later, publicDoc, sharedDocument, shareRefusal } from '@/lib/server/doc-share';
 import { MINUTE, PUBLIC_LIMITS, rateLimited } from '@/lib/server/rate-limit';
 
 export const runtime = 'nodejs';
@@ -23,3 +23,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
   return NextResponse.json({ doc: publicDoc(s.row), business: s.business, allocation: s.allocation, cancelled: s.doc.cancelled, mark: s.mark },
     { headers: { 'Cache-Control': 'no-store' } });
 }
+
+/** HEAD records nothing (QA-2119-1 — Next would otherwise answer it from GET, which is a delivery) */
+export async function HEAD() { return headRefusal(); }

@@ -8,7 +8,7 @@ import { certificateInfo, signedPdfBytes } from './sign-pdf';
 import { toDoc, type DocRow } from '@/features/documents/documents';
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, toAllocationRow, toRule } from '@/features/finance/allocation';
 import { entityOf } from '@/features/finance/rules';
-import { AWAITING_CUSTOMER, isMissing, toDelivery, type Delivery } from '@/features/finance/delivery';
+import { AWAITING_CUSTOMER, isFunctionMissing, toDelivery, type Delivery } from '@/features/finance/delivery';
 
 /**
  * A document behind a customer's link (/d/<token>, its PDF, the storefront's copy): the document, the business as printed (its own
@@ -35,7 +35,8 @@ export async function sharedDocument(token: string, channel: ShareChannel = 'lin
   const db = adminDb();
   const { data: open, error } = await db.rpc('document_share_open', { p_token: token, p_channel: channel });
   if (error) {
-    if (isMissing(error)) return legacyShared(db, token);
+    // only "no such function" is a database before 6900; any other error fails closed (QA-2119-2 — never the 2.118 way)
+    if (isFunctionMissing(error)) return legacyShared(db, token);
     console.error('[doc-share] document_share_open failed', error.code ?? '');
     return { ok: false, status: 503, code: 'error' };
   }
@@ -53,6 +54,12 @@ export async function sharedDocument(token: string, channel: ShareChannel = 'lin
 /** the answer of a refused link (403 — the business is locked — answers UNAVAILABLE, as before) */
 export const shareRefusal = (code: string) => (code === 'awaiting_allocation' ? { code, message: AWAITING_CUSTOMER }
   : code === 'error' ? { code, message: 'לא הצלחנו לפתוח את המסמך כרגע. נסו שוב בעוד רגע.' } : { code: 'not_found' });
+/**
+ * HEAD on the customer's doors (QA-2119-1): Next would answer it by running GET — a link scanner's / crawler's HEAD would record a
+ * delivery and consume the original. Answered here with headers only: nothing is opened, recorded or told (not even whether the
+ * token exists).
+ */
+export const headRefusal = () => new Response(null, { status: 405, headers: { Allow: 'GET', 'Cache-Control': 'no-store' } });
 /** work after the answer went out (Next's after()); outside a request (the unit tests) — now, without waiting for it */
 export function later(fn: () => Promise<unknown>) {
   const run = () => fn().catch((e) => console.error('[doc-share] after the answer', e?.name ?? 'error'));

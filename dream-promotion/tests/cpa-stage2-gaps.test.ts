@@ -4,9 +4,9 @@
  *    link or fetch of a screen opens /d/<token> or /api/doc/<token> (only the old-database fallback of staffPdf, after "missing")
  *  - the customer's door answers a document waiting for its number with the code and the message only, on every channel
  *  - an old database: the helpers the screens use answer "as before" (no view, no function)
- *  - TODO findings (node:test `todo`: they run, they show, they do not fail the suite until fixed):
- *      QA-2119-1  HEAD on /api/doc/<token> and /pdf is answered by Next from GET: a crawler's HEAD records a delivery (the original is gone)
- *      QA-2119-2  any error whose text says "does not exist" from document_share_open falls back to the 2.118 way (a waiting document opens)
+ *  - findings, fixed in 2.119.0 (finance-agent) — now real tests:
+ *      QA-2119-1  HEAD on /api/doc/<token> and /pdf was answered by Next from GET: a crawler's HEAD recorded a delivery (the original gone)
+ *      QA-2119-2  any error whose text said "does not exist" from document_share_open fell back to the 2.118 way (a waiting document opened)
  * Demo data only.
  */
 import { test } from 'node:test';
@@ -79,15 +79,22 @@ test('an old database (before 6900): the helpers of the screens answer "as befor
   assert.ok(isAwaiting({ code: '55000' }) && isAwaiting({ message: 'awaiting_allocation: x' }) && !isAwaiting({ code: '42501' }));
 });
 
-// ---- findings, as todo tests (they fail until the finding is fixed) -------------------------------------------------------------
-test('QA-2119-1: HEAD on the customer\'s API doors is answered without recording a delivery', { todo: 'Next answers HEAD from GET (auto-implement-methods): a crawler / a mail scanner\'s HEAD consumes the original — export HEAD that records nothing' }, async () => {
+// ---- findings (fixed in 2.119.0) -------------------------------------------------------------------------------------------
+test('QA-2119-1: HEAD on the customer\'s API doors is answered without recording a delivery', async () => {
+  const calls: string[] = [];
+  const db: any = fakeDb({}, { rpc: { document_share_open: () => { calls.push('open'); return { ok: false, code: 'not_found' }; } } });
+  const orig = db.from; db.from = (t: string) => { calls.push(`from:${t}`); return orig(t); };
+  (globalThis as any).__DP_TEST_ADMIN_DB__ = db;
   for (const mod of ['../src/app/api/doc/[token]/route', '../src/app/api/doc/[token]/pdf/route']) {
     const route: any = await import(mod);
     assert.equal(typeof route.HEAD, 'function', `${mod} exports its own HEAD`);
+    const r: Response = await route.HEAD(new Request('http://x', { method: 'HEAD' }), { params: Promise.resolve({ token: 'c'.repeat(64) }) });
+    assert.equal(r.status, 405); assert.equal(r.headers.get('allow'), 'GET'); assert.equal(await r.text(), '', 'headers only');
   }
+  assert.deepEqual(calls, [], 'nothing asked of the database — no delivery, nothing kept');
 });
 
-test('QA-2119-2: an error of document_share_open that is not "the function is missing" never opens a waiting document the 2.118 way', { todo: 'isMissing matches /does not exist/ in any message: a "column … does not exist" inside the function falls back to legacyShared' }, async () => {
+test('QA-2119-2: an error of document_share_open that is not "the function is missing" never opens a waiting document the 2.118 way', async () => {
   const BIZ = 'b0000000-0000-4000-8000-000000000693', TOKEN = 'd'.repeat(64);
   const row = { id: 'd0000000-0000-4000-8000-000000000693', business_id: BIZ, user_id: 'a0000000-0000-4000-8000-000000000693', share_token: TOKEN, doc_type: 305, doc_number: 1, doc_date: '2026-11-26',
     customer_name: 'לקוח סודי', customer_dealer: '000000059', lines: [], payments: [], before_discount: 7000, discount: 0, after_discount: 7000, vat_amount: 1260, total: 8260, vat_rate: 18, print_count: 0, issued_at: '2026-11-26T08:00:00Z', issuer: null };
@@ -97,4 +104,13 @@ test('QA-2119-2: an error of document_share_open that is not "the function is mi
   const route = await import('../src/app/api/doc/[token]/route');
   const r = await route.GET(new Request('http://x'), { params: Promise.resolve({ token: TOKEN }) });
   assert.notEqual(r.status, 200, 'a database error is an error, not the old way');
+  assert.equal(r.status, 503); assert.equal((await r.json()).code, 'error');
+  for (const e of [{ code: '42703', message: 'column x does not exist' }, { code: 'XX000', message: 'Could not find the function — or so it says' }]) {
+    db.rpc = async () => ({ data: null, error: e });
+    assert.equal((await route.GET(new Request('http://x'), { params: Promise.resolve({ token: TOKEN }) })).status, 503, `${e.code}: closed`);
+    assert.equal(isMissing(e), false, `${e.code}: not "old database" for the screens either`);
+  }
+  // only "no such function" is the old database
+  db.rpc = async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.document_share_open' } });
+  assert.equal((await route.GET(new Request('http://x'), { params: Promise.resolve({ token: TOKEN }) })).status, 200, 'before 6900: as before');
 });

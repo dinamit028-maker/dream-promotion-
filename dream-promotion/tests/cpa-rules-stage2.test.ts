@@ -428,3 +428,19 @@ test('no staff path through the customer\'s link: the store\'s order page opens 
   assert.match(src('../storefront/src/lib/dashboard.ts'), /\/api\/doc\/\$\{docToken\}\/pdf\?via=storefront/);
   for (const f of ['src/features/finance/Receivables.tsx', 'src/features/finance/Reminders.tsx']) assert.match(src(f), /awaitingIds\(/, `${f}: asks the database before a reminder`);
 });
+
+test('fail closed: a check that could not be made keeps a reminder from going (the screen says so; the email is retried)', async () => {
+  const { reminderAwaiting, sendReminderEmail } = await import('../src/lib/server/reminders');
+  const { reminderBlock } = await import('../src/features/documents/deliver');
+  const { CHECK_FAILED, AWAITING_REMINDER } = await import('../src/features/finance/delivery');
+  assert.equal(reminderBlock({ ok: false }, 'x'), CHECK_FAILED);
+  assert.equal(reminderBlock({ ok: true, ids: new Set(['x']) }, 'x'), AWAITING_REMINDER);
+  assert.equal(reminderBlock({ ok: true, ids: new Set() }, 'x'), null);
+  const db = fakeDb({ debt_reminders: [{ id: 'rem-c', document_id: 'doc-c' }] }, { rpc: { debt_reminder_check: () => ({ state: 'ok', open: 1, docType: 305, docNumber: 1, tone: 'friendly' }) } }) as any;
+  const from = db.from;
+  db.from = (t: string) => (t === 'document_allocation_status'
+    ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } }) }) }) }
+    : from(t));
+  assert.equal(await reminderAwaiting(db, 'rem-c'), 'unknown');
+  assert.deepEqual(await sendReminderEmail(db, { id: 'mail-c', reminder_id: 'rem-c', business_id: BIZ, to_email: 'customer@example.test' }), { error: CHECK_FAILED, final: false });
+});

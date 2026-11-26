@@ -66,7 +66,13 @@ export function needFromState(s: DeliveryState): AllocationNeed {
 /** an error of the database: the document waits for its allocation number (document_delivery_record, the print trigger — 55000) */
 export const isAwaiting = (e: { code?: string; message?: string } | null | undefined) =>
   Boolean(e && (e.code === '55000' || /awaiting_allocation/.test(e.message ?? '')));
-/** the function / view is not in the database yet (before migration 20261126006900): the screens keep working as before it */
+/**
+ * the function / view is not in the database yet (before migration 20261126006900): the screens keep working as before it.
+ * By the code only (QA-2119-2): any other error — "column … does not exist" inside a function too — is an error, never "old database".
+ */
 export const isMissing = (e: { code?: string; message?: string } | null | undefined) =>
-  Boolean(e && (e.code === 'PGRST202' || e.code === 'PGRST205' || e.code === '42883' || e.code === '42P01'
-    || /Could not find the (function|table)|does not exist/i.test(e.message ?? '')));
+  Boolean(e && (e.code === 'PGRST202' || e.code === 'PGRST205' || e.code === '42883' || e.code === '42P01'));
+/** the customer's door (document_share_open): only "no such function" is the old database — anything else fails closed */
+export const isFunctionMissing = (e: { code?: string } | null | undefined) => Boolean(e && (e.code === 'PGRST202' || e.code === '42883'));
+/** a check that could not be made (a database error): the action stays closed, and says so */
+export const CHECK_FAILED = 'לא ניתן לבדוק כרגע אם המסמך ממתין למספר הקצאה — נסו שוב בעוד רגע.';

@@ -1,6 +1,6 @@
 import { UNAVAILABLE } from '@/lib/server/business';
 import { adminDb } from '@/lib/server/admin';
-import { documentPdf, keepDelivered, later, pdfHeaders, sharedDocument, shareRefusal } from '@/lib/server/doc-share';
+import { documentPdf, headRefusal, keepDelivered, later, pdfHeaders, sharedDocument, shareRefusal } from '@/lib/server/doc-share';
 import { MINUTE, PUBLIC_LIMITS, rateLimited } from '@/lib/server/rate-limit';
 
 export const runtime = 'nodejs';
@@ -26,3 +26,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
   if (delivery?.original) later(() => keepDelivered(adminDb(), delivery, bytes));
   return new Response(Buffer.from(bytes), { headers: pdfHeaders(s.doc, signed) });
 }
+
+/** HEAD records nothing (QA-2119-1 — Next would otherwise answer it from GET, which is a delivery) */
+export async function HEAD() { return headRefusal(); }

@@ -5,7 +5,7 @@ import { businessContact } from './paylink-mail';
 import { emailFrom } from '@/features/store/commerce';
 import { reminderEmail } from '@/features/finance/reminders';
 import type { Tone } from '@/features/finance/receivables';
-import { AWAITING_REMINDER } from '@/features/finance/delivery';
+import { AWAITING_REMINDER, CHECK_FAILED, isMissing } from '@/features/finance/delivery';
 
 /**
  * Scheduled debt reminders on the dashboard's server (docs/FINANCE_ADDITIONS_HE.md T5; migration 20261010004400).
@@ -54,12 +54,15 @@ const STATE_HE: Record<string, string> = {
  * 2.119 (migration 20261126006900): does the reminder's document wait for its allocation number? The database's rule — the view
  * document_allocation_status (service role: the row of the reminder's own document). Before that migration (no view) — no.
  */
-export async function reminderAwaiting(db: Db, reminderId: string): Promise<boolean> {
-  const { data: q } = await db.from('debt_reminders').select('document_id').eq('id', reminderId).maybeSingle();
+export async function reminderAwaiting(db: Db, reminderId: string): Promise<boolean | 'unknown'> {
+  const { data: q, error: qe } = await db.from('debt_reminders').select('document_id').eq('id', reminderId).maybeSingle();
+  if (qe) return 'unknown';
   const doc = (q as { document_id?: string } | null)?.document_id;
-  if (!doc) return false;
+  if (!doc) return false;   // debt_reminder_check just answered for it; a reminder always has its document
   const { data, error } = await db.from('document_allocation_status').select('awaiting').eq('document_id', doc).maybeSingle();
-  return !error && (data as { awaiting?: boolean } | null)?.awaiting === true;
+  // before 6900 (no view) — as before; any other error fails closed (retried — never sent unchecked)
+  if (error) return isMissing(error) ? false : 'unknown';
+  return (data as { awaiting?: boolean } | null)?.awaiting === true;
 }
 
 /** a reminder's email (email_outbox kind debt_reminder) — asked again first; nothing goes for a debt that is not open */
@@ -70,8 +73,12 @@ export async function sendReminderEmail(db: Db, e: { id: string; reminder_id?: s
   if (error) return { error: String(error.message ?? error).slice(0, 200), final: false };
   const s = (data ?? {}) as Record<string, any>;
   if (s.state !== 'ok') return { error: `לא נשלח: ${STATE_HE[String(s.state)] ?? String(s.state)}`, final: true };
-  // 2.119: the email carries the customer's link — not for a document waiting for its allocation number
-  if (await reminderAwaiting(db, e.reminder_id)) return { error: AWAITING_REMINDER, final: true };
+  // 2.119: the email carries the customer's link — not for a document waiting for its allocation number. Final: this step of the
+  // reminder is not sent (the reason stays on it, for the owner); the next step of the same debt goes as usual once the number is
+  // there — a retry here would only try 5 times in about 10 minutes (email_outbox_done) and fail anyway. Could not check — retried.
+  const w = await reminderAwaiting(db, e.reminder_id);
+  if (w === 'unknown') return { error: CHECK_FAILED, final: false };
+  if (w) return { error: AWAITING_REMINDER, final: true };
   const who = await businessContact(db, e.business_id);
   // the business's store's verified sending domain, when it has one; else the platform's sending address
   const { data: st } = await db.from('stores').select('id').eq('business_id', e.business_id).order('created_at').limit(1).maybeSingle();
