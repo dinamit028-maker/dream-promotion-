@@ -309,11 +309,16 @@ function backupDb(o: { rows?: number; exportFails?: boolean; failRemove?: boolea
       const id = randomUUID(); const n = { id, kind: a.p_kind, period: a.p_period, business: a.p_business, status: 'running', object_path: `${a.p_business}/${a.p_kind}/${a.p_period}/${id}.json.gz` };
       runs.push(n); return { id, object_path: n.object_path, status: 'running', created: true };
     },
-    backup_export: (a: any) => {
+    // 6900's keyset export: p_after is the previous page's `last` object exactly (null first) — the fake keeps the key in it
+    backup_export_after: (a: any) => {
       if (o.exportFails) return null;
-      const all = rowsOf(a.p_business, a.p_table); const rows = all.slice(a.p_offset, a.p_offset + a.p_limit);
-      log.push(`export ${a.p_table} ${a.p_offset}`);
-      return { table: a.p_table, offset: a.p_offset, count: rows.length, total: all.length, more: a.p_offset + rows.length < all.length, rows };
+      if (a.p_after !== null && (typeof a.p_after !== 'object' || typeof a.p_after.id !== 'string')) throw new Error('p_after must be the previous page\'s last');
+      const all = rowsOf(a.p_business, a.p_table);
+      const from = a.p_after ? all.findIndex((r) => r.id === a.p_after.id) + 1 : 0;
+      const rows = all.slice(from, from + a.p_limit);
+      log.push(`export ${a.p_table} ${a.p_after ? a.p_after.id : 'first'}`);
+      return { table: a.p_table, count: rows.length, total: a.p_after ? null : all.length, more: from + rows.length < all.length,
+        last: rows.length ? { id: (rows[rows.length - 1] as any).id } : null, rows };
     },
     backup_run_finish: (a: any) => { const r = runs.find((x) => x.id === a.p_run); Object.assign(r, { status: 'ok', sha256: a.p_sha256, bytes: a.p_bytes, counts: a.p_counts }); return { id: r.id, status: 'ok' }; },
     backup_run_fail: (a: any) => { const r = runs.find((x) => x.id === a.p_run); Object.assign(r, { status: 'failed', error: a.p_error }); return { id: r.id, status: 'failed' }; },
@@ -330,7 +335,8 @@ test('a monthly backup: every business, page by page, gzip + sha256 as recorded;
   const at = new Date('2026-11-30T22:30:00Z');   // 1.12.2026 00:30 in Israel
   const r = await backupCron(x.db, at, Date.now() + 30_000, { pageSize: 2 });
   assert.equal(r.ready, true); assert.equal(r.ok, 2); assert.equal(r.failed, 0);
-  assert.deepEqual(x.log.filter((l) => l.startsWith('export documents')).slice(0, 3), ['export documents 0', 'export documents 2', 'export documents 4'], 'pages of 2');
+  assert.deepEqual(x.log.filter((l) => l.startsWith('export documents')).slice(0, 3),
+    ['export documents first', `export documents ${x.B1}-1`, `export documents ${x.B1}-3`], 'pages of 2, each after the previous page\'s last key');
   for (const run of x.runs) {
     assert.equal(run.kind, 'monthly'); assert.equal(run.period, '2026-11'); assert.equal(run.status, 'ok');
     const file = x.files.get(`backups/${run.object_path}`)!;
@@ -462,15 +468,17 @@ test('periods: the end of a period, days late, and the business that starts — 
   assert.deepEqual([...rotate(l, '2026-11-26')].sort(), l, 'everyone is in the order');
 });
 
-function dueDb(o: { due: { kind: string; period: string; business_id: string }[]; slow?: string; rows?: number; keyset?: boolean; orphans?: { object_path: string }[] }) {
+function dueDb(o: { due: { kind: string; period: string; business_id: string }[]; slow?: string; rows?: number; orphans?: { id?: string; status?: string; object_path: string }[] }) {
   const runs: any[] = [];
   const asked: string[] = [];
   let now = 0;
   const rowsOf = (b: string, t: string) => (t === 'documents' ? Array.from({ length: o.rows ?? 3 }, (_, i) => ({ id: `${b}-${i}`, business_id: b })) : []);
-  const pageOf = (a: any, offset: number) => {
+  const pageOf = (a: any) => {
     if (a.p_business === o.slow) now += 20_000;   // this business is slow: every page costs 20 s
-    const all = rowsOf(a.p_business, a.p_table); const rows = all.slice(offset, offset + a.p_limit);
-    return { rows, offset, count: rows.length, more: offset + rows.length < all.length, next: offset + rows.length };
+    const all = rowsOf(a.p_business, a.p_table);
+    const from = a.p_after ? all.findIndex((r) => r.id === a.p_after.id) + 1 : 0;
+    const rows = all.slice(from, from + a.p_limit);
+    return { table: a.p_table, rows, count: rows.length, total: a.p_after ? null : all.length, more: from + rows.length < all.length, last: rows.length ? { id: rows[rows.length - 1].id } : null };
   };
   const rpc: Record<string, (a: any) => any> = {
     backup_tables: () => ['documents', 'payments'],
@@ -483,12 +491,12 @@ function dueDb(o: { due: { kind: string; period: string; business_id: string }[]
       const id = randomUUID(); const n = { id, kind: a.p_kind, period: a.p_period, business: a.p_business, status: 'running', object_path: `${a.p_business}/${a.p_kind}/${a.p_period}/${id}.json.gz` };
       runs.push(n); asked.push(`${a.p_business.slice(0, 2)} ${a.p_kind} ${a.p_period}`); return n;
     },
-    backup_export: (a: any) => { asked.push('offset'); return pageOf(a, a.p_offset); },
+    backup_export_after: (a: any) => { asked.push(a.p_after ? `after ${a.p_after.id}` : 'first'); return pageOf(a); },
     backup_run_finish: (a: any) => { Object.assign(runs.find((x) => x.id === a.p_run), { status: 'ok', sha256: a.p_sha256 }); return { status: 'ok' }; },
     backup_run_fail: (a: any) => { Object.assign(runs.find((x) => x.id === a.p_run), { status: 'failed', error: a.p_error }); return { status: 'failed' }; },
     backup_expirable: () => [],
+    backup_expire: (a: any) => { asked.push(`expire ${a.p_run}`); return { id: a.p_run, changed: false }; },
   };
-  if (o.keyset) rpc.backup_export_after = (a: any) => { asked.push('keyset'); return pageOf(a, Number(a.p_after ?? 0)); };
   const db = fakeDb({}, { rpc }) as any;
   const fs: Files = new Map();
   for (const x of o.orphans ?? []) fs.set(`backups/${x.object_path}`, new Uint8Array([1]));
@@ -502,20 +510,17 @@ test('backups: missed periods are caught up oldest first; a slow business stops 
     { kind: 'monthly', period: '2026-10', business_id: S }];
   // whichever starts the day, the slow one (20 s a page, 3 pages) never finishes in 45 s — the fast one still gets both its months
   for (const day of ['2026-11-26T08:00:00Z', '2026-11-27T08:00:00Z']) {
-    const x = dueDb({ due, slow: S, rows: 3, keyset: true, orphans: [{ object_path: 'old/failed.json.gz' }] });
+    const x = dueDb({ due, slow: S, rows: 3, orphans: [{ id: 'r-exp', status: 'expired', object_path: 'old/expired.json.gz' }, { id: 'r-f', status: 'failed', object_path: 'old/failed.json.gz' }] });
     const alerts: any[] = [];
     const r = await backupCron(x.db, new Date(day), 45_000, { pageSize: 1, clock: x.clock, alert: async (a) => { alerts.push(a); } });
     assert.equal(r.ok, 2, `${day}: the fast business's two months`);
     assert.deepEqual(x.runs.filter((q) => q.business === F).map((q) => [q.period, q.status]), [['2026-09', 'ok'], ['2026-10', 'ok']], 'oldest first');
     assert.ok(x.runs.filter((q) => q.business === S).every((q) => q.status === 'running'), 'the slow one stopped (resumable), never failed or "ok"');
     assert.equal(r.outOfTime, true);
-    assert.ok(x.asked.includes('keyset') && !x.asked.includes('offset'), 'keyset paging when the database has it');
-    assert.equal(r.orphansRemoved, 1); assert.equal(x.files.has('backups/old/failed.json.gz'), false);
+    assert.ok(x.asked.includes(`after ${F}-0`) && x.asked.includes(`after ${F}-1`), 'each page after the previous page\'s last key');
+    assert.equal(r.orphansRemoved, 2); assert.equal(x.files.has('backups/old/failed.json.gz'), false); assert.equal(x.files.has('backups/old/expired.json.gz'), false);
+    assert.ok(x.asked.includes('expire r-exp') && !x.asked.includes('expire r-f'), 'an expired one through backup_expire first; a failed one\'s file just goes');
   }
-  // without the keyset function: offset paging, the same files
-  const y = dueDb({ due: due.slice(0, 1), rows: 3 });
-  assert.equal((await backupCron(y.db, new Date('2026-11-26T08:00:00Z'), 45_000, { pageSize: 1, clock: y.clock })).ok, 1);
-  assert.ok(y.asked.includes('offset') && !y.asked.includes('keyset'));
 });
 
 test('backups: the super admin is told — a failed run, a file too large, a business stuck in its whole share, a period late by more than 7 days', async () => {

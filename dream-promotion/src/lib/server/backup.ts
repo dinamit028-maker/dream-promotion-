@@ -12,9 +12,9 @@ import { israelParts } from '@/lib/il-time';
  * The timer (/api/cron/backup, daily) backs up what is due: backup_due(today) — every (kind, period, business) with no "ok" copy,
  * oldest first, so a missed month is caught up, not only the last one (a database without it: the month that ended — and in January
  * the year — for every business, by the day in Israel). One file per business and period: backups/<business>/<kind>/<period>/<run>
- * .json.gz — every table of backup_tables(), page by page (keyset when the database has it, else by offset), as JSON, gzipped; its
+ * .json.gz — every table of backup_tables(), page by page (keyset — backup_export_after), as JSON, gzipped; its
  * sha256, size and row counts go to backup_run_finish. Never a secret (the database's list leaves out terminal keys, tokens,
- * members, logins and the documents' share tokens), and nothing of the content in the logs or the alerts — only codes and counts.
+ * members and logins; a document's / quote's share token only as its sha256), and nothing of the content in the logs or the alerts — only codes and counts.
  *
  * One business never stops the others: each gets its share of the time (the first of the day — a different one every day — a larger
  * share), a business out of its share stops there (its run stays "running"; the same period returns the same run the next day) and
@@ -58,12 +58,16 @@ export function rotate<T>(list: T[], today: string): T[] {
 
 export const BACKUP_BUCKET = 'backups';
 export const BACKUP_FORMAT = 'dream-promotion-backup/1';
-/** the bucket's limit (Supabase's per-file limit; the bucket is created without its own) — BACKUP_MAX_BYTES, else 50 MB */
+/**
+ * the largest file uploaded: the bucket allows 500 MB (6900), but the project's global upload limit is 50 MB on Supabase's default
+ * settings — so 45 MB unless BACKUP_MAX_BYTES says otherwise (set it after raising the project's limit). A larger file is not split:
+ * a run is one object (storage_objects_keep takes only the run's object_path), so the run fails "too_large" and the super admin is told.
+ */
 export const maxBytes = (env: Record<string, string | undefined> = process.env) => {
   const n = Number(env.BACKUP_MAX_BYTES);
-  return Number.isFinite(n) && n > 0 ? n : 50 * 1024 * 1024;
+  return Number.isFinite(n) && n > 0 ? n : 45 * 1024 * 1024;
 };
-/** keyset paging of 6900 (db-agent): the page after a key — when absent, backup_export by offset */
+/** the export of 6900: keyset paging only (its backup_export by offset was removed before 6900 ever ran) */
 export const KEYSET_FN = 'backup_export_after';
 
 type Outcome = 'ok' | 'failed' | 'busy' | 'out_of_time' | 'too_large';
@@ -75,38 +79,36 @@ export interface BackupAlert { failed: number; tooLarge: number; stuck: number; 
 
 const uuidOf = (x: unknown) => (typeof x === 'string' ? x : x && typeof x === 'object' ? String(Object.values(x as Record<string, unknown>)[0] ?? '') : '');
 const errCode = (e: any) => String(e?.code ?? e?.statusCode ?? 'error').slice(0, 40);
-const fnMissing = (e: any) => e?.code === 'PGRST202' || e?.code === '42883';
 
-/** one page of one table: keyset when the database has it (o.keyset — turned off for the run on "no such function"), else offset */
-async function page(db: SupabaseClient, business: string, table: string, at: { offset: number; after: unknown }, limit: number, o: { keyset: boolean })
-  : Promise<{ rows: unknown[]; more: boolean; next: unknown; error?: unknown }> {
-  if (o.keyset) {
-    const { data, error } = await db.rpc(KEYSET_FN, { p_business: business, p_table: table, p_after: at.after ?? null, p_limit: limit });
-    if (!error && data && Array.isArray(data.rows)) return { rows: data.rows, more: Boolean(data.more) && data.rows.length > 0, next: data.next ?? null };
-    if (!fnMissing(error)) return { rows: [], more: false, next: null, error: error ?? 'bad_page' };
-    o.keyset = false;
-  }
-  const { data, error } = await db.rpc('backup_export', { p_business: business, p_table: table, p_offset: at.offset, p_limit: limit });
-  if (error || !data || !Array.isArray(data.rows)) return { rows: [], more: false, next: null, error: error ?? 'bad_page' };
-  return { rows: data.rows, more: Boolean(data.more) && Number(data.count) > 0, next: null };
+/**
+ * one page of one table (6900's backup_export_after — keyset, in the order of its primary key): p_after = the previous page's `last`
+ * exactly (null for the first page). {table, count, total (first page only), more, last, rows}
+ */
+async function page(db: SupabaseClient, business: string, table: string, after: unknown, limit: number)
+  : Promise<{ rows: unknown[]; more: boolean; last: unknown; error?: unknown }> {
+  const { data, error } = await db.rpc(KEYSET_FN, { p_business: business, p_table: table, p_after: after ?? null, p_limit: limit });
+  if (error || !data || !Array.isArray(data.rows)) return { rows: [], more: false, last: null, error: error ?? 'bad_page' };
+  const more = Boolean(data.more) && data.rows.length > 0;
+  if (more && (data.last === null || data.last === undefined)) return { rows: [], more: false, last: null, error: 'no_last_key' };
+  return { rows: data.rows, more, last: data.last ?? null };
 }
 
 /** one business and period: export, gzip, upload (never replacing), finish — or fail the run (its error: a code, never data) */
 export async function backupOne(db: SupabaseClient, run: { id: string; object_path: string }, p: DuePeriod, business: string, tables: string[],
-  deadline: number, pageSize = 5000, clock: () => number = Date.now, o: { keyset: boolean; maxBytes?: number } = { keyset: true }): Promise<Outcome> {
+  deadline: number, pageSize = 5000, clock: () => number = Date.now, o: { maxBytes?: number } = {}): Promise<Outcome> {
   const out: Record<string, unknown[]> = {};
   const counts: Record<string, number> = {};
   const fail = async (why: string) => { await db.rpc('backup_run_fail', { p_run: run.id, p_error: why.slice(0, 500) }); return 'failed' as const; };
   for (const table of tables) {
     const rows: unknown[] = [];
-    for (let at = { offset: 0, after: null as unknown }; ;) {
+    for (let after: unknown = null; ;) {
       // out of time: nothing uploaded, the run stays "running" — picked up again (6 hours later backup_run_start fails it)
       if (clock() > deadline) return 'out_of_time';
-      const pg = await page(db, business, table, at, pageSize, o);
+      const pg = await page(db, business, table, after, pageSize);
       if (pg.error) return fail(`export ${table}: ${errCode(pg.error)}`);
       rows.push(...pg.rows);
       if (!pg.more) break;
-      at = { offset: at.offset + pg.rows.length, after: pg.next };
+      after = pg.last;
     }
     out[table] = rows;
     counts[table] = rows.length;
@@ -172,11 +174,14 @@ export async function backupCron(db: SupabaseClient, now: Date | number = Date.n
   const tables = (t.data as unknown[]).map(String);
   const businesses = ((b.data ?? []) as unknown[]).map(uuidOf).filter(Boolean);
 
-  // a failed / expired run's file that is still there (an upload that stopped half way, a removal that failed): removed now
+  // a failed / expired run's file that is still there (an upload that stopped half way, a removal that failed): backup_expire first
+  // (idempotent — "changed: false" the second time; a failed run is refused, and its file may go anyway), then the file; a removal
+  // that fails is tried again the next day (it is still listed)
   const orph = await db.rpc('backup_orphans');
   if (!orph.error && Array.isArray(orph.data)) {
-    for (const x of orph.data as { object_path?: string }[]) {
+    for (const x of orph.data as { id?: string; status?: string; object_path?: string }[]) {
       if (!x?.object_path) continue;
+      if (x.id && x.status !== 'failed') { const e = await db.rpc('backup_expire', { p_run: x.id }); if (e.error) continue; }
       const rm = await db.storage.from(BACKUP_BUCKET).remove([x.object_path]);
       if (!rm.error) report.orphansRemoved++;
     }
@@ -187,7 +192,6 @@ export async function backupCron(db: SupabaseClient, now: Date | number = Date.n
   const byBusiness = new Map<string, DueItem[]>();
   for (const d of due) byBusiness.set(d.business, [...(byBusiness.get(d.business) ?? []), d]);
   const order = rotate([...byBusiness.keys()], today);
-  const paging = { keyset: true };
   let stuck = 0;
   for (let i = 0; i < order.length; i++) {
     const left = deadline - clock();
@@ -200,9 +204,7 @@ export async function backupCron(db: SupabaseClient, now: Date | number = Date.n
       const { data: run, error } = await db.rpc('backup_run_start', { p_kind: item.kind, p_period: item.period, p_business: item.business });
       if (error || !run?.id) { report.failed++; console.error('[cron/backup] start', item.kind, item.period, errCode(error)); continue; }
       if (run.status === 'ok') { report.skipped++; continue; }
-      const opts = { keyset: paging.keyset, maxBytes: o.maxBytes };
-      const r = await backupOne(db, run, item, item.business, tables, until, o.pageSize, clock, opts);
-      paging.keyset = opts.keyset;   // "no such function" once — offset paging for the rest of the run
+      const r = await backupOne(db, run, item, item.business, tables, until, o.pageSize, clock, { maxBytes: o.maxBytes });
       if (r === 'out_of_time') { report.outOfTime = true; if (i === 0) stuck++; break; }   // this business stops here; the next one goes on
       if (r === 'ok') report.ok++;
       else if (r === 'busy') report.busy++;
