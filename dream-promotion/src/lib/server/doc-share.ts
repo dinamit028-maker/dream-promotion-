@@ -181,19 +181,33 @@ export async function keptOriginal(db: SupabaseClient, delivery: Delivery): Prom
  * the server's rendering of what was shown; for a PDF the first try kept the very bytes sent, and this retry keeps a new rendering
  * of the same document (its creation time and signature differ). Never throws; counts only in its answer.
  */
-export async function keepUnsavedOriginals(db: SupabaseClient, deadline: number, clock: () => number = Date.now): Promise<{ ready: boolean; kept: number; failed: number }> {
-  const out = { ready: true, kept: 0, failed: 0 };
-  const { data, error } = await db.rpc('delivery_originals_unsaved', { p_limit: 50 });
+export async function keepUnsavedOriginals(db: SupabaseClient, deadline: number, clock: () => number = Date.now, today = new Date().toISOString().slice(0, 10))
+  : Promise<{ ready: boolean; kept: number; failed: number; left: number }> {
+  const out = { ready: true, kept: 0, failed: 0, left: 0 };
+  // up to 200, and a different first one every day: a few that always fail (a document that can not be drawn) never keep the newer
+  // ones waiting — without a place in the database to remember a failure, the day's rotation is what moves past them
+  const { data, error } = await db.rpc('delivery_originals_unsaved', { p_limit: 200 });
   if (error) return { ...out, ready: false };
-  for (const x of (Array.isArray(data) ? data : []) as any[]) {
-    if (clock() > deadline) break;
+  const list = (Array.isArray(data) ? data : []) as any[];
+  const k = list.length ? Math.floor(Date.parse(`${today}T12:00:00Z`) / 864e5) % list.length : 0;
+  const order = [...list.slice(k), ...list.slice(0, k)];
+  for (let i = 0; i < order.length; i++) {
+    if (clock() > deadline) { out.left = order.length - i; break; }
+    const x = order[i];
     const delivery = toDelivery({ ok: true, delivery_id: x.delivery_id, document_id: x.document_id, business_id: x.business_id, channel: x.channel, original: true,
       at: x.at, print_count: 0, file_path: x.file_path });
     if (!delivery) { out.failed++; continue; }
     try {
       const { data: d } = await db.from('documents').select('*').eq('id', delivery.documentId).maybeSingle();
       if (!d) { out.failed++; continue; }
-      const pdf = await documentPdf(await presentDocument(db, d as Record<string, unknown>), delivery.mark);
+      const shown = await presentDocument(db, d as Record<string, unknown>);
+      // as it was delivered: a document cancelled AFTER the delivery was not "בוטל" then — the kept original says "מקור" only
+      if (shown.doc.cancelled) {
+        const { data: c } = await db.from('document_cancellations').select('created_at').eq('document_id', delivery.documentId).maybeSingle();
+        const at = Date.parse(delivery.at), when = Date.parse(String((c as any)?.created_at ?? ''));
+        if (Number.isFinite(at) && Number.isFinite(when) && when > at) shown.doc = { ...shown.doc, cancelled: false };
+      }
+      const pdf = await documentPdf(shown, delivery.mark);
       if ((await keepDelivered(db, delivery, pdf.bytes)).kept) out.kept++; else out.failed++;
     } catch (e: any) { out.failed++; console.error('[doc-share] keep an unsaved original', e?.name ?? 'error'); }
   }

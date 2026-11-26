@@ -26,8 +26,9 @@ export async function GET(req: Request) {
   if (!allowed(req)) return NextResponse.json({ code: 'forbidden' }, { status: 403 });
   try {
     const start = Date.now(), db = adminDb();
-    const originals = await keepUnsavedOriginals(db, start + 10_000).catch(() => ({ ready: false, kept: 0, failed: 0 }));
-    const r = await backupCron(db, Date.now(), start + 45_000);
+    const originals = await keepUnsavedOriginals(db, start + 10_000).catch(() => ({ ready: false, kept: 0, failed: 0, left: 0 }));
+    // the originals that could not be kept go into the same alert (counts only)
+    const r = await backupCron(db, Date.now(), start + 45_000, { originalsFailed: originals.failed });
     return NextResponse.json({ ...r, originals }, { status: r.ready ? 200 : 503 });
   } catch (e: any) {
     console.error('[cron/backup]', e?.name ?? 'error');

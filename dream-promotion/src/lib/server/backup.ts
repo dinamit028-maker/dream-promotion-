@@ -67,15 +67,25 @@ export const maxBytes = (env: Record<string, string | undefined> = process.env) 
   const n = Number(env.BACKUP_MAX_BYTES);
   return Number.isFinite(n) && n > 0 ? n : 45 * 1024 * 1024;
 };
+/** the JSON of one business's rows, before gzip — above it the export stops (BACKUP_MAX_RAW_BYTES, else 300 MB), out of memory's way */
+export const maxRawBytes = (env: Record<string, string | undefined> = process.env) => {
+  const n = Number(env.BACKUP_MAX_RAW_BYTES);
+  return Number.isFinite(n) && n > 0 ? n : 300 * 1024 * 1024;
+};
+/** a period refused as too large is not exported again with the same limits; it is told about once a week (Sunday, in Israel) */
+export const tooLargeAgain = (lastError: string, caps: { file: number; raw: number }) =>
+  /^too_large:/.test(lastError) && (lastError.includes(`(max ${caps.file})`) || lastError.includes(`(max raw ${caps.raw})`));
+/** a business that used this much of its share without finishing is "stuck" (told to the super admin) */
+export const STUCK_MS = 20_000;
 /** the export of 6900: keyset paging only (its backup_export by offset was removed before 6900 ever ran) */
 export const KEYSET_FN = 'backup_export_after';
 
 type Outcome = 'ok' | 'failed' | 'busy' | 'out_of_time' | 'too_large';
 export interface BackupReport {
-  ready: boolean; due: number; ok: number; skipped: number; failed: number; busy: number; outOfTime: boolean; tooLarge: number;
+  ready: boolean; due: number; ok: number; skipped: number; failed: number; busy: number; outOfTime: boolean; tooLarge: number; tooLargeKnown: number; stuck: number;
   expired: number; expireErrors: number; orphansRemoved: number; lateDue: number; alerted: boolean;
 }
-export interface BackupAlert { failed: number; tooLarge: number; stuck: number; lateDue: number; oldestLateDays: number }
+export interface BackupAlert { failed: number; tooLarge: number; stuck: number; lateDue: number; oldestLateDays: number; originalsFailed: number }
 
 const uuidOf = (x: unknown) => (typeof x === 'string' ? x : x && typeof x === 'object' ? String(Object.values(x as Record<string, unknown>)[0] ?? '') : '');
 const errCode = (e: any) => String(e?.code ?? e?.statusCode ?? 'error').slice(0, 40);
@@ -95,9 +105,11 @@ async function page(db: SupabaseClient, business: string, table: string, after: 
 
 /** one business and period: export, gzip, upload (never replacing), finish — or fail the run (its error: a code, never data) */
 export async function backupOne(db: SupabaseClient, run: { id: string; object_path: string }, p: DuePeriod, business: string, tables: string[],
-  deadline: number, pageSize = 5000, clock: () => number = Date.now, o: { maxBytes?: number } = {}): Promise<Outcome> {
+  deadline: number, pageSize = 5000, clock: () => number = Date.now, o: { maxBytes?: number; maxRawBytes?: number } = {}): Promise<Outcome> {
   const out: Record<string, unknown[]> = {};
   const counts: Record<string, number> = {};
+  const rawCap = o.maxRawBytes ?? maxRawBytes(), fileCap = o.maxBytes ?? maxBytes();
+  let raw = 0;   // the JSON of the rows so far, in bytes — counted page by page, so a huge business stops before it is all in memory
   const fail = async (why: string) => { await db.rpc('backup_run_fail', { p_run: run.id, p_error: why.slice(0, 500) }); return 'failed' as const; };
   for (const table of tables) {
     const rows: unknown[] = [];
@@ -106,6 +118,8 @@ export async function backupOne(db: SupabaseClient, run: { id: string; object_pa
       if (clock() > deadline) return 'out_of_time';
       const pg = await page(db, business, table, after, pageSize);
       if (pg.error) return fail(`export ${table}: ${errCode(pg.error)}`);
+      raw += Buffer.byteLength(JSON.stringify(pg.rows));
+      if (raw > rawCap) { await fail(`too_large: raw ${raw} bytes (max raw ${rawCap})`); return 'too_large'; }
       rows.push(...pg.rows);
       if (!pg.more) break;
       after = pg.last;
@@ -116,7 +130,7 @@ export async function backupOne(db: SupabaseClient, run: { id: string; object_pa
   if (clock() > deadline) return 'out_of_time';   // again before the gzip and the upload (the function's own limit is near)
   const file = gzipSync(Buffer.from(JSON.stringify({ format: BACKUP_FORMAT, kind: p.kind, period: p.period, business_id: business, run_id: run.id,
     made_at: new Date(clock()).toISOString(), tables: out })));
-  if (file.byteLength > (o.maxBytes ?? maxBytes())) { await fail(`too_large: ${file.byteLength} bytes`); return 'too_large'; }
+  if (file.byteLength > fileCap) { await fail(`too_large: ${file.byteLength} bytes (max ${fileCap})`); return 'too_large'; }
   if (clock() > deadline) return 'out_of_time';
   const sha256 = createHash('sha256').update(file).digest('hex');
   const up = await db.storage.from(BACKUP_BUCKET).upload(run.object_path, file, { contentType: 'application/gzip', upsert: false });
@@ -144,7 +158,8 @@ async function dueItems(db: SupabaseClient, now: Date | number, businesses: stri
 /** the super admin(s): a phone notification and (when the mail service is set up) an email to ADMIN_EMAILS — counts only, no names */
 export async function alertSuperAdmins(db: SupabaseClient, a: BackupAlert, today: string): Promise<void> {
   const parts = [a.failed ? `${a.failed} גיבויים נכשלו` : '', a.tooLarge ? `${a.tooLarge} קבצים גדולים מדי` : '', a.stuck ? `${a.stuck} עסקים לא הספיקו בזמן` : '',
-    a.lateDue ? `${a.lateDue} גיבויים מאחרים (הוותיק — ${a.oldestLateDays} ימים)` : ''].filter(Boolean);
+    a.lateDue ? `${a.lateDue} גיבויים מאחרים (הוותיק — ${a.oldestLateDays} ימים)` : '',
+    a.originalsFailed ? `${a.originalsFailed} קובצי מקור שנמסרו לא נשמרו` : ''].filter(Boolean);
   const body = `${parts.join(' · ')}. הפרטים ב-backup_runs (SQL Editor).`;
   const { pushToUser } = await import('./push');
   const { data } = await db.from('profiles').select('id').eq('is_super_admin', true);
@@ -163,59 +178,81 @@ export async function alertSuperAdmins(db: SupabaseClient, a: BackupAlert, today
  * stay), and only then the file is removed from Storage. Then, when something needs a person, the super admin is told.
  */
 export async function backupCron(db: SupabaseClient, now: Date | number = Date.now(), deadline = Date.now() + 45_000,
-  o: { pageSize?: number; clock?: () => number; maxBytes?: number; alert?: (a: BackupAlert, today: string) => Promise<void> } = {}): Promise<BackupReport> {
+  o: { pageSize?: number; clock?: () => number; maxBytes?: number; maxRawBytes?: number; originalsFailed?: number;
+       alert?: (a: BackupAlert, today: string) => Promise<void> } = {}): Promise<BackupReport> {
   const clock = o.clock ?? Date.now;
-  const today = israelParts(now).date;
-  const report: BackupReport = { ready: true, due: 0, ok: 0, skipped: 0, failed: 0, busy: 0, outOfTime: false, tooLarge: 0, expired: 0, expireErrors: 0,
-    orphansRemoved: 0, lateDue: 0, alerted: false };
+  const today = israelParts(now).date, sunday = israelParts(now).weekday === 0;
+  const caps = { file: o.maxBytes ?? maxBytes(), raw: o.maxRawBytes ?? maxRawBytes() };
+  const report: BackupReport = { ready: true, due: 0, ok: 0, skipped: 0, failed: 0, busy: 0, outOfTime: false, tooLarge: 0, tooLargeKnown: 0, stuck: 0,
+    expired: 0, expireErrors: 0, orphansRemoved: 0, lateDue: 0, alerted: false };
   const [t, b] = await Promise.all([db.rpc('backup_tables'), db.rpc('backup_businesses')]);
   // before migration 20261126006900: nothing to do (and nothing to say but that)
   if (t.error || b.error || !Array.isArray(t.data)) return { ...report, ready: false };
   const tables = (t.data as unknown[]).map(String);
   const businesses = ((b.data ?? []) as unknown[]).map(uuidOf).filter(Boolean);
+  const phase = async (name: string, fn: () => Promise<void>) => { try { await fn(); } catch (e: any) { console.error(`[cron/backup] ${name}`, e?.name ?? 'error'); } };
+  let due: DueItem[] & { exact?: boolean } = [];
+  const known = new Set<DueItem>();   // refused as too large before, with the same limits — not exported again
 
-  // a failed / expired run's file that is still there (an upload that stopped half way, a removal that failed): backup_expire first
-  // (idempotent — "changed: false" the second time; a failed run is refused, and its file may go anyway), then the file; a removal
-  // that fails is tried again the next day (it is still listed)
-  const orph = await db.rpc('backup_orphans');
-  if (!orph.error && Array.isArray(orph.data)) {
-    for (const x of orph.data as { id?: string; status?: string; object_path?: string }[]) {
-      if (!x?.object_path) continue;
-      if (x.id && x.status !== 'failed') { const e = await db.rpc('backup_expire', { p_run: x.id }); if (e.error) continue; }
-      const rm = await db.storage.from(BACKUP_BUCKET).remove([x.object_path]);
-      if (!rm.error) report.orphansRemoved++;
+  try {
+    // a failed / expired run's file that is still there (an upload that stopped half way, a removal that failed): backup_expire first
+    // (idempotent — "changed: false" the second time; a failed run is refused, and its file may go anyway), then the file; a removal
+    // that fails is tried again the next day (it is still listed)
+    await phase('orphans', async () => {
+      const orph = await db.rpc('backup_orphans');
+      if (orph.error || !Array.isArray(orph.data)) return;
+      for (const x of orph.data as { id?: string; status?: string; object_path?: string }[]) {
+        if (!x?.object_path) continue;
+        if (x.id && x.status !== 'failed') { const e = await db.rpc('backup_expire', { p_run: x.id }); if (e.error) continue; }
+        const rm = await db.storage.from(BACKUP_BUCKET).remove([x.object_path]);
+        if (!rm.error) report.orphansRemoved++;
+      }
+    });
+
+    due = await dueItems(db, now, businesses);
+    report.due = due.length;
+    const byBusiness = new Map<string, DueItem[]>();
+    for (const d of due) byBusiness.set(d.business, [...(byBusiness.get(d.business) ?? []), d]);
+    const order = rotate([...byBusiness.keys()], today);
+    for (let i = 0; i < order.length; i++) {
+      const left = deadline - clock();
+      if (left <= 0) { report.outOfTime = true; break; }
+      // the share of time: what is left over the businesses left; the first of the day gets at least 30 s (when there is so much)
+      const share = i === 0 ? Math.max(left / (order.length - i), Math.min(left, 30_000)) : left / (order.length - i);
+      const began = clock(), until = Math.min(deadline, began + share);
+      for (const item of byBusiness.get(order[i])!) {
+        if (clock() > until) { report.outOfTime = true; break; }
+        // the last run of this period refused it as too large with the same limits: not exported again (told once a week)
+        const { data: last } = await db.from('backup_runs').select('status, error').eq('kind', item.kind).eq('period', item.period).eq('business_id', item.business)
+          .order('started_at', { ascending: false }).limit(1).maybeSingle();
+        if ((last as any)?.status === 'failed' && tooLargeAgain(String((last as any)?.error ?? ''), caps)) { report.tooLargeKnown++; known.add(item); continue; }
+        const { data: run, error } = await db.rpc('backup_run_start', { p_kind: item.kind, p_period: item.period, p_business: item.business });
+        if (error || !run?.id) { report.failed++; console.error('[cron/backup] start', item.kind, item.period, errCode(error)); continue; }
+        if (run.status === 'ok') { report.skipped++; continue; }
+        let r: Outcome;
+        try { r = await backupOne(db, run, item, item.business, tables, until, o.pageSize, clock, { maxBytes: caps.file, maxRawBytes: caps.raw }); }
+        catch (e: any) {
+          // one business's exception (out of memory, a bad row) never stops the others: its run fails, the next one goes on
+          r = 'failed';
+          await db.rpc('backup_run_fail', { p_run: run.id, p_error: `exception: ${String(e?.name ?? 'error').slice(0, 60)}` }).then(() => null, () => null);
+        }
+        if (r === 'out_of_time') {
+          report.outOfTime = true;
+          if (clock() - began >= STUCK_MS) report.stuck++;   // it had a real share and still did not finish
+          break;                                              // this business stops here; the next one goes on
+        }
+        if (r === 'ok') report.ok++;
+        else if (r === 'busy') report.busy++;
+        else if (r === 'too_large') { report.tooLarge++; console.error('[cron/backup] a file too large', item.kind, item.period); }
+        else { report.failed++; console.error('[cron/backup] a run failed', item.kind, item.period); }
+      }
     }
-  }
-
-  const due = await dueItems(db, now, businesses);
-  report.due = due.length;
-  const byBusiness = new Map<string, DueItem[]>();
-  for (const d of due) byBusiness.set(d.business, [...(byBusiness.get(d.business) ?? []), d]);
-  const order = rotate([...byBusiness.keys()], today);
-  let stuck = 0;
-  for (let i = 0; i < order.length; i++) {
-    const left = deadline - clock();
-    if (left <= 0) { report.outOfTime = true; break; }
-    // the share of time: what is left over the businesses left; the first of the day gets at least 30 s (when there is so much)
-    const share = i === 0 ? Math.max(left / (order.length - i), Math.min(left, 30_000)) : left / (order.length - i);
-    const until = Math.min(deadline, clock() + share);
-    for (const item of byBusiness.get(order[i])!) {
-      if (clock() > until) { report.outOfTime = true; break; }
-      const { data: run, error } = await db.rpc('backup_run_start', { p_kind: item.kind, p_period: item.period, p_business: item.business });
-      if (error || !run?.id) { report.failed++; console.error('[cron/backup] start', item.kind, item.period, errCode(error)); continue; }
-      if (run.status === 'ok') { report.skipped++; continue; }
-      const r = await backupOne(db, run, item, item.business, tables, until, o.pageSize, clock, { maxBytes: o.maxBytes });
-      if (r === 'out_of_time') { report.outOfTime = true; if (i === 0) stuck++; break; }   // this business stops here; the next one goes on
-      if (r === 'ok') report.ok++;
-      else if (r === 'busy') report.busy++;
-      else if (r === 'too_large') { report.tooLarge++; console.error('[cron/backup] a file too large', item.kind, item.period); }
-      else { report.failed++; console.error('[cron/backup] a run failed', item.kind, item.period); }
-    }
-  }
-
-  if (clock() <= deadline) {
-    const { data: list, error } = await db.rpc('backup_expirable');
-    if (!error && Array.isArray(list)) {
+  } finally {
+    // whatever happened above: the expiry, and the alert
+    await phase('expire', async () => {
+      if (clock() > deadline) return;
+      const { data: list, error } = await db.rpc('backup_expirable');
+      if (error || !Array.isArray(list)) return;
       for (const x of list as { id: string; object_path: string }[]) {
         if (clock() > deadline) { report.outOfTime = true; break; }
         const e = await db.rpc('backup_expire', { p_run: x.id });
@@ -224,19 +261,23 @@ export async function backupCron(db: SupabaseClient, now: Date | number = Date.n
         if (rm.error) { report.expireErrors++; console.error('[cron/backup] remove an expired copy', errCode(rm.error)); continue; }
         report.expired++;
       }
-    }
-  }
-
-  // what is still due and older than 7 days (backup_due again — what this run did not finish)
-  // (only by backup_due: the fallback list holds periods that may be "ok" already — it never says "late")
-  const stillDue = !due.exact ? [] : report.ok ? await dueItems(db, now, businesses) : due;
-  const lateNow = stillDue.filter((d) => daysLate(d, today) > 7);
-  report.lateDue = lateNow.length;
-  if (report.failed || report.tooLarge || stuck || report.lateDue) {
-    const a: BackupAlert = { failed: report.failed, tooLarge: report.tooLarge, stuck, lateDue: report.lateDue,
-      oldestLateDays: lateNow.reduce((m, d) => Math.max(m, daysLate(d, today)), 0) };
-    try { await (o.alert ?? ((x, d) => alertSuperAdmins(db, x, d)))(a, today); report.alerted = true; }
-    catch (e: any) { console.error('[cron/backup] alert', e?.name ?? 'error'); }
+    });
+    await phase('alert', async () => {
+      // what is still due and older than 7 days (backup_due again — what this run did not finish); only by backup_due (the fallback
+      // list holds periods that may be "ok" already); a period known to be too large is in the weekly line, not every day
+      const stillDue = !due.exact ? [] : report.ok ? await dueItems(db, now, businesses) : due;
+      const isKnown = (d: DueItem) => [...known].some((k) => k.kind === d.kind && k.period === d.period && k.business === d.business);
+      const lateNow = stillDue.filter((d) => daysLate(d, today) > 7 && !isKnown(d));
+      report.lateDue = lateNow.length;
+      const tooLarge = report.tooLarge + (sunday ? report.tooLargeKnown : 0);
+      const originalsFailed = o.originalsFailed ?? 0;
+      if (report.failed || tooLarge || report.stuck || report.lateDue || originalsFailed) {
+        const a: BackupAlert = { failed: report.failed, tooLarge, stuck: report.stuck, lateDue: report.lateDue,
+          oldestLateDays: lateNow.reduce((m, d) => Math.max(m, daysLate(d, today)), 0), originalsFailed };
+        await (o.alert ?? ((x, d) => alertSuperAdmins(db, x, d)))(a, today);
+        report.alerted = true;
+      }
+    });
   }
   return report;
 }

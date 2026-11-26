@@ -468,8 +468,10 @@ test('periods: the end of a period, days late, and the business that starts — 
   assert.deepEqual([...rotate(l, '2026-11-26')].sort(), l, 'everyone is in the order');
 });
 
-function dueDb(o: { due: { kind: string; period: string; business_id: string }[]; slow?: string; rows?: number; orphans?: { id?: string; status?: string; object_path: string }[] }) {
+function dueDb(o: { due: { kind: string; period: string; business_id: string }[]; slow?: string; rows?: number; orphans?: { id?: string; status?: string; object_path: string }[];
+  throwFor?: string; expirable?: { id: string; object_path: string }[] }) {
   const runs: any[] = [];
+  let seq = 0;
   const asked: string[] = [];
   let now = 0;
   const rowsOf = (b: string, t: string) => (t === 'documents' ? Array.from({ length: o.rows ?? 3 }, (_, i) => ({ id: `${b}-${i}`, business_id: b })) : []);
@@ -488,18 +490,22 @@ function dueDb(o: { due: { kind: string; period: string; business_id: string }[]
     backup_run_start: (a: any) => {
       const r = runs.find((x) => x.kind === a.p_kind && x.period === a.p_period && x.business === a.p_business && ['running', 'ok'].includes(x.status));
       if (r) return { id: r.id, object_path: r.object_path, status: r.status };
-      const id = randomUUID(); const n = { id, kind: a.p_kind, period: a.p_period, business: a.p_business, status: 'running', object_path: `${a.p_business}/${a.p_kind}/${a.p_period}/${id}.json.gz` };
-      runs.push(n); asked.push(`${a.p_business.slice(0, 2)} ${a.p_kind} ${a.p_period}`); return n;
+      const id = randomUUID(); const n = { id, kind: a.p_kind, period: a.p_period, business: a.p_business, business_id: a.p_business, status: 'running',
+        started_at: `2026-11-26T00:00:${String(++seq).padStart(2, '0')}Z`, error: '', object_path: `${a.p_business}/${a.p_kind}/${a.p_period}/${id}.json.gz` };
+      runs.push(n); asked.push(`start ${a.p_business.slice(0, 2)} ${a.p_kind} ${a.p_period}`); return n;
     },
-    backup_export_after: (a: any) => { asked.push(a.p_after ? `after ${a.p_after.id}` : 'first'); return pageOf(a); },
+    backup_export_after: (a: any) => {
+      if (a.p_business === o.throwFor) throw new RangeError('Invalid string length');
+      asked.push(a.p_after ? `after ${a.p_after.id}` : 'first'); return pageOf(a);
+    },
     backup_run_finish: (a: any) => { Object.assign(runs.find((x) => x.id === a.p_run), { status: 'ok', sha256: a.p_sha256 }); return { status: 'ok' }; },
     backup_run_fail: (a: any) => { Object.assign(runs.find((x) => x.id === a.p_run), { status: 'failed', error: a.p_error }); return { status: 'failed' }; },
-    backup_expirable: () => [],
+    backup_expirable: () => o.expirable ?? [],
     backup_expire: (a: any) => { asked.push(`expire ${a.p_run}`); return { id: a.p_run, changed: false }; },
   };
-  const db = fakeDb({}, { rpc }) as any;
+  const db = fakeDb({ backup_runs: runs }, { rpc }) as any;
   const fs: Files = new Map();
-  for (const x of o.orphans ?? []) fs.set(`backups/${x.object_path}`, new Uint8Array([1]));
+  for (const x of [...(o.orphans ?? []), ...(o.expirable ?? [])]) fs.set(`backups/${x.object_path}`, new Uint8Array([1]));
   withStorage(db, fs);
   return { db, runs, asked, files: fs, clock: () => now };
 }
@@ -528,10 +534,10 @@ test('backups: the super admin is told — a failed run, a file too large, a bus
   const x = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: B }], rows: 3 });
   const alerts: any[] = [];
   const r = await backupCron(x.db, new Date('2026-11-26T08:00:00Z'), 45_000, { clock: x.clock, maxBytes: 10, alert: async (a) => { alerts.push(a); } });
-  assert.equal(r.tooLarge, 1); assert.equal(x.runs[0].status, 'failed'); assert.match(x.runs[0].error, /^too_large: \d+ bytes$/);
+  assert.equal(r.tooLarge, 1); assert.equal(x.runs[0].status, 'failed'); assert.match(x.runs[0].error, /^too_large: \d+ bytes \(max 10\)$/);
   assert.equal(alerts.length, 1); assert.equal(alerts[0].tooLarge, 1);
   assert.equal(alerts[0].lateDue, 1, '2026-10 not done on 26.11 — 25 days late'); assert.equal(alerts[0].oldestLateDays, 25);
-  assert.deepEqual(Object.keys(alerts[0]).sort(), ['failed', 'lateDue', 'oldestLateDays', 'stuck', 'tooLarge'], 'counts only — no business, no path');
+  assert.deepEqual(Object.keys(alerts[0]).sort(), ['failed', 'lateDue', 'oldestLateDays', 'originalsFailed', 'stuck', 'tooLarge'], 'counts only — no business, no path');
   const z = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: B }], slow: B, rows: 9 });
   const za: any[] = [];
   await backupCron(z.db, new Date('2026-11-26T08:00:00Z'), 45_000, { pageSize: 1, clock: z.clock, alert: async (a) => { za.push(a); } });
@@ -551,7 +557,7 @@ test('the original kept again: the unsaved ones are rendered with "מקור" and
     if (fn === 'document_delivery_file_add') { fileAdds.push(a); return { data: { ok: true }, error: null }; }
     return { data: null, error: { code: 'PGRST202', message: 'x' } };
   };
-  assert.deepEqual(await keepUnsavedOriginals(db, Date.now() + 30_000), { ready: true, kept: 1, failed: 0 });
+  assert.deepEqual(await keepUnsavedOriginals(db, Date.now() + 30_000), { ready: true, kept: 1, failed: 0, left: 0 });
   const kept = files.get(`delivered-documents/${path1}`)!;
   assert.equal(fileAdds[0].p_sha256, sha(kept));
   const dir = mkdtempSync(path.join(tmpdir(), 'dp-6900-keep-')); const f = path.join(dir, 'k.pdf'); writeFileSync(f, kept);
@@ -568,7 +574,7 @@ test('the original kept again: the unsaved ones are rendered with "מקור" and
   tables.document_delivery_files = [{ delivery_id: id, object_path: path1 }];
   assert.deepEqual([...(await keptOriginal(db, d))!], [...old]);
   assert.equal(await keptOriginal(db, { ...d, original: false }), null, 'a copy is never served from the kept file');
-  assert.deepEqual(await keepUnsavedOriginals(fakeDb({}) as any, Date.now() + 1000), { ready: false, kept: 0, failed: 0 }, 'before the function: nothing');
+  assert.deepEqual(await keepUnsavedOriginals(fakeDb({}) as any, Date.now() + 1000), { ready: false, kept: 0, failed: 0, left: 0 }, 'before the function: nothing');
 });
 
 test('the screens: a payment link of an invoice waiting for its number is closed; the reminder wraps the link only', () => {
@@ -578,4 +584,83 @@ test('the screens: a payment link of an invoice waiting for its number is closed
   assert.match(src('src/features/finance/Paylinks.tsx'), /disabled=\{Boolean\(p\.blocked\)\}/);
   assert.match(src('src/features/finance/Receivables.tsx'), /\[overflow-wrap:anywhere\]/); assert.doesNotMatch(src('src/features/finance/Receivables.tsx'), /break-all/);
   assert.match(src('src/app/api/doc/delivery/route.ts'), /keptOriginal\(db, v\.delivery\)/, 'a repeated request returns the kept file');
+});
+
+// ---- re-review round (2.119): one business never crashes the run; a file too large is not tried every day; the originals again -------
+test('backups: an exception in one business fails its run only — the next business, the expiry and the alert still happen', async () => {
+  const A = 'b4000000-0000-4000-8000-0000000000d4', B = 'b5000000-0000-4000-8000-0000000000e5';
+  const x = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: A }, { kind: 'monthly', period: '2026-10', business_id: B }], throwFor: A,
+    expirable: [{ id: 'old-x', object_path: 'old/x.json.gz' }] });
+  const alerts: any[] = [];
+  const orig = console.error; console.error = () => {};
+  let r: any;
+  try { r = await backupCron(x.db, new Date('2026-11-02T08:00:00Z'), 45_000, { clock: x.clock, alert: async (a) => { alerts.push(a); } }); } finally { console.error = orig; }
+  assert.equal(r.ok, 1); assert.equal(r.failed, 1);
+  assert.deepEqual(x.runs.map((q) => [q.business === A ? 'A' : 'B', q.status]).sort(), [['A', 'failed'], ['B', 'ok']]);
+  assert.match(x.runs.find((q) => q.business === A).error, /^exception: RangeError$/, 'the error is a name — never data');
+  assert.equal(r.expired, 1, 'the expiry ran anyway'); assert.equal(x.files.has('backups/old/x.json.gz'), false);
+  assert.equal(alerts[0].failed, 1);
+});
+
+test('backups: too large stops before it is all in memory; the same period with the same limits is not exported again — told on Sundays', async () => {
+  const B = 'b6000000-0000-4000-8000-0000000000f6';
+  const x = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: B }], rows: 50 });
+  const first: any[] = [];
+  const r1 = await backupCron(x.db, new Date('2026-11-24T08:00:00Z'), 45_000, { pageSize: 5, clock: x.clock, maxRawBytes: 200, alert: async (a) => { first.push(a); } });
+  assert.equal(r1.tooLarge, 1);
+  assert.match(x.runs[0].error, /^too_large: raw \d+ bytes \(max raw 200\)$/);
+  assert.ok(x.asked.filter((q) => q.startsWith('after')).length < 9, 'stopped after a few pages — not the whole business');
+  assert.equal(first[0].tooLarge, 1, 'told the day it happened');
+  // the next day (Wednesday): not started again, and the alert does not repeat it (nor as "late")
+  const days: any[] = [];
+  const r2 = await backupCron(x.db, new Date('2026-11-25T08:00:00Z'), 45_000, { pageSize: 5, clock: x.clock, maxRawBytes: 200, alert: async (a) => { days.push(a); } });
+  assert.equal(r2.tooLargeKnown, 1); assert.equal(x.runs.length, 1, 'no new run');
+  assert.deepEqual(days, [], 'no alert on a weekday for a known one');
+  // Sunday 29.11.2026: told again (once a week)
+  const sun: any[] = [];
+  await backupCron(x.db, new Date('2026-11-29T08:00:00Z'), 45_000, { pageSize: 5, clock: x.clock, maxRawBytes: 200, alert: async (a) => { sun.push(a); } });
+  assert.equal(sun[0].tooLarge, 1); assert.equal(sun[0].lateDue, 0, 'not counted twice');
+  // a larger limit: exported again
+  const r3 = await backupCron(x.db, new Date('2026-11-30T08:00:00Z'), 45_000, { pageSize: 5, clock: x.clock, maxRawBytes: 10 * 1024 * 1024, alert: async () => {} });
+  assert.equal(r3.ok, 1);
+});
+
+test('backups: "stuck" is any business that used 20 s of its share without finishing — not only the first of the day', async () => {
+  const F = 'b7000000-0000-4000-8000-000000000017', S = 'b8000000-0000-4000-8000-000000000018';
+  for (const day of ['2026-11-26T08:00:00Z', '2026-11-27T08:00:00Z']) {
+    const x = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: F }, { kind: 'monthly', period: '2026-10', business_id: S }], slow: S, rows: 9 });
+    const al: any[] = [];
+    const r = await backupCron(x.db, new Date(day), 45_000, { pageSize: 1, clock: x.clock, alert: async (a) => { al.push(a); } });
+    assert.equal(r.stuck, 1, `${day}: the slow one, wherever it is in the order`); assert.equal(al[0].stuck, 1);
+  }
+  const al2: any[] = [];
+  const ok = dueDb({ due: [{ kind: 'monthly', period: '2026-10', business_id: F }] });
+  await backupCron(ok.db, new Date('2026-11-02T08:00:00Z'), 45_000, { clock: ok.clock, originalsFailed: 3, alert: async (a) => { al2.push(a); } });
+  assert.equal(al2[0].originalsFailed, 3, 'the originals that could not be kept are in the same alert');
+});
+
+test('the originals kept again: drawn as delivered (cancelled after the delivery — still "מקור", no "בוטל"); a different first one every day', async () => {
+  const run = async (cancelledAt: string | null) => {
+    install();
+    const db = (globalThis as any).__DP_TEST_ADMIN_DB__;
+    if (cancelledAt) tables.document_cancellations = [{ document_id: DOC, business_id: BIZ, reason: 'דמו', created_at: cancelledAt }];
+    const id = randomUUID(), p1 = `${BIZ}/${DOC}/${id}.pdf`;
+    db.rpc = async (fn: string, a: any) => (fn === 'delivery_originals_unsaved' ? { data: [{ delivery_id: id, document_id: DOC, business_id: BIZ, channel: 'link', at: '2026-11-26T08:00:00Z', file_path: p1 }], error: null }
+      : fn === 'document_delivery_file_add' ? { data: { ok: true }, error: null } : { data: null, error: { code: 'PGRST202', message: 'x' } });
+    assert.equal((await keepUnsavedOriginals(db, Date.now() + 30_000)).kept, 1);
+    const dir = mkdtempSync(path.join(tmpdir(), 'dp-6900-c-')); const f = path.join(dir, 'c.pdf'); writeFileSync(f, files.get(`delivered-documents/${p1}`)!);
+    return execFileSync('pdftotext', ['-layout', f, '-']).toString();
+  };
+  assert.doesNotMatch(await run('2026-11-26T09:00:00Z'), /בוטל/, 'cancelled after the delivery: the original as it was delivered');
+  assert.match(await run('2026-11-26T07:00:00Z'), /בוטל/, 'cancelled before it: the customer saw "בוטל"');
+  // rotation: 3 waiting, a budget for one — three days start with three different ones
+  const seen: string[] = [];
+  for (const day of ['2026-11-26', '2026-11-27', '2026-11-28']) {
+    const db: any = fakeDb({}, { rpc: { delivery_originals_unsaved: () => ['a', 'b', 'c'].map((k) => ({ delivery_id: `v-${k}`, document_id: `doc-${k}`, business_id: BIZ, channel: 'link', at: '', file_path: 'x' })) } });
+    const from = db.from; db.from = (t: string) => { const q = from(t); const eq = q.eq; q.eq = (k: string, v: any) => { if (t === 'documents') seen.push(v); return eq(k, v); }; return q; };
+    let t = 0;
+    const r = await keepUnsavedOriginals(db, 0, () => t++, day);   // the first one goes in the budget, then the time is up
+    assert.equal(r.left, 2); assert.equal(r.failed, 1, 'no such document in the fake: counted, never thrown');
+  }
+  assert.equal(new Set(seen).size, 3, `three days, three first ones (${seen.join(', ')})`);
 });
