@@ -57,10 +57,10 @@
 -- Runs after 4600 (locations), 5000 (deposits, the goods documents), 6800 (stage 1) and 6900 (stage 2) — it stops at the top
 -- without them, changing nothing.
 
--- a busy moment never holds the issuing of documents behind this migration: a table it changes that is locked for more than 5
--- seconds stops it (its steps on documents and on business_locations are each all-or-nothing, with the message "lock_timeout …"
--- — nothing of that step changed); it runs again safely: run it again in a quiet moment
-set lock_timeout = '5s';
+-- RUN IT AS ONE SCRIPT IN THE SQL EDITOR (one transaction: all of it or nothing). A busy moment never holds the issuing of
+-- documents behind it: a table it changes that stays locked for more than 5 seconds stops it ("lock_timeout: … nothing was changed
+-- — run it again in a quiet moment"); documents is changed last, so its lock is held as briefly as possible.
+set local lock_timeout = '5s';
 
 do $$
 begin
@@ -90,37 +90,7 @@ begin
 end $$;
 
 -- ============================================================================================================================
--- 1. the columns and the checks of documents (the unique key stays: one number per business and type)
--- ============================================================================================================================
--- the location whose series numbered the document (7000); null = the business's one series — every document issued before
--- the business switched, and every document of a business that never does. Set by documents_number only. (The number itself
--- carries the location: its branch code and then its running number — see section 4.)
--- one statement on documents, in a block: either all of it or none of it. lock_timeout (top of the file): a busy moment (documents
--- being issued) stops it after 5 seconds instead of holding every issue behind it — run the migration again in a quiet moment.
-do $$
-begin
-  alter table public.documents
-    add column if not exists series_location_id uuid,
-    add column if not exists deposit_id uuid references public.bank_deposits (id) on delete restrict,
-    -- 420 "הפקדת בנק" (1.31 appendix 1); source 'deposit'
-    drop constraint if exists documents_doc_type_check,
-    add constraint documents_doc_type_check check (doc_type in (100, 200, 210, 300, 305, 320, 330, 400, 420)),
-    drop constraint if exists documents_source_check,
-    add constraint documents_source_check check (source is null or source in ('pos', 'direct', 'quote', 'refund', 'credit', 'receipt', 'deposit'));
-  if not exists (select 1 from pg_constraint where conname = 'documents_series_location_fkey' and conrelid = 'public.documents'::regclass) then
-    alter table public.documents add constraint documents_series_location_fkey
-      foreign key (series_location_id, business_id) references public.business_locations (id, business_id) on delete restrict;
-  end if;
-  if not exists (select 1 from pg_constraint where conname = 'documents_deposit_type_check' and conrelid = 'public.documents'::regclass) then
-    alter table public.documents add constraint documents_deposit_type_check check ((deposit_id is not null) = (doc_type = 420));
-  end if;
-  create unique index if not exists documents_deposit_uq on public.documents (deposit_id) where deposit_id is not null;
-exception when lock_not_available then
-  raise exception 'lock_timeout: the documents table is busy right now (documents being issued) — nothing of this step changed; run the migration again in a quiet moment';
-end $$;
-
--- ============================================================================================================================
--- 2. numbering per location: the switch (one-way) and the series
+-- 1. numbering per location: the switch (one-way) and the series
 -- ============================================================================================================================
 -- a row = the business numbers per location, since then. Never changed, never removed.
 create table if not exists public.document_numbering (
@@ -195,7 +165,7 @@ begin
 end $$;
 
 -- ============================================================================================================================
--- 3. the branch code of a location: two digits, 01–99 (the owner, 26.11.2026: "the first two digits are the branch number") —
+-- 2. the branch code of a location: two digits, 01–99 (the owner, 26.11.2026: "the first two digits are the branch number") —
 --    the first two digits of its documents' numbers, and the branch id of the unified file (fields 1231, 1270, 1272, 1320, 1374,
 --    1421 — X(7))
 -- ============================================================================================================================
@@ -206,7 +176,7 @@ begin
   create unique index if not exists business_locations_branch_code_uq on public.business_locations (business_id, branch_code)
     where branch_code is not null;
 exception when lock_not_available then
-  raise exception 'lock_timeout: the locations table is busy right now — nothing of this step changed; run the migration again in a quiet moment';
+  raise exception 'lock_timeout: the locations table is busy right now — nothing was changed — run it again in a quiet moment';
 end $$;
 
 -- the next free code of a business: the smallest of 01–99 no location of it carries (a business has 10 locations at most)
@@ -243,7 +213,38 @@ begin
   create or replace trigger c_business_locations_branch_code before insert or update on public.business_locations
     for each row execute function public.business_locations_branch_code();
 exception when lock_not_available then
-  raise exception 'lock_timeout: the locations table is busy right now — run the migration again in a quiet moment (it runs again safely)';
+  raise exception 'lock_timeout: the locations table is busy right now — nothing was changed — run it again in a quiet moment';
+end $$;
+
+-- ============================================================================================================================
+-- 3. the columns and the checks of documents (the unique key stays: one number per business and type) — after the new tables and
+--    the branch codes, so that documents is locked (ACCESS EXCLUSIVE) as late and as briefly as possible
+-- ============================================================================================================================
+-- the location whose series numbered the document (7000); null = the business's one series — every document issued before
+-- the business switched, and every document of a business that never does. Set by documents_number only. (The number itself
+-- carries the location: its branch code and then its running number — see section 4.)
+-- one statement on documents. lock_timeout (top of the file): a busy moment (documents being issued) stops the migration after 5
+-- seconds instead of holding every issue behind it — the whole script is one transaction: nothing was changed; run it again.
+do $$
+begin
+  alter table public.documents
+    add column if not exists series_location_id uuid,
+    add column if not exists deposit_id uuid references public.bank_deposits (id) on delete restrict,
+    -- 420 "הפקדת בנק" (1.31 appendix 1); source 'deposit'
+    drop constraint if exists documents_doc_type_check,
+    add constraint documents_doc_type_check check (doc_type in (100, 200, 210, 300, 305, 320, 330, 400, 420)),
+    drop constraint if exists documents_source_check,
+    add constraint documents_source_check check (source is null or source in ('pos', 'direct', 'quote', 'refund', 'credit', 'receipt', 'deposit'));
+  if not exists (select 1 from pg_constraint where conname = 'documents_series_location_fkey' and conrelid = 'public.documents'::regclass) then
+    alter table public.documents add constraint documents_series_location_fkey
+      foreign key (series_location_id, business_id) references public.business_locations (id, business_id) on delete restrict;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'documents_deposit_type_check' and conrelid = 'public.documents'::regclass) then
+    alter table public.documents add constraint documents_deposit_type_check check ((deposit_id is not null) = (doc_type = 420));
+  end if;
+  create unique index if not exists documents_deposit_uq on public.documents (deposit_id) where deposit_id is not null;
+exception when lock_not_available then
+  raise exception 'lock_timeout: the documents table is busy right now (documents being issued) — nothing was changed — run it again in a quiet moment';
 end $$;
 
 -- ============================================================================================================================
@@ -999,4 +1000,3 @@ revoke execute on function public.documents_before_insert(), public.location_fil
 --   * after a business switched or a 420 was issued: no rollback — the numbers given per location and the deposit documents are
 --     documents of the books (they are never changed or removed); fix forward.
 -- ============================================================================================================================
-reset lock_timeout;
