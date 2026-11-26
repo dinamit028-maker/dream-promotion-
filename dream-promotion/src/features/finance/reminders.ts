@@ -1,6 +1,6 @@
 import { ils } from '@/features/register/money';
 import { linkify, type Email } from '@/features/store/commerce';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { fillReminder, reminderTemplate, type Tone } from './receivables';
 
 /**
@@ -44,7 +44,7 @@ export function daysText(days: number[]): string {
 
 /** what the reminder is about: "חשבונית מס מס׳ 12", or "תשלום 2 מתוך 3 של חשבונית מס מס׳ 12" */
 export function reminderDoc(docType: number, docNumber: number | string, n: number | null, of: number | null): string {
-  const doc = `${DOC_LABEL[docType] ?? 'חשבונית'} מס׳ ${docNumber}`;
+  const doc = `${DOC_LABEL[docType] ?? 'חשבונית'} מס׳ ${docNumberLabel(docNumber)}`;
   return n != null ? `תשלום ${n} מתוך ${of ?? '?'} של ${doc}` : doc;
 }
 const ddmm = (d: string | null | undefined) => (d ? d.split('-').reverse().join('/') : '');

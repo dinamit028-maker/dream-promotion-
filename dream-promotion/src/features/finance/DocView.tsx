@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { waLink } from '@/features/crm/crm';
-import { DOC_LABEL, creditedTotals, isRefundReceipt, refundLeft, toDoc, type DocRow } from '@/features/documents/documents';
+import { DEPOSIT_DOC_NOTE, DOC_LABEL, creditedTotals, isDepositDoc, isRefundReceipt, refundLeft, toDoc, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import { cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from './sale-receipts';
 import { toRefund } from '@/features/register/refunds';
 import { saleFromRow } from '@/features/store/commerce';
@@ -93,6 +93,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
   const html = useMemo(() => docBody({ ...doc, cancelled: Boolean(cancelled) } as DocRow, business, previewMark(doc, delivery), { allocation: allocLine }),
     [doc, business, allocLine, cancelled, delivered, delivery]);
   const awaiting = Boolean(delivery?.allocation.awaiting);
+  const deposit = isDepositDoc(doc);
   const fullyCredited = credited > 0 && Math.round(credited * 100) >= Math.round(doc.total * 100);
 
   async function print() {
@@ -109,7 +110,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
   // for its allocation number is not sent at all
   async function share() {
     const url = `${window.location.origin}/d/${doc.shareToken}`;
-    const link = waLink(doc.customerPhone ?? '', `שלום${doc.customerName ? ` ${doc.customerName.split(' ')[0]}` : ''}, מצורף ${DOC_LABEL[doc.docType]} מס׳ ${doc.docNumber} (${ils(doc.total)}): ${url}`);
+    const link = waLink(doc.customerPhone ?? '', `שלום${doc.customerName ? ` ${doc.customerName.split(' ')[0]}` : ''}, מצורף ${DOC_LABEL[doc.docType]} מס׳ ${docNumberLabel(doc)} (${ils(doc.total)}): ${url}`);
     if (!link) {
       const e = await linkMayGo(doc.id);
       if (e) { fail(e); return; }
@@ -132,31 +133,33 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
     <Modal open onClose={onClose} wide>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate font-display text-xl font-extrabold">{DOC_LABEL[doc.docType]} {doc.docNumber}</h3>
+          <h3 className="truncate font-display text-xl font-extrabold">{DOC_LABEL[doc.docType]} {docNumberLabel(doc)}</h3>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {cancelled && <Pill tone="bad">בוטל · {cancelled.reason}</Pill>}
             {credited > 0 && <Pill tone={fullyCredited ? 'bad' : 'warn'}>{fullyCredited ? 'זוכתה' : `זוכתה חלקית (${ils(credited)})`}</Pill>}
-            {isRefundReceipt(doc) && <Pill tone="warn">החזר כספי{doc.baseDocNumber ? ` על קבלה ${doc.baseDocNumber}` : ''}</Pill>}
+            {isRefundReceipt(doc) && <Pill tone="warn">החזר כספי{doc.baseDocNumber ? ` על קבלה ${docNumberLabel(doc.baseDocNumber)}` : ''}</Pill>}
             {refunded && refunded.count > 0 && <Pill tone={refunded.left <= 0 ? 'bad' : 'warn'}>{refunded.left <= 0 ? 'הוחזרה במלואה' : `הוחזר חלק (נשארו ${ils(refunded.left)})`}</Pill>}
             {recv && !recv.cancelled && <Pill tone={recv.balance <= 0 ? 'ok' : 'warn'}>{recv.balance <= 0 ? 'שולם' : `יתרה ${ils(recv.balance)}`}</Pill>}
             {alloc?.state.kind === 'real' && <Pill tone="ok">מספר הקצאה {alloc.state.number}{alloc.state.manual ? ' (ידני)' : ''}</Pill>}
             {alloc?.state.kind === 'test' && <Pill tone="info">מספר בדיקה — לא אמיתי</Pill>}
             {alloc?.state.kind === 'missing' && <Pill tone="bad">{awaiting ? 'ממתין למספר הקצאה' : 'חסר מספר הקצאה'}</Pill>}
-            {goods.state?.invoices.map((x) => <Pill key={`i${x.docNumber}`} tone="ok">חויבה: {DOC_LABEL[x.docType]} {x.docNumber}</Pill>)}
-            {goods.state?.deliveries.map((x) => <Pill key={`d${x.docNumber}`} tone="info">תעודת משלוח {x.docNumber}</Pill>)}
-            {goods.state?.returns.map((x) => <Pill key={`r${x.docNumber}`} tone="warn">תעודת החזרה {x.docNumber}</Pill>)}
+            {goods.state?.invoices.map((x) => <Pill key={`i${x.docNumber}`} tone="ok">חויבה: {DOC_LABEL[x.docType]} {docNumberLabel(x)}</Pill>)}
+            {goods.state?.deliveries.map((x) => <Pill key={`d${x.docNumber}`} tone="info">תעודת משלוח {docNumberLabel(x)}</Pill>)}
+            {goods.state?.returns.map((x) => <Pill key={`r${x.docNumber}`} tone="warn">תעודת החזרה {docNumberLabel(x)}</Pill>)}
           </div>
         </div>
         <CloseButton onClick={onClose} />
       </div>
       <div className="max-h-[50vh] overflow-auto rounded-xl bg-white p-2 text-black" dangerouslySetInnerHTML={{ __html: html }} />
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" disabled={awaiting} onClick={() => void print()}>{delivered ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
-        {(doc.shareToken || delivery) && <Button variant="ghost" disabled={awaiting} title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)" onClick={() => void pdf()}>📄 PDF</Button>}
-        {doc.shareToken && <Button variant="ghost" disabled={awaiting} onClick={() => void share()}>💬 שליחה ללקוח</Button>}
+        {/* 2.120 (migration 7000): a bank deposit's document (420) is the business's own — never delivered (no original, no link,
+            no PDF to a customer) and cancelled only with its deposit (קופות ← הפקדות) */}
+        {!deposit && <Button variant="primary" disabled={awaiting} onClick={() => void print()}>{delivered ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>}
+        {!deposit && (doc.shareToken || delivery) && <Button variant="ghost" disabled={awaiting} title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)" onClick={() => void pdf()}>📄 PDF</Button>}
+        {!deposit && doc.shareToken && <Button variant="ghost" disabled={awaiting} onClick={() => void share()}>💬 שליחה ללקוח</Button>}
         {recv && !recv.cancelled && recv.balance > 0 && <Button variant="ghost" onClick={() => setDialog('receipt')}>קבלה על תשלום</Button>}
         {recv && !recv.cancelled && !cancelled && recv.balance > 0 && links.ready && links.links && (
-          <PaylinkButton kind="document" target={doc.id} what={`${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
+          <PaylinkButton kind="document" target={doc.id} what={`${DOC_LABEL[doc.docType]} ${docNumberLabel(doc)}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
             left={Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100)}
             customer={{ name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }} onSent={() => void links.reload()}
             blocked={awaiting ? AWAITING_STAFF : null} blockedNote={AWAITING_SHORT} />
@@ -177,7 +180,7 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
       {doc.docType === 300 && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">המסמך הופק ממכירה בקופה — מבטלים אותו מהעסקה עצמה (קופה ← מכירות ודוחות), כדי שגם הכסף והמלאי יחזרו.</p>}
       {doc.docType === 400 && !isRefundReceipt(doc) && !cancelled && doc.saleId && <p className="mt-2 text-xs text-muted">הקבלה הופקה ממכירה (בקופה או באתר) — החזר כספי עושים מהעסקה עצמה (קופה ← מכירות ודוחות, או דף ההזמנה), כדי שגם המלאי יחזור. שם תופק הקבלה במינוס.</p>}
       {doc.docType === 400 && !isRefundReceipt(doc) && !cancelled && doc.saleId && settings.entity === 'exempt_dealer' && (
-        <SaleReceiptsDue key={`${doc.id}:${refunded?.count ?? 0}`} doc={doc} onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${d.docNumber} · ${ils(-d.total)}`)} />
+        <SaleReceiptsDue key={`${doc.id}:${refunded?.count ?? 0}`} doc={doc} onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${docNumberLabel(d)} · ${ils(-d.total)}`)} />
       )}
       {alloc && (alloc.state.kind === 'missing' || alloc.state.kind === 'error' || alloc.state.kind === 'test') && (
         <section aria-label="מספר הקצאה" className={`mt-3 grid gap-2 rounded-2xl border p-3 text-sm ${awaiting ? 'border-red-500/50' : 'border-line'}`}>
@@ -196,35 +199,36 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
       {links.links && <PaylinkList links={links.links} showLabel={false} onChanged={() => { void links.reload(); void load(); onChanged(); }} />}
       {/* 2.89: a payment plan of what is owed (its payments: each with its own date, in "חייבים" and in the reminders) */}
       {recv && !recv.cancelled && !cancelled && (
-        <PlanSection key={`${doc.id}:${recv.balance}`} documentId={doc.id} balance={recv.balance} what={`${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
+        <PlanSection key={`${doc.id}:${recv.balance}`} documentId={doc.id} balance={recv.balance} what={`${DOC_LABEL[doc.docType]} ${docNumberLabel(doc)}${doc.customerName ? ` · ${doc.customerName}` : ''}`}
           canPlan say={say} onChanged={() => { void load(); onChanged(); }}
           linkProps={recv.balance > 0 && links.ready && links.links ? {
-            kind: 'document', target: doc.id, what: `${DOC_LABEL[doc.docType]} ${doc.docNumber}${doc.customerName ? ` · ${doc.customerName}` : ''}`,
+            kind: 'document', target: doc.id, what: `${DOC_LABEL[doc.docType]} ${docNumberLabel(doc)}${doc.customerName ? ` · ${doc.customerName}` : ''}`,
             left: Math.max(0, Math.round((recv.balance - heldBy(links.links)) * 100) / 100),
             customer: { name: doc.customerName ?? '', phone: doc.customerPhone ?? '', email: doc.customerEmail ?? '' }, onSent: () => void links.reload(),
             blocked: awaiting ? AWAITING_STAFF : null, blockedNote: AWAITING_SHORT,
           } : null} />
       )}
       {(doc.docType === 305 || doc.docType === 300) && <DocReminders documentId={doc.id} />}
-      <p className="mt-2 text-xs text-muted">{isGoods(doc.docType)
+      {deposit && <p className="mt-2 text-xs text-muted">{DEPOSIT_DOC_NOTE}</p>}
+      {!deposit && <p className="mt-2 text-xs text-muted">{isGoods(doc.docType)
         ? 'המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. אם הופק בטעות — מבטלים אותו (עם סיבה), כל עוד לא הופק ממנו מסמך אחר.'
         : doc.docType === 400
           ? 'המערכת לא מאפשרת לשנות, למחוק או לבטל קבלה שהופקה. כסף שהוחזר — בקבלה במינוס ("החזר כספי", עוסק פטור) או בחשבונית זיכוי (עסק שגובה מע״מ).'
-          : 'המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (חשבונית עסקה, נרשם עם סיבה).'}</p>
+          : 'המערכת לא מאפשרת לשנות או למחוק מסמך שהופק. תיקון — בחשבונית זיכוי (חשבונית מס) או בביטול (חשבונית עסקה, נרשם עם סיבה).'}</p>}
 
-      {dialog === 'receipt' && recv && <ReceiptDialog doc={doc} balance={recv.balance} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
-      {dialog === 'credit' && <CreditDialog doc={doc} credited={credited} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה חשבונית מס זיכוי מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
+      {dialog === 'receipt' && recv && <ReceiptDialog doc={doc} balance={recv.balance} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${docNumberLabel(d)} · ${ils(d.total)}`)} />}
+      {dialog === 'credit' && <CreditDialog doc={doc} credited={credited} onClose={() => setDialog(null)} onIssued={(d) => afterIssue(d, `הופקה חשבונית מס זיכוי מס׳ ${docNumberLabel(d)} · ${ils(d.total)}`)} />}
       {dialog === 'refund' && refunded && <RefundReceiptDialog doc={doc} left={refunded.left} count={refunded.count} onClose={() => setDialog(null)}
-        onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${d.docNumber} · ${ils(-d.total)}`)} />}
-      {dialog === 'cancel' && <CancelDialog doc={doc} userId={userId} onClose={() => setDialog(null)} onDone={() => afterIssue(doc, `${DOC_LABEL[doc.docType]} מס׳ ${doc.docNumber} בוטל/ה`)} />}
+        onIssued={(d) => afterIssue(d, `הופקה קבלה במינוס (החזר כספי) מס׳ ${docNumberLabel(d)} · ${ils(-d.total)}`)} />}
+      {dialog === 'cancel' && <CancelDialog doc={doc} userId={userId} onClose={() => setDialog(null)} onDone={() => afterIssue(doc, `${DOC_LABEL[doc.docType]} מס׳ ${docNumberLabel(doc)} בוטל/ה`)} />}
       {dialog === 'manual' && <ManualAllocation doc={doc} onClose={() => setDialog(null)} onDone={() => { setDialog(null); say('מספר ההקצאה נשמר'); void load(); }} />}
       {goods.state && dialog === 'deliver' && <FromBaseDialog base={doc} targets={[200]} left={goods.state.left} title="תעודת משלוח מההזמנה" onClose={() => setDialog(null)}
-        onIssued={(d) => afterIssue(d, `הופקה תעודת משלוח מס׳ ${d.docNumber}`)} />}
+        onIssued={(d) => afterIssue(d, `הופקה תעודת משלוח מס׳ ${docNumberLabel(d)}`)} />}
       {goods.state && dialog === 'invoice' && <FromBaseDialog base={doc} targets={ga.invoiceTargets} left={goods.state.left} fixedQty={doc.docType === 200}
         title={doc.docType === 200 ? 'חשבונית מתעודת המשלוח' : 'חשבונית מההזמנה'} onClose={() => setDialog(null)}
-        onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} · ${ils(d.total)}`)} />}
+        onIssued={(d) => afterIssue(d, `הופקה ${DOC_LABEL[d.docType]} מס׳ ${docNumberLabel(d)} · ${ils(d.total)}`)} />}
       {goods.state && dialog === 'return' && <FromBaseDialog base={doc} targets={[210]} left={goods.state.left} title="תעודת החזרה" onClose={() => setDialog(null)}
-        onIssued={(d) => afterIssue(d, `הופקה תעודת החזרה מס׳ ${d.docNumber}`)} />}
+        onIssued={(d) => afterIssue(d, `הופקה תעודת החזרה מס׳ ${docNumberLabel(d)}`)} />}
     </Modal>
   );
 }
@@ -262,7 +266,7 @@ export function ReceiptDialog({ doc, balance, onClose, onIssued }: { doc: DocRow
   }
   return (
     <Modal open onClose={onClose}>
-      <h3 className="mb-1 font-display text-lg font-extrabold">תשלום על {DOC_LABEL[doc.docType]} {doc.docNumber}</h3>
+      <h3 className="mb-1 font-display text-lg font-extrabold">תשלום על {DOC_LABEL[doc.docType]} {docNumberLabel(doc)}</h3>
       <p className="mb-3 text-sm text-muted">יתרה לתשלום: {ils(balance)}. רישום תשלום שהתקבל — לא סליקה; שום כרטיס לא מחויב כאן.</p>
       <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} withholding={withholdingOk} />
       {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
@@ -314,7 +318,7 @@ function CreditDialog({ doc, credited, onClose, onIssued }: { doc: DocRow; credi
   }
   return (
     <Modal open onClose={onClose}>
-      <h3 className="mb-1 font-display text-lg font-extrabold">חשבונית זיכוי על {DOC_LABEL[doc.docType]} {doc.docNumber}</h3>
+      <h3 className="mb-1 font-display text-lg font-extrabold">חשבונית זיכוי על {DOC_LABEL[doc.docType]} {docNumberLabel(doc)}</h3>
       <p className="mb-3 text-sm text-muted">אפשר לזכות עד {ils(left)}{credited ? ` (כבר זוכו ${ils(credited)})` : ''}.</p>
       <div className="mb-3 flex flex-wrap gap-1.5">
         <Chip on={kind === 'full'} onClick={() => setKind('full')}>{credited ? 'כל היתרה' : 'כל החשבונית'}</Chip>
@@ -373,7 +377,7 @@ function RefundReceiptDialog({ doc, left, count, onClose, onIssued }: { doc: Doc
   }
   return (
     <Modal open onClose={onClose}>
-      <h3 className="mb-1 font-display text-lg font-extrabold">החזר כספי על קבלה {doc.docNumber}</h3>
+      <h3 className="mb-1 font-display text-lg font-extrabold">החזר כספי על קבלה {docNumberLabel(doc)}</h3>
       <p className="mb-3 text-sm text-muted">תופק קבלה במינוס על הכסף שהוחזר ללקוח (עוסק פטור). אפשר להחזיר עד {ils(left)}. רישום החזר שנעשה — לא העברת כסף; שום כרטיס לא מזוכה כאן.</p>
       <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} />
       <Field label="סיבה (מופיעה על המסמך, לא חובה)"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} className="min-h-14" /></Field>
@@ -461,7 +465,7 @@ function CancelDialog({ doc, userId, onClose, onDone }: { doc: DocRow; userId: s
   }
   return (
     <Modal open onClose={onClose}>
-      <h3 className="mb-1 font-display text-lg font-extrabold">ביטול {DOC_LABEL[doc.docType]} {doc.docNumber}</h3>
+      <h3 className="mb-1 font-display text-lg font-extrabold">ביטול {DOC_LABEL[doc.docType]} {docNumberLabel(doc)}</h3>
       <p className="mb-3 text-sm text-muted">המסמך נשאר כמו שהוא ומסומן "בוטל" (גם בממשק הפתוח). {!doc.saleId && doc.docType !== 100 && doc.lines.some((l) => l.itemId) ? (doc.docType === 210 ? 'הפריטים שחזרו בה יוצאים שוב מהמלאי.' : 'המוצרים שבו חוזרים למלאי.') : ''} רק אם הופק בטעות.</p>
       <Field label="סיבה"><Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></Field>
       {error && <Note tone="warn">{error}</Note>}

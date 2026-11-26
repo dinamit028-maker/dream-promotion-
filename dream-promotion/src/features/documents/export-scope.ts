@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
+import { docNumberLabel } from './documents';
 
 /**
  * The file to the Tax Authority (INI.TXT + BKMVDATA, the printout by document type §2.6ב and the export summary, נספח 4) is
@@ -19,7 +20,7 @@ export const SCOPE_CHANGED = 'בחירת הסניף השתנתה בזמן ההכ
 export const SCOPE_SHOW_ALL = 'להציג את כל הסניפים';
 /** the message of a hole in the numbering: which type and between which numbers (never an amount or a customer) */
 export const gapMessage = (holes: NumberRange[], label: (t: number) => string) =>
-  `חסרים מסמכים במספור (${holes.slice(0, 3).map((h) => `${label(h.docType)} בין מס׳ ${h.min} ל-${h.max}`).join(', ')}${holes.length > 3 ? ' ועוד' : ''}), `
+  `חסרים מסמכים במספור (${holes.slice(0, 3).map((h) => `${label(h.docType)} בין מס׳ ${docNumberLabel(h.min)} ל-${docNumberLabel(h.max)}`).join(', ')}${holes.length > 3 ? ' ועוד' : ''}), `
   + 'ולכן הקובץ לרשות המסים לא הופק — הקובץ חייב לכלול את כל המסמכים. פנו לתמיכה.';
 
 export type ExportScope = { ok: true } | { ok: false; message: string };
@@ -56,14 +57,24 @@ export function bothScopes(before: ExportScope, after: ExportScope): ExportScope
 }
 /** the numbers of one document type in the period: its lowest, its highest, and how many documents of it were read */
 export interface NumberRange { docType: number; min: number; max: number; count: number }
-/** per document type (one series per type — a document is found by type and number): lowest, highest, how many */
+/**
+ * per series of a document type (a document is found by type and number): lowest, highest, how many. 2.120 (migration 7000): a
+ * business that numbers per location has a series per location and type — the number's first two digits are the location's
+ * branch code (code × 1,000,000 + n, docNumberLabel); numbers below 1,000,000 are the business's one series (every document
+ * before the switch). Each series runs by itself — never one range from 1 to 02000003. A business that never switched: one
+ * series per type, exactly as before.
+ */
 export function numberRanges(docs: { docType: number; docNumber: number }[]): NumberRange[] {
-  const by = new Map<number, Set<number>>();
-  for (const d of docs) { if (!by.has(d.docType)) by.set(d.docType, new Set()); by.get(d.docType)!.add(d.docNumber); }
-  return [...by].sort((a, z) => a[0] - z[0]).map(([docType, set]) => {
-    const ns = [...set];
-    return { docType, min: Math.min(...ns), max: Math.max(...ns), count: set.size };
-  });
+  const by = new Map<string, { docType: number; ns: Set<number> }>();
+  for (const d of docs) {
+    const k = `${d.docType}:${Math.floor(Number(d.docNumber) / 1_000_000)}`;
+    if (!by.has(k)) by.set(k, { docType: d.docType, ns: new Set() });
+    by.get(k)!.ns.add(d.docNumber);
+  }
+  return [...by.values()].map(({ docType, ns }) => {
+    const list = [...ns];
+    return { docType, min: Math.min(...list), max: Math.max(...list), count: ns.size };
+  }).sort((a, z) => a.docType - z.docType || a.min - z.min);
 }
 /** the types whose numbers of the period do not run without a hole from the lowest to the highest */
 export const holesOf = (ranges: NumberRange[]) => ranges.filter((r) => r.count !== r.max - r.min + 1);

@@ -8,11 +8,12 @@ import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
 import { loadDocCodes } from './doc-codes';
+import { loadBranchInfo } from '@/features/finance/numbering-data';
 import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './export-scope';
 import { ScopeNote } from './ScopeNote';
 import { multiLocation } from '@/features/locations/locations';
 import { useLocations } from '@/features/locations/store';
-import { DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, isRefundReceipt, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow } from './documents';
+import { DEPOSIT_LINE, DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, isDepositDoc, isRefundReceipt, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow, docNumberLabel } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
 import { deliveryState, keepOriginal, recordDelivery, staffPdf, stateAllocationLine } from './deliver';
@@ -123,7 +124,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
   const [crediting, setCrediting] = useState(false);
   async function credit(d: DocRow) {
     if (crediting) return;
-    if (!window.confirm(`להפיק חשבונית מס זיכוי על ${DOC_LABEL[d.docType]} מס׳ ${d.docNumber} (${ils(d.total)})? המסמך המקורי נשאר כמו שהוא.`)) return;
+    if (!window.confirm(`להפיק חשבונית מס זיכוי על ${DOC_LABEL[d.docType]} מס׳ ${docNumberLabel(d)} (${ils(d.total)})? המסמך המקורי נשאר כמו שהוא.`)) return;
     const c = creditFor(d, israelParts(Date.now()).date);
     setCrediting(true);
     // through the one engine, with one key: crediting the whole document once (2.52.1 — was a direct insert without a key)
@@ -149,7 +150,7 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
         <div className="grid grid-cols-1 gap-2">
           {docs.map((d) => (
             <button key={d.id} type="button" onClick={() => setOpen(d)} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-start text-sm hover:border-primary">
-              <span className="min-w-0 flex-1"><strong className="block truncate">{DOC_LABEL[d.docType]} {d.docNumber}{isRefundReceipt(d) ? ' · החזר כספי' : ''} · {d.customerName || 'לקוח מזדמן'}</strong>
+              <span className="min-w-0 flex-1"><strong className="block truncate">{DOC_LABEL[d.docType]} {docNumberLabel(d)}{isRefundReceipt(d) ? ' · החזר כספי' : ''} · {isDepositDoc(d) ? 'הפקדה לבנק' : d.customerName || 'לקוח מזדמן'}</strong>
                 <span className="text-xs text-muted">{ddmmyyyy(d.docDate)}{creditNote(d)}{d.printCount ? ` · הודפס ${d.printCount}` : ''}</span></span>
               <strong className="tabular-nums">{ils(d.total)}</strong>
             </button>
@@ -163,11 +164,12 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
           <div className="max-h-[60vh] overflow-auto rounded-xl bg-white p-2 text-black" dangerouslySetInnerHTML={{ __html: docBody(open, business, previewMark(open, openState), { allocation: stateAllocationLine(openState) }) }} />
           {openState?.allocation.awaiting && <p role="status" className="mt-3 rounded-2xl border border-red-500/50 p-3 text-sm font-bold">{AWAITING_STAFF}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="primary" disabled={Boolean(openState?.allocation.awaiting)} onClick={() => printDoc(open)}>{wasDelivered(open, openState) ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>
+            {/* 2.120: a bank deposit's document (420) is never delivered — no print as an original / copy, no PDF */}
+            {!isDepositDoc(open) && <Button variant="primary" disabled={Boolean(openState?.allocation.awaiting)} onClick={() => printDoc(open)}>{wasDelivered(open, openState) ? 'הדפסת העתק' : 'הדפסת מקור'}</Button>}
             {licensed && (open.docType === 320 || open.docType === 305) && !credited.has(`${open.docType}:${open.docNumber}`) &&
               <Button variant="ghost" disabled={crediting} onClick={() => credit(open)}>{crediting ? 'מפיק…' : 'חשבונית מס זיכוי'}</Button>}
-            <Button variant="ghost" disabled={Boolean(openState?.allocation.awaiting)} title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)"
-              onClick={() => void staffPdf(open).then((e) => { if (e) onError(e); void deliveryState(open.id).then((r) => setOpenState(r.ok ? r.state : null)); })}>📄 PDF</Button>
+            {!isDepositDoc(open) && <Button variant="ghost" disabled={Boolean(openState?.allocation.awaiting)} title="קובץ PDF למסירה ללקוח — נרשם כמסירה (הראשונה: מקור)"
+              onClick={() => void staffPdf(open).then((e) => { if (e) onError(e); void deliveryState(open.id).then((r) => setOpenState(r.ok ? r.state : null)); })}>📄 PDF</Button>}
             <Button variant="ghost" onClick={() => setOpen(null)}>סגירה</Button>
           </div>
           <p className="mt-2 text-xs text-muted">מסמך שהופק לא ניתן לשינוי או למחיקה. לתיקון — חשבונית זיכוי. החזר כספי על חלק מעסקה עושים מהעסקה עצמה (מכירות ודוחות ← העסקה ← החזר כספי).</p>
@@ -194,8 +196,12 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
     setScope(now);
     if (!now.ok) { setResult(null); setBusy(false); return; }
     const codes = await loadDocCodes();   // field 1233 (2.117) — none before migration 20261122006700
+    // 2.120 (migration 7000): a business that numbers per location — 1034 = 1 and each document's branch code; else as before
+    let branches: Awaited<ReturnType<typeof loadBranchInfo>>;
+    try { branches = await loadBranchInfo(docs.filter((d) => d.docDate >= from && d.docDate <= to), useLocations.getState().state.businessId); }
+    catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : 'לא הצלחנו לקרוא את מספור הסניפים — נסו שוב.' }); setResult(null); setBusy(false); return; }
     const startedAt = new Date().toISOString();
-    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes });
+    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches });
     const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
     const bkmvZip = await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
     const outer = new JSZip(); const folder = f.dir.replace(/\\/g, '/');
@@ -248,11 +254,13 @@ export function docBody(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueDate' | 'no
   const vatRow = d.vatAmount || rate ? `<tr><td>מע״מ ${esc(rate)}%</td><td>${n2(d.vatAmount)}</td></tr>` : '';
   const bank = (d.docType === 305 || d.docType === 300) && i.bankAccount ? `<p>לתשלום בהעברה: ${esc([i.bankName, i.bankBranch ? `סניף ${i.bankBranch}` : '', `חשבון ${i.bankAccount}`].filter(Boolean).join(' · '))}</p>` : '';
   const where = issuerLocationLine(i);
+  // 2.120 (migration 7000): a bank deposit's document (420) — no customer and no lines: what was deposited is its payments
+  const deposit = isDepositDoc(d);
   return `<div class="h"><div><strong style="font-size:18px">${esc(i.name)}</strong>${i.tradingName ? `<br>${esc(i.tradingName)}` : ''}<br>${esc(issuerIdLine(i))}<br>${esc([i.street, i.houseNo, i.city].filter(Boolean).join(' '))}${contact ? `<br>${esc(contact)}` : ''}${where ? `<br>${esc(where)}` : ''}</div>
-<div style="text-align:left"><span class="mark">${esc(mark)}</span>${d.cancelled ? ' <span class="mark" style="color:#b00;border-color:#b00">בוטל</span>' : ''}<br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${esc(d.docNumber)}</strong><br>תאריך: ${esc(ddmmyyyy(d.docDate))}${d.dueDate ? `<br>לתשלום עד: ${esc(ddmmyyyy(d.dueDate))}` : ''}${extra.allocation ? `<br>${esc(extra.allocation)}` : ''}</div></div>
-<p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ / ח.פ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}${d.customerStreet || d.customerCity ? `<br>${esc([d.customerStreet, d.customerCity].filter(Boolean).join(', '))}` : ''}</p>
+<div style="text-align:left"><span class="mark">${esc(mark)}</span>${d.cancelled ? ' <span class="mark" style="color:#b00;border-color:#b00">בוטל</span>' : ''}<br><strong style="font-size:18px">${esc(DOC_LABEL[d.docType])} מס׳ ${esc(docNumberLabel(d))}</strong><br>תאריך: ${esc(ddmmyyyy(d.docDate))}${d.dueDate ? `<br>לתשלום עד: ${esc(ddmmyyyy(d.dueDate))}` : ''}${extra.allocation ? `<br>${esc(extra.allocation)}` : ''}</div></div>
+${deposit ? `<p>${esc(DEPOSIT_LINE)}</p>` : `<p>לכבוד: <strong>${esc(d.customerName || 'לקוח מזדמן')}</strong>${d.customerDealer ? ` · ע.מ / ח.פ ${esc(d.customerDealer)}` : ''}${d.customerPhone ? ` · ${esc(d.customerPhone)}` : ''}${d.customerStreet || d.customerCity ? `<br>${esc([d.customerStreet, d.customerCity].filter(Boolean).join(', '))}` : ''}</p>
 ${baseDocLine(d) ? `<p>${esc(baseDocLine(d))}</p>` : ''}
-<table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>
+<table><tr><th>תיאור</th><th>כמות</th><th>מחיר ליחידה (לפני מע״מ)</th><th>סה״כ (לפני מע״מ)</th></tr>${rows}</table>`}
 <table><tr><td>סה״כ לפני הנחה</td><td>${n2(d.beforeDiscount)}</td></tr>${d.discount ? `<tr><td>הנחה</td><td>-${n2(d.discount)}</td></tr>` : ''}
 <tr><td>${vatRow ? 'סה״כ לפני מע״מ' : 'סה״כ'}</td><td>${n2(d.afterDiscount)}</td></tr>${vatRow}
 <tr class="tot"><td>${esc(totalLabel(d.docType, d.total))}</td><td>${n2(d.total)} ₪</td></tr></table>
@@ -260,7 +268,7 @@ ${pays ? `<table><tr><th>אמצעי תשלום</th><th>תאריך</th><th>סכו
 ${d.notes ? `<p>${esc(d.notes)}</p>` : ''}${bank}${d.docType === 200 ? `<p style="margin-top:28px">${esc(RECEIVED_LINE)}</p>` : ''}${i.note ? `<p class="muted">${esc(i.note)}</p>` : ''}
 <p class="muted">הופק: ${esc(formatIL(d.issuedAt))} · מסמך ממוחשב · Dream Promotion ${esc(SOFTWARE.version)}${softwareRegistered(SOFTWARE.regNumber) ? ` · תוכנה רשומה מס׳ ${esc(SOFTWARE.regNumber)}` : ''}</p>`;
 }
-const docHtml = (d: Doc, b: Business, mark: string, allocation: string | null = null) => page(`${DOC_LABEL[d.docType]} ${d.docNumber}`, docBody(d, b, mark, { allocation }));
+const docHtml = (d: Doc, b: Business, mark: string, allocation: string | null = null) => page(`${DOC_LABEL[d.docType]} ${docNumberLabel(d)}`, docBody(d, b, mark, { allocation }));
 
 /** נספח 4: the summary of an open-format run (also in the accountant's package, 2.52.1) */
 export function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string }, b: Business, from: string, to: string) {

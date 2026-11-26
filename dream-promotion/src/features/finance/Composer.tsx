@@ -4,7 +4,7 @@ import { useApp } from '@/lib/store';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal } from '@/components/ui/feedback';
-import { DOC_LABEL, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { composeDocument, computeLines, type ComposeCustomer, type ComposeLine, type Discount } from './compose';
 import { DOC_INFO, allowedDocTypes, goodsDocTypes } from './rules';
@@ -126,9 +126,9 @@ export function Composer({ mode, initial, onClose, onDone }: {
       locationId: draftId ? null : locationColumn(locState, locationId).location_id ?? null }));
     setBusy(false);
     if (!out.ok) { setErrors([out.error]); return; }
-    if (out.again && quoteId) { setErrors([`ההצעה כבר הפכה ל${DOC_LABEL[out.doc.docType]} מס׳ ${out.doc.docNumber}.`]); return; }
+    if (out.again && quoteId) { setErrors([`ההצעה כבר הפכה ל${DOC_LABEL[out.doc.docType]} מס׳ ${docNumberLabel(out.doc)}.`]); return; }
     if (leadId && !out.again) {
-      addActivity(leadId, 'purchase', `הופקה ${DOC_LABEL[docType]} מס׳ ${out.doc.docNumber} · ${ils(out.doc.total)}`);
+      addActivity(leadId, 'purchase', `הופקה ${DOC_LABEL[docType]} מס׳ ${docNumberLabel(out.doc)} · ${ils(out.doc.total)}`);
       if (docType === 305 || docType === 320 || docType === 400) {
         const l = useApp.getState().leads.find((x) => x.id === leadId);
         if (l) updateLead(l.id, { value: Math.round(((l.value ?? 0) + out.doc.total) * 100) / 100 });

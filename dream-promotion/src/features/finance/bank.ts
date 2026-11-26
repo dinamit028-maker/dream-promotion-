@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { payLabel } from './payments';
 
 /**
@@ -259,7 +259,7 @@ export const toCandidates = (j: any): { payments: PayCard[]; deposits: DepositCa
 /** what a candidate is, in a line: "קבלה 400-12 · דנה · העברה", "הוצאה 7 · ספק ציוד · העברה", "הפקדה 3" */
 export function payCardLabel(p: PayCard): string {
   const what = p.source === 'expense' ? `הוצאה${p.expenseNumber ? ` ${p.expenseNumber}` : ''}${p.supplier ? ` · ${p.supplier}` : ''}`
-    : p.docType && p.docNumber ? `${DOC_LABEL[p.docType] ?? 'מסמך'} ${p.docNumber}${p.customer ? ` · ${p.customer}` : ''}`
+    : p.docType && p.docNumber ? `${DOC_LABEL[p.docType] ?? 'מסמך'} ${docNumberLabel(p)}${p.customer ? ` · ${p.customer}` : ''}`
     : p.source === 'refund' ? 'החזר בקופה' : p.note || 'תשלום';
   return `${what} · ${payLabel(p.method)}${p.cheque ? ` ${p.cheque}` : ''}`;
 }

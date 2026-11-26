@@ -1,5 +1,6 @@
 import { payLabel, type PayMethod } from './payments';
 import type { ReportTable } from './statements';
+import { docNumberLabel } from '@/features/documents/documents';
 
 /**
  * The money desks (2.95, migration 20261011005000 — docs/FINANCE_ADDITIONS_HE.md T9): a desk for every way money comes in — cash,
@@ -68,13 +69,25 @@ export interface DepositItem { payment: string; amount: number; number: string; 
 export interface Deposit {
   id: string; number: number; date: string; location: string | null; cash: number; cheques: number; total: number; note: string;
   status: 'active' | 'cancelled'; cancelReason: string; matched: boolean; items: DepositItem[];
+  /** 2.120 (migration 7000): its document, 420 "הפקדת בנק" — only when it has one (a deposit before 7000, or of a business without
+   *  its dealer number, has none: no key) */
+  document?: DepositDocRef;
 }
+/** a deposit's document (bank_deposit_create().document / deposit_book().document) */
+export interface DepositDocRef { id: string; number: number }
+export const toDepositDoc = (v: any): DepositDocRef | undefined =>
+  v && typeof v === 'object' && typeof v.id === 'string' && v.id && Number.isSafeInteger(Number(v.number)) && Number(v.number) > 0
+    ? { id: v.id, number: Number(v.number) } : undefined;
 export const toDeposits = (j: any): Deposit[] => arr(j).map((d) => ({
   id: str(d?.id), number: num(d?.number), date: str(d?.date), location: strOrNull(d?.location), cash: num(d?.cash), cheques: num(d?.cheques), total: num(d?.total),
   note: str(d?.note), status: d?.status === 'cancelled' ? 'cancelled' : 'active', cancelReason: str(d?.cancelReason), matched: Boolean(d?.matched),
   items: arr(d?.items).map((x) => ({ payment: str(x?.payment), amount: num(x?.amount), number: str(x?.number), bank: str(x?.bank), dueDate: strOrNull(x?.dueDate),
     customer: str(x?.customer), docType: numOrNull(x?.docType), docNumber: numOrNull(x?.docNumber) })),
+  ...(toDepositDoc(d?.document) ? { document: toDepositDoc(d?.document) } : {}),
 }));
+/** what is said when a deposit was recorded: its number, and its document's when it has one */
+export const depositDoneLabel = (number: number, doc?: DepositDocRef) =>
+  `הפקדה ${number} נרשמה${doc ? ` · הופקה הפקדת בנק מס׳ ${docNumberLabel(doc.number)}` : ''}`;
 
 /** a cheque's day, by the reminder's days: past its day, due within them, later — or no day written on it */
 export type DueState = 'overdue' | 'soon' | 'later' | 'none';
@@ -103,7 +116,7 @@ export function depositErrors(o: { cash: number; cheques: number; desk: number; 
 /** "the cheques deposited": a report of the period — the CSV and the PDF of the reports */
 export function chequesTable(list: Cheque[], title = 'צ׳קים שהופקדו'): ReportTable {
   const rows = list.map((c) => [c.deposit?.date ?? '', c.deposit ? c.deposit.number : null, c.number, c.bank, c.branch, c.account, c.dueDate ?? '', c.customer,
-    c.docType && c.docNumber ? `${c.docType}-${c.docNumber}` : '', c.amount]);
+    c.docType && c.docNumber ? `${c.docType}-${docNumberLabel(c)}` : '', c.amount]);
   const total = list.reduce((a, c) => a + ag(c.amount), 0) / 100;
   return {
     title,

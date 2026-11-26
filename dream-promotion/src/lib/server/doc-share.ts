@@ -5,7 +5,7 @@ import { adminDb } from './admin';
 import { businessOpen } from './business';
 import { buildDocPdf } from './doc-pdf';
 import { certificateInfo, signedPdfBytes } from './sign-pdf';
-import { toDoc, type DocRow } from '@/features/documents/documents';
+import { toDoc, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, toAllocationRow, toRule } from '@/features/finance/allocation';
 import { entityOf } from '@/features/finance/rules';
 import { AWAITING_CUSTOMER, isFunctionMissing, toDelivery, type Delivery } from '@/features/finance/delivery';
@@ -47,7 +47,8 @@ export async function sharedDocument(token: string, channel: ShareChannel = 'lin
   const delivery = toDelivery(open);
   if (!delivery) { console.error('[doc-share] document_share_open: an answer without a delivery'); return { ok: false, status: 503, code: 'error' }; }
   const { data: d } = await db.from('documents').select('*').eq('id', delivery.documentId).maybeSingle();
-  if (!d) return { ok: false, status: 404, code: 'not_found' };
+  // 2.120: a bank deposit's document (420) is the business's own — never shown behind a customer's link
+  if (!d || Number((d as any).doc_type) === 420) return { ok: false, status: 404, code: 'not_found' };
   return { ok: true, mark: delivery.mark, delivery, ...(await presentDocument(db, d as Record<string, unknown>)) };
 }
 
@@ -69,7 +70,7 @@ export function later(fn: () => Promise<unknown>) {
 /** before migration 20261126006900: as 2.118 did it — by the token, an open business, nothing recorded */
 async function legacyShared(db: SupabaseClient, token: string): Promise<Shared> {
   const { data: d } = await db.from('documents').select('*').eq('share_token', token).maybeSingle();
-  if (!d) return { ok: false, status: 404, code: 'not_found' };
+  if (!d || Number((d as any).doc_type) === 420) return { ok: false, status: 404, code: 'not_found' };
   if (!(await businessOpen((d as any).business_id))) return { ok: false, status: 403, code: 'unavailable' };
   return { ok: true, mark: LEGACY_MARK, delivery: null, ...(await presentDocument(db, d as Record<string, unknown>)) };
 }
@@ -112,11 +113,11 @@ export async function documentPdf(s: SharedDoc, mark: string): Promise<{ bytes: 
   const doc = s.doc;
   const willSign = certificateInfo().configured;
   const pdf = await buildDocPdf(doc, s.business, { mark: pdfMark(mark, doc.cancelled), software: softwareLine(), signed: willSign, allocation: s.allocation });
-  return signedPdfBytes(pdf, { name: 'Dream Promotion', reason: `Document ${doc.docType}-${doc.docNumber} (${doc.issuer?.dealerNumber || s.business.dealerNumber})` });
+  return signedPdfBytes(pdf, { name: 'Dream Promotion', reason: `Document ${doc.docType}-${docNumberLabel(doc)} (${doc.issuer?.dealerNumber || s.business.dealerNumber})` });
 }
 export const pdfHeaders = (doc: { docType: number; docNumber: number }, signed: boolean) => ({
   'Content-Type': 'application/pdf',
-  'Content-Disposition': `inline; filename="doc-${doc.docType}-${doc.docNumber}.pdf"`,
+  'Content-Disposition': `inline; filename="doc-${doc.docType}-${docNumberLabel(doc)}.pdf"`,
   'Cache-Control': 'no-store',
   'X-Signed': signed ? '1' : '0',
 });

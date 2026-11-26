@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Field, Input, PageHead, Pill, Select } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { DOCUMENT_STATUS_HE, EMAIL_KIND_HE, FULFILLMENT_HE, eventText, ORDER_FILTERS, orderLabel, stockShortText, type OrderRow } from './checkout';
 import { packingSlip } from './commerce';
 import { alertsSeen, loadOrder, loadOrders, refundOrder, retryOrderDocument, setFulfillment, type OrderDetail } from './data';
@@ -174,7 +174,7 @@ function DocumentBlock({ d, onChange }: { d: OrderDetail; onChange: () => void }
       {d.docs.length > 0 && (
         <ul className="stack-y-1 text-sm">
           {d.docs.map((x) => (
-            <li key={x.id}><a href={`/finance/documents?open=${x.id}`} className="text-primary underline underline-offset-2">{DOC_LABEL[x.type] ?? x.type} {x.number}</a></li>
+            <li key={x.id}><a href={`/finance/documents?open=${x.id}`} className="text-primary underline underline-offset-2">{DOC_LABEL[x.type] ?? x.type} {docNumberLabel(x.number)}</a></li>
           ))}
         </ul>
       )}

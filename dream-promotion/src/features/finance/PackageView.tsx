@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase/client';
 import { Button, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
-import { DOC_LABEL, refundLeft, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, refundLeft, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { DocView, loadDoc } from './DocView';
 import { composeCredit, composeRefundReceipt } from './compose';
@@ -100,7 +100,7 @@ export function PackageView({ pkg: initial, onClose, onChanged, onOpenCard }: {
         <div className="grid gap-1.5 rounded-2xl border border-line p-3 text-sm">
           {pkg.documentId && pkg.docType ? <>
             <p className="flex flex-wrap items-center gap-2">
-              <span>{DOC_LABEL[pkg.docType]} מס׳ {pkg.docNumber}{pkg.docCancelled ? ' (בוטל)' : ''}</span>
+              <span>{DOC_LABEL[pkg.docType]} מס׳ {docNumberLabel(pkg)}{pkg.docCancelled ? ' (בוטל)' : ''}</span>
               <button type="button" className="text-xs font-semibold text-primary" onClick={() => void openDoc()}>פתיחת המסמך</button>
             </p>
             <p className="tabular-nums">שולם: <strong>{ils(pkg.paid)}</strong>{pkg.credited ? ` · זוכה: ${ils(pkg.credited)}` : ''}
@@ -257,7 +257,7 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
           const l = useApp.getState().leads.find((x) => x.id === pkg.leadId);
           if (l) updateLead(l.id, { value: Math.max(0, Math.round(((l.value ?? 0) - out.doc.total) * 100) / 100) });
         }
-        done.push(`הופקה חשבונית מס זיכוי מס׳ ${creditDoc.docNumber} · ${ils(creditDoc.total)}`);
+        done.push(`הופקה חשבונית מס זיכוי מס׳ ${docNumberLabel(creditDoc)} · ${ils(creditDoc.total)}`);
         if (refundNow && refund > 0 && !refunded) {
           const { error } = await supabase().rpc('record_credit_refund', { p_document: creditDoc.id, p_method: method, p_amount: refund, p_paid_on: today, p_note: `ביטול חבילה: ${reason.trim()}`.slice(0, 300) });
           if (error) { setErrors([`חשבונית הזיכוי הופקה, אבל ההחזר לא נרשם: ${financeError(error)}`, 'אפשר לנסות שוב מכאן (לא תופק חשבונית נוספת), או לרשום אותו מחשבונית הזיכוי (מסמכים).']); return; }
@@ -289,15 +289,15 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
           const l = useApp.getState().leads.find((x) => x.id === pkg.leadId);
           if (l) updateLead(l.id, { value: Math.max(0, Math.round(((l.value ?? 0) + out.doc.total) * 100) / 100) });
         }
-        done.push(`הופקה קבלה במינוס (החזר כספי) מס׳ ${back.docNumber} · ${ils(-back.total)}`);
+        done.push(`הופקה קבלה במינוס (החזר כספי) מס׳ ${docNumberLabel(back)} · ${ils(-back.total)}`);
       } else if (plan.route === 'cancel_document' && cancelDoc) {
         if (!cancelledDoc) {
-          if (!window.confirm(`לבטל את ${DOC_LABEL[pkg.docType!]} מס׳ ${pkg.docNumber} ואת החבילה? המסמך נשאר ומסומן "בוטל".`)) return;
+          if (!window.confirm(`לבטל את ${DOC_LABEL[pkg.docType!]} מס׳ ${docNumberLabel(pkg)} ואת החבילה? המסמך נשאר ומסומן "בוטל".`)) return;
           const { error } = await supabase().from('document_cancellations').insert({ document_id: pkg.documentId, user_id: userId, reason: `ביטול חבילה: ${reason.trim()}`.slice(0, 300) });
           if (error && !/duplicate key|document_cancellations_pkey/.test(error.message)) { setErrors([financeError(error)]); return; }
           setCancelledDoc(true);
         }
-        done.push(`${DOC_LABEL[pkg.docType!]} מס׳ ${pkg.docNumber} בוטל/ה`);
+        done.push(`${DOC_LABEL[pkg.docType!]} מס׳ ${docNumberLabel(pkg)} בוטל/ה`);
       } else if (!window.confirm('לבטל את החבילה? לא ינוכו ממנה יותר טיפולים.')) return;
       const c = await cancelPackage(pkg.id, reason);
       if (!c.ok) { setErrors([...done.map((d) => `${d} ✓`), `אבל החבילה לא בוטלה: ${c.error}`]); return; }
@@ -320,7 +320,7 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
           <Field label={`חשבונית זיכוי על ₪ (עד ${ils(plan.maxCredit)}; 0 = בלי)`}>
             <Input type="number" inputMode="decimal" min={0} max={plan.maxCredit} step="0.01" value={credit} disabled={Boolean(issued)} onChange={(e) => setCredit(Math.max(0, Number(e.target.value) || 0))} />
           </Field>
-          {issued && <p className="text-sm">✓ הופקה חשבונית מס זיכוי מס׳ {issued.docNumber} · {ils(issued.total)}</p>}
+          {issued && <p className="text-sm">✓ הופקה חשבונית מס זיכוי מס׳ {docNumberLabel(issued)} · {ils(issued.total)}</p>}
           {/* money back is recorded on the credit invoice — without one there is nothing to record it on */}
           {(credit > 0 || issued) && <>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={refundNow} disabled={refunded} onChange={(e) => setRefundNow(e.target.checked)} className="h-5 w-5" /> הכסף הוחזר ללקוח/ה</label>
@@ -337,7 +337,7 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
           <Field label={`החזר כספי ₪ (עד ${ils(plan.maxCredit)}; 0 = בלי)`}>
             <Input type="number" inputMode="decimal" min={0} max={plan.maxCredit} step="0.01" value={refund} disabled={Boolean(issued)} onChange={(e) => { setRefundTouched(true); setRefund(Math.max(0, Number(e.target.value) || 0)); }} />
           </Field>
-          {issued && <p className="text-sm">✓ הופקה קבלה במינוס מס׳ {issued.docNumber} · {ils(-issued.total)}</p>}
+          {issued && <p className="text-sm">✓ הופקה קבלה במינוס מס׳ {docNumberLabel(issued)} · {ils(-issued.total)}</p>}
           {refund > 0 && !issued && <>
             <div className="flex flex-wrap gap-1.5">{PAY_METHODS.map((m) => <Chip key={m.id} on={method === m.id} onClick={() => setMethod(m.id)} className="min-h-9">{m.icon} {m.label}</Chip>)}</div>
             {method === 'card' && (
@@ -351,7 +351,7 @@ function CancelPackage({ pkg, onClose, onDone }: { pkg: ClientPackage; onClose: 
         </div>
       )}
       {plan.route === 'cancel_document' && (
-        <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={cancelDoc} onChange={(e) => setCancelDoc(e.target.checked)} className="h-5 w-5" /> לבטל גם את {DOC_LABEL[pkg.docType!]} מס׳ {pkg.docNumber}</label>
+        <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={cancelDoc} onChange={(e) => setCancelDoc(e.target.checked)} className="h-5 w-5" /> לבטל גם את {DOC_LABEL[pkg.docType!]} מס׳ {docNumberLabel(pkg)}</label>
       )}
       {plan.route === 'none' && plan.refund > 0 && <p className="mt-2 text-sm">לפי החישוב: שולם {ils(plan.refund)} יותר משווי הטיפולים שנוצלו.</p>}
       <Field label="סיבה (חובה)"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} className="min-h-14" /></Field>

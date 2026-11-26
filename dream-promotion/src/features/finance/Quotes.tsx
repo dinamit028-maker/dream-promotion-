@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase/client';
 import { Button, Chip } from '@/components/ui/primitives';
 import { CloseButton, Modal, Spinner } from '@/components/ui/feedback';
 import { waLink } from '@/features/crm/crm';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { Composer, type ComposerMode } from './Composer';
 import { financeError, logEvent } from './api';
@@ -85,7 +85,7 @@ export function Quotes() {
             // WhatsApp goes into the window "save and send" opened on the tap (one opened here, after the save, is blocked by phones)
             say(r.sent ? 'ההצעה נשמרה — שולחים ללקוח' : 'ההצעה נשמרה');
             if (q) { setOpen(q); if (r.sent) sendQuote(q, '', r.sentWindow ?? null); } else r.sentWindow?.close();
-          } else if (r.kind === 'issued') { say(`הופקה ${DOC_LABEL[r.doc.docType]} מס׳ ${r.doc.docNumber} מההצעה`); await load(); }
+          } else if (r.kind === 'issued') { say(`הופקה ${DOC_LABEL[r.doc.docType]} מס׳ ${docNumberLabel(r.doc)} מההצעה`); await load(); }
           else if (r.kind === 'draft') { say('נשמרה טיוטת מסמך מההצעה (בלשונית מסמכים)'); await load(); }
         }} />}
     </div>

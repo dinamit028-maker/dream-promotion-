@@ -6,7 +6,7 @@ import { authHeaders } from '@/lib/services/http';
 import { Button, Chip } from '@/components/ui/primitives';
 import { Modal, Spinner } from '@/components/ui/feedback';
 import { waLink } from '@/features/crm/crm';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { useFinance } from './FinanceScreen';
 import { DocView, loadDoc } from './DocView';
 import { financeError, logEvent } from './api';
@@ -108,7 +108,7 @@ export function Receivables() {
             return (
               <div key={d.documentId} data-late={d.documentId} className="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface p-3 text-sm">
                 <button type="button" className="min-w-0 flex-1 text-start" onClick={async () => setOpen(await loadDoc(d.documentId))}>
-                  <strong className="block truncate">{d.customerName || 'לקוח'} · {DOC_LABEL[d.docType]} {d.docNumber}</strong>
+                  <strong className="block truncate">{d.customerName || 'לקוח'} · {DOC_LABEL[d.docType]} {docNumberLabel(d)}</strong>
                   <span className="text-xs text-muted">באיחור מ-{ddmmyyyy(d.since)} · {daysBehind(d.since, today)} ימים{d.lines.some((l) => l.planId) ? ` · ${d.lines.map((l) => lineLabel(l)).filter(Boolean).join(', ')}` : ''}</span>
                   {ag(d.balance) !== ag(d.late) && <span className="block text-xs text-muted">היתרה בחשבונית: {ils(d.balance)}</span>}
                 </button>
@@ -127,7 +127,7 @@ export function Receivables() {
             return (
               <div key={r.id} className="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface p-3 text-sm">
                 <button type="button" className="min-w-0 flex-1 text-start" onClick={async () => setOpen(await loadDoc(r.id))}>
-                  <strong className="block truncate">{r.customerName || 'לקוח'} · {DOC_LABEL[r.docType]} {r.docNumber}</strong>
+                  <strong className="block truncate">{r.customerName || 'לקוח'} · {DOC_LABEL[r.docType]} {docNumberLabel(r)}</strong>
                   <span className="text-xs text-muted">{ddmmyyyy(r.docDate)}{!b.planned && r.dueDate ? ` · לתשלום עד ${ddmmyyyy(r.dueDate)}` : ''}{lateDays ? ` · ${lateDays} ימי איחור` : ''}</span>
                   {next && <span className="block text-xs text-muted">📅 {lineLabel(next)} עד {ddmmyyyy(next.dueDate)} · {ils(next.open)}</span>}
                 </button>
@@ -183,7 +183,7 @@ function Reminder({ r, line, onClose }: { r: Receivable; line: Line | null; onCl
   const [block, setBlock] = useState<string | null | undefined>(undefined);
   useEffect(() => { let alive = true; void awaitingIds([r.id]).then((a) => { if (alive) setBlock(reminderBlock(a, r.id)); }); return () => { alive = false; }; }, [r.id]);
   const text = fillReminder(template, {
-    name: r.customerName.split(' ')[0] || '', doc: line ? reminderDoc(r.docType, r.docNumber, line.n, line.ofN) : `${DOC_LABEL[r.docType]} מס׳ ${r.docNumber}`,
+    name: r.customerName.split(' ')[0] || '', doc: line ? reminderDoc(r.docType, r.docNumber, line.n, line.ofN) : `${DOC_LABEL[r.docType]} מס׳ ${docNumberLabel(r)}`,
     amount: ils(line ? line.open : r.balance), due: ddmmyyyy(line ? line.dueDate : r.dueDate) || 'מועד התשלום',
     business: business.name || brand.name, link: r.shareToken ? `${window.location.origin}/d/${r.shareToken}` : '',
   });
@@ -205,7 +205,7 @@ function Reminder({ r, line, onClose }: { r: Receivable; line: Line | null; onCl
       <p className="whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl bg-surface-2 p-3 text-sm" dir="rtl">{text}</p>
       {ai.note && <p className="mt-2 text-xs text-muted">{ai.note}</p>}
       <div className="mt-3 flex flex-wrap gap-2">
-        {block ? <Note tone="warn">{block}</Note> : block === undefined ? <Spinner /> : url ? <a href={url} target="_blank" rel="noopener" onClick={() => { void logEvent('reminder.sent', 'documents', r.id, { tone, balance: r.balance }); if (r.leadId) addActivity(r.leadId, 'whatsapp', `תזכורת תשלום: ${DOC_LABEL[r.docType]} ${r.docNumber} · ${ils(r.balance)}`); onClose(); }}
+        {block ? <Note tone="warn">{block}</Note> : block === undefined ? <Spinner /> : url ? <a href={url} target="_blank" rel="noopener" onClick={() => { void logEvent('reminder.sent', 'documents', r.id, { tone, balance: r.balance }); if (r.leadId) addActivity(r.leadId, 'whatsapp', `תזכורת תשלום: ${DOC_LABEL[r.docType]} ${docNumberLabel(r)} · ${ils(r.balance)}`); onClose(); }}
           className="inline-flex min-h-11 items-center rounded-full bg-primary px-5 text-sm font-semibold text-white">שליחה בוואטסאפ</a>
           : <Note tone="warn">אין טלפון ללקוח — אפשר להעתיק את הנוסח.</Note>}
         <Button variant="ghost" disabled={block !== null} onClick={() => void navigator.clipboard?.writeText(text)}>העתקה</Button>

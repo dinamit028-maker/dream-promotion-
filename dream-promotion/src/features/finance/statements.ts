@@ -1,4 +1,4 @@
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { categoryLabel, normalizeSupplier } from './expenses';
 import { payLabel } from './payments';
 import { csv } from './reports';
@@ -140,7 +140,7 @@ export const reportFileName = (title: string, p: { from: string; to: string }, e
   `${title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, '-')}-${p.from}-${p.to}.${ext}`;
 
 // ---- the tables -------------------------------------------------------------------------------------------------------------
-const docName = (type: number | null, n: number | null) => (type ? `${DOC_LABEL[type] ?? type} ${n ?? ''}`.trim() : '');
+const docName = (type: number | null, n: number | null) => (type ? `${DOC_LABEL[type] ?? type} ${docNumberLabel(n)}`.trim() : '');
 const KIND_HE: Record<string, string> = { service: 'שירות', product: 'מוצר', package: 'חבילה', other: 'אחר' };
 export const NO_TYPE = 'בלי סוג טיפול';
 export const NOT_BY_ITEM = 'לא לפי פריט (מסמך בלי שורות)';

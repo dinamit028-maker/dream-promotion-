@@ -3,7 +3,7 @@ import path from 'node:path';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import bidiFactory from 'bidi-js';
-import { DOC_LABEL, RECEIVED_LINE, baseDocLine, docPayLabel, issuerFor, issuerLocationLine, totalLabel, type DocRow } from '@/features/documents/documents';
+import { DOC_LABEL, RECEIVED_LINE, baseDocLine, docPayLabel, issuerFor, issuerLocationLine, totalLabel, type DocRow, docNumberLabel } from '@/features/documents/documents';
 import type { Business, Doc } from '@/features/documents/openformat';
 import { issuerIdLine } from '@/features/finance/rules';
 
@@ -72,7 +72,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   const font = await pdf.embedFont(fb.regular, { subset: true });
   const bold = await pdf.embedFont(fb.bold, { subset: true });
   forceLtr(font); forceLtr(bold);
-  pdf.setTitle(`${DOC_LABEL[d.docType] ?? 'מסמך'} ${d.docNumber}`);
+  pdf.setTitle(`${DOC_LABEL[d.docType] ?? 'מסמך'} ${docNumberLabel(d)}`);
   pdf.setAuthor(iss.name); pdf.setCreator(o.software); pdf.setProducer(o.software); pdf.setLanguage('he-IL');
 
   const W = 595.28, H = 841.89, M = 40;
@@ -105,7 +105,7 @@ export async function buildDocPdf(d: Doc & Partial<Pick<DocRow, 'issuer' | 'dueD
   y -= 18;
   const right: string[] = [iss.tradingName ?? '', issuerIdLine(iss), [iss.street, iss.houseNo, iss.city].filter(Boolean).join(' '), [iss.phone, iss.email].filter(Boolean).join(' · '),
     issuerLocationLine(iss)].filter(Boolean);
-  const left: [string, number, PDFFont][] = [[`${DOC_LABEL[d.docType] ?? 'מסמך'} מס׳ ${d.docNumber}`, 15, bold], [`תאריך: ${ddmmyyyy(d.docDate)}`, 10, font]];
+  const left: [string, number, PDFFont][] = [[`${DOC_LABEL[d.docType] ?? 'מסמך'} מס׳ ${docNumberLabel(d)}`, 15, bold], [`תאריך: ${ddmmyyyy(d.docDate)}`, 10, font]];
   if (d.dueDate) left.push([`לתשלום עד: ${ddmmyyyy(d.dueDate)}`, 10, font]);
   if (o.allocation) left.push([o.allocation, 9, bold]);
   for (let k = 0; k < Math.max(right.length, left.length); k++) {

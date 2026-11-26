@@ -3,14 +3,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { Button, Card, Chip, Field, Input, Textarea } from '@/components/ui/primitives';
 import { Modal, Spinner } from '@/components/ui/feedback';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { useLocations } from '@/features/locations/store';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
 import { defaultLocation, locationName, multiLocation } from '@/features/locations/locations';
 import { useFinance } from './FinanceScreen';
 import { CASH_MIGRATION, cancelDeposit, createDeposit, loadChequeBook, loadDeposits, loadDesks, useCashReadyState } from './cash-data';
 import {
-  DESK_HINT, DESK_LABEL, DESK_METHODS, DUE_LABEL, chequeDue, chequesTable, depositErrors, depositTotal, deskValue, type Cheque, type ChequeBook, type Deposit, type Desks,
+  DESK_HINT, DESK_LABEL, DESK_METHODS, DUE_LABEL, chequeDue, chequesTable, depositDoneLabel, depositErrors, depositTotal, deskValue, type Cheque, type ChequeBook, type Deposit, type DepositDocRef, type Desks,
 } from './desks';
 import { LEDGER_SOURCE_HE, payLabel, toLedgerRow, type LedgerRow, type PayMethod } from './payments';
 import { TableCard } from './ReportBook';
@@ -119,7 +119,7 @@ export function CashDesks() {
                   <li key={c.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-line py-1.5 last:border-0">
                     <span className="min-w-0">
                       <strong>צ׳ק {c.number || 'בלי מספר'}</strong>{c.bank ? ` · בנק ${c.bank}` : ''}{c.customer ? ` · ${c.customer}` : ''}
-                      <span className="block text-xs text-muted">{c.dueDate ? `לפירעון ${ddmmyyyy(c.dueDate)}` : 'בלי תאריך פירעון'}{c.docType && c.docNumber ? ` · ${DOC_LABEL[c.docType]} ${c.docNumber}` : ''}{where(c.location)}</span>
+                      <span className="block text-xs text-muted">{c.dueDate ? `לפירעון ${ddmmyyyy(c.dueDate)}` : 'בלי תאריך פירעון'}{c.docType && c.docNumber ? ` · ${DOC_LABEL[c.docType]} ${docNumberLabel(c)}` : ''}{where(c.location)}</span>
                     </span>
                     <span className="flex items-center gap-2">{DUE_LABEL[due] && <Pill tone={due === 'overdue' ? 'bad' : 'warn'}>{DUE_LABEL[due]}</Pill>}<strong className="tabular-nums">{ils(c.amount)}</strong></span>
                   </li>
@@ -138,7 +138,9 @@ export function CashDesks() {
               <ul className="grid gap-2 text-sm">{deps.map((d) => (
                 <li key={d.id} className="rounded-2xl border border-line p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span><strong>הפקדה {d.number}</strong> · {ddmmyyyy(d.date)}{where(d.location)}</span>
+                    <span><strong>הפקדה {d.number}</strong> · {ddmmyyyy(d.date)}{where(d.location)}
+                      {/* 2.120 (migration 7000): its document, 420 "הפקדת בנק" — only when it has one */}
+                      {d.document && <> · <a href={`/finance/documents?open=${d.document.id}`} className="text-primary underline underline-offset-2">הפקדת בנק {docNumberLabel(d.document.number)}</a></>}</span>
                     <span className="flex items-center gap-2">
                       {d.status === 'cancelled' && <Pill tone="bad">בוטלה · {d.cancelReason}</Pill>}
                       {d.matched && <Pill tone="ok">הותאמה לבנק</Pill>}
@@ -159,7 +161,7 @@ export function CashDesks() {
 
       {newDep && desks && book && (
         <DepositDialog desks={desks} drawer={book.drawer} onClose={() => setNewDep(false)}
-          onDone={(n) => { setNewDep(false); say(`הפקדה ${n} נרשמה`); setTab('deposits'); void load(); }} />
+          onDone={(n, doc) => { setNewDep(false); say(depositDoneLabel(n, doc)); setTab('deposits'); void load(); }} />
       )}
       {cancelling && <CancelDeposit deposit={cancelling} onClose={() => setCancelling(null)} onDone={() => { setCancelling(null); say('ההפקדה בוטלה — הכסף והצ׳קים חזרו לקופה'); void load(); }} />}
     </div>
@@ -182,7 +184,7 @@ function CancelDeposit({ deposit, onClose, onDone }: { deposit: Deposit; onClose
   return (
     <Modal open onClose={onClose}>
       <h3 className="mb-1 font-display text-lg font-extrabold">ביטול הפקדה {deposit.number}</h3>
-      <p className="mb-3 text-sm text-muted">רק אם נרשמה בטעות. המזומן והצ׳קים חוזרים לקופה; ההפקדה נשארת ברשימה, מסומנת "בוטלה".</p>
+      <p className="mb-3 text-sm text-muted">רק אם נרשמה בטעות. המזומן והצ׳קים חוזרים לקופה; ההפקדה נשארת ברשימה, מסומנת "בוטלה".{deposit.document ? ` גם מסמך ההפקדה (הפקדת בנק ${docNumberLabel(deposit.document.number)}) מסומן "בוטל" — הוא לא נמחק.` : ''}</p>
       <Field label="סיבה"><Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></Field>
       {err && <Note tone="warn">{err}</Note>}
       <div className="mt-3 flex gap-2"><Button variant="primary" disabled={busy || reason.trim().length < 2} onClick={() => void goCancel()}>ביטול ההפקדה</Button><Button variant="ghost" onClick={onClose}>חזרה</Button></div>
@@ -191,7 +193,7 @@ function CancelDeposit({ deposit, onClose, onDone }: { deposit: Deposit; onClose
 }
 
 /** a new deposit: the date, the location (with several and "all" picked), cash (up to what the desk holds) and the cheques to take */
-function DepositDialog({ desks, drawer, onClose, onDone }: { desks: Desks; drawer: Cheque[]; onClose: () => void; onDone: (number: number) => void }) {
+function DepositDialog({ desks, drawer, onClose, onDone }: { desks: Desks; drawer: Cheque[]; onClose: () => void; onDone: (number: number, doc?: DepositDocRef) => void }) {
   const locState = useLocations((x) => x.state);
   const today = todayIL();
   const [id] = useState(() => crypto.randomUUID());
@@ -213,7 +215,7 @@ function DepositDialog({ desks, drawer, onClose, onDone }: { desks: Desks; drawe
     const r = await createDeposit({ id, date, location: locationColumn(locState, loc).location_id ?? null, cash, cheques: picked.map((c) => c.id), note });
     setBusy(false);
     if (!r.ok) { setErrors([r.error]); return; }
-    onDone(r.data.number);
+    onDone(r.data.number, r.data.document);
   }
   return (
     <Modal open onClose={onClose} wide>

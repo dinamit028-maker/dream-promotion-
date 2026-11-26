@@ -5,6 +5,8 @@
  * relevant", spec p. 10). It does keep stock (per location, from 2.92), but this export writes no M100 ("פריטים במלאי", §4.8,
  * p. 17) records — whether it has to is an open question (22.11.2026). Every field position below is from the spec.
  * Checked against the official text (horaot-131.pdf, 22 pages) on 22.11.2026: pages 6, 10, 12, 13, 21 — see each change.
+ * 2.120 (26.11.2026, against the same text, pdftotext): the branch fields and 1034 (seriesNumber, BranchInfo below) and the bank
+ * deposit 420 (C100 + D120, no D110).
  */
 export const SYSTEM_CONST = '&OF1.31&';
 
@@ -25,6 +27,20 @@ export const AMT = (v: number, intDigits = 12, dec = 2) => {
   return (v < 0 ? '-' : '+') + String(cents).padStart(intDigits + dec, '0').slice(-(intDigits + dec));
 };
 export const yyyymmdd = (d: string) => d.replace(/-/g, '').slice(0, 8);
+/**
+ * A document's number as written in every field that carries it — 1204 (C100), 1257 (D110, the base), 1304 (D120), 1357 / 1359
+ * (B100, not written by Dream) — X(20) (spec p. 12–14). §2.4ד (p. 6, checked against horaot-131.pdf 26.11.2026): a number of
+ * digits only may be written as it is or with leading zeros ("00000000000000001234 או 1234"), the same way in every field.
+ * 2.120 (migration 20261127007000 — the accountant's answer 5, the owner's decision of 26.11.2026): a number of a location's
+ * series is the branch code and then six digits (code × 1,000,000 + n ≥ 1,000,001) and is written with its eight digits
+ * (01000001); the business's own series is below 1,000,000 and is written exactly as before (String(n)). The screens show the
+ * same (docNumberLabel, documents.ts — it calls this).
+ */
+export const seriesNumber = (n: number | string | null | undefined): string => {
+  if (n == null || n === '') return '';
+  const v = Number(n);
+  return Number.isSafeInteger(v) && v >= 1_000_000 && v <= 99_999_999 ? String(v).padStart(8, '0') : String(n);
+};
 
 /**
  * Spec §2.4ח (p. 6, checked 22.11.2026): the files are written in ISO-8859-8-i (logical Hebrew) — field 1029 = 1 (p. 10).
@@ -95,7 +111,64 @@ export interface Doc {
   userId?: string | null;
   /** the invoice this receipt pays (documents.paid_document_id: a 400 pays a 305 / 300, a 320 pays a 300) — B110 (accountsOf) */
   paidDocumentId?: string | null;
+  /** 2.91: the location it was issued in (none = the main one — the business's id) — its branch code goes into the branch fields */
+  locationId?: string | null;
 }
+
+/**
+ * 2.120 — branches (spec clarification 3, appendix 5.5, p. 21; A000 field 1034, p. 10; checked against horaot-131.pdf
+ * 26.11.2026): "כאשר לעסק יש כמה סניפים … יש לעדכן את ערך מזהה זה. בנוסף לכך יש לעדכן את השדה 1034 בערך 1". The branch id,
+ * X(7), "מספר הסניף/ענף כפי שמופיע ברישומי בית העסק", "חובה כאשר ערך שדה 1034 = 1":
+ *   C100 1231 (positions 409–415), D110 1270 (290–296), D110 1274 "מזהה סניף/ענף למסמך בסיס" (312–318), D120 1320 (141–147),
+ *   B110 1421 (336–342); B100 1374 — Dream writes no B100.
+ *   NOTE: clarification 3 lists "1231, 1270, 1320, 1374, 1421, 1272" — but in the D110 table itself 1272 is "תאריך המסמך"
+ *   (297–304, 9(8)) and the base document's branch is 1274. We write the table (1274) and keep 1272 the date — an open question
+ *   for the simulator / the accountant (26.11.2026).
+ * Dream: a business that numbers per location (document_numbering — the owner's one-way switch, migration 7000) writes 1034 = 1
+ * and every document's location's branch code (business_locations.branch_code, '01'–'99'). A business that did not switch —
+ * 1034 = 0 and the fields empty, exactly as before (even with several locations: an open question for the accountant, 26.11.2026).
+ */
+export interface BranchInfo {
+  /** the business numbers per location (document_numbering_state().perLocation) */
+  perLocation: boolean;
+  /** the business's id — the main location's id (a document with no location is the main one's) */
+  businessId: string;
+  /** location id → its branch code */
+  codes: ReadonlyMap<string, string>;
+  /** a base document ("type:number") → its location, for a base not among the documents of the file */
+  baseLocations?: ReadonlyMap<string, string | null>;
+}
+/** the branch code of a location (empty when unknown — never made up) */
+export const branchOf = (info: BranchInfo | null | undefined, locationId: string | null | undefined): string =>
+  info?.perLocation ? info.codes.get(locationId || info.businessId) ?? '' : '';
+/** a base document's branch: its row (in the file, or looked up by the caller), else — a number of a location's series carries
+ *  its branch code in its first two digits (seriesNumber) */
+export function baseBranchOf(info: BranchInfo | null | undefined, d: Pick<Doc, 'baseDocType' | 'baseDocNumber'>, inFile?: ReadonlyMap<string, Doc>): string {
+  if (!info?.perLocation || !d.baseDocType || !d.baseDocNumber) return '';
+  const k = `${d.baseDocType}:${d.baseDocNumber}`;
+  const row = inFile?.get(k);
+  if (row) return branchOf(info, row.locationId);
+  if (info.baseLocations?.has(k)) return branchOf(info, info.baseLocations.get(k));
+  return Number(d.baseDocNumber) >= 1_000_000 ? seriesNumber(d.baseDocNumber).slice(0, 2) : '';
+}
+
+/**
+ * 2.120 — a bank deposit, 420 "הפקדת בנק" (appendix 1, §5.1, p. 18; D120 "פרטי קבלה / הפקדה", §4.5, p. 14; checked against
+ * horaot-131.pdf 26.11.2026). Issued by bank_deposit_create (migration 7000): no customer, no lines, no VAT; its payments are the
+ * cash (1306 = 1) and each cheque (2, with 1307–1311 from the receipt's payment), each dated the deposit's day. In the file:
+ * C100 (1219 = 1221 = 1223 = the amount, 1220 = 1222 = 0, 1216 "תאריך ערך" = the day of the deposit — its payments' date,
+ * 1228 = 1 when it was cancelled with its deposit) and a D120 per payment; no D110 (NO_D110).
+ * 1207 and 1225 are "חובה כאשר קוד מסמך בטווח 100–710" and every 1225 must be an account of the file (the simulator, 25.11.2026:
+ * "מפתח לקוח אינו קיים באינדקס חשבונות (B110)"): a deposit is written to the bank's account — DEPOSIT_KEY / DEPOSIT_NAME, its
+ * B110 with its own trial-balance code (DEPOSIT_CODE) and no movements. Ours, not the spec's — for the accountant to confirm.
+ */
+export const DEPOSIT_KEY = 'BANK';
+export const DEPOSIT_NAME = 'בנק';
+export const DEPOSIT_CODE = 'BANK';
+const isDeposit = (d: Pick<Doc, 'docType'>) => d.docType === 420;
+/** field 1216 of a document: its date — a deposit's, the day of the deposit (its payments' date) */
+const valueDate = (d: Pick<Doc, 'docType' | 'docDate' | 'payments'>) =>
+  isDeposit(d) && d.payments[0]?.date && /^\d{4}-\d{2}-\d{2}$/.test(d.payments[0].date) ? d.payments[0].date : d.docDate;
 
 /**
  * Field 1258 "סוג עסקה" (spec p. 13, checked 22.11.2026): 1 service, 2 sale (מכר), 3 service and sale. A line of the price list
@@ -158,10 +231,10 @@ export const Z900 = (rec: number, b: Business, id: string, total: number) =>
   'Z900' + N(rec, 9) + N(b.dealerNumber, 9) + N(id, 15) + X(SYSTEM_CONST, 8) + N(total, 15) + X('', 50); // 110
 
 /** field 1225 "מפתח הלקוח אצל המוכר" X(15), as written — the same 15 characters are 1403 of the customer's B110 */
-export const customerKeyField = (d: Pick<Doc, 'customerKey' | 'customerPhone' | 'customerName'>) =>
-  X(d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15);
+export const customerKeyField = (d: Pick<Doc, 'customerKey' | 'customerPhone' | 'customerName'> & { docType?: number }) =>
+  X(d.docType === 420 ? DEPOSIT_KEY : d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15);
 
-export function C100(rec: number, b: Business, d: Doc, operator: string = d.issuedBy ?? '') {
+export function C100(rec: number, b: Business, d: Doc, operator: string = d.issuedBy ?? '', branch = '') {
   const t = ilTime(d.issuedAt);
   const wA = ag(withheldOf(d));                                       // clarification 4: a receipt's amounts without the withholding
   const less = (v: number) => (ag(v) - wA) / 100;
@@ -171,11 +244,11 @@ export function C100(rec: number, b: Business, d: Doc, operator: string = d.issu
   // 1223 below zero (1220 and 1222 are 0). The receipt it refunds (1256/1257) is not in the file: those fields are D110's only,
   // and a 400 has no D110 (NO_D110, below) — open question for the simulator / the accountant (25.11.2026).
   const sign = (v: number) => (d.docType === 330 ? v : v);
-  return 'C100' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20)
+  return 'C100' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(seriesNumber(d.docNumber), 20)   // 1204 (seriesNumber)
     + N(t.date, 8) + N(t.time, 4)                                   // 1205, 1206
-    + X(d.customerName || 'לקוח מזדמן', 50) + X(d.customerStreet, 50) + X('', 10) + X(d.customerCity, 30) + X('', 8) // 1207–1211
+    + X(isDeposit(d) ? DEPOSIT_NAME : d.customerName || 'לקוח מזדמן', 50) + X(d.customerStreet, 50) + X('', 10) + X(d.customerCity, 30) + X('', 8) // 1207–1211
     + X('', 30) + X('', 2) + X(d.customerPhone, 15) + N(d.customerDealer || 0, 9)   // 1212–1215
-    + N(yyyymmdd(d.docDate), 8)                                       // 1216 value date
+    + N(yyyymmdd(valueDate(d)), 8)                                    // 1216 value date (a deposit: its day — valueDate)
     + AMT(0) + X('', 3)                                               // 1217, 1218 (export only)
     + AMT(sign(less(d.beforeDiscount))) + AMT(-Math.abs(d.discount)) + AMT(sign(less(d.afterDiscount))) // 1219, 1220 (negative), 1221
     + AMT(sign(d.vatAmount)) + AMT(sign(fileTotal(d))) + AMT(wA / 100, 9) // 1222, 1223, 1224 withholding (positive — clarification 4)
@@ -183,17 +256,17 @@ export function C100(rec: number, b: Business, d: Doc, operator: string = d.issu
     + X('', 10)                                                       // 1226 matching field
     + X(d.cancelled ? '1' : '', 1)                                    // 1228 cancelled: a 300 / 400 cancelled after issue (a tax invoice gets a credit invoice instead)
     + N(yyyymmdd(d.docDate), 8)                                       // 1230 document date
-    + X('', 7)                                                        // 1231 branch
+    + X(branch, 7)                                                    // 1231 branch (BranchInfo; empty unless 1034 = 1)
     + X(operator, 9) + N(d.linkNo, 7) + X('', 13);                    // 1233 (operatorOf), 1234, 1235 → 444
 }
 
-export function D110(rec: number, b: Business, d: Doc, line: DocLine, lineNo: number) {
-  return 'D110' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20) + N(lineNo, 4)
-    + N(d.baseDocType ?? 0, 3) + X(d.baseDocNumber ? String(d.baseDocNumber) : '', 20)  // 1256, 1257
+export function D110(rec: number, b: Business, d: Doc, line: DocLine, lineNo: number, branch = '', baseBranch = '') {
+  return 'D110' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(seriesNumber(d.docNumber), 20) + N(lineNo, 4)
+    + N(d.baseDocType ?? 0, 3) + X(d.baseDocNumber ? seriesNumber(d.baseDocNumber) : '', 20)  // 1256, 1257
     + N(line.kind === 2 || line.kind === 3 ? line.kind : 1, 1) + X('', 20) + X(line.name, 30) + X('', 50) + X('', 30) + X('יחידה', 20) // 1258–1263
     + AMT(line.qty, 12, 4) + AMT(line.unitPriceExVat) + AMT(-Math.abs(line.discountExVat)) + AMT(line.totalExVat) // 1264–1267
     + N(Math.round(line.vatRate * 100), 4)                             // 1268 (18% → 1800)
-    + X('', 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X('', 7) + X('', 21); // 1270, 1272, 1273, 1274, 1275 → 339
+    + X(branch, 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X(baseBranch, 7) + X('', 21); // 1270, 1272, 1273, 1274 (base's branch), 1275 → 339
 }
 
 /**
@@ -204,17 +277,17 @@ export function D110(rec: number, b: Business, d: Doc, line: DocLine, lineNo: nu
 export const cardKindField = (p: Pick<DocPayment, 'method' | 'cardKind'>): number =>
   p.method !== 3 ? 0 : [1, 2, 3, 4, 5].includes(Number(p.cardKind)) && Number.isInteger(p.cardKind) ? Number(p.cardKind) : 1;
 
-export function D120(rec: number, b: Business, d: Doc, p: DocPayment, lineNo: number) {
+export function D120(rec: number, b: Business, d: Doc, p: DocPayment, lineNo: number, branch = '') {
   const c = p.method === 2 ? p.cheque : undefined;                      // a cheque's bank, branch, account, number, due date (2.51)
-  return 'D120' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(String(d.docNumber), 20) + N(lineNo, 4)
+  return 'D120' + N(rec, 9) + N(b.dealerNumber, 9) + N(d.docType, 3) + X(seriesNumber(d.docNumber), 20) + N(lineNo, 4)
     + N(p.method, 1) + N(c?.bank || 0, 10) + N(c?.branch || 0, 10) + N(c?.account || 0, 15) + N(c?.number || 0, 10) // 1306–1310
     + N(c?.dueDate ? yyyymmdd(c.dueDate) : p.method === 3 ? yyyymmdd(p.date) : 0, 8) // 1311 cheque due date / card payment date
     + AMT(p.amount) + N(0, 1) + X('', 20) + N(cardKindField(p), 1)        // 1312–1315 (1312 signed: a refund receipt's money back is below zero)
-    + X('', 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X('', 60);  // 1320, 1322, 1323, 1324 → 222
+    + X(branch, 7) + N(yyyymmdd(d.docDate), 8) + N(d.linkNo, 7) + X('', 60);  // 1320 branch, 1322, 1323, 1324 → 222
 }
 
 // ---------- INI.TXT ----------
-export function A000(b: Business, sw: SoftwareInfo, o: { id: string; totalRecords: number; path: string; from: string; to: string; startedAt: string }) {
+export function A000(b: Business, sw: SoftwareInfo, o: { id: string; totalRecords: number; path: string; from: string; to: string; startedAt: string; perLocation?: boolean }) {
   const t = ilTime(o.startedAt);
   return 'A000' + X('', 5) + N(o.totalRecords, 15) + N(b.dealerNumber, 9) + N(o.id, 15) + X(SYSTEM_CONST, 8)
     + N(sw.regNumber, 8) + X(sw.name, 20) + X(sw.version, 20) + N(sw.vendorVat, 9) + X(sw.vendorName, 20) // 1006–1010 (p. 10)
@@ -223,7 +296,7 @@ export function A000(b: Business, sw: SoftwareInfo, o: { id: string; totalRecord
     + X(b.name, 50) + X(b.street, 50) + X(b.houseNo, 10) + X(b.city, 30) + X(b.zip, 8) // 1018–1022
     + N(0, 4) + N(yyyymmdd(o.from), 8) + N(yyyymmdd(o.to), 8)              // 1023 (single-year only), 1024, 1025
     + N(t.date, 8) + N(t.time, 4) + N(0, 1) + N(1, 1)                       // 1026, 1027, 1028 Hebrew, 1029 ISO-8859-8
-    + X('JSZip', 20) + X('ILS', 3) + N(0, 1) + X('', 46);                   // 1030, 1032, 1034 no branches, 1035 → 466
+    + X('JSZip', 20) + X('ILS', 3) + N(o.perLocation ? 1 : 0, 1) + X('', 46); // 1030, 1032, 1034 (1 — the business numbers per location, BranchInfo), 1035 → 466
 }
 /**
  * Field 1016 "מספר תיק ניכויים" 9(9), ח/ר (spec p. 10, positions 196–204, checked against horaot-131.pdf 25.11.2026). The
@@ -242,7 +315,7 @@ export const exportId = () => Array.from(crypto.getRandomValues(new Uint8Array(1
  * (§4.5, p. 14, the example: "ברשומה מסוג 'כותרת מסמך' – C100 תופיע רשומה אחת שתכיל את נתוני כותרת הקבלה. בנוסף לכך יופיעו 5
  * רשומות, אחת לכל המחאה מסוג רשומה 'פרטי קבלה/הפקדה' – D120" — no D110). The Tax Authority's simulator (25.11.2026, the sample of
  * 2.117.0) refused every D110 of a 400 ("לא נמצאה רשומת כותרת מסמך", field 1250) and counted them as "D110 ללא התאמה". So a receipt
- * (400) and a bank deposit (420 — D120 is its record too; not produced yet) are written C100 + D120 only; their C100 is unchanged
+ * (400) and a bank deposit (420 — D120 is its record too; produced from 2.120, migration 7000) are written C100 + D120 only; their C100 is unchanged
  * (1219–1224 come from the document, not from its lines), and the document keeps its lines. A 320 (invoice and receipt) keeps both.
  */
 export const NO_D110 = new Set([400, 420]);
@@ -269,18 +342,26 @@ export const NO_D110 = new Set([400, 420]);
  *        refunds stays credit as it was. For the accountant to confirm (open question, 25.11.2026);
  *   a cancelled document (1228 = 1) is not counted — it does not charge or pay (its account is still written, as its key is in
  *   the file); 100 / 200 / 210 charge nothing;
- *   1417 0; 1419 0 (only when 1013 = 2); 1421 empty (no branches, 1034 = 0); 1422 0 / 1423 empty (shekels only).
+ *   1417 0; 1419 0 (only when 1013 = 2); 1421 empty (no branches, 1034 = 0) — 2.120: a business that numbers per location, the
+ *   branch of the account's first document in the file (an account is not of one branch: open question, 26.11.2026);
+ *   1422 0 / 1423 empty (shekels only).
  * Amounts are summed in agorot, positive (§2.4יא: debit and credit movements positive; 1414 is 0).
  */
 export const B110_CODE = 'CUSTOMERS';
 export const B110_NAME = 'לקוחות';
-export interface Account { key: string; name: string; street: string; city: string; debitA: number; creditA: number }
-export function accountsOf(docs: Doc[]): Account[] {
+export interface Account { key: string; name: string; street: string; city: string; debitA: number; creditA: number;
+  /** 2.120: the bank's account (a deposit, 420 — DEPOSIT_KEY): its own trial-balance code, no movements */
+  bank?: boolean;
+  /** 2.120: field 1421 — the branch of the account's first document in the file (BranchInfo; empty unless 1034 = 1) */
+  branch?: string }
+export function accountsOf(docs: Doc[], branches?: BranchInfo | null): Account[] {
   const m = new Map<string, Account>();
   for (const d of docs) {
     const key = customerKeyField(d);
     let a = m.get(key);
-    if (!a) m.set(key, (a = { key, name: d.customerName || 'לקוח מזדמן', street: '', city: '', debitA: 0, creditA: 0 }));
+    if (!a) m.set(key, (a = { key, name: isDeposit(d) ? DEPOSIT_NAME : d.customerName || 'לקוח מזדמן', street: '', city: '', debitA: 0, creditA: 0,
+      ...(isDeposit(d) ? { bank: true } : {}), ...(branches?.perLocation ? { branch: branchOf(branches, d.locationId) } : {}) }));
+    if (isDeposit(d)) continue;                                      // 2.120: a deposit charges and pays no customer
     if (!a.street && !a.city && (d.customerStreet || d.customerCity)) { a.street = d.customerStreet ?? ''; a.city = d.customerCity ?? ''; }
     if (d.cancelled) continue;
     const t = ag(fileTotal(d));                                      // 1223 as the C100 writes it
@@ -294,13 +375,15 @@ export function accountsOf(docs: Doc[]): Account[] {
 }
 export const B110 = (rec: number, b: Business, a: Account) =>
   'B110' + N(rec, 9) + N(b.dealerNumber, 9) + a.key + X(a.name, 50)   // 1400–1404 (1403: the C100's 1225 as is)
-  + X(B110_CODE, 15) + X(B110_NAME, 30)                              // 1405, 1406
+  + X(a.bank ? DEPOSIT_CODE : B110_CODE, 15) + X(a.bank ? DEPOSIT_NAME : B110_NAME, 30) // 1405, 1406 (2.120: the bank's account — its own)
   + X(a.street, 50) + X('', 10) + X(a.city, 30) + X('', 8) + X('', 30) + X('', 2) // 1407–1412
   + X('', 15)                                                        // 1413 parent account
   + AMT(0) + AMT(a.debitA / 100) + AMT(a.creditA / 100)              // 1414, 1415, 1416
-  + N(0, 4) + N(0, 9) + X('', 7) + AMT(0) + X('', 3) + X('', 16);    // 1417, 1419, 1421, 1422, 1423, 1424 → 376
-/** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf) */
-export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string> }) {
+  + N(0, 4) + N(0, 9) + X(a.branch ?? '', 7) + AMT(0) + X('', 3) + X('', 16); // 1417, 1419, 1421 (branch), 1422, 1423, 1424 → 376
+/** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf).
+ *  o.branches (2.120): the business numbers per location — 1034 = 1 and the branch fields; none / not per location — as before */
+export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string>;
+  branches?: BranchInfo | null }) {
   const id = o.id ?? exportId();
   const t = ilTime(o.startedAt);
   const dir = `OPENFRMT\\${N(b.dealerNumber, 9).slice(0, 8)}.${t.date.slice(2, 4)}\\${t.date.slice(4, 8)}${t.time}`;
@@ -308,14 +391,17 @@ export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: {
   const counts: Record<string, number> = { B110: 0, C100: 0, D110: 0, D120: 0 };
   recs.push(A100(1, b, id));
   const inFile = docs.filter((x) => x.docDate >= o.from && x.docDate <= o.to).sort((a, z) => a.docType - z.docType || a.docNumber - z.docNumber);
-  for (const a of accountsOf(inFile)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }   // the accounts first, then the documents
+  const br = o.branches?.perLocation ? o.branches : null;
+  const byKey = new Map(docs.map((x) => [`${x.docType}:${x.docNumber}`, x] as const));
+  for (const a of accountsOf(inFile, br)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }   // the accounts first, then the documents
   for (const d of inFile) {
-    recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes))); counts.C100++;
-    if (!NO_D110.has(d.docType)) d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1)); counts.D110++; });
-    filePayments(d).forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1)); counts.D120++; });
+    const branch = branchOf(br, d.locationId), baseBranch = baseBranchOf(br, d, byKey);
+    recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes), branch)); counts.C100++;
+    if (!NO_D110.has(d.docType)) d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1, branch, baseBranch)); counts.D110++; });
+    filePayments(d).forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1, branch)); counts.D120++; });
   }
   recs.push(Z900(recs.length + 1, b, id, recs.length + 1));
-  const ini = [A000(b, sw, { id, totalRecords: recs.length, path: dir, from: o.from, to: o.to, startedAt: o.startedAt }),
+  const ini = [A000(b, sw, { id, totalRecords: recs.length, path: dir, from: o.from, to: o.to, startedAt: o.startedAt, perLocation: Boolean(br) }),
     ...Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => SUM(k, n))];
   return { id, dir, ini: ini.join('\r\n') + '\r\n', bkmv: recs.join('\r\n') + '\r\n', counts: { A100: 1, ...counts, Z900: 1 }, totalRecords: recs.length };
 }

@@ -47,12 +47,17 @@ export function cashDifference(counted: number, expected: number) {
 }
 
 export interface DocLite { docType: number; docNumber: number; issuedAt: string }
-/** the numbers of the documents issued that day, per type: first, last and how many */
+/** the numbers of the documents issued that day, per type (2.120: and per series — a location's series after the business numbers
+ *  per location, its numbers' first two digits; numbers below 1,000,000 are the business's one series, as before): first, last, how many */
 export function docRanges(docs: DocLite[], day: string) {
-  const by = new Map<number, number[]>();
-  for (const d of docs) if (israelParts(new Date(d.issuedAt)).date === day) by.set(d.docType, [...(by.get(d.docType) ?? []), Number(d.docNumber)]);
-  return [...by.entries()].sort((a, b) => a[0] - b[0])
-    .map(([docType, n]) => ({ docType, from: Math.min(...n), to: Math.max(...n), count: n.length }));
+  const by = new Map<string, { docType: number; n: number[] }>();
+  for (const d of docs) if (israelParts(new Date(d.issuedAt)).date === day) {
+    const k = `${d.docType}:${Math.floor(Number(d.docNumber) / 1_000_000)}`;
+    if (!by.has(k)) by.set(k, { docType: d.docType, n: [] });
+    by.get(k)!.n.push(Number(d.docNumber));
+  }
+  return [...by.values()].map(({ docType, n }) => ({ docType, from: Math.min(...n), to: Math.max(...n), count: n.length }))
+    .sort((a, b) => a.docType - b.docType || a.from - b.from);
 }
 
 /** everything the close-of-day report shows */

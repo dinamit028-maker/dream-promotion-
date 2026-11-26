@@ -1,4 +1,4 @@
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { lineLabel, type Line } from './plans';
 import type { QuoteStatus } from './quotes';
 import type { Receivable } from './receivables';
@@ -21,7 +21,7 @@ export interface CardQuote { id: string; number: number; status: QuoteStatus; to
 export function linkTargets(recv: Receivable[], quotes: CardQuote[]): LinkTarget[] {
   const docs = recv.filter((r) => !r.cancelled && ag(r.balance) > 0)
     .sort((a, b) => (a.dueDate ?? a.docDate).localeCompare(b.dueDate ?? b.docDate) || a.docNumber - b.docNumber)
-    .map((r): LinkTarget => ({ kind: 'document', id: r.id, label: `${DOC_LABEL[r.docType] ?? 'מסמך'} ${r.docNumber}`, owed: r.balance,
+    .map((r): LinkTarget => ({ kind: 'document', id: r.id, label: `${DOC_LABEL[r.docType] ?? 'מסמך'} ${docNumberLabel(r)}`, owed: r.balance,
       customer: { name: r.customerName, phone: r.customerPhone, email: r.customerEmail } }));
   const qs = quotes.filter((q) => q.status === 'accepted' && ag(q.total) > 0)
     .map((q): LinkTarget => ({ kind: 'quote', id: q.id, label: `הצעת מחיר ${q.number}`, owed: q.total,
@@ -37,7 +37,7 @@ export function planRows(lines: Line[], today: string): PlanRow[] {
     .sort((a, b) => (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999') || a.docNumber - b.docNumber || (a.n ?? 99) - (b.n ?? 99))
     .map((l) => ({
       key: `${l.documentId}:${l.itemId ?? 'x'}`, documentId: l.documentId,
-      label: `${DOC_LABEL[l.docType] ?? 'מסמך'} ${l.docNumber}${lineLabel(l) ? ` · ${lineLabel(l)}` : ''}`,
+      label: `${DOC_LABEL[l.docType] ?? 'מסמך'} ${docNumberLabel(l)}${lineLabel(l) ? ` · ${lineLabel(l)}` : ''}`,
       dueDate: l.dueDate, open: l.open, late: Boolean(l.dueDate && l.dueDate < today),
     }));
 }

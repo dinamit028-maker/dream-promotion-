@@ -1,5 +1,5 @@
 import { ils } from '@/features/register/money';
-import { DOC_LABEL } from '@/features/documents/documents';
+import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import type { TerminalInfo } from '@/features/store/checkout';
 import { linkify, type Email } from '@/features/store/commerce';
 
@@ -129,7 +129,7 @@ export const toDepositDocs = (v: unknown): DepositDoc[] => (Array.isArray(v) ? v
 export function depositDocsLabel(docs: DepositDoc[]): string {
   const by = new Map<number, number[]>();
   for (const d of docs) by.set(d.type, [...(by.get(d.type) ?? []), d.number]);
-  return [...by].map(([t, ns]) => `${DOC_LABEL[t]} ${[...ns].sort((a, b) => a - b).join(', ')}`).join('; ');
+  return [...by].map(([t, ns]) => `${DOC_LABEL[t]} ${[...ns].sort((a, b) => a - b).map(docNumberLabel).join(', ')}`).join('; ');
 }
 /**
  * The register's line for an appointment whose deposit was really paid (appointment_deposits — never a test one): the

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { financeError } from './rows';
-import { toChequeBook, toDeposits, toDesks, type ChequeBook, type Deposit, type Desks } from './desks';
+import { toChequeBook, toDepositDoc, toDeposits, toDesks, type ChequeBook, type Deposit, type Desks } from './desks';
 import { toBankBook, toCandidates, type BankLine, type BankLineIn, type DepositCard, type PayCard, type Statement } from './bank';
 
 /**
@@ -43,7 +43,7 @@ export const loadDeposits = (p: Period): Promise<Res<Deposit[]>> => call('deposi
 /** a new deposit: the id is this form's (a second tap is the same deposit) */
 export const createDeposit = (o: { id: string; date: string; location: string | null; cash: number; cheques: string[]; note: string }) =>
   call('bank_deposit_create', { p_id: o.id, p_date: o.date, p_location: o.location, p_cash: Math.round(o.cash * 100) / 100, p_cheques: o.cheques, p_note: o.note.trim().slice(0, 300) },
-    (j) => ({ id: String(j.id), number: Number(j.number), created: Boolean(j.created) }));
+    (j) => ({ id: String(j.id), number: Number(j.number), created: Boolean(j.created), ...(toDepositDoc(j.document) ? { document: toDepositDoc(j.document) } : {}) }));
 export const cancelDeposit = (id: string, reason: string) => call('bank_deposit_cancel', { p_id: id, p_reason: reason.trim() }, (j) => String(j.result ?? ''));
 
 export const loadBankBook = (p: Period): Promise<Res<{ lines: BankLine[]; statements: Statement[] }>> => call('bank_book', range(p), toBankBook);

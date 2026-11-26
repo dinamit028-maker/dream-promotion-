@@ -7,6 +7,7 @@ import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
 import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
+import { loadBranchInfo } from './numbering-data';
 import { loadDocCodes } from '@/features/documents/doc-codes';
 import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from '@/features/documents/export-scope';
 import { ScopeNote } from '@/features/documents/ScopeNote';
@@ -124,7 +125,10 @@ export function Accountant() {
       // member limited to locations would make a file with holes in the numbering (export-scope.ts); the rest of the package as before
       if (business.ready && docs.length && scope.ok) {
         const startedAt = new Date().toISOString();
-        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes });
+        // 2.120 (migration 7000): a business that numbers per location — 1034 = 1 and each document's branch code; else as before
+        let branches: Awaited<ReturnType<typeof loadBranchInfo>>;
+        try { branches = await loadBranchInfo(marked, access.business); } catch (e) { setBusy(null); fail(e instanceof Error ? e.message : financeError(e)); return; }
+        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes, branches });
         const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
         zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
