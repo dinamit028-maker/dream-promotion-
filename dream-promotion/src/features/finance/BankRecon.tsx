@@ -12,6 +12,8 @@ import {
   type BankLine, type BankLineIn, type ColumnMap, type DepositCard, type Grid, type PayCard, type Statement,
 } from './bank';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, ddmmyyyy, ils, periodNow, todayIL, type Period } from './ui';
+import { KIND_HE, accountLabel, bankLineNeedsAccount, classifyChoices, classifyProblem, type GlAccount } from './books';
+import { classifyLine, loadAccounts, loadBooksMore, loadLineAccounts, type BooksMore } from './books-data';
 
 /**
  * "התאמת בנק" (2.95, T9 — once the business turned the desks on): the owner uploads the file of movements the bank's site gives
@@ -19,6 +21,9 @@ import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, ddmmyyyy, ils, perio
  * and date — a receipt or a deposit for money in, a payment to a supplier for money out — and saved only when the owner approves
  * it; or chosen by hand (several receipts for one line, to the agora); or marked handled with a note (a bank fee). A match
  * approved by mistake is undone with a reason. The bank is the whole business's: a member limited to some locations does not see it.
+ * 2.122 (migration 7200, the owner's answer 17): a line dated on / after the books' start that is handled without a document is
+ * posted to an account the owner picks ("רישום לחשבון" — bank_line_classify); anyone else is told only the owner does it. A line
+ * before the start — "טופל בלי התאמה" with a note, as before. Before 7200 (loadBooksMore = null) — everything as before.
  */
 type Filter = 'open' | 'matched' | 'handled' | 'all';
 const addDays = (d: string, n: number) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
@@ -37,17 +42,25 @@ export function BankRecon() {
   const [picking, setPicking] = useState<BankLine | null>(null);
   const [undoing, setUndoing] = useState<BankLine | null>(null);
   const [noting, setNoting] = useState<BankLine | null>(null);
+  const [classing, setClassing] = useState<BankLine | null>(null);
   const [upload, setUpload] = useState(false);
+  const [more, setMore] = useState<BooksMore | null>(null);
+  const [lineAcc, setLineAcc] = useState<Map<string, string>>(new Map());
+  const [accounts, setAccounts] = useState<GlAccount[] | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const today = todayIL();
       const around = { from: addDays(period.from, -14), to: [addDays(period.to, 14), today].sort()[0] };
-      const [b, c] = await Promise.all([loadBankBook(period), loadCandidates(around)]);
+      const [b, c, m] = await Promise.all([loadBankBook(period), loadCandidates(around), loadBooksMore()]);
       if (!b.ok) { setError(b.error); return; }
       setLines(b.data.lines); setFiles(b.data.statements);
       setCand(c.ok ? c.data : { payments: [], deposits: [] });
+      setMore(m);
+      // 7200: the account a handled line of the books' time was posted to (a label only)
+      const handled = m ? b.data.lines.filter((l) => l.status === 'handled' && bankLineNeedsAccount(l.date, m.startDate)).map((l) => l.id) : [];
+      setLineAcc(handled.length ? await loadLineAccounts(handled) : new Map());
     } catch { setError(LOAD_FAILED); }
   }, [period]);
   useEffect(() => { if (ready && profile.cashDrawers && !limited) void load(); }, [ready, profile.cashDrawers, limited, load]);
@@ -79,6 +92,12 @@ export function BankRecon() {
     setBusy(null);
     if (!r.ok) { fail(r.error); void load(); return; }
     say('ההתאמה נשמרה'); void load();
+  }
+  const needsAccount = (l: BankLine) => Boolean(more && bankLineNeedsAccount(l.date, more.startDate));
+  const nameOf = (key: string) => accounts?.find((a) => a.key === key)?.name ?? '';
+  function openClassify(l: BankLine) {
+    setClassing(l);
+    if (!accounts) void loadAccounts().then(setAccounts);
   }
   async function reopen(l: BankLine) {
     setBusy(l.id);
@@ -123,7 +142,9 @@ export function BankRecon() {
                       <Button size="sm" variant="primary" disabled={busy === l.id} onClick={() => void approve(l)}>אישור</Button>
                     </>}
                     <Button size="sm" variant="ghost" onClick={() => setPicking(l)}>{s ? 'בחירה אחרת' : 'התאמה ידנית'}</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setNoting(l)}>טופל בלי התאמה</Button>
+                    {!needsAccount(l) ? <Button size="sm" variant="ghost" onClick={() => setNoting(l)}>טופל בלי התאמה</Button>
+                      : more?.owner ? <Button size="sm" variant="ghost" onClick={() => openClassify(l)}>רישום לחשבון</Button>
+                        : <span className="text-xs text-muted">שורה מתאריך תחילת הספרים בלי מסמך — רק הבעלים רושמים אותה לחשבון.</span>}
                   </div>
                 )}
                 {l.status === 'matched' && (
@@ -133,7 +154,8 @@ export function BankRecon() {
                   </div>
                 )}
                 {l.status === 'handled' && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="min-w-0 flex-1">📝 {l.note}</span>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs"><span className="min-w-0 flex-1">📝 {l.note}
+                    {lineAcc.get(l.id) && <> · נרשמה לחשבון <strong>{lineAcc.get(l.id)}{nameOf(lineAcc.get(l.id)!) ? ` ${nameOf(lineAcc.get(l.id)!)}` : ''}</strong></>}</span>
                     <Button size="sm" variant="ghost" disabled={busy === l.id} onClick={() => void reopen(l)}>החזרה לטיפול</Button></div>
                 )}
               </li>
@@ -154,6 +176,8 @@ export function BankRecon() {
         onClose={() => setUndoing(null)} act={(r) => unmatchLine(undoing.id, r)} onDone={() => { setUndoing(null); say('ההתאמה בוטלה'); void load(); }} />}
       {noting && <ReasonDialog title="טופל בלי התאמה" hint="למשל עמלת בנק או ריבית. השורה יוצאת מ'לטיפול' — אפשר להחזיר אותה." label="הערה"
         onClose={() => setNoting(null)} act={(r) => handleLine(noting.id, r)} onDone={() => { setNoting(null); say('השורה סומנה כטופלה'); void load(); }} />}
+      {classing && <ClassifyDialog line={classing} accounts={accounts} onClose={() => setClassing(null)}
+        onDone={(key) => { setClassing(null); say(`השורה נרשמה לחשבון ${key}`); void load(); }} />}
     </div>
   );
 }
@@ -201,6 +225,62 @@ function PickDialog({ line, cand, onClose, onDone }: { line: BankLine; cand: { p
       <div className="mt-3 flex gap-2">
         <Button variant="primary" disabled={busy || !all.length || gap != null} onClick={() => void save()}>{busy ? 'שומר…' : 'אישור ההתאמה'}</Button>
         <Button variant="ghost" onClick={onClose}>ביטול</Button>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * 2.122 (answer 17): a line of the books' time without a document → an account of the chart (the owner). Money in: BANK debit /
+ * the account credit; out: the account debit / BANK credit — the database writes the entry (bank_line_classify). The bank itself
+ * is not offered; the customers' / suppliers' accounts — by search. No chart readable (before the first posting) — the key is typed.
+ */
+function ClassifyDialog({ line, accounts, onClose, onDone }: { line: BankLine; accounts: GlAccount[] | null; onClose: () => void; onDone: (key: string) => void }) {
+  const [q, setQ] = useState('');
+  const [account, setAccount] = useState('');
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // the chosen account stays in the list while the search changes (never a value the list does not show)
+  const list = useMemo(() => {
+    const l = classifyChoices(accounts ?? [], q);
+    const picked = account && !l.some((a) => a.key === account) ? (accounts ?? []).filter((a) => a.key === account) : [];
+    return [...picked, ...l];
+  }, [accounts, q, account]);
+  const typed = accounts != null && accounts.length === 0;
+  const inMoney = line.amount > 0;
+  async function save() {
+    const p = classifyProblem({ account, note });
+    if (p) { setErr(p); return; }
+    setBusy(true); setErr(null);
+    const r = await classifyLine(line.id, account, note);
+    setBusy(false);
+    if (!r.ok) { setErr(r.error); return; }
+    onDone(r.account);
+  }
+  return (
+    <Modal open onClose={onClose}>
+      <h3 className="mb-1 font-display text-lg font-extrabold">רישום לחשבון: {line.description || 'שורה'} · {inMoney ? '+' : '−'}{ils(Math.abs(line.amount))}</h3>
+      <p className="mb-3 text-sm text-muted">
+        השורה מתאריך תחילת הספרים ואין לה מסמך — היא נרשמת בספרים לחשבון שבוחרים ({inMoney ? 'הבנק בחובה, החשבון בזכות' : 'החשבון בחובה, הבנק בזכות'}).
+        אפשר להחזיר אותה לטיפול — הרישום מתבטל בפקודה הפוכה.
+      </p>
+      {accounts == null ? <div className="py-4 text-center"><Spinner /></div> : typed ? (
+        <Field label="מפתח החשבון"><Input value={account} onChange={(e) => setAccount(e.target.value)} placeholder="למשל 6112" dir="ltr" maxLength={15} /></Field>
+      ) : <>
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש לפי מפתח או שם (גם לקוח או ספק)" className="mb-2 py-2" aria-label="חיפוש חשבון" />
+        <Field label="חשבון">
+          <Select value={account} onChange={(e) => setAccount(e.target.value)}>
+            <option value="">בחירת חשבון…</option>
+            {list.map((a) => <option key={a.key} value={a.key}>{accountLabel(a)} ({KIND_HE[a.kind] ?? a.kind})</option>)}
+          </Select>
+        </Field>
+      </>}
+      <Field label="הערה"><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="למשל עמלת בנק חודשית" /></Field>
+      {err && <Note tone="warn">{err}</Note>}
+      <div className="mt-3 flex gap-2">
+        <Button variant="primary" disabled={busy || !account.trim() || note.trim().length < 2} onClick={() => void save()}>{busy ? 'שומר…' : 'רישום לחשבון'}</Button>
+        <Button variant="ghost" onClick={onClose}>חזרה</Button>
       </div>
     </Modal>
   );

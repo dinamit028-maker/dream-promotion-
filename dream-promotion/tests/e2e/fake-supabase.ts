@@ -128,6 +128,9 @@ export class FakeSupabase {
   /** 2.121: migration 7100 is in the database (the books — gl_books_state, gl_books_start_set, the view gl_unposted; a card payment's
    *  installments checked — documents_installments) — false: as before it (no such functions; "installments" / "firstDue" ignored) */
   booksCore = true;
+  /** 2.122: migration 7200 is in the database (bank_line_classify and the table gl_bank_line_accounts; bank_line_handle refuses a
+   *  line of the books' time, journal_entry_create / _reverse a date from the start) — false: as before it */
+  booksMore = true;
   /** 2.121: the books' start date (gl_books.start_date) — null: the default (the 1st of next month, as the migration gives it) */
   booksStart: string | null = null;
   /** 2.121: the entries written (gl_books.last_tx_no — the fake posts nothing by itself; a start moved back posts the documents since) */
@@ -1868,8 +1871,9 @@ export class FakeSupabase {
   }
   private cashRpc(fn: string, args: any): { status: number; body: any } | null {
     const names = ['cash_desks', 'cheque_book', 'deposit_book', 'bank_deposit_create', 'bank_deposit_cancel', 'bank_import', 'bank_book', 'bank_candidates', 'bank_match',
-      'bank_unmatch', 'bank_line_handle', 'bank_line_reopen'];
+      'bank_unmatch', 'bank_line_handle', 'bank_line_reopen', 'bank_line_classify'];
     if (!names.includes(fn)) return null;
+    if (fn === 'bank_line_classify' && !(this.booksCore && this.booksMore)) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
     if (!this.cashTables) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
     const ok = (body: any) => ({ status: 200, body });
     const bad = (code: string, message: string) => ({ status: 400, body: { code, message } });
@@ -2069,13 +2073,36 @@ export class FakeSupabase {
     }
     if (fn === 'bank_line_handle') {
       if (line.status !== 'open') return bad('23514', 'bank_line_closed: the line is already matched or handled');
+      // 7200 (answer 17): a line of the books' time is posted to an account — bank_line_classify, not a note alone
+      if (this.booksCore && this.booksMore && String(line.line_date) >= this.booksStartDate()) {
+        return bad('23514', 'bank_line_account_required: שורת בנק מתאריך תחילת הספרים נרשמת לחשבון (bank_line_classify) — לא רק בהערה');
+      }
       if (String(args.p_note ?? '').trim().length < 2) return bad('22023', 'reason_required: a reason or a note, two letters at least');
       Object.assign(line, { status: 'handled', note: String(args.p_note).trim().slice(0, 300), handled_at: now() });
       this.log('bank.handled', line.id, { note: line.note });
       return ok({ line: line.id, status: 'handled' });
     }
+    if (fn === 'bank_line_classify') {
+      if (!this.journalWriter()) return bad('42501', 'books_not_allowed: רק הבעלים רושמים שורת בנק לחשבון');
+      if (line.status !== 'open') return bad('23514', 'bank_line_closed: the line is already matched or handled');
+      const note = String(args.p_note ?? '').trim();
+      if (note.length < 2) return bad('22023', 'reason_required: a reason or a note, two letters at least');
+      const a = this.t('gl_accounts').find((x) => x.business_id === this.opts.businessId && x.key === String(args.p_account ?? '').trim() && x.active !== false);
+      if (!a) return bad('22023', `bank_class_account: החשבון ${String(args.p_account ?? '')} לא נמצא בלוח החשבונות (או שאינו פעיל)`);
+      if (a.role === 'bank') return bad('22023', 'bank_class_account: שורת בנק לא נרשמת לחשבון הבנק עצמו');
+      const id = randomUUID();
+      this.t('gl_bank_line_accounts').push({ id, business_id: this.opts.businessId, bank_line_id: line.id, account_id: a.id, note: note.slice(0, 300), active: true,
+        user_id: this.opts.userId, created_at: now(), undone_by: null, undone_at: null });
+      Object.assign(line, { status: 'handled', note: note.slice(0, 300), handled_at: now() });
+      this.log('bank.classified', line.id, { date: line.line_date, account: a.key, note: line.note });
+      return ok({ line: line.id, status: 'handled', account: a.key, id, posts: String(line.line_date) >= this.booksStartDate() });
+    }
     if (fn === 'bank_line_reopen') {
       if (line.status !== 'handled') return bad('23514', 'bank_line_not_handled: the line is not marked handled');
+      // 7200: a line posted to an account — the owner only; its classification undone (the entry reversed, in the database)
+      const cls = this.t('gl_bank_line_accounts').filter((c) => c.bank_line_id === line.id && c.active);
+      if (cls.length && !this.journalWriter()) return bad('42501', 'not allowed: שורה שנרשמה לחשבון נפתחת מחדש רק על ידי הבעלים');
+      for (const c of cls) Object.assign(c, { active: false, undone_at: now(), undone_by: this.opts.userId });
       Object.assign(line, { status: 'open', note: '', handled_at: null });
       this.log('bank.reopened', line.id, {});
       return ok({ line: line.id, status: 'open' });
@@ -2116,6 +2143,9 @@ export class FakeSupabase {
       if (T.some((x) => x.reverses === o.id)) return refuse('journal_reversed: the entry was already reversed', '23514');
       const d = String(args.p_date ?? today);
       if (d > today || d < o.entry_date) return refuse('journal_date: a reversal is dated on or after its entry, today or before');
+      if (this.booksCore && this.booksMore && d >= this.booksStartDate()) {
+        return refuse(`journal_books_started: מתאריך תחילת הספרים (${this.booksStartDate()}) פקודה ידנית נרשמת רק כפקודה כפולה (חובה וזכות)`, '23514');
+      }
       if (lock && d <= lock) return refuse(`period_locked: the books are closed until ${lock}`, '23514');
       if (explanation.length < 2 || explanation.length > 500) return refuse('journal_explanation: an explanation, 2 to 500 letters');
       const number = nextNumber();
@@ -2126,6 +2156,10 @@ export class FakeSupabase {
     if (same) return same.business_id !== b ? refuse('not allowed', '42501') : ok({ id, number: same.number, created: false });
     const d = String(args.p_date ?? '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d > today || d < '2000-01-01') return refuse('journal_date: an entry is dated today or before');
+    // 7200 (answer 15): from the books' start a manual entry is a double one (gl_manual_create — stage 4ד)
+    if (this.booksCore && this.booksMore && d >= this.booksStartDate()) {
+      return refuse(`journal_books_started: מתאריך תחילת הספרים (${this.booksStartDate()}) פקודה ידנית נרשמת רק כפקודה כפולה (חובה וזכות)`, '23514');
+    }
     if (lock && d <= lock) return refuse(`period_locked: the books are closed until ${lock}`, '23514');
     const kind = String(args.p_kind ?? '');
     if (!['income', 'expense', 'vat', 'other'].includes(kind)) return refuse('journal_kind: income, expense, VAT or other');
@@ -2672,6 +2706,13 @@ export class FakeSupabase {
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for view ${table}` });
       this.tables.gl_unposted = Array.from({ length: this.booksPending + this.booksFailing }, (_, i) => ({ business_id: this.opts.businessId, source_kind: 'document', source_id: `pending-${i}`,
         source_date: this.booksStartDate(), label: `מסמך ${i + 1}`, error: '23514 demo' }));
+    }
+    // 2.122: the chart (7100) and the bank lines' accounts (7200) — read through the RLS of the whole business, written by the
+    // database's functions only
+    if (table === 'gl_accounts' || table === 'gl_bank_line_accounts') {
+      if (!this.booksCore || (table === 'gl_bank_line_accounts' && !this.booksMore)) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+      if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
+      if (this.memberLocations || !this.finance.member) return json(200, []);   // _whole_business / _finance_privacy: no row, no error
     }
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();

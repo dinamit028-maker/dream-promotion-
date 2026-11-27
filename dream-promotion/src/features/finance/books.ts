@@ -59,7 +59,7 @@ export const startMoveExplain = (day: string, today: string, current: string = d
   `הספרים יתחילו ב-${day.split('-').reverse().join('/')}. מסמכים, תשלומים והפקדות מהיום הזה והלאה יירשמו בספרים (פקודה לכל אחד), לפי הסדר.`,
   day <= today ? 'מה שכבר הופק מאז נרשם עכשיו — מיד אחרי האישור.' : 'עד היום הזה לא נרשם כלום.',
   'אחרי שנרשמה הפקודה הראשונה אי אפשר להזיז את התאריך יותר.',
-  ...(day < current ? [`שימו לב: במסמכים מ-${day.split('-').reverse().join('/')} ואילך מפתח הלקוח בקובץ לרשות המסים (שדה 1225) נכתב לפי הספרים. אצל לקוח שהמפתח שלו נראה כמו חשבון של המערכת (4 ספרות או BANK) או מתחיל ברווח — המפתח ישתנה. אם קובץ של החודשים האלה כבר נמסר לרשות המסים או לרואה החשבון, כדאי לבדוק איתו לפני שמזיזים.`] : []),
+  ...(day < current ? [`שימו לב: במסמכים מ-${day.split('-').reverse().join('/')} ואילך מפתח הלקוח בקובץ לרשות המסים (שדה 1225) נכתב לפי הספרים. אצל לקוח שהמפתח שלו נראה כמו חשבון של המערכת (4 ספרות, BANK, או מתחיל ב-"S-" כמו חשבון ספק) או מתחיל ברווח — המפתח ישתנה. אם קובץ של החודשים האלה כבר נמסר לרשות המסים או לרואה החשבון, כדאי לבדוק איתו לפני שמזיזים.`] : []),
   'יתרות הפתיחה (לפי רואה החשבון) נרשמות בתאריך ההתחלה — הטופס יגיע בשלב הבא.',
 ];
 
@@ -87,4 +87,53 @@ export function replayMessage(r: { posted: number; failed: number; skipped?: num
   const bad = r.failed ? ` ${r.failed} לא נרשמו גם הפעם — נשארים ב"ממתינים לרישום".` : '';
   const skipped = skippedN ? ` ${skippedN} נכשלו היום ויטופלו מחר, או בלחיצה על "לרשום עכשיו".` : '';
   return done + rest + bad + skipped;
+}
+
+/**
+ * 2.122 — stage 4ג (migration 20261129007200; the owner's answers 15 and 17 of 27.11.2026, docs/ita-registration/STAGE4_PLAN_HE.md):
+ * what the existing screens change from the books' start — and only once 7200 is in the database (before it: everything as before).
+ *   - the bank: a line dated on / after the start that is handled without a document is posted to an account the owner picks
+ *     (bank_line_classify: the account / BANK); bank_line_handle of 7200 refuses such a line (bank_line_account_required);
+ *   - the one-sided manual entries (journal_entry_create / _reverse of 7200 refuse a date on / after the start —
+ *     journal_books_started): from the start the form is closed; the double-entry screen is stage 4ד.
+ * The dates are 'YYYY-MM-DD' of Israel (a bank line's line_date, todayIL()) — compared as strings, never through UTC.
+ */
+/** the line is of the books' time — it needs an account (gl_books_active(b, line_date) = line_date >= start) */
+export const bankLineNeedsAccount = (lineDate: string, booksStart: string | null): boolean => Boolean(booksStart && DAY.test(lineDate) && lineDate >= booksStart);
+/** the one-sided journal is closed: today (Israel) is on / after the books' start */
+export const journalClosed = (today: string, booksStart: string | null): boolean => Boolean(booksStart && today >= booksStart);
+
+/** an account of the chart as the bank's picker reads it (gl_accounts, through the RLS — the whole business, never a cashier) */
+export interface GlAccount { key: string; name: string; kind: string; role: string | null }
+const KINDS = ['asset', 'liability', 'equity', 'income', 'expense'];
+/** gl_accounts rows → the active accounts (a row that is not one is dropped), by key */
+export function toGlAccounts(rows: unknown): GlAccount[] {
+  if (!Array.isArray(rows)) return [];
+  return (rows as Record<string, unknown>[])
+    .filter((r) => r && typeof r.key === 'string' && r.key && typeof r.name === 'string' && KINDS.includes(String(r.kind)) && r.active !== false)
+    .map((r) => ({ key: String(r.key), name: String(r.name), kind: String(r.kind), role: typeof r.role === 'string' ? r.role : null }))
+    .sort((a, b) => a.key.localeCompare(b.key, 'en'));
+}
+/** a customer's / a supplier's sub-account (1300 / 2100) — offered only when searched for */
+const partyAccount = (a: GlAccount) => Boolean(a.role && /^(customer|supplier):/.test(a.role));
+/**
+ * the accounts a bank line may be posted to: every active account but the bank itself (bank_line_classify refuses it —
+ * bank_class_account); the customers' and suppliers' accounts only for a search of two letters or more (there are many).
+ * The search: the key's start or a part of the name. At most `limit`.
+ */
+export function classifyChoices(accounts: GlAccount[], q = '', limit = 60): GlAccount[] {
+  const s = q.trim().toLowerCase();
+  return accounts.filter((a) => a.role !== 'bank' && a.key !== 'BANK')
+    .filter((a) => (s.length >= 2 ? a.key.toLowerCase().startsWith(s) || a.name.toLowerCase().includes(s) : s ? a.key.toLowerCase().startsWith(s) && !partyAccount(a) : !partyAccount(a)))
+    .slice(0, limit);
+}
+export const KIND_HE: Record<string, string> = { asset: 'נכס', liability: 'התחייבות', equity: 'הון', income: 'הכנסה', expense: 'הוצאה' };
+/** an account as the picker and the handled line show it — "6112 · עמלות בנק וסליקה" */
+export const accountLabel = (a: Pick<GlAccount, 'key' | 'name'>) => `${a.key} · ${a.name}`;
+/** what is wrong with a classification, Hebrew (the database checks it all again) */
+export function classifyProblem(o: { account: string; note: string }): string | null {
+  if (!o.account.trim()) return 'בוחרים חשבון';
+  if (o.account.trim().toUpperCase() === 'BANK') return 'שורת בנק לא נרשמת לחשבון הבנק עצמו — בוחרים חשבון אחר';
+  if (o.note.trim().length < 2) return 'הערה — שתי אותיות לפחות';
+  return null;
 }

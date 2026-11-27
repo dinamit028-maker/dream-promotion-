@@ -437,6 +437,64 @@ async function main() {
       assert.equal(await dialog().getByRole('radio', { name: 'תעודת משלוח' }).count(), 0);
     });
 
+    await step('2.122 (7200): a line of the books\' time — the owner posts it to an account; a member who is not the owner is told; before 7200 as before', async () => {
+      const monthStart = `${TODAY.slice(0, 7)}-01`;
+      fake.booksStart = monthStart;       // the books started this month: today's lines are of the books' time
+      const acc = (id: string, key: string, name: string, kind: string, role: string | null) => ({ id, business_id: BIZ, key, name, kind, tb_code: key, tb_name: name.slice(0, 30), role, active: true });
+      fake.tables.gl_accounts = [acc('acc-bank', 'BANK', 'בנק', 'asset', 'bank'), acc('acc-1100', '1100', 'קופת מזומן — ראשי', 'asset', `cash:${BIZ}`),
+        acc('acc-6112', '6112', 'עמלות בנק וסליקה', 'expense', 'expense:fees'), acc('acc-7001', '7001', 'סגור', 'income', null)];
+      fake.tables.gl_accounts[3].active = false;
+      fake.tables.gl_bank_line_accounts = [];
+      const proto = fake.tables.bank_lines[0];
+      const LINE = 'b1000000-0000-4000-8000-0000000000f5';
+      fake.tables.bank_lines.push({ ...proto, id: LINE, line_date: TODAY, description: 'עמלת העברה', reference: '', amount: -7.5, balance: null, status: 'open', note: '', handled_at: null });
+      try {
+        await bank();
+        const l = lineOf('עמלת העברה');
+        await l.getByRole('button', { name: 'רישום לחשבון' }).waitFor();
+        assert.equal(await l.getByRole('button', { name: 'טופל בלי התאמה' }).count(), 0, 'a note alone is not offered for a line of the books\' time');
+        // the database refuses the old way too (bank_line_handle of 7200)
+        const old = fake.rpc('bank_line_handle', { p_line: LINE, p_note: 'עמלה' });
+        assert.equal(old.status, 400); assert.match(old.body.message, /^bank_line_account_required/);
+        await l.getByRole('button', { name: 'רישום לחשבון' }).click();
+        const d = dialog();
+        const select = d.getByLabel('חשבון', { exact: true });
+        await select.locator('option', { hasText: '6112' }).waitFor({ state: 'attached' });
+        const options = await select.locator('option').allTextContents();
+        assert.ok(!options.some((o: string) => /^BANK/.test(o)), 'the bank itself is not offered');
+        assert.ok(!options.some((o: string) => o.includes('7001')), 'an inactive account is not offered');
+        await select.selectOption('6112');
+        await d.getByLabel('הערה').fill('עמלת העברה בנקאית');
+        await shot('cash-6-classify.png');
+        await d.getByRole('button', { name: 'רישום לחשבון' }).click();
+        await page.getByText('השורה נרשמה לחשבון 6112').waitFor();
+        assert.deepEqual(fake.tables.gl_bank_line_accounts.map((c) => [c.bank_line_id, c.account_id, c.active, c.note]), [[LINE, 'acc-6112', true, 'עמלת העברה בנקאית']]);
+        assert.equal(fake.tables.bank_lines.find((x) => x.id === LINE)!.status, 'handled');
+        await page.getByRole('tab', { name: /טופלו/ }).click();
+        await lineOf('עמלת העברה').getByText(/נרשמה לחשבון 6112/).waitFor();
+        // reopened by the owner: the classification is undone (kept, inactive), the line is open again
+        await lineOf('עמלת העברה').getByRole('button', { name: 'החזרה לטיפול' }).click();
+        await page.getByText('השורה חזרה לטיפול').waitFor();
+        assert.deepEqual(fake.tables.gl_bank_line_accounts.map((c) => c.active), [false]);
+        // a member who is not the owner: no account to pick — told that the owner does it
+        fake.tables.business_members[0].role = 'editor';
+        try {
+          await bank();
+          await lineOf('עמלת העברה').getByText('רק הבעלים רושמים אותה לחשבון', { exact: false }).waitFor();
+          assert.equal(await lineOf('עמלת העברה').getByRole('button', { name: 'רישום לחשבון' }).count(), 0);
+          const refused = fake.rpc('bank_line_classify', { p_line: LINE, p_account: '6112', p_note: 'עמלה' });
+          assert.match(refused.body.message, /^books_not_allowed/);
+        } finally { fake.tables.business_members[0].role = 'owner'; }
+        // before 7200: as before — the note
+        fake.booksMore = false;
+        await bank();
+        await lineOf('עמלת העברה').getByRole('button', { name: 'טופל בלי התאמה' }).waitFor();
+        assert.equal(await lineOf('עמלת העברה').getByRole('button', { name: 'רישום לחשבון' }).count(), 0);
+      } finally {
+        fake.booksMore = true; fake.booksStart = null;
+      }
+    });
+
     await step('a phone: the desks and the bank fit', async () => {
       const { ctx, page: phone } = await context(PHONE_VIEW);
       try {
