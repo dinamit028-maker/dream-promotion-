@@ -267,9 +267,9 @@ select pg_temp.check(not exists (select 1 from exp_oracle o where
     or coalesce((select sum(case l.side when 'C' then l.amount else -l.amount end) from public.gl_lines l join public.gl_accounts a on a.id = l.account_id join public.gl_transactions t on t.id = l.transaction_id
                where t.source_kind = 'expense' and t.source_id = o.id and a.parent_key = '2100'), 0) <> o.sup_amt),
   'EVERY expense (confirmed, edited once or twice, voided, a draft that was confirmed, a credit note): the sum of all its entries = its current posting — a void leaves 0, an edit leaves exactly one');
-select pg_temp.check((select count(*) from public.gl_transactions t where t.source_kind = 'expense' and t.source_id = '00000000-0000-0000-0000-0000000698e6') = 5
-  and (select count(*) from public.gl_transactions t where t.source_kind = 'expense' and t.source_id = '00000000-0000-0000-0000-0000000698e6' and t.reverses is not null) = 2,
-  'e6: confirmed (1), edited (reverse + new = 3), edited again (reverse + new = 5): 5 entries, 2 reversals, 3 posted');
+select pg_temp.check((select count(*) from public.gl_transactions t where t.source_kind = 'expense' and t.source_id = '00000000-0000-0000-0000-0000000698e6') = 3
+  and (select count(*) from public.gl_transactions t where t.source_kind = 'expense' and t.source_id = '00000000-0000-0000-0000-0000000698e6' and t.reverses is not null) = 1,
+  'e6: confirmed and edited in one transaction = ONE entry (the state at commit); edited again later = reverse + new: 3 entries, 1 reversal');
 select pg_temp.check(pg_temp.sig((select t.id from public.gl_transactions t where t.source_kind = 'expense' and t.source_id = '00000000-0000-0000-0000-0000000698e6' and t.reverses is null
                                    and not exists (select 1 from public.gl_transactions r where r.reverses = t.id))) = '6101 D 400.00, S-000000141 C 400.00',
   'e6: what stands — the last edit (inventory 6101, no VAT)');
@@ -306,11 +306,6 @@ select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000698b1', 'S-0000
 -- 4. the bank
 -- ======================================================================================================================
 -- the cheque of m98:320chq was deposited (d1) — its bank line (177) matched to the PAYMENT directly would clear it a second time
-begin;
-set local role authenticated;
-select pg_temp.as_user('00000000-0000-0000-0000-0000000698a1');
-insert into out98 select 'chq-twice', (select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000698b1' and source_kind = 'bank_match');
-commit;
 create temp table chq_try as select 1 as x;
 do $$
 declare err text;
@@ -329,3 +324,92 @@ select pg_temp.check((select x from chq_try) in (2, 3), 'probe ran');
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000698b1', '1150') >= 0,
   format('a cheque deposited and also matched directly at the bank (the match was %s): the cheques account is never negative — it cleared once',
          case (select x from chq_try) when 2 then 'ALLOWED' else 'refused' end));
+
+-- ======================================================================================================================
+-- 5. the manual entry's edges, and who may call what
+-- ======================================================================================================================
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000698a1');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), public.il_today() + 1, 'עתידית', '[{"account": "6101", "side": "D", "amount": 1}, {"account": "BANK", "side": "C", "amount": 1}]')$$, 'manual_date', 'tomorrow');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), date_trunc('month', public.il_today())::date - 1, 'לפני', '[{"account": "6101", "side": "D", "amount": 1}, {"account": "BANK", "side": "C", "amount": 1}]')$$, 'manual_before_start', 'before the books start');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'לא מאוזנת', '[{"account": "6101", "side": "D", "amount": 1}, {"account": "BANK", "side": "C", "amount": 0.99}]')$$, 'manual_unbalanced', 'one agora off');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'שלוש ספרות', '[{"account": "6101", "side": "D", "amount": 1.001}, {"account": "BANK", "side": "C", "amount": 1.001}]')$$, 'manual_line', 'three decimals');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'שורה אחת', '[{"account": "6101", "side": "D", "amount": 1}]')$$, 'manual_lines', 'one line');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'חשבון לא קיים', '[{"account": "6101", "side": "D", "amount": 1}, {"account": "NOPE", "side": "C", "amount": 1}]')$$, 'manual_account', 'an account that is not in the chart');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'x', '[{"account": "6101", "side": "D", "amount": 1}, {"account": "BANK", "side": "C", "amount": 1}]')$$, 'manual_details', 'one-letter details');
+select pg_temp.refused_with($$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'ביטול כפול', '[{"account": "6101", "side": "D", "amount": 1}, {"account": "BANK", "side": "C", "amount": 1}]', '00000000-0000-0000-0000-0000000698ff')$$, 'manual_location', 'a location of nobody');
+-- a retry with the same id: the same entry, once
+insert into out98 select 'manual-retry', jsonb_build_array(public.gl_manual_create('00000000-0000-0000-0000-0000000698ad', public.il_today(), 'פעמיים', '[{"account": "6110", "side": "D", "amount": 2}, {"account": "BANK", "side": "C", "amount": 2}]'),
+                                                         public.gl_manual_create('00000000-0000-0000-0000-0000000698ad', public.il_today(), 'פעמיים', '[{"account": "6110", "side": "D", "amount": 2}, {"account": "BANK", "side": "C", "amount": 2}]'));
+-- reversing: an automatic entry, a reversal, twice, before its date
+select pg_temp.refused_with(format($$select public.gl_manual_reverse(gen_random_uuid(), %L)$$, (select id from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000698b1' and source_kind = 'document' limit 1)), 'manual_entry', 'an automatic entry is not reversed here');
+select pg_temp.refused_with($$select public.gl_manual_reverse(gen_random_uuid(), '00000000-0000-0000-0000-0000000698ac')$$, 'manual_reverse', 'a reversal is not reversed');
+select pg_temp.refused_with($$select public.gl_manual_reverse(gen_random_uuid(), '00000000-0000-0000-0000-0000000698ab')$$, 'manual_reversed', 'reversed twice');
+commit;
+select pg_temp.check((pg_temp.o('manual-retry')->0->>'created')::boolean and not (pg_temp.o('manual-retry')->1->>'created')::boolean
+  and pg_temp.o('manual-retry')->0->>'id' = pg_temp.o('manual-retry')->1->>'id', 'a retry with the same id returns the same entry (created once)');
+select pg_temp.check((select count(*) from public.gl_transactions where id = '00000000-0000-0000-0000-0000000698ad') = 1, 'and one entry');
+-- who may call what: every owner function and every report (a viewer, a cashier, a calendar and an agenda member, another business, the public)
+create or replace function pg_temp.owner_calls(p_user text) returns text language plpgsql as $q$
+declare n int := 0; stmt text;
+begin
+  perform pg_temp.as_user(p_user);
+  foreach stmt in array array[
+    $$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'ניסיון', '[{"account": "6110", "side": "D", "amount": 1}, {"account": "BANK", "side": "C", "amount": 1}]')$$,
+    $$select public.gl_manual_reverse(gen_random_uuid(), '00000000-0000-0000-0000-0000000698ad')$$,
+    $$select public.gl_account_add('7777', 'חשבון ניסיון', 'income')$$,
+    $$select public.gl_account_update('6110', 'שם אחר')$$,
+    $$select public.gl_account_set_active('6110', false)$$,
+    $$select public.bank_line_classify('00000000-0000-0000-0000-000000000000', '6112', 'ניסיון')$$] loop
+    begin execute stmt; n := n + 1; exception when others then null; end;
+  end loop;
+  return n::text;
+end $q$;
+create or replace function pg_temp.report_calls(p_user text) returns text language plpgsql as $q$
+declare n int := 0; stmt text;
+begin
+  perform pg_temp.as_user(p_user);
+  foreach stmt in array array[
+    $$select public.report_trial_balance(date_trunc('month', public.il_today())::date, public.il_today())$$,
+    $$select public.report_ledger('1100', date_trunc('month', public.il_today())::date, public.il_today())$$,
+    $$select public.report_journal(date_trunc('month', public.il_today())::date, public.il_today())$$,
+    $$select public.report_profit_loss(date_trunc('month', public.il_today())::date, public.il_today())$$,
+    $$select public.report_balance_sheet(public.il_today())$$,
+    $$select public.gl_reconcile(date_trunc('month', public.il_today())::date, public.il_today())$$] loop
+    begin execute stmt; n := n + 1; exception when others then null; end;
+  end loop;
+  return n::text;
+end $q$;
+begin;
+set local role authenticated;
+insert into out98 values ('own-viewer', to_jsonb(pg_temp.owner_calls('00000000-0000-0000-0000-0000000698a3')));
+insert into out98 values ('own-cashier', to_jsonb(pg_temp.owner_calls('00000000-0000-0000-0000-0000000698a2')));
+insert into out98 values ('own-calendar', to_jsonb(pg_temp.owner_calls('00000000-0000-0000-0000-0000000698a4')));
+insert into out98 values ('own-agenda', to_jsonb(pg_temp.owner_calls('00000000-0000-0000-0000-0000000698a5')));
+insert into out98 values ('own-other', to_jsonb(pg_temp.owner_calls('00000000-0000-0000-0000-0000000698a6')));
+insert into out98 values ('rep-viewer', to_jsonb(pg_temp.report_calls('00000000-0000-0000-0000-0000000698a3')));
+insert into out98 values ('rep-cashier', to_jsonb(pg_temp.report_calls('00000000-0000-0000-0000-0000000698a2')));
+insert into out98 values ('rep-calendar', to_jsonb(pg_temp.report_calls('00000000-0000-0000-0000-0000000698a4')));
+insert into out98 values ('rep-agenda', to_jsonb(pg_temp.report_calls('00000000-0000-0000-0000-0000000698a5')));
+insert into out98 values ('rep-owner', to_jsonb(pg_temp.report_calls('00000000-0000-0000-0000-0000000698a1')));
+commit;
+begin;
+set local role anon;
+select pg_temp.refused($$select public.report_trial_balance(public.il_today(), public.il_today())$$, 'anon reads the trial balance');
+select pg_temp.refused($$select public.gl_reconcile(public.il_today(), public.il_today())$$, 'anon reconciles');
+select pg_temp.refused($$select public.gl_manual_create(gen_random_uuid(), public.il_today(), 'ניסיון', '[]')$$, 'anon makes an entry');
+select pg_temp.refused($$select public.gl_account_add('7778', 'x', 'income')$$, 'anon adds an account');
+commit;
+select pg_temp.check(pg_temp.o('own-viewer') = '"0"' and pg_temp.o('own-cashier') = '"0"' and pg_temp.o('own-calendar') = '"0"' and pg_temp.o('own-agenda') = '"0"',
+  format('NO other role than an owner makes a manual entry, reverses one, adds / renames / deactivates an account (viewer %s, cashier %s, calendar %s, agenda %s)',
+         pg_temp.o('own-viewer'), pg_temp.o('own-cashier'), pg_temp.o('own-calendar'), pg_temp.o('own-agenda')));
+-- the owner of ANOTHER business may do what an owner does — in THEIR business only: Lic''s chart and books are untouched
+select pg_temp.check((select count(*) from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000000698b1' and key = '7777') = 0
+  and (select active and name <> 'שם אחר' from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000000698b1' and key = '6110')
+  and (select count(*) from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000000698b2' and key = '7777') = 1
+  and (select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000698b1' and details = 'ניסיון') = 0
+  and pg_temp.o('own-other') = '"3"', 'the owner of another business: their own chart (3 calls) — Lic''s chart and entries untouched');
+select pg_temp.check(pg_temp.o('rep-cashier') = '"0"' and pg_temp.o('rep-calendar') = '"0"' and pg_temp.o('rep-agenda') = '"0"',
+  format('a cashier, a calendar and an agenda member read none of the six reports (%s, %s, %s)', pg_temp.o('rep-cashier'), pg_temp.o('rep-calendar'), pg_temp.o('rep-agenda')));
+select pg_temp.check(pg_temp.o('rep-owner') = '"6"' and pg_temp.o('rep-viewer') = '"6"', 'the owner and a viewer (a finance member) read all six');
