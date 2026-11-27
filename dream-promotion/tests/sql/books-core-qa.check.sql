@@ -109,22 +109,11 @@ update public.gl_books set start_date = date_trunc('month', public.il_today())::
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
--- Q1: a 300 of 1180; a 400 (a licensed dealer's receipt) pays it in cash — answer 18: the money against the customer, 1310 stays open.
--- The database (pilot_hardening, documents_more_checks) still REFUSES this receipt — "a VAT business pays a transaction invoice (300) with a
--- tax invoice-receipt (320), not a receipt (400)" — against the owner's decision of 27.11.2026 (reported). The posting is checked with
--- that one validation set aside inside this transaction (as the other checks do for rows "of before").
+-- Q1: a 300 of 1180; a 400 (a licensed dealer's receipt) pays it in cash — answer 18: the money against the customer, 1310 stays open
+-- (the database used to refuse this receipt — pilot_hardening's documents_more_checks; 7100 now allows it, as the owner decided 27.11.2026);
+-- then answer 19: the tax invoice (305) made FROM the 300 closes it once — 300 → 400 → 305 leaves the customer and 1310 at 0
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 300, pg_temp.svc(1000), 'q96:300a', '{}', null, 18, '0500009611'));
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 400, pg_temp.svc(1180), 'q96:400a0', jsonb_build_object('paid_document_id', (pg_temp.d('q96:300a')).id), null, 18, '0500009611'))$$,
-  'not a receipt (400)', 'FINDING — the database refuses a licensed 400 on a 300 (answer 18 says it is legal)');
-commit;
-begin;
-alter table public.documents disable trigger d_documents_checks;
-set local role authenticated;
-select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 400, pg_temp.svc(1180), 'q96:400a', jsonb_build_object('paid_document_id', (pg_temp.d('q96:300a')).id), null, 18, '0500009611'));
-reset role;
-set constraints all immediate;
-alter table public.documents enable trigger d_documents_checks;
 commit;
 begin;
 set local role authenticated;
@@ -175,6 +164,17 @@ select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:400a')) = '0500009611 C 1180.0
   'Q1 (answer 18): a licensed dealer''s 400 on a 300 — the money against the customer only; no income, no VAT, 1310 not touched');
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '0500009611') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '1310') = -1180,
   'Q1: the customer at 0; 1310 still holds the open 300 (1180) until the tax invoice is issued (Q2''s 590 was closed)');
+-- Q5 (answer 19): the tax invoice made FROM the 300 (base 300) closes it once: the customer charged, 1310 closed — and nothing twice
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 305, pg_temp.svc(1000), 'q96:305from300',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('q96:300a')).doc_number), null, 18, '0500009611'));
+commit;
+select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:305from300')) = '0500009611 C 1180.00, 0500009611 D 1180.00, 1310 D 1180.00, 2200 C 180.00, 4100 C 1000.00',
+  'Q5 (answer 19): the 305 made from the 300 — income + VAT, and 1310 / the customer for what it closes');
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '0500009611') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '1310') = 0,
+  'Q5: 300 → 400 → 305: the customer and 1310 at 0 (the income once: 1000)');
 -- Q2
 select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:320b1')) = '0500009612 C 354.00, 0500009612 C 354.00, 0500009612 D 354.00, 1100 D 354.00, 1310 D 354.00, 2200 C 54.00, 4100 C 300.00',
   'Q2: the first 320 on the 300 — income + VAT, the money, and 1310 closed by 354');
@@ -208,12 +208,17 @@ select pg_temp.check((select array_agg(l.value_date order by l.line_no) from pub
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a6');
--- X1: a 300 of 500 and a receipt of 700 on it: 500 closes it, 200 is plain income on the receipt
+-- X1: a 300 of 500, paid by two receipts (300, then the 200 left) — each takes its share into exempt income out of 1310 (the database
+-- never lets a receipt pay more than the 300's balance)
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a6', 300, pg_temp.svc(500), 'x96:300', '{}', null, 0, '0500009621'));
 select pg_temp.issue(jsonb_build_object('user_id', '00000000-0000-0000-0000-0000000696a6', 'doc_type', 400, 'doc_number', 0, 'doc_date', public.il_today(),
-  'customer_name', 'לקוחה 0500009621', 'customer_phone', '0500009621', 'before_discount', 700, 'discount', 0, 'after_discount', 700, 'vat_amount', 0, 'total', 700, 'vat_rate', 0,
+  'customer_name', 'לקוחה 0500009621', 'customer_phone', '0500009621', 'before_discount', 300, 'discount', 0, 'after_discount', 300, 'vat_amount', 0, 'total', 300, 'vat_rate', 0,
   'idempotency_key', 'x96:over', 'lines', '[]'::jsonb, 'paid_document_id', (pg_temp.d('x96:300')).id,
-  'payments', jsonb_build_array(jsonb_build_object('method', 1, 'm', 'cash', 'amount', 700, 'date', public.il_today()))));
+  'payments', jsonb_build_array(jsonb_build_object('method', 1, 'm', 'cash', 'amount', 300, 'date', public.il_today()))));
+select pg_temp.issue(jsonb_build_object('user_id', '00000000-0000-0000-0000-0000000696a6', 'doc_type', 400, 'doc_number', 0, 'doc_date', public.il_today(),
+  'customer_name', 'לקוחה 0500009621', 'customer_phone', '0500009621', 'before_discount', 200, 'discount', 0, 'after_discount', 200, 'vat_amount', 0, 'total', 200, 'vat_rate', 0,
+  'idempotency_key', 'x96:rest', 'lines', '[]'::jsonb, 'paid_document_id', (pg_temp.d('x96:300')).id,
+  'payments', jsonb_build_array(jsonb_build_object('method', 4, 'm', 'transfer', 'amount', 200, 'date', public.il_today()))));
 -- X2: a receipt of 500 alone, and its refund receipt of 200 (cash) — the mirror
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a6', 400, pg_temp.svc(500), 'x96:400', '{}', null, 0, '0500009622'));
 select pg_temp.issue(jsonb_build_object('user_id', '00000000-0000-0000-0000-0000000696a6', 'doc_type', 400, 'doc_number', 0, 'doc_date', public.il_today(),
@@ -221,13 +226,15 @@ select pg_temp.issue(jsonb_build_object('user_id', '00000000-0000-0000-0000-0000
   'idempotency_key', 'x96:back', 'lines', '[]'::jsonb, 'base_doc_type', 400, 'base_doc_number', (pg_temp.d('x96:400')).doc_number,
   'payments', jsonb_build_array(jsonb_build_object('method', 1, 'm', 'cash', 'amount', -200, 'date', public.il_today()))));
 commit;
-select pg_temp.check(pg_temp.sig(pg_temp.txd('x96:over')) = '0500009621 C 700.00, 0500009621 D 200.00, 1100 D 700.00, 1310 D 500.00, 4200 C 200.00, 4200 C 500.00',
-  'X1 (answer 2): 700 on a 300 of 500 — 500 out of 1310 into exempt income, 200 income; the customer nets to 0 with the 300');
+select pg_temp.check(pg_temp.sig(pg_temp.txd('x96:over')) = '0500009621 C 300.00, 1100 D 300.00, 1310 D 300.00, 4200 C 300.00',
+  'X1 (answer 2): a receipt of 300 on a 300 of 500 — the money, 300 out of 1310 into exempt income; nothing else');
+select pg_temp.check(pg_temp.sig(pg_temp.txd('x96:rest')) = '0500009621 C 200.00, 1310 D 200.00, 4200 C 200.00, BANK D 200.00',
+  'X1: the second receipt, by transfer — the bank; the 200 left of 1310 into exempt income');
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000696b2', '0500009621') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000000696b2', '1310') = 0,
-  'X1: the customer and 1310 at 0');
+  'X1: the customer and 1310 at 0 once the 300 is paid');
 select pg_temp.check(pg_temp.sig(pg_temp.txd('x96:back')) = '0500009622 C 200.00, 0500009622 D 200.00, 1100 C 200.00, 4200 D 200.00',
   'X2: the refund receipt (a 400 below zero) — income back, the money out; nothing from the sign of the document alone');
-select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000696b2', '4200') = -(500 + 200 + 500 - 200), 'X: exempt income = 500 + 700 − 200 (cash basis)');
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000696b2', '4200') = -(500 + 500 - 200), 'X: exempt income = 500 (the 300, paid) + 500 − 200 (cash basis)');
 -- X3: the register's refund of an exempt receipt: the refund receipt with its refund id, and the refund's own money row
 insert into public.sales (id, user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at)
 values ('00000000-0000-0000-0000-0000000696f1', '00000000-0000-0000-0000-0000000696a6', '[{"name":"שירות","price":80,"qty":1,"kind":"other"}]', 80, 80, 0, 0, 'cash', 'paid', now());
@@ -285,6 +292,6 @@ select pg_temp.check((pg_temp.o('cust')->>'sum')::numeric = (
     select coalesce(sum(case when d.doc_type in (300, 305, 320) then d.total else 0 end), 0)
          - coalesce(sum(case when d.doc_type in (320, 400) then (select coalesce(sum(abs((p->>'amount')::numeric)), 0) from jsonb_array_elements(d.payments) p) else 0 end), 0)
          - coalesce(sum(case when d.doc_type = 330 then d.total else 0 end), 0)
-         - coalesce(sum(case when d.doc_type = 400 and d.paid_document_id is null and false then d.total else 0 end), 0)
+         - coalesce(sum(case when d.doc_type = 305 and d.base_doc_type = 300 then d.total else 0 end), 0)   -- a 305 made from a 300 closes it (answer 19)
       from public.documents d where d.business_id = '00000000-0000-0000-0000-0000000696b1')
   , 'the customers'' sub-ledger of the licensed business = Σ invoices − Σ money received − Σ credits (computed from the documents, not the entries)');

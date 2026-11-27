@@ -18,6 +18,7 @@ import { composeCredit, composeReceipt, composeRefundReceipt, type CreditMode } 
 import { SEED_RULES, allocationNeed, allocationPrintLine, allocationState, toAllocationRow, toRule, type AllocationRule, type AllocationRow, type AllocationState } from './allocation';
 import { documentRow, financeError, issueDocumentRow, logEvent, refundReceiptError } from './api';
 import { followKey } from './keys';
+import { booksReady } from './books-data';
 import { TAX_FROM_300_LINK, composeTaxFrom300, taxFrom300Extra, taxFrom300Key, type TaxFrom300Link } from './tax-from-300';
 import { PAY_METHODS, type PaymentEntry, type PayMethod } from './payments';
 import { toReceivable, type Receivable } from './receivables';
@@ -65,7 +66,9 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
   useEffect(() => {
     if (!TAX_FROM_300_LINK || doc.docType !== 300) return;
     let alive = true;
-    void taxedAlready(doc, TAX_FROM_300_LINK).then((v) => { if (alive) setTaxed(v); });
+    const link = TAX_FROM_300_LINK;
+    // before migration 7100 the database refuses a 305 made from a 300 — nothing offered
+    void booksReady().then((ready) => (ready ? taxedAlready(doc, link) : null)).then((v) => { if (alive) setTaxed(v); });
     return () => { alive = false; };
   }, [doc]);
 

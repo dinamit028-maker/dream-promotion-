@@ -266,6 +266,33 @@ async function main() {
     } finally { await ctx.close(); }
   });
 
+  await step('answer 19: a tax invoice (305) from a transaction invoice (300) — its lines and amounts, linked (base 300), once', async () => {
+    fake = fresh();
+    const T300 = 'c0000000-0000-4000-8000-000000000300';
+    fake.tables.documents.push({ ...fake.tables.documents[0], id: T300, doc_type: 300, doc_number: 1, link_no: 2, payments: [], share_token: '3'.repeat(64),
+      customer_name: 'לקוח עסקה דמו', idempotency_key: 'direct:t300' });
+    fake.counters.set(300, 1);
+    const { ctx, page } = await open(`/finance/documents?open=${T300}`, 'desktop');
+    try {
+      const d = dialog(page);
+      await d.getByRole('button', { name: 'הפקת חשבונית מס' }).click({ timeout: 120_000 });
+      const t = dialog(page);
+      await t.getByText('חשבונית מס על חשבונית עסקה 1').waitFor();
+      await t.getByText(/סה״כ:\s*₪590/).first().waitFor();
+      await shot(page, 'd6-tax-from-300.png');
+      await axe(page, 'desktop tax from 300');
+      await t.getByRole('button', { name: 'הפקת חשבונית מס' }).click();
+      await page.getByText(/הופקה חשבונית מס מס׳ 1 · ₪590 — על חשבונית עסקה 1/).first().waitFor();
+      const doc = fake.tables.documents.find((x: any) => x.doc_type === 305)!;
+      const base = fake.tables.documents.find((x: any) => x.id === T300)!;
+      assert.deepEqual([doc.base_doc_type, doc.base_doc_number, doc.idempotency_key, doc.total, doc.vat_amount, doc.customer_name, doc.paid_document_id],
+        [300, 1, `tax300:${T300}`, 590, 90, 'לקוח עסקה דמו', null]);
+      assert.deepEqual(doc.lines, base.lines);
+      await page.waitForTimeout(600);
+      assert.equal(await page.getByRole('dialog').last().getByRole('button', { name: 'הפקת חשבונית מס' }).count(), 0, 'once — the button is gone');
+    } finally { await ctx.close(); }
+  });
+
   await step('a member who is not the owner: no books card', async () => {
     fake = fresh();
     fake.owner = false;

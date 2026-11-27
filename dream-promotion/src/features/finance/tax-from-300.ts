@@ -9,7 +9,8 @@
  * invoice); 'paid' — paid_document_id (as a receipt names the invoice it pays).
  * VAT (vat.ts / the business's settings): the 305 carries the 300's rate; when the business's rate today is another one, the 305
  * is not issued from here — a question to the accountant (CLAUDE.md: a past rate is never changed by the app).
- * Stock: the 300 already moved it — the 305's lines carry no item (no second move).
+ * Stock: the 300 already moved it — the database moves nothing for a 305 made from a 300 (documents_after_insert of 7100); the
+ * lines are the 300's exactly (with their items, for the reports).
  */
 import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import type { Doc } from '@/features/documents/openformat';
@@ -17,8 +18,9 @@ import { chargesVat, type EntityType } from './rules';
 import type { ComposeResult, NewDoc } from './compose';
 
 export type TaxFrom300Link = 'base' | 'paid';
-/** the database's contract (db-agent): null — not yet; the screens offer nothing */
-export const TAX_FROM_300_LINK: TaxFrom300Link | null = null;
+/** the database's contract (db-agent, migration 7100 — documents_validate: base_doc_type 300 + its number, fields 1256 / 1257);
+ *  the screens offer it only once 7100 is in the database (booksReady) — before it the old check refuses a 305 with a base 300 */
+export const TAX_FROM_300_LINK: TaxFrom300Link | null = 'base';
 /** one 305 per 300: retries and two devices share it */
 export const taxFrom300Key = (id: string) => `tax300:${id}`;
 
@@ -44,8 +46,8 @@ export function composeTaxFrom300(base: Doc, o: { entity: EntityType; vatRate: n
     docType: 305, docDate: o.docDate, customerName: base.customerName, customerPhone: base.customerPhone ?? '', customerDealer: base.customerDealer ?? '',
     customerStreet: base.customerStreet ?? '', customerCity: base.customerCity ?? '',
     beforeDiscount: base.beforeDiscount, discount: base.discount, afterDiscount: base.afterDiscount, vatAmount: base.vatAmount, total: base.total,
-    // the 300's lines as they were — without the item (the 300 moved the stock) and never "restock"
-    lines: base.lines.map(({ itemId: _i, variantId: _v, restock: _r, ...l }) => l),
+    // the 300's lines as they were (never "restock" — that is a credit's)
+    lines: base.lines.map(({ restock: _r, ...l }) => l),
     payments: [], issuedBy: '', notes,
     ...(o.link === 'base' ? { baseDocType: 300, baseDocNumber: base.docNumber } : {}),
   };

@@ -1667,8 +1667,16 @@ export class FakeSupabase {
     if ((goodsType || [100, 200].includes(r.base_doc_type)) && !this.cashTables) return 'new row for relation "documents" violates check constraint "documents_doc_type_check"';
     // 2.118 (migration 6800): an exempt dealer's refund receipt (a 400 below zero) points to the receipt it refunds — checked above
     if (r.base_doc_type != null && r.doc_type !== 330 && !(r.doc_type === 400 && Number(r.total) < 0 && r.base_doc_type === 400)) {
-      const ok = (r.doc_type === 200 && r.base_doc_type === 100) || (r.doc_type === 210 && r.base_doc_type === 200) || ([300, 305, 320].includes(r.doc_type) && [100, 200].includes(r.base_doc_type));
+      const ok = (r.doc_type === 200 && r.base_doc_type === 100) || (r.doc_type === 210 && r.base_doc_type === 200) || ([300, 305, 320].includes(r.doc_type) && [100, 200].includes(r.base_doc_type))
+        || (this.booksCore && r.doc_type === 305 && r.base_doc_type === 300);   // 2.121 (7100, answer 19): a tax invoice made from a 300
       if (!ok || r.base_doc_number == null) return 'only a credit invoice points to a base document (or a document made from an order or a delivery note)';
+      if (r.doc_type === 305 && r.base_doc_type === 300) {
+        const t = this.t('documents').find((d) => d.doc_type === 300 && Number(d.doc_number) === Number(r.base_doc_number));
+        if (!t) return 'invoice_from_300: חשבון העסקה לא נמצא בעסק הזה';
+        if (this.docCancelled(t.id)) return 'invoice_from_300: חשבון העסקה בוטל';
+        if (this.t('documents').some((x) => !this.docCancelled(x.id) && ((x.doc_type === 305 && x.base_doc_type === 300 && Number(x.base_doc_number) === Number(t.doc_number))
+          || (x.doc_type === 320 && x.paid_document_id === t.id)))) return 'invoice_from_300_closed: על חשבון העסקה הזה כבר הופקה חשבונית מס';
+      }
     }
     if (goodsType) {
       if (!this.t('business_finance_profile')[0]?.sells_products) return 'goods_off: orders, delivery notes and return notes are for a business that sells products (turned on in the settings)';
@@ -1793,9 +1801,9 @@ export class FakeSupabase {
     const from = this.booksStartDate();
     this.booksStart = day;
     this.log('books.start', this.opts.businessId, { from, to: day });
-    const posted = this.t('documents').filter((d) => [300, 305, 320, 330, 400].includes(Number(d.doc_type)) && String(d.doc_date) >= day).length;
-    this.booksTx += posted;
-    return { status: 200, body: { startDate: day, business: this.opts.businessId, from: day, posted, failed: 0 } };
+    // 7100: the move posts nothing itself — the documents since then are "unposted" (gl_replay / the night post them)
+    this.booksPending += this.t('documents').filter((d) => [300, 305, 320, 330, 400].includes(Number(d.doc_type)) && String(d.doc_date) >= day).length;
+    return { status: 200, body: { startDate: day, unposted: this.booksPending } };
   }
   /** 2.120 (7000): document_numbering_state / document_numbering_per_location / location_branch_code_set */
   numberingRpc(fn: string, args: any): { status: number; body: any } | null {

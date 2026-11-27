@@ -44,12 +44,13 @@ export function BooksSettings({ say, fail, business }: { say: (m: string) => voi
     if (!day) return;
     setBusy(true);
     const r = await moveBooksStart(day);
-    setBusy(false);
-    if (!r.ok) { fail(r.error); return; }
+    if (!r.ok) { setBusy(false); fail(r.error); return; }
     setConfirming(false); setMonth('');
+    // 7100: the move posts nothing itself — what was issued since the new start is posted here, in batches (the rest tonight)
+    const p = business && day <= today ? await replayNow(business) : null;
+    setBusy(false);
     await reload();
-    say(r.failed > 0 ? `תחילת הספרים נשמרה: ${ddmmyyyy(day)}. ${r.failed} פריטים לא נרשמו — הם מופיעים ב"ממתינים לרישום".`
-      : `תחילת הספרים נשמרה: ${ddmmyyyy(day)}.${r.posted === 1 ? ' נרשמה פקודה אחת.' : r.posted ? ` נרשמו ${r.posted} פקודות.` : ''}`);
+    say(`תחילת הספרים נשמרה: ${ddmmyyyy(day)}.${p && p.ok && (p.posted || p.failed || p.left) ? ` ${replayMessage(p)}` : ''}`);
   }
 
   // what did not post, now (the owner): a few batches here, the rest by the night's timer (replayPending)

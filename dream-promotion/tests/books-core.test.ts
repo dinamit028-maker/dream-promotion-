@@ -113,6 +113,9 @@ test('the database\'s refusals in Hebrew (documents_installments, gl_books_start
   assert.equal(he('books_start_date: תחילת הספרים — ה-1 בחודש, עד החודש הבא'), 'תחילת הספרים — ה-1 בחודש, לכל המאוחר החודש הבא.');
   assert.equal(he('books_started: כבר נרשמו פקודות בספרים — אי אפשר להזיז את תאריך ההתחלה'), 'כבר נרשמו פקודות בספרים — אי אפשר להזיז את תאריך ההתחלה.');
   assert.match(he('period_locked: the books are closed until 2026-10-31'), /הספרים סגורים/);
+  assert.match(he('invoice_from_300_closed: על חשבון העסקה הזה כבר הופקה חשבונית מס'), /כבר הופקה חשבונית מס/);
+  assert.equal(he('invoice_from_300: חשבון העסקה בוטל'), 'חשבון העסקה בוטל — לא מפיקים ממנו חשבונית מס.');
+  assert.equal(he('invoice_from_300: חשבון העסקה לא נמצא בעסק הזה'), 'חשבון העסקה לא נמצא בעסק הזה.');
   for (const m of ['installments_count: x', 'books_started: x']) assert.ok(!/[0-9]{9}|₪/.test(he(m)), 'no number, no amount');
 });
 
@@ -192,14 +195,14 @@ test('answer 19: the 305 of a 300 — its lines and amounts as they are, today, 
     customerDealer: '000000109', customerStreet: 'רחוב דמו 1', customerCity: 'עיר דמו',
     beforeDiscount: 200, discount: 20, afterDiscount: 180, vatAmount: 32.4, total: 212.4, issuedBy: '',
     lines: [{ name: 'קרם דמו', qty: 2, unitPriceExVat: 100, discountExVat: 0, totalExVat: 200, vatRate: 18, kind: 2 as const, itemId: 'item-1', variantId: 'v-1' }], payments: [] } as Doc;
-  assert.equal(TAX_FROM_300_LINK, null, 'until db-agent gives the link, the screens offer nothing');
+  assert.equal(TAX_FROM_300_LINK, 'base', 'the database\'s contract (7100): base_doc_type 300 + its number');
   const base = composeTaxFrom300(t300, { entity: 'licensed_dealer', vatRate: 18, docDate: '2026-11-27', link: 'base' });
   assert.ok(base.ok);
   if (!base.ok) return;
   const d = base.doc;
   assert.deepEqual([d.docType, d.docDate, d.customerName, d.customerDealer, d.beforeDiscount, d.discount, d.afterDiscount, d.vatAmount, d.total, d.baseDocType, d.baseDocNumber],
     [305, '2026-11-27', 'לקוחה דמו', '000000109', 200, 20, 180, 32.4, 212.4, 300, 12]);
-  assert.deepEqual(d.lines, [{ name: 'קרם דמו', qty: 2, unitPriceExVat: 100, discountExVat: 0, totalExVat: 200, vatRate: 18, kind: 2 }], 'no item — the 300 moved the stock');
+  assert.deepEqual(d.lines, t300.lines, 'the 300\'s lines exactly (the database moves no stock for it — the 300 did)');
   assert.deepEqual(d.payments, []);
   assert.match(d.notes ?? '', /על פי חשבונית עסקה מס׳ 12/);
   assert.deepEqual(docInvariants(d, 18), []);
@@ -219,4 +222,5 @@ test('answer 19: the 305 of a 300 — its lines and amounts as they are, today, 
   assert.ok(no({ cancelled: true }).length > 0);
   // the 300 itself is not changed
   assert.equal(t300.lines[0].itemId, 'item-1');
+  assert.ok(d.lines[0] !== t300.lines[0], 'copies, not the same objects');
 });

@@ -41,6 +41,10 @@ export function financeError(e: unknown): string {
   if (/books_start_date/.test(m)) return 'תחילת הספרים — ה-1 בחודש, לכל המאוחר החודש הבא.';
   if (/books_started/.test(m)) return 'כבר נרשמו פקודות בספרים — אי אפשר להזיז את תאריך ההתחלה.';
   if (/opening_done/.test(m)) return 'יתרות הפתיחה כבר נרשמו. תיקון — בפקודה.';
+  // 2.121 (answer 19): a tax invoice made from a transaction invoice (documents_validate of 7100)
+  if (/invoice_from_300_closed/.test(m)) return 'על חשבון העסקה הזה כבר הופקה חשבונית מס (או חשבונית מס / קבלה) — רעננו.';
+  if (/invoice_from_300: [^\n]*בוטל/.test(m)) return 'חשבון העסקה בוטל — לא מפיקים ממנו חשבונית מס.';
+  if (/invoice_from_300/.test(m)) return 'חשבון העסקה לא נמצא בעסק הזה.';
   if (/register_settings_deductions_file_check/.test(m)) return 'מספר תיק ניכויים — 9 ספרות (או ריק).';
   if (/paid transaction invoice/.test(m)) return 'חשבונית עסקה ששולמה לא מבוטלת — קודם מבטלים את הקבלה שלה.';
   if (/quote_status/.test(m)) return 'אי אפשר להעביר את ההצעה למצב הזה.';

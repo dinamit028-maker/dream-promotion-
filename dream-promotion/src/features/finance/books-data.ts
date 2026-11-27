@@ -65,3 +65,11 @@ export async function replayNow(business: string): Promise<{ ok: true; posted: n
   }
   return { ok: true, posted, failed, left };
 }
+
+/** whether migration 7100 is in the database (gl_books_state answers — anything but "no such function"); asked once a page */
+let readyOnce: Promise<boolean> | null = null;
+export function booksReady(): Promise<boolean> {
+  readyOnce ??= Promise.resolve(supabase().rpc('gl_books_state')).then(({ error }) => !error || !isFunctionMissing(error), () => false)
+    .then((v) => { if (!v) readyOnce = null; return v; });
+  return readyOnce;
+}
