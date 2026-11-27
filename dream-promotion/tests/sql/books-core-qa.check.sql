@@ -397,8 +397,12 @@ select pg_temp.refused_with($$select public.gl_books_start_set(date_trunc('month
 select pg_temp.refused_with($$select public.gl_books_start_set((date_trunc('month', public.il_today()) + interval '2 months')::date)$$, 'books_start_date', 'more than the next month');
 select pg_temp.refused_with($$select public.gl_books_start_set(date '1999-01-01')$$, 'books_start_date', 'a date from the last century');
 insert into out96 select 'o-start', public.gl_books_start_set(date_trunc('month', public.il_today())::date);
+-- the move only sets the date: the posting runs in batches (gl_replay with a limit) until nothing is left
+insert into out96 select 'o-replay', public.gl_replay('00000000-0000-0000-0000-0000000696b3', null, 100);
 commit;
-select pg_temp.check((pg_temp.o('o-start')->>'posted')::int = 1, 'the move replays exactly the documents since the start (today''s 305) — not the 300 of last month');
+select pg_temp.check(pg_temp.o('o-start') ? 'startDate' and (pg_temp.o('o-start')->>'pending') is not null, 'the move answers the date and what is pending');
+select pg_temp.check((pg_temp.o('o-replay')->>'posted')::int = 1 and (pg_temp.o('o-replay')->>'left')::int = 0 and (pg_temp.o('o-replay')->>'failed')::int = 0,
+  'the replay posts exactly the documents since the start (today''s 305) — not the 300 of last month — and nothing is left');
 select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b3') = 1
   and (select count(*) from public.gl_transactions t where t.business_id = '00000000-0000-0000-0000-0000000696b3' and t.idempotency_key = 'document:' || (pg_temp.d('o96:old305')).id) = 0, 'one entry: the 305');
 begin;
@@ -443,7 +447,7 @@ set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a3');    -- a viewer: reads (a finance member), never writes
 insert into out96 select 'viewer', jsonb_build_object('tx', (select count(*) from public.gl_transactions), 'acc', (select count(*) from public.gl_accounts));
 select pg_temp.probe('00000000-0000-0000-0000-0000000696a3');
-rollback;
+commit;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a2');    -- the cashier
@@ -451,19 +455,19 @@ insert into out96 select 'cashier96', jsonb_build_array((select count(*) from pu
 select pg_temp.refused('select public.gl_books_state()', 'a cashier reads the state');
 select pg_temp.refused('select * from public.gl_trial_balance(date ''2000-01-01'', date ''2100-01-01'')', 'a cashier reads the trial balance') where false;
 select pg_temp.probe('00000000-0000-0000-0000-0000000696a2');
-rollback;
+commit;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a4');    -- calendar
 insert into out96 select 'calendar96', jsonb_build_array((select count(*) from public.gl_transactions), (select count(*) from public.gl_lines), (select count(*) from public.gl_accounts), (select count(*) from public.gl_books));
 select pg_temp.probe('00000000-0000-0000-0000-0000000696a4');
-rollback;
+commit;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a5');    -- agenda
 insert into out96 select 'agenda96', jsonb_build_array((select count(*) from public.gl_transactions), (select count(*) from public.gl_lines), (select count(*) from public.gl_accounts), (select count(*) from public.gl_books));
 select pg_temp.probe('00000000-0000-0000-0000-0000000696a5');
-rollback;
+commit;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a7');    -- the owner of ANOTHER business, working in their own: Lic's books are not theirs
@@ -471,7 +475,7 @@ insert into out96 select 'other96', jsonb_build_object('lic', (select count(*) f
   'licLines', (select count(*) from public.gl_lines where business_id = '00000000-0000-0000-0000-0000000696b1'), 'licAcc', (select count(*) from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000000696b1'),
   'ex', (select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b2'));
 select pg_temp.refused_with($$select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null)$$, 'not allowed', 'never another business''s replay');
-rollback;
+commit;
 begin;
 set local role anon;
 select pg_temp.refused($$select count(*) from public.gl_accounts$$, 'anon reads the chart');
