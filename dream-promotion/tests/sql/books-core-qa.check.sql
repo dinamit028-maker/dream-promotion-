@@ -293,5 +293,6 @@ select pg_temp.check((pg_temp.o('cust')->>'sum')::numeric = (
          - coalesce(sum(case when d.doc_type in (320, 400) then (select coalesce(sum(abs((p->>'amount')::numeric)), 0) from jsonb_array_elements(d.payments) p) else 0 end), 0)
          - coalesce(sum(case when d.doc_type = 330 then d.total else 0 end), 0)
          - coalesce(sum(case when d.doc_type = 305 and d.base_doc_type = 300 then d.total else 0 end), 0)   -- a 305 made from a 300 closes it (answer 19)
+         - coalesce(sum(case when d.doc_type = 320 and exists (select 1 from public.documents o where o.id = d.paid_document_id and o.doc_type = 300) then d.total else 0 end), 0)   -- a 320 paying a 300 closes it
       from public.documents d where d.business_id = '00000000-0000-0000-0000-0000000696b1')
   , 'the customers'' sub-ledger of the licensed business = Σ invoices − Σ money received − Σ credits (computed from the documents, not the entries)');

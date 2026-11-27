@@ -57,7 +57,7 @@
 -- Replaces (same signatures) — md5 of prosrc. BEFORE running, compare the old one with the live database; AFTER, the new one:
 --   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure
 --   function                         of     old                               new
---   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  e41ad8ee7370ff09bee4536c5c514188
+--   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  f71fd3d1e7542792560a198fb0a45384
 --   document_cancellations_check()   7000   625b00ea9a1d98e58f0f2b6f580655e8  07205c1ce140cd0bb23284215536966d
 --   documents_after_insert()         6800   59a0a64ba390722ae5681d1d5a69e2f0  7d944cd6ce946e499d28724ef43f59e5
 --   documents_more_checks()          3200   1523ec252074219f805903d91252cda5  882730b7f043b6409e647bc0fadfd5cf
@@ -1159,7 +1159,8 @@ $$;
 -- 9a. the owner's answers 18 and 19 (27.11.2026) in the documents' checks — replaces four functions (same signatures):
 --   documents_validate()           of 20261127007000 — a 305 may be made from a 300 (base_doc_type 300 + its number — fields
 --                                   1256 / 1257, clarification 6: "a document based on another document"): of this business, the
---                                   300 not cancelled, not closed yet by a 305 / a 320; and a 320 no longer pays a 300 a 305 closed
+--                                   300 not cancelled, not closed yet by a 305 / a 320; and no receipt (320 / 400) pays a 300 a 305
+--                                   closed (the money goes on the 305)
 --   document_cancellations_check() of 20261127007000 — a 300 a 305 was made from is not cancelled
 --   documents_after_insert()       of 20261125006800 — a 305 made from a 300 moves no stock (the 300 did)
 --   documents_more_checks()        of 20261005003200 — a VAT business's receipt (400) on a 300 is no longer refused (answer 18)
@@ -1434,8 +1435,9 @@ begin
       raise exception 'a receipt (400) pays a 305 / 300; a tax invoice-receipt (320) pays a 300' using errcode = '23514'; end if;
     if exists (select 1 from public.document_cancellations x where x.document_id = tgt.id) then
       raise exception 'the paid document was cancelled' using errcode = '23514'; end if;
-    -- 7100 (answer 19): a 300 that a tax invoice (305) was made from is closed — no 320 on it any more
-    if new.doc_type = 320 and tgt.doc_type = 300
+    -- 7100 (answer 19; the owner, 27.11.2026): a 300 that a tax invoice (305) was made from is closed — no receipt on it any more
+    -- (neither a 320 nor a 400): the money goes on the 305 (a 400 paying the 305)
+    if new.doc_type in (320, 400) and tgt.doc_type = 300
        and not (new.idempotency_key is not null and exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key))
        and exists (select 1 from public.documents x where x.business_id = new.business_id and x.doc_type = 305 and x.base_doc_type = 300
                      and x.base_doc_number = (select y.doc_number from public.documents y where y.id = tgt.id)

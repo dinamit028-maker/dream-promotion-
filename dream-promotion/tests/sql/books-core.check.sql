@@ -435,6 +435,13 @@ select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg
   jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:K300')).doc_number, 'customer_phone', '050-0000075')));
 select pg_temp.refused_with($$insert into public.document_cancellations (document_id, user_id, reason) values ((pg_temp.d('b71:K300')).id, '00000000-0000-0000-0000-0000007100a1', 'בטעות')$$,
   'cancel_has_followers', 'a 300 a 305 was made from is not cancelled');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 400, '[]', 'b71:K400',
+  jsonb_build_object('paid_document_id', (pg_temp.d('b71:K300')).id, 'before_discount', 10, 'after_discount', 10, 'total', 10, 'vat_amount', 0, 'vat_rate', 0),
+  '[{"method": 1, "m": "cash", "amount": 10}]'))$$, 'invoice_from_300_closed', 'no 400 on a 300 a 305 closed');
+-- the money goes on the 305 instead
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 400, '[]', 'b71:K400ok',
+  jsonb_build_object('paid_document_id', (pg_temp.d('b71:K305')).id, 'customer_phone', '050-0000075', 'before_discount', 47.20, 'after_discount', 47.20, 'total', 47.20, 'vat_amount', 0, 'vat_rate', 0),
+  '[{"method": 1, "m": "cash", "amount": 47.20}]'));
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(50), 'b71:F305',
   jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:F')).doc_number)))$$, 'invoice_from_300', 'not from a cancelled 300');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(50), 'b71:X305',
@@ -449,9 +456,9 @@ select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:J305')).id) = '050-0000073 
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-0000073') = 0
   and pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '1310', (pg_temp.d('b71:J300')).link_no::text) = 0,
   'J: 300 → 400 → 305 — the customer at 0, the 300 closed in 1310');
-select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-0000075') = 47.20
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-0000075') = 0
   and pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '1310', (pg_temp.d('b71:K300')).link_no::text) = 0,
-  'K: 300 → 305 — the customer charged once (47.20), the 300 closed');
+  'K: 300 → 305 → 400 on the 305 — the customer charged once and paid (0), the 300 closed');
 
 -- ---- every entry balances; the trial balance --------------------------------------------------------------------------------
 select pg_temp.check(not exists (select 1 from public.gl_transactions t where t.business_id::text like '00000000-0000-0000-0000-0000007100b%'
