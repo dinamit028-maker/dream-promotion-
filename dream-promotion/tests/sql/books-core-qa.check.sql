@@ -361,8 +361,9 @@ commit;
 select pg_temp.check((pg_temp.o('unposted')->>'n')::int >= 6 and (pg_temp.o('unposted')->>'n') = (pg_temp.o('unposted')->>'withError'), 'listed in gl_unposted, each with its error');
 drop trigger qa96_fail on public.gl_transactions;
 drop function public.qa96_fail();
-create temp table rp as select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null) as r;
-create temp table rp2 as select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null) as r;
+-- today's failures are retried only on request (p_retry): a lasting failure is otherwise skipped until tomorrow (7100)
+create temp table rp as select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null, 200, true) as r;
+create temp table rp2 as select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null, 200, true) as r;
 select pg_temp.check((select (r->>'posted')::int >= 6 and (r->>'failed')::int = 0 from rp), 'the replay posts what failed');
 select pg_temp.check((select (r->>'posted')::int = 0 from rp2), 'a second replay posts nothing — exactly once');
 select pg_temp.check((select count(*) from public.gl_unposted where business_id = '00000000-0000-0000-0000-0000000696b1') = 0, 'nothing left unposted');
@@ -415,7 +416,7 @@ commit;
 select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b3') = 1
   and not exists (select 1 from public.gl_unposted where business_id = '00000000-0000-0000-0000-0000000696b3' and source_kind = 'cancellation'),
   'the cancellation of a document of before the start posts nothing and is not "unposted"');
-create temp table rp3 as select public.gl_replay('00000000-0000-0000-0000-0000000696b3', null) as r;
+create temp table rp3 as select public.gl_replay('00000000-0000-0000-0000-0000000696b3', null, 200, true) as r;
 select pg_temp.check((select (r->>'posted')::int = 0 from rp3), 'a replay of the business that moved: nothing again');
 
 -- ======================================================================================================================
