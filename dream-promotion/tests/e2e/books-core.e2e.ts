@@ -275,7 +275,8 @@ async function main() {
     const { ctx, page } = await open(`/finance/documents?open=${T300}`, 'desktop');
     try {
       const d = dialog(page);
-      await d.getByRole('button', { name: 'הפקת חשבונית מס' }).click({ timeout: 120_000 });
+      await d.getByRole('button', { name: 'קבלה על תשלום' }).waitFor({ timeout: 120_000 });   // open before its 305
+      await d.getByRole('button', { name: 'הפקת חשבונית מס' }).click();
       const t = dialog(page);
       await t.getByText('חשבונית מס על חשבונית עסקה 1').waitFor();
       await t.getByText(/סה״כ:\s*₪590/).first().waitFor();
@@ -290,6 +291,14 @@ async function main() {
       assert.deepEqual(doc.lines, base.lines);
       await page.waitForTimeout(600);
       assert.equal(await page.getByRole('dialog').last().getByRole('button', { name: 'הפקת חשבונית מס' }).count(), 0, 'once — the button is gone');
+      // the 300 is closed by its 305: no payment, link or plan on it any more — what is owed is on the 305
+      await page.goto(`${BASE}/finance/documents?open=${T300}`, { waitUntil: 'domcontentloaded' });
+      const v = dialog(page);
+      await v.getByText('נסגר בחשבונית מס 1').first().waitFor({ timeout: 120_000 });
+      await v.getByText(/הופקה חשבונית מס 1 — הלקוח חייב לפיה/).waitFor();
+      for (const name of ['קבלה על תשלום', 'הפקת חשבונית מס']) assert.equal(await v.getByRole('button', { name }).count(), 0, name);
+      assert.equal(await v.getByText(/^יתרה /).count(), 0, 'no balance pill');
+      await shot(page, 'd7-300-closed.png');
     } finally { await ctx.close(); }
   });
 
