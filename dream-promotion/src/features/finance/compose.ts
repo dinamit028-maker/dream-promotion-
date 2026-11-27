@@ -5,7 +5,7 @@ import { dealerDigits, validIsraeliId } from '@/features/register/billing';
 import { israelParts } from '@/lib/il-time';
 import { ag, netOfGross, sh, vatOfGross, vatOfNet } from './vat';
 import { canIssue, chargesVat, type EntityType } from './rules';
-import { chequeErrors, isCardKind, payCode, toDocPayment, withholdingErrors, type PaymentEntry } from './payments';
+import { chequeErrors, installmentsErrors, isCardKind, payCode, toDocPayment, withholdingErrors, type PaymentEntry } from './payments';
 
 /**
  * The accounting engine's document builder: what the user typed → a legal document, agorot-exact.
@@ -78,7 +78,8 @@ function customerErrors(c: ComposeCustomer, needName: boolean): string[] {
   if (c.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.email.trim())) e.push('כתובת המייל של הלקוח לא תקינה');
   return e;
 }
-export function paymentErrors(payments: PaymentEntry[], totalA: number, today: string): string[] {
+/** o.installments (2.121, default on): a card payment of kind 2 asks how many installments — off for money back (a refund receipt) */
+export function paymentErrors(payments: PaymentEntry[], totalA: number, today: string, o: { installments?: boolean } = {}): string[] {
   const e: string[] = [];
   if (!payments.length) return ['איך שולם? צריך לפחות תשלום אחד'];
   for (const p of payments) {
@@ -87,6 +88,8 @@ export function paymentErrors(payments: PaymentEntry[], totalA: number, today: s
     if (p.method === 'cheque') e.push(...chequeErrors(p.cheque));   // every missing field of the cheque, each in its own line
     // 2.118 (the accountant's answer 13): a card payment names its kind — field 1315, asked at issue (no silent default here)
     if (p.method === 'card' && !isCardKind(p.cardKind)) e.push(CARD_KIND_MISSING);
+    // 2.121 (migration 7100, answer 8): "תשלומים" — how many (2–36), and the first charge's day when given
+    if (o.installments !== false) e.push(...installmentsErrors(p));
   }
   const paidA = payments.reduce((a, p) => a + ag(p.amount), 0);
   if (!e.length && paidA !== totalA) e.push(`סכום התשלומים (${ils(sh(paidA))}) שונה מסכום המסמך (${ils(sh(totalA))})`);
@@ -199,7 +202,7 @@ export function composeRefundReceipt(base: Doc, o: { entity: EntityType; left: n
   if (o.payments.some((p) => p.method === 'withholding')) errors.push('בהחזר כספי אין ניכוי במקור');
   if (amountA <= 0) errors.push('הסכום חייב להיות גדול מאפס');
   else if (amountA > ag(o.left)) errors.push(`ההחזר גדול ממה שנשאר להחזיר על הקבלה (${ils(o.left)})`);
-  errors.push(...paymentErrors(o.payments, amountA, today));
+  errors.push(...paymentErrors(o.payments, amountA, today, { installments: false }));   // money back is never in installments
   errors.push(...docDateErrors(o.docDate, today));
   if ((o.notes ?? '').length > 1000) errors.push('ההערות ארוכות מדי (עד 1,000 תווים)');
   if (errors.length) return { ok: false, errors: [...new Set(errors)] };

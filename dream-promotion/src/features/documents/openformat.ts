@@ -8,6 +8,8 @@
  * 2.120 (26.11.2026, against the same text, pdftotext): the branch fields and 1034 (seriesNumber, BranchInfo below) and the bank
  * deposit 420 (C100 + D120, no D110).
  */
+import { glCustomerKey } from './customer-key';
+
 export const SYSTEM_CONST = '&OF1.31&';
 
 // ---------- field formatting (spec 2.3 / 2.4) ----------
@@ -99,6 +101,11 @@ export interface DocPayment {
   pct?: number;
   /** 2.118: a card payment's credit transaction kind — field 1315 (1 regular, 2 installments, 3 credit, 4 deferred, 5 other) */
   cardKind?: number;
+  /** 2.121 (migration 20261128007100 — answer 8 of stage 4): a card payment in installments (cardKind 2) — how many (2–36) and
+   *  when the first is charged (YYYY-MM-DD; none = the payment's day). For the books (a line per installment) — not a field of
+   *  the unified file: D120 writes the payment as before (1315 = 2) */
+  installments?: number;
+  firstDue?: string;
 }
 export interface Doc {
   docType: number; docNumber: number; linkNo: number; issuedAt: string /* ISO */; docDate: string /* YYYY-MM-DD */;
@@ -230,9 +237,14 @@ export const A100 = (rec: number, b: Business, id: string) =>
 export const Z900 = (rec: number, b: Business, id: string, total: number) =>
   'Z900' + N(rec, 9) + N(b.dealerNumber, 9) + N(id, 15) + X(SYSTEM_CONST, 8) + N(total, 15) + X('', 50); // 110
 
-/** field 1225 "מפתח הלקוח אצל המוכר" X(15), as written — the same 15 characters are 1403 of the customer's B110 */
+/**
+ * field 1225 "מפתח הלקוח אצל המוכר" X(15), as written — the same 15 characters are 1403 of the customer's B110. 2.121: the key is
+ * the customer's account key in the books (glCustomerKey — public.gl_customer_key of migration 20261128007100, customer-key.ts):
+ * the phone, else the name, else 'CASH', cut to 15 characters — as before — and a customer whose key looks like a system account's
+ * (four digits, or BANK — the deposit's key, DEPOSIT_KEY) gets "C-" in front, so it is never merged with that account.
+ */
 export const customerKeyField = (d: Pick<Doc, 'customerKey' | 'customerPhone' | 'customerName'> & { docType?: number }) =>
-  X(d.docType === 420 ? DEPOSIT_KEY : d.customerKey ?? (d.customerPhone || d.customerName || 'CASH'), 15);
+  X(d.docType === 420 ? DEPOSIT_KEY : d.customerKey ?? glCustomerKey(d.customerPhone, d.customerName), 15);
 
 export function C100(rec: number, b: Business, d: Doc, operator: string = d.issuedBy ?? '', branch = '') {
   const t = ilTime(d.issuedAt);

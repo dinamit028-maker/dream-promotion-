@@ -19,7 +19,7 @@ import {
 } from '../src/features/documents/documents';
 import { A000, B110, C100, D120, accountsOf, buildOpenFormat, cardKindField, deductionsFileField, docTypeReport, type Doc } from '../src/features/documents/openformat';
 import { CARD_KIND_MISSING, composeDocument, composeReceipt, composeRefundReceipt, docDateErrors, docInvariants, paymentErrors } from '../src/features/finance/compose';
-import { CARD_KINDS, isCardKind, payCode, toDocPayment } from '../src/features/finance/payments';
+import { CARD_KINDS, INSTALLMENTS_MISSING, isCardKind, payCode, toDocPayment } from '../src/features/finance/payments';
 import { REFUND_RECEIPT_WAITS, financeError, refundReceiptError, refundReceiptWaits } from '../src/features/finance/rows';
 import { cancelLeft, cancelReceiptDoc, missingSaleReceipts, refundReceiptDoc } from '../src/features/finance/sale-receipts';
 import { readFileSync } from 'node:fs';
@@ -157,16 +157,20 @@ test('answer 13: a card payment names its kind (1–5) — the form asks (no def
   assert.ok(isCardKind(3) && !isCardKind(0) && !isCardKind(6) && !isCardKind('2') && !isCardKind(1.5));
   // the form: no kind → refused, in Hebrew
   assert.deepEqual(paymentErrors([{ method: 'card', amount: 100, date: '2026-11-25' }], 10000, '2026-11-25'), [CARD_KIND_MISSING]);
-  assert.deepEqual(paymentErrors([{ method: 'card', amount: 100, date: '2026-11-25', cardKind: 2 }], 10000, '2026-11-25'), []);
+  // 2.121 (migration 7100, answer 8 of stage 4): "תשלומים" also asks how many — required; with it the payment passes
+  assert.deepEqual(paymentErrors([{ method: 'card', amount: 100, date: '2026-11-25', cardKind: 2 }], 10000, '2026-11-25'), [INSTALLMENTS_MISSING]);
+  assert.deepEqual(paymentErrors([{ method: 'card', amount: 100, date: '2026-11-25', cardKind: 2, installments: 3 }], 10000, '2026-11-25'), []);
+  assert.deepEqual(paymentErrors([{ method: 'card', amount: 100, date: '2026-11-25', cardKind: 3 }], 10000, '2026-11-25'), [], 'another kind asks nothing more');
   assert.deepEqual(paymentErrors([{ method: 'cash', amount: 100, date: '2026-11-25' }], 10000, '2026-11-25'), [], 'no kind on cash');
   // the document keeps the kind on the card payment only
   assert.equal((toDocPayment({ method: 'card', amount: 1, date: '2026-11-25', cardKind: 4 }) as any).cardKind, 4);
   assert.ok(!('cardKind' in toDocPayment({ method: 'cash', amount: 1, date: '2026-11-25', cardKind: 4 })), 'switched from card to cash: the kind is not sent');
   const doc = composeDocument({ docType: 320, entity: 'licensed_dealer', vatRate: 18, pricesIncludeVat: true, lines: [{ name: 'טיפול', qty: 1, unitPrice: 200 }], customer: { name: 'x' },
-    payments: [{ method: 'card', amount: 150, date: '2026-11-25', cardKind: 2 }, { method: 'cash', amount: 50, date: '2026-11-25' }], docDate: '2026-11-25', today: '2026-11-25' });
+    payments: [{ method: 'card', amount: 150, date: '2026-11-25', cardKind: 2, installments: 3 }, { method: 'cash', amount: 50, date: '2026-11-25' }], docDate: '2026-11-25', today: '2026-11-25' });
   assert.ok(doc.ok);
   if (doc.ok) {
     assert.deepEqual(doc.doc.payments.map((p) => p.cardKind), [2, undefined]);
+    assert.deepEqual(doc.doc.payments.map((p) => p.installments), [3, undefined], '2.121: the count on the card payment only');
     assert.deepEqual(docInvariants(doc.doc, 18), []);
     assert.equal(docPayLabel(doc.doc.payments[0]), 'כרטיס אשראי (תשלומים)');
   }

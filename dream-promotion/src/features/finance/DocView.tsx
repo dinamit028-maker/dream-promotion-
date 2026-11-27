@@ -379,7 +379,7 @@ function RefundReceiptDialog({ doc, left, count, onClose, onIssued }: { doc: Doc
     <Modal open onClose={onClose}>
       <h3 className="mb-1 font-display text-lg font-extrabold">החזר כספי על קבלה {docNumberLabel(doc)}</h3>
       <p className="mb-3 text-sm text-muted">תופק קבלה במינוס על הכסף שהוחזר ללקוח (עוסק פטור). אפשר להחזיר עד {ils(left)}. רישום החזר שנעשה — לא העברת כסף; שום כרטיס לא מזוכה כאן.</p>
-      <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} />
+      <PaymentsEditor payments={payments} onChange={setPayments} total={payments.reduce((a, p) => a + (p.amount || 0), 0)} today={today} installments={false} />
       <Field label="סיבה (מופיעה על המסמך, לא חובה)"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} className="min-h-14" /></Field>
       {errors.length > 0 && <div className="mt-3"><Note tone="warn">{errors.map((e) => <span key={e} className="block">{e}</span>)}</Note></div>}
       <div className="mt-4 flex gap-2"><Button variant="primary" disabled={busy} onClick={() => void go()}>{busy ? 'מפיק…' : 'הפקת קבלה במינוס'}</Button><Button variant="ghost" onClick={onClose}>ביטול</Button></div>

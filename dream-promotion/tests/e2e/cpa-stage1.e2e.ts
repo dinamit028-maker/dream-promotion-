@@ -153,11 +153,19 @@ async function main() {
         // choose "תשלומים" → issued with cardKind 2
         await d.getByRole('radio', { name: 'תשלומים', exact: true }).click();
         await shot(page, `${tag}3-payments-card-kind-chosen.png`);
+        // 2.121 (migration 7100, answer 8 of stage 4): "תשלומים" asks how many — required (2–36); the first charge is optional
+        await d.getByRole('button', { name: 'הפקת חשבונית מס / קבלה' }).click();
+        await d.getByText(/בתשלומים — כמה תשלומים/).first().waitFor();
+        assert.equal(fake.tables.documents.length, 0, 'nothing issued without the number of installments');
+        await d.getByLabel('מספר תשלומים 1').fill('3');
+        await d.getByText('3 תשלומים, חודש אחרי חודש — הראשון ביום התשלום.').waitFor();
+        await noSideScroll(page, 'composer installments');
+        await axe(page, `${view} composer installments`);
         await d.getByRole('button', { name: 'הפקת חשבונית מס / קבלה' }).click();
         await page.getByRole('heading', { name: 'חשבונית מס / קבלה 1' }).waitFor();
         const doc = fake.tables.documents[0];
         assert.equal(doc.doc_date, today);
-        assert.deepEqual(doc.payments.map((p: any) => [p.method, p.cardKind]), [[3, 2]]);
+        assert.deepEqual(doc.payments.map((p: any) => [p.method, p.cardKind, p.installments, 'firstDue' in p]), [[3, 2, 3, false]]);
         // a payment that is not a card carries no kind (switch card → cash after choosing)
       } finally { await ctx.close(); }
     });

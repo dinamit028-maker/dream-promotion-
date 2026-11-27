@@ -83,7 +83,9 @@ test('documents from the document center pass every database check (2,000 random
     // split the payment in two when it is a receipt
     const first = Math.round(total * 100 * r()) / 100;
     const payments = docType === 320 || docType === 400
-      ? [{ method: 'cash' as const, amount: first, date: TODAY }, { method: 'card' as const, amount: Math.round((total - first) * 100) / 100, date: TODAY, cardKind: (1 + Math.floor(r() * 5)) as 1 | 2 | 3 | 4 | 5 }].filter((p) => p.amount > 0) : [];
+      ? [{ method: 'cash' as const, amount: first, date: TODAY }, { method: 'card' as const, amount: Math.round((total - first) * 100) / 100, date: TODAY, cardKind: (1 + Math.floor(r() * 5)) as 1 | 2 | 3 | 4 | 5 }]
+        .map((p) => (p.method === 'card' && p.cardKind === 2 ? { ...p, installments: 2 + (k % 35) } : p))   // 2.121: "תשלומים" names how many (no draw — the same documents)
+        .filter((p) => p.amount > 0) : [];
     const res = composeDocument({ ...draft, payments });
     assert.ok(res.ok, `document ${k}: ${!res.ok && res.errors.join(', ')}`);
     if (!res.ok) continue;
