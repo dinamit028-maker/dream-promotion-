@@ -4,7 +4,10 @@
 #   1. 8 connections issue 25 receipts (320, cash / card in installments) each, in two locations, while the owner records deposits
 #      and cancels one, and the server replays the business — every document issued (none refused), every source posted once,
 #      the entry numbers 1..n with no gap and no double, every entry balanced, the cash of each location = received − deposited
-#   2. a second business issuing at the same time is never held by the first one's books (its own numbers 1..n)
+#   2. a second business issuing at the same time is never held by the first one's books (its own numbers 1..n); its owner enters
+#      the opening balances in the middle
+#   3. a third business: its owner moves the start again and again while its sales are issued (the start takes finance_log's lock
+#      before the books', as a document's issue does) — no deadlock, no sale refused; once a sale posted the start stays
 # Not part of run.sh: bash tests/sql/books-core-concurrency.sh <db>   (the db after tests/sql/run.sh's migrations)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -14,9 +17,10 @@ q() { as_pg psql -X -q -t -A -v ON_ERROR_STOP=1 -d "$DB" -c "$1"; }
 TMP=$(mktemp -d); chmod 755 "$TMP"; trap 'rm -rf "$TMP"' EXIT
 U=$(cat /proc/sys/kernel/random/uuid); B=$(cat /proc/sys/kernel/random/uuid); L2=$(cat /proc/sys/kernel/random/uuid)
 U2=$(cat /proc/sys/kernel/random/uuid); B2=$(cat /proc/sys/kernel/random/uuid); SFX=${B:0:8}
+U3=$(cat /proc/sys/kernel/random/uuid); B3=$(cat /proc/sys/kernel/random/uuid)
 fail() { echo "CHECK FAILED: $1"; exit 1; }
 
-for x in "$U:$B:$SFX-a:000000059" "$U2:$B2:$SFX-b:000000083"; do
+for x in "$U:$B:$SFX-a:000000059" "$U2:$B2:$SFX-b:000000083" "$U3:$B3:$SFX-c:000000091"; do
   IFS=: read -r u b s dn <<< "$x"
   q "insert into auth.users (id, email) values ('$u', 'books-$s@example.test');
      insert into public.businesses (id, name, slug) values ('$b', 'Books $s', 'books-$s');
@@ -29,8 +33,10 @@ done
 q "insert into public.business_locations (id, business_id, name, kind, sort) values ('$L2', '$B', 'סניף שני', 'branch', 1);" >/dev/null
 AS="set local role authenticated; select set_config('request.jwt.claim.sub', '$U', true);"
 AS2="set local role authenticated; select set_config('request.jwt.claim.sub', '$U2', true);"
+AS3="set local role authenticated; select set_config('request.jwt.claim.sub', '$U3', true);"
 q "begin; $AS select public.gl_books_start_set(date_trunc('month', public.il_today())::date); commit;" >/dev/null
 q "begin; $AS2 select public.gl_books_start_set(date_trunc('month', public.il_today())::date); commit;" >/dev/null
+q "begin; $AS3 select public.gl_books_start_set(date_trunc('month', public.il_today())::date); commit;" >/dev/null
 
 worker() { # $1 file, $2 how many, $3 key prefix, $4 location, $5 who
   : > "$1"
@@ -48,10 +54,16 @@ worker() { # $1 file, $2 how many, $3 key prefix, $4 location, $5 who
 loc_of() { if [ $(( $1 % 2 )) = 0 ]; then echo "$L2"; else echo "$B"; fi; }
 for w in $(seq 8); do worker "$TMP/a-$w.sql" 25 "bk-$SFX-$w" "$(loc_of "$w")" "$AS" "$U"; done
 for w in 1 2; do worker "$TMP/a-x$w.sql" 25 "bk2-$SFX-$w" "$B2" "$AS2" "$U2"; done
+for w in 1 2 3; do worker "$TMP/a-y$w.sql" 20 "bk3-$SFX-$w" "$B3" "$AS3" "$U3"; done
+# the third business's owner moves its start (to the same 1st) again and again while its sales are issued
+: > "$TMP/start.sql"
+for i in $(seq 40); do printf "begin; %s select public.gl_books_start_set(date_trunc('month', public.il_today())::date); commit;\n" "$AS3" >> "$TMP/start.sql"; done
+chmod 644 "$TMP/start.sql"
 pids=()
 for f in "$TMP"/a-*.sql; do as_pg psql -X -q -v ON_ERROR_STOP=0 -d "$DB" -f "$f" > "$f.out" 2>&1 & pids+=($!); done
+as_pg psql -X -q -v ON_ERROR_STOP=0 -d "$DB" -f "$TMP/start.sql" > "$TMP/start.out" 2>&1 & pids+=($!)
 # meanwhile: the owner deposits cash of each location (a little, a few times), cancels one; the server replays
-sleep 0.3
+sleep 1   # some cash in each desk first
 : > "$TMP/dep.out"
 for k in 1 2 3; do
   D1=$(cat /proc/sys/kernel/random/uuid); D2=$(cat /proc/sys/kernel/random/uuid)
@@ -59,11 +71,21 @@ for k in 1 2 3; do
   q "begin; $AS select public.bank_deposit_create('$D2', public.il_today(), '$L2', 10, '{}', ''); commit;" >> "$TMP/dep.out" 2>&1 || true
   q "select public.gl_replay('$B', null);" >> "$TMP/dep.out" 2>&1 || true
   [ "$k" = 2 ] && { q "begin; $AS select public.bank_deposit_cancel('$D2', 'בטעות'); commit;" >> "$TMP/dep.out" 2>&1 || true; }
+  [ "$k" = 1 ] && { q "begin; $AS2 select public.gl_opening_balances('[{\"account\": \"BANK\", \"side\": \"D\", \"amount\": 1000}]'); commit;" >> "$TMP/dep.out" 2>&1 || true; }
   sleep 0.2
 done
 wait "${pids[@]}"
 errs=$(cat "$TMP"/a-*.sql.out | grep -c ERROR || true)
 [ "$errs" = "0" ] || fail "no document refused (got $errs errors: $(grep -h ERROR "$TMP"/a-*.sql.out | head -2))"
+grep -qi deadlock "$TMP"/*.out && fail "a deadlock: $(grep -hi deadlock "$TMP"/*.out | head -2)"
+bad=$(grep ERROR "$TMP/start.out" | grep -vc books_started || true)
+[ "$bad" = "0" ] || fail "moving the start during sales: only 'books_started' once a sale posted ($(grep ERROR "$TMP/start.out" | grep -v books_started | head -2))"
+r=$(q "select count(*) from public.documents where business_id = '$B3' and doc_type = 320")
+[ "$r" = "60" ] || fail "the third business: every sale issued: 60 (got $r)"
+r=$(q "select count(*) from public.gl_unposted where business_id = '$B3'")
+[ "$r" = "0" ] || fail "the third business: every sale posted (unposted: $r)"
+r=$(q "select (select count(*) from public.gl_transactions where business_id = '$B2' and source_kind = 'opening')")
+[ "$r" = "1" ] || fail "the second business's opening balances entered in the middle (got $r)"
 grep -q ERROR "$TMP/dep.out" && fail "the deposits / the replay in the middle: $(grep ERROR "$TMP/dep.out" | head -2)"
 r=$(q "select count(*) from public.documents where business_id = '$B' and doc_type = 320")
 [ "$r" = "200" ] || fail "every document issued: 200 (got $r)"
@@ -73,7 +95,7 @@ r=$(q "select (select count(*) from public.documents where business_id = '$B' an
               + (select count(*) from public.bank_deposits where business_id = '$B' and status = 'cancelled')
            || ' ' || (select count(*) from public.gl_transactions where business_id = '$B')")
 set -- $r; [ "$1" = "$2" ] || fail "one entry per source (sources entries: $r)"
-for b in "$B" "$B2"; do
+for b in "$B" "$B2" "$B3"; do
   r=$(q "select count(*) || ' ' || count(distinct number) || ' ' || coalesce(min(number), 0) || ' ' || coalesce(max(number), 0) from public.gl_transactions where business_id = '$b'")
   set -- $r; [ "$1" = "$2" ] && [ "$3" = "1" ] && [ "$4" = "$1" ] || fail "the entry numbers 1..n, no gap, no double ($b: $r)"
 done
@@ -91,4 +113,4 @@ done
 r=$(q "select count(*) from public.gl_lines l join public.gl_accounts a on a.id = l.account_id where a.business_id = '$B' and a.role = 'card_clearing'")
 c=$(q "select count(*) * 3 from public.documents where business_id = '$B' and payments->0->>'m' = 'card'")
 [ "$r" = "$c" ] || fail "a card in 3 installments — 3 lines each ($r vs $c)"
-echo "ok: 8 connections × 25 receipts in two locations (+ a second business, 2 × 25), deposits, a cancellation and replays in the middle → none refused, every source posted once, entries 1..n per business with no gap, all balanced, the cash in the books = received − deposited, 3 lines per installment card"
+echo "ok: 8 connections × 25 receipts in two locations (+ a second business, 2 × 25, its opening balances; a third, 3 × 20, its start moved 40 times meanwhile — no deadlock), deposits, a cancellation and replays in the middle → none refused, every source posted once, entries 1..n per business with no gap, all balanced, the cash in the books = received − deposited, 3 lines per installment card"

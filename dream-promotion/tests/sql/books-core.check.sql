@@ -1,11 +1,14 @@
 -- Stage 4ב — the double-entry books, the core (migration 7100) on a real Postgres (tests/sql/run.sh):
 --   1. the migration over existing rows (documents, payments, a deposit of two businesses, written before it runs) and again:
 --      every row stays as it was; nothing posts before a business's start date
---   2. the owner moves the start to the 1st of this month → the documents since then post, in time order (gl_replay)
+--   2. the owner moves the start to the 1st of this month → the documents since then are pending, and post in time order, in
+--      batches (gl_replay / gl_replay_pending)
 --   3. the posting matrix: 300 / 305 / 320 / 320 paying a 300 / 330 / 330's refund / 400 (withholding, cheque, Bit, card in
 --      installments) / exempt 300, 400 paying it, 400 alone, refund receipt / cancellation of a 300 / deposit and its cancellation /
 --      a register refund — every entry balances; the customer's card and 1310 close to 0
 --   4. never blocks: a posting that fails leaves the document issued, is recorded and listed, and posts again (gl_replay)
+--   3b. a 300 of before the start: what pays / makes a 305 from / cancels it after the start closes / reverses nothing; answer 19 —
+--      300 → 400 → 305 leaves the customer and 1310 at 0, a 300 closes once
 --   5. append-only, the balance at commit, the RLS (cashier, another business, a location-limited member, anon), the opening
 --      balances (once, the owner), the installments check, the reserved keys
 -- Fixtures only, fictional: dealer numbers 000000059 / 000000083 / 000000091 (valid check digit), phones 050-00000NN, mails
@@ -150,7 +153,12 @@ select pg_temp.check(not has_function_privilege('authenticated', 'public.gl_post
   and not has_function_privilege('anon', 'public.gl_opening_balances(jsonb)', 'execute')
   and has_function_privilege('authenticated', 'public.gl_opening_balances(jsonb)', 'execute')
   and not has_table_privilege('authenticated', 'public.gl_lines', 'insert') and not has_table_privilege('authenticated', 'public.gl_transactions', 'update')
-  and not has_table_privilege('anon', 'public.gl_accounts', 'select') and not has_table_privilege('authenticated', 'public.gl_defaults', 'select'),
+  and not has_table_privilege('anon', 'public.gl_accounts', 'select') and not has_table_privilege('authenticated', 'public.gl_defaults', 'select')
+  and not has_table_privilege('service_role', 'public.gl_lines', 'insert') and not has_table_privilege('service_role', 'public.gl_transactions', 'update')
+  and not has_table_privilege('service_role', 'public.gl_accounts', 'delete') and not has_table_privilege('service_role', 'public.gl_books', 'truncate')
+  and has_table_privilege('service_role', 'public.gl_lines', 'select')
+  and has_function_privilege('service_role', 'public.gl_replay_pending(int)', 'execute') and not has_function_privilege('authenticated', 'public.gl_replay_pending(int)', 'execute')
+  and not has_function_privilege('anon', 'public.gl_books_active(uuid, date)', 'execute') and has_function_privilege('authenticated', 'public.gl_books_active(uuid, date)', 'execute'),
   'who may call what: posting only by the database, the tables read-only to the browser');
 
 -- ---- 2. the owner moves the start to this month: the earlier documents post, in time order -----------------------------------
@@ -359,6 +367,92 @@ select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:ex:back')).id) = '4200 D 50
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b2', '4200') = -300 and pg_temp.bal('00000000-0000-0000-0000-0000007100b2', '2200') = 0,
   'exempt income = 200 + 150 − 50, no VAT');
 
+-- ---- a 300 of BEFORE the books' start (in the opening balances, never posted): what pays / cancels it after the start ------------
+-- issued last month (the date's trigger set aside by the superuser for these rows, as the other checks do for rows "of before")
+begin;
+alter table public.documents disable trigger d_documents_issue_day;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(100), 'b71:pre300a', jsonb_build_object('doc_date', date_trunc('month', public.il_today())::date - 1)));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(100), 'b71:pre300c', jsonb_build_object('doc_date', date_trunc('month', public.il_today())::date - 1)));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(100), 'b71:pre300f', jsonb_build_object('doc_date', date_trunc('month', public.il_today())::date - 1)));
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a4');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a4', 300, pg_temp.svc(300), 'b71:ex:pre300', jsonb_build_object('doc_date', date_trunc('month', public.il_today())::date - 1), null, 0));
+alter table public.documents enable trigger d_documents_issue_day;
+commit;
+select pg_temp.check((select count(*) from public.gl_transactions where idempotency_key in ('document:' || (pg_temp.d('b71:pre300a')).id, 'document:' || (pg_temp.d('b71:ex:pre300')).id)) = 0
+  and not exists (select 1 from public.gl_unposted where source_id in ((pg_temp.d('b71:pre300a')).id, (pg_temp.d('b71:ex:pre300')).id)),
+  'a 300 of before the start: not posted, not pending');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 320, pg_temp.svc(100), 'b71:pre320', jsonb_build_object('paid_document_id', (pg_temp.d('b71:pre300a')).id)));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(100), 'b71:pre305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:pre300f')).doc_number)));
+insert into public.document_cancellations (document_id, user_id, reason) values ((pg_temp.d('b71:pre300c')).id, '00000000-0000-0000-0000-0000007100a1', 'הופק בטעות');
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a4');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a4', 400, pg_temp.svc(300), 'b71:ex:pre400', jsonb_build_object('paid_document_id', (pg_temp.d('b71:ex:pre300')).id), null, 0));
+commit;
+select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:pre320')).id) = '050-0000071 D 118.00, 4100 C 100.00, 2200 C 18.00, 1100 D 118.00, 050-0000071 C 118.00',
+  'a 320 paying a 300 of before the start: its own entry only — nothing of 1310 (the 300 was never posted)');
+select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:pre305')).id) = '050-0000071 D 118.00, 4100 C 100.00, 2200 C 18.00',
+  'a 305 made from a 300 of before the start: the invoice only — nothing of 1310');
+select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:ex:pre400')).id) = '1100 D 300.00, 050-0000071 C 300.00, 050-0000071 D 300.00, 4200 C 300.00',
+  'an exempt 400 paying a 300 of before the start: income through the customer — nothing of 1310');
+select pg_temp.check(pg_temp.tx('cancellation', (pg_temp.d('b71:pre300c')).id) is null or (pg_temp.tx('cancellation', (pg_temp.d('b71:pre300c')).id)).id is null,
+  'cancelling a 300 of before the start reverses nothing');
+select pg_temp.check(not exists (select 1 from public.gl_unposted where business_id in ('00000000-0000-0000-0000-0000007100b1', '00000000-0000-0000-0000-0000007100b2')),
+  'and none of these is pending');
+
+-- ---- answer 19: a tax invoice (305) made from a transaction invoice (300) closes it; 300 → 400 → 305 leaves 0 -----------------
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(1000), 'b71:J300', '{"customer_phone": "050-0000073", "customer_name": "גל לדוגמה"}'));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(40), 'b71:K300', '{"customer_phone": "050-0000075"}'));
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+-- answer 18: a licensed dealer's receipt on the 300 — allowed; the money against the customer, 1310 open
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 400, '[]', 'b71:J400',
+  jsonb_build_object('paid_document_id', (pg_temp.d('b71:J300')).id, 'customer_phone', '050-0000073', 'customer_name', 'גל לדוגמה',
+                     'before_discount', 1180, 'after_discount', 1180, 'total', 1180, 'vat_amount', 0, 'vat_rate', 0),
+  '[{"method": 4, "m": "transfer", "amount": 1180}]'));
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(1000), 'b71:J305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:J300')).doc_number, 'customer_phone', '050-0000073', 'customer_name', 'גל לדוגמה')));
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(1000), 'b71:J305b',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:J300')).doc_number)))$$, 'invoice_from_300_closed', 'one tax invoice per 300');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 320, pg_temp.svc(10), 'b71:J320',
+  jsonb_build_object('paid_document_id', (pg_temp.d('b71:J300')).id)))$$, 'invoice_from_300_closed', 'no 320 on a 300 a 305 closed');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(40), 'b71:K305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:K300')).doc_number, 'customer_phone', '050-0000075')));
+select pg_temp.refused_with($$insert into public.document_cancellations (document_id, user_id, reason) values ((pg_temp.d('b71:K300')).id, '00000000-0000-0000-0000-0000007100a1', 'בטעות')$$,
+  'cancel_has_followers', 'a 300 a 305 was made from is not cancelled');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(50), 'b71:F305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:F')).doc_number)))$$, 'invoice_from_300', 'not from a cancelled 300');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(50), 'b71:X305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', 999999)))$$, 'invoice_from_300', 'only a 300 of this business');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(50), 'b71:C305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:C300')).doc_number)))$$, 'invoice_from_300_closed', 'not from a 300 a 320 paid');
+commit;
+select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:J400')).id) = 'BANK D 1180.00, 050-0000073 C 1180.00', 'J: the licensed 400 on the 300 — the money / the customer');
+select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:J305')).id) = '050-0000073 D 1180.00, 4100 C 1000.00, 2200 C 180.00, 1310 D 1180.00, 050-0000073 C 1180.00'
+  and (pg_temp.txd('b71:J305')).ref2_type = 300,
+  'J: the 305 made from the 300 — the invoice, and 1310 closed against the customer');
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-0000073') = 0
+  and pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '1310', (pg_temp.d('b71:J300')).link_no::text) = 0,
+  'J: 300 → 400 → 305 — the customer at 0, the 300 closed in 1310');
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-0000075') = 47.20
+  and pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '1310', (pg_temp.d('b71:K300')).link_no::text) = 0,
+  'K: 300 → 305 — the customer charged once (47.20), the 300 closed');
+
 -- ---- every entry balances; the trial balance --------------------------------------------------------------------------------
 select pg_temp.check(not exists (select 1 from public.gl_transactions t where t.business_id::text like '00000000-0000-0000-0000-0000007100b%'
                                    and (select coalesce(sum(case side when 'D' then amount else -amount end), 0) from public.gl_lines l where l.transaction_id = t.id) <> 0),
@@ -381,12 +475,26 @@ begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(10), 'b71:I'));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(20), 'b71:W300', '{"customer_phone": "050-0000074"}'));
 commit;
 select pg_temp.check((pg_temp.d('b71:I')).id is not null and (pg_temp.txd('b71:I')).id is null, 'a posting that fails: the document is issued, no entry');
 select pg_temp.check((select error like '23505%' from public.gl_unposted where source_id = (pg_temp.d('b71:I')).id), 'listed in gl_unposted, with its error');
 update public.gl_books set last_tx_no = (select max(number) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000007100b1')
  where business_id = '00000000-0000-0000-0000-0000007100b1';
+-- a 305 made from the 300 that did not post: it waits (gl_wait — recorded once a day however often it is tried), then both post in order
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(20), 'b71:W305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:W300')).doc_number, 'customer_phone', '050-0000074')));
+commit;
+select public.gl_post_safe('document', (pg_temp.d('b71:W305')).id);
+select pg_temp.check((pg_temp.txd('b71:W305')).id is null and (select count(*) from public.gl_post_failures where source_id = (pg_temp.d('b71:W305')).id) = 1
+  and (select error like '55000 gl_wait%' from public.gl_unposted where source_id = (pg_temp.d('b71:W305')).id),
+  'a 305 whose 300 did not post waits — one failure row for the day, however often tried');
 select public.gl_replay('00000000-0000-0000-0000-0000007100b1', null);   -- the server (no user)
+select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:W305')).id) = '050-0000074 D 23.60, 4100 C 20.00, 2200 C 3.60, 1310 D 23.60, 050-0000074 C 23.60'
+  and (pg_temp.txd('b71:W305')).number > (pg_temp.txd('b71:W300')).number, 'the replay: the 300 first, then the 305 closes it');
 select pg_temp.check((pg_temp.txd('b71:I')).id is not null and not exists (select 1 from public.gl_unposted where business_id = '00000000-0000-0000-0000-0000007100b1'),
   'the replay posts it; nothing unposted');
 select pg_temp.check(public.gl_post('document', (pg_temp.d('b71:I')).id) = (pg_temp.txd('b71:I')).id, 'gl_post again: the same entry');

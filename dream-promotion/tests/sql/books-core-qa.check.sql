@@ -158,6 +158,7 @@ commit;
 -- the one with a first due that clamps: the payment is dated 5 days ago-or-today, the first due the last day of next month or a 31st —
 -- computed from the database's date, so the check is the same every day of the year
 create temp table clamp as select (date_trunc('month', public.il_today()) + interval '1 month' + interval '30 days')::date as fd;
+grant select on clamp to authenticated;
 select pg_temp.check((select fd - public.il_today() between 1 and 366 from clamp), 'the first due of the clamp test is within a year');
 begin;
 set local role authenticated;
