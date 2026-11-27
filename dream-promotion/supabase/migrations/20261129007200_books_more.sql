@@ -8,7 +8,8 @@
 --   1. Expenses (answers 5, 12: goods bought and equipment are expenses). A confirmed expense → its category's account (6101–6117:
 --      the amount before VAT + the VAT that is not deducted) + VAT input 1400 (round(vat × deductible % / 100, 2) — only a VAT
 --      business deducts, as finance_summary) / the supplier (a sub-account under 2100: key "S" + the dealer number, else "S-" +
---      the normalized name — the same supplier as report_suppliers / party_key). A supplier's credit note — the mirror. An expense
+--      the normalized name — the same supplier as report_suppliers / party_key). A supplier's credit note — the mirror. A paid
+--      expense whose supplier changes moves what was paid to the new supplier in the same entry. An expense
 --      is "kept in sync": a change of what it posts (a confirmed expense edited before it is paid, or voided) reverses its entry
 --      (dated the entry's own date — the books of the period then say what finance_summary says) and posts it again if it is
 --      still confirmed. Its money (payments.source 'expense' and the void's 'reversal'): paid — the supplier / the money (cash →
@@ -17,14 +18,14 @@
 --   2. The bank. A matched line posts nothing twice: a transfer / Bit / deposit is in BANK already. A card payment matched →
 --      BANK / 1250 (money out: 1250 / BANK); the business's card paid (an expense by card matched) → 2300 / BANK; a cheque cleared
 --      directly → BANK / the location's cheques (an expense's cheque: 2150 / BANK); "other" → BANK / suspense. Unmatching reverses
---      it. Answer 17: a line of the books' time handled without a document is posted to an account the owner picks
---      (bank_line_classify: the account / BANK); the old "handled without a match" (bank_line_handle) refuses such a line;
---      bank_line_reopen of a classified line (the owner) reverses its entry.
+--      it. Answer 17: a line of the books' time handled without a document is posted to an account (bank_line_classify —
+--      whoever handles the bank, as bank_line_handle: the account / BANK); the old "handled without a match" (bank_line_handle) refuses such a line;
+--      bank_line_reopen of a classified line reverses its entry.
 --   3. The register's day: register_shifts.difference (counted − expected) ≠ 0 at closing → 6900 / the location's cash (short) or
 --      the cash / 6900 (over) — in sync like an expense (a changed closed day is reversed and posted again).
 --   4. The manual double entry (answer 15): gl_manual_create — the owner, a balanced entry of any lines (accounts by key, D / C,
---      amounts), dated from the books' start to today, not in closed books; gl_manual_reverse — a reversing entry, once. From the
---      books' start the old one-sided journal_entry_create / journal_entry_reverse refuse (the entries before it stay, read-only).
+--      amounts), dated from the books' start to today, not in closed books; gl_manual_reverse — a reversing entry, once. Once the
+--      books have started, the old one-sided journal_entry_create / journal_entry_reverse refuse (the old entries stay, read-only).
 --   5. Reports (security invoker — the business and the locations of the person, never a cashier; report_business's guard):
 --      report_trial_balance, report_ledger, report_journal, report_profit_loss, report_balance_sheet (answer 16), and gl_reconcile —
 --      the books against finance_summary (income, expenses, profit, VAT), the receivables, the cash desks and the cash differences.
@@ -37,15 +38,15 @@
 --   function                                                          of     old                               new
 --   gl_post_safe(text, uuid)                                          7100   07dc3e5b6b16618c844d4194166024ca  2b357f5884b58dfaab93c094e11b45de
 --   journal_entry_create(uuid, date, text, numeric, numeric, text, text, text, uuid, jsonb)
---                                                                     5100   bd86c4b468622631e62d97cee45a2024  6d5468da8f0a458148b73e58224eaf00
---   journal_entry_reverse(uuid, uuid, date, text)                     5100   812aa37a4e6e1a07602dde179a590404  c4bd3b8e2a1b6c6b15e3443c288da42f
+--                                                                     5100   bd86c4b468622631e62d97cee45a2024  2d8ff26f70e05d1e11b73df4068e9de7
+--   journal_entry_reverse(uuid, uuid, date, text)                     5100   812aa37a4e6e1a07602dde179a590404  c47435a61aa92a51ecaf1e426d009134
 --   bank_line_handle(uuid, text)                                      5000   d427b10d56b3009b657edfb9e4790e03  84d19d8e5aa92364a854e9490a8e06e2
---   bank_line_reopen(uuid)                                            5000   fab202148af12b0a96e797261d0b2499  7ca09783cc566ae6efc53f452a24fc15
+--   bank_line_reopen(uuid)                                            5000   fab202148af12b0a96e797261d0b2499  25bbcb053ab1788fd39db80fbf707bf1
 --   gl_key_reserved(text)                                             7100   8c13361c82be9fb00504da119cd4cd3a  4aae5a733c41a197d474ec27d6b3d31d
 --   gl_customer_account(uuid, text, text, text, uuid, text, text)     7100   f5098d61fcaf7cfb8ebb9f01b7b06b0c  3dbd3be79a1180dce191d80bf80c8b7d
 --   view gl_unposted — md5(pg_get_viewdef('public.gl_unposted'::regclass)) (the text may differ between Postgres versions — local
 --   16 here; if the old one differs live, compare the definition itself)
---                                                                     7100   fdcbae58f3e50d1032de1a37546886dd  3db606da2ce6e2789135f5112db369e1
+--                                                                     7100   fdcbae58f3e50d1032de1a37546886dd  6fbdb9f6629d1ddafef39cb1bc3db636
 -- Running 5000, 5100 or 7100 again after this one brings back an old version (7100: gl_post_safe and gl_unposted — the new sources
 -- then stop posting and are not listed; gl_key_reserved / gl_customer_account — the supplier keys' guard) — then run this one again.
 -- The keys (before any posting — the books start 1.12.2026): a supplier's key is "S-" + the dealer number, else "S-" + the
@@ -233,7 +234,7 @@ end $$;
 -- ============================================================================================================================
 -- 2. helpers: the accounts of the new sources, the fingerprints, the open date, writing an entry
 -- ============================================================================================================================
--- a system account of a role not in 7100's default chart (2150 cheques to pay) — created on first need; its key taken → suspense
+-- a system account of a role not in 7100's default chart (2150 cheques to pay) — created on first need; its key taken → refused
 create or replace function public.gl_system_account(p_business uuid, p_role text, p_key text, p_name text, p_kind text, p_tb_code text, p_tb_name text)
 returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
 declare a uuid;
@@ -244,8 +245,21 @@ begin
   insert into public.gl_accounts (business_id, key, name, kind, tb_code, tb_name, role)
   values (p_business, p_key, p_name, p_kind, p_tb_code, p_tb_name, p_role)
   on conflict (business_id, key) do nothing returning id into a;
-  return coalesce(a, (select id from public.gl_accounts where business_id = p_business and role = p_role), public.gl_account(p_business, 'suspense'));
+  a := coalesce(a, (select id from public.gl_accounts where business_id = p_business and role = p_role));
+  -- its key taken by another account (gl_account_add refuses the system's keys — never expected): the posting fails, is recorded
+  -- and listed — never into suspense without a word
+  if a is null then raise exception 'gl_key_taken: the key % of the system''s account % is another account''s', p_key, p_role using errcode = '23505'; end if;
+  return a;
 end $$;
+
+-- a supplier's identity (gl_accounts.role, up to 80): party_key (the dealer number, else the normalized name — report_suppliers');
+-- a name that normalizes to nothing (no Hebrew / Latin letter or digit) — by the md5 of the name itself, so such suppliers never
+-- merge; a long one (above 70) — by its md5
+create or replace function public.gl_supplier_role(p_dealer text, p_name text) returns text
+language sql stable set search_path = public, pg_temp as $$
+  select 'supplier:' || case when pk = 'n:' then 'r:' || md5(btrim(coalesce(p_name, ''))) when length(pk) > 70 then 'h:' || md5(pk) else pk end
+    from (select public.party_key(null, p_dealer, p_name) as pk) x
+$$;
 
 -- a supplier's account (under 2100) — the same supplier as report_suppliers (party_key: the dealer number, else the normalized
 -- name). Its key: "S-" + the dealer number, else "S-" + the normalized name (13 characters; an empty one — of the name's md5); a
@@ -253,9 +267,8 @@ end $$;
 -- below — it gets "C-"), and the owner's keys are four digits: a supplier's account is never a customer's or the owner's
 create or replace function public.gl_supplier_account(p_business uuid, p_dealer text, p_name text) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare pk text := public.party_key(null, p_dealer, p_name); r text; a uuid; base text; k text; n int := 1; nm text;
+declare r text := public.gl_supplier_role(p_dealer, p_name); a uuid; base text; k text; n int := 1; nm text;
 begin
-  r := 'supplier:' || pk;
   select id into a from public.gl_accounts where business_id = p_business and role = r;
   if a is not null then return a; end if;
   perform public.gl_chart_ensure(p_business);
@@ -267,7 +280,7 @@ begin
   k := base;
   while exists (select 1 from public.gl_accounts x where x.business_id = p_business and x.key = k) loop
     n := n + 1;
-    if n > 999 then return public.gl_account(p_business, 'suspense'); end if;
+    if n > 999 then raise exception 'gl_key_taken: no free key for the supplier %', base using errcode = '23505'; end if;
     k := left(base, 15 - length(n::text) - 1) || '-' || n;
   end loop;
   insert into public.gl_accounts (business_id, key, name, kind, tb_code, tb_name, parent_key, role, dealer_number)
@@ -303,7 +316,7 @@ $$;
 create or replace function public.gl_expense_hash(e public.expenses) returns text
 language sql stable set search_path = public, pg_temp as $$
   select case when e.status = 'confirmed' then md5(concat_ws('|', to_char(e.doc_date, 'YYYY-MM-DD'), e.category, e.amount_before_vat, e.vat_amount, e.total, e.vat_deductible_pct,
-           e.supplier_doc_type, public.party_key(null, e.supplier_dealer, e.supplier_name), coalesce(e.location_id, e.business_id), e.expense_number)) end
+           e.supplier_doc_type, public.gl_supplier_role(e.supplier_dealer, e.supplier_name), coalesce(e.location_id, e.business_id), e.expense_number)) end
 $$;
 
 -- the day a register's day closed (Israel time) and the fingerprint of what it posts (null — nothing: open, or no difference)
@@ -469,7 +482,7 @@ create or replace function public.gl_post_more(p_source text, p_id uuid) returns
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare src record; bk public.gl_books; b uuid; tx uuid; st public.gl_transactions; want text; n int; ln public.gl_line_in[];
   e public.expenses; s public.register_shifts; p public.payments; o public.payments; m public.bank_matches; c public.gl_bank_line_accounts;
-  l public.bank_lines; d public.documents; acc uuid; bank uuid; dt date; usr uuid; k text; ot public.gl_transactions; num text;
+  l public.bank_lines; d public.documents; acc uuid; bank uuid; dt date; usr uuid; k text; ot public.gl_transactions; num text; sup uuid; mv record;
 begin
   if p_source not in ('expense', 'shift', 'expense_payment', 'bank_match', 'bank_unmatch', 'bank_class', 'bank_unclass') then
     raise exception 'gl_source_unknown: %', p_source using errcode = '22023'; end if;
@@ -499,6 +512,17 @@ begin
     k := p_source || ':' || p_id || ':' || n;
     if p_source = 'expense' then
       ln := public.gl_lines_expense(p_id);
+      -- its supplier changed after it was paid: what was paid (on the old supplier's account) moves to the new one in the same
+      -- entry, so each supplier's balance is right (and a later reversal of this entry moves it back)
+      sup := public.gl_supplier_account(b, e.supplier_dealer, e.supplier_name);
+      for mv in select gl.account_id, sum(case gl.side when 'D' then gl.amount else -gl.amount end) as v
+                  from public.gl_lines gl join public.gl_transactions gt on gt.id = gl.transaction_id join public.gl_accounts ga on ga.id = gl.account_id
+                 where gt.source_kind = 'expense_payment' and gt.source_id in (select x.id from public.payments x where x.expense_id = p_id)
+                   and ga.role like 'supplier:%' and gl.account_id <> sup
+                 group by gl.account_id having sum(case gl.side when 'D' then gl.amount else -gl.amount end) <> 0 order by gl.account_id loop
+        ln := ln || public.gl_ln(sup, 'D', mv.v, e.doc_date, left('E' || e.expense_number, 10))
+                 || public.gl_ln(mv.account_id, 'C', mv.v, e.doc_date, left('E' || e.expense_number, 10));
+      end loop;
       return public.gl_write(b, 'expense', p_id, k, public.gl_open_date(b, e.doc_date), ln,
         case when e.supplier_doc_type = 'credit' then 'זיכוי ספק ' else 'הוצאה ' end || e.expense_number || ' — ' || btrim(e.supplier_name),
         coalesce(e.location_id, b), usr, null, want, null, nullif(btrim(e.supplier_doc_number), ''), null, e.expense_number::text);
@@ -521,17 +545,15 @@ begin
     if p.paid_on < bk.start_date then return null; end if;
     select * into e from public.expenses where id = p.expense_id;
     if p.source = 'reversal' then
-      -- a void's money back: the reversing entry of the payment it reverses (of before the start — nothing to reverse; of the books'
-      -- time and not posted yet — wait for it)
+      -- a void's money back: the reversing entry of the payment it reverses; of the books' time and not posted yet — wait for it; of
+      -- before the start (not in the books) — the money back posts by its own day, money / the supplier (as 7100's document payments)
       select * into o from public.payments x where x.expense_id = p.expense_id and x.source = 'expense' and x.direction <> p.direction
        order by x.created_at, x.id limit 1;
       if o.id is not null then
         select * into ot from public.gl_transactions where idempotency_key = 'expense_payment:' || o.id;
         if ot.id is null then
           if o.paid_on >= bk.start_date then raise exception 'gl_wait: the expense''s payment is not posted yet' using errcode = '55000'; end if;
-          return null;
-        end if;
-        if not exists (select 1 from public.gl_transactions r where r.reverses = ot.id) then
+        elsif not exists (select 1 from public.gl_transactions r where r.reverses = ot.id) then
           return public.gl_write_reversal(ot.id, 'expense_payment', k, public.gl_open_date(b, p.paid_on),
                                           'ביטול תשלום — הוצאה ' || e.expense_number, coalesce(p.user_id, auth.uid()), null, p_id);
         end if;
@@ -672,17 +694,15 @@ select s.business_id, s.source_kind, s.source_id, s.source_date, s.label,
            coalesce(st.tx_date, e.doc_date), e.updated_at, 6, e.expense_number
       from public.expenses e
       join public.gl_books bk on bk.business_id = e.business_id
+       and (e.doc_date >= bk.start_date or exists (select 1 from public.gl_transactions t0 where t0.source_kind = 'expense' and t0.source_id = e.id))
       left join lateral (select t.tx_date, t.source_hash from public.gl_transactions t
                           where t.source_kind = 'expense' and t.source_id = e.id and t.reverses is null
                             and not exists (select 1 from public.gl_transactions r where r.reverses = t.id)
                           order by t.number desc limit 1) st on true
      where (case when e.doc_date >= bk.start_date then public.gl_expense_hash(e) end) is distinct from st.source_hash
     union all
-    -- 7200: an expense's money (paid, money back, a void's reversal — of a payment of the books' time)
-    select p.business_id, 'expense_payment', p.id, p.paid_on, 'תשלום הוצאה',
-           case when p.source = 'reversal' then coalesce((select min(o.paid_on) from public.payments o where o.expense_id = p.expense_id and o.source = 'expense'), p.paid_on)
-                else p.paid_on end,
-           p.created_at, 7, 0::bigint
+    -- 7200: an expense's money (paid, money back, a void's reversal — each by its own day)
+    select p.business_id, 'expense_payment', p.id, p.paid_on, 'תשלום הוצאה', p.paid_on, p.created_at, 7, 0::bigint
       from public.payments p where p.expense_id is not null and p.source in ('expense', 'reversal')
     union all
     -- 7200: a register's day with a difference
@@ -690,6 +710,7 @@ select s.business_id, s.source_kind, s.source_id, s.source_date, s.label,
            coalesce(st.tx_date, public.gl_shift_date(s2)), coalesce(s2.closed_at, s2.opened_at), 8, 0::bigint
       from public.register_shifts s2
       join public.gl_books bk on bk.business_id = s2.business_id
+       and (public.gl_shift_date(s2) >= bk.start_date or exists (select 1 from public.gl_transactions t0 where t0.source_kind = 'shift' and t0.source_id = s2.id))
       left join lateral (select t.tx_date, t.source_hash from public.gl_transactions t
                           where t.source_kind = 'shift' and t.source_id = s2.id and t.reverses is null
                             and not exists (select 1 from public.gl_transactions r where r.reverses = t.id)
@@ -829,13 +850,13 @@ begin
   return jsonb_build_object('id', t.id, 'number', t.number, 'date', d, 'reverses', o.number, 'created', true);
 end $$;
 
--- answer 17: a bank line handled without a document → an account (the owner). Posted at commit (zz_gl_post on this table):
+-- answer 17: a bank line handled without a document → an account (whoever handles the bank — bank_guard(true), as
+-- bank_line_handle; the owner's decision, 27.11.2026). Posted at commit (zz_gl_post on this table):
 -- money in — BANK / the account; out — the account / BANK. Opened again by bank_line_reopen (its entry reversed)
 create or replace function public.bank_line_classify(p_line uuid, p_account text, p_note text) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare b uuid := public.bank_guard(true); l record; a public.gl_accounts; c uuid; v_note text := btrim(coalesce(p_note, ''));
 begin
-  if not public.journal_writer() then raise exception 'books_not_allowed: רק הבעלים רושמים שורת בנק לחשבון' using errcode = '42501'; end if;
   select * into l from public.bank_lines where id = p_line for update;
   if l.id is null or l.business_id <> b then raise exception 'not allowed' using errcode = '42501'; end if;
   if l.status <> 'open' then raise exception 'bank_line_closed: the line is already matched or handled' using errcode = '23514'; end if;
@@ -854,6 +875,13 @@ begin
   return jsonb_build_object('line', l.id, 'status', 'handled', 'account', a.key, 'id', c, 'posts', public.gl_books_active(b, l.line_date));
 end $$;
 
+-- a key of the system's own accounts — never the owner's: the default chart's, 2150 and a location's cash / cheques (1100-n /
+-- 1150-n)
+create or replace function public.gl_key_system(p_key text) returns boolean
+language sql stable set search_path = public, pg_temp as $$
+  select p_key in (select c.key from public.gl_chart_default(null) c) or p_key = '2150' or p_key ~ '^(1100|1150)-[0-9]{1,2}$'
+$$;
+
 -- the chart (the owner): an account the owner adds — a key of four digits ("-n" allowed: the form of the system's keys, which a
 -- customer's key never has — gl_customer_key gives such a one "C-"), a name, a kind; its trial-balance code / name (default:
 -- its key / its name); a parent that exists
@@ -863,9 +891,10 @@ returns jsonb language plpgsql security definer set search_path = public, pg_tem
 declare b uuid := public.gl_owner_guard(); k text := btrim(coalesce(p_key, '')); nm text := btrim(coalesce(p_name, ''));
   tc text := btrim(coalesce(p_tb_code, '')); tn text := btrim(coalesce(p_tb_name, '')); pk text := nullif(btrim(coalesce(p_parent_key, '')), ''); a uuid;
 begin
-  perform public.gl_chart_ready(b);
+  perform public.gl_books_lock(b);   -- after the guard's finance_log lock; the chart is there
   if k !~ '^[0-9]{4}(-[0-9]{1,2})?$' then
     raise exception 'account_key: מפתח חשבון — 4 ספרות (אפשר גם "-" ועוד ספרה או שתיים)' using errcode = '22023'; end if;
+  if public.gl_key_system(k) then raise exception 'account_reserved: המפתח % שמור לחשבון של המערכת', k using errcode = '23505'; end if;
   if exists (select 1 from public.gl_accounts x where x.business_id = b and x.key = k) then
     raise exception 'account_exists: כבר יש חשבון עם המפתח %', k using errcode = '23505'; end if;
   if length(nm) < 1 or length(nm) > 50 then raise exception 'account_name: שם החשבון — עד 50 תווים' using errcode = '22023'; end if;
@@ -876,6 +905,9 @@ begin
   if length(tc) > 15 or length(tn) > 30 then raise exception 'account_tb: קוד מאזן בוחן — עד 15 תווים, ושמו — עד 30' using errcode = '22023'; end if;
   if pk is not null and not exists (select 1 from public.gl_accounts x where x.business_id = b and x.key = pk) then
     raise exception 'account_parent: חשבון האב % לא נמצא', pk using errcode = '22023'; end if;
+  -- under a parent of the same kind; never under the customers (1300) or the suppliers (2100) — those are the system's
+  if pk is not null and (pk in ('1300', '2100') or not exists (select 1 from public.gl_accounts x where x.business_id = b and x.key = pk and x.kind = p_kind)) then
+    raise exception 'account_parent: חשבון אב מאותו סוג, ולא לקוחות (1300) או ספקים (2100)' using errcode = '22023'; end if;
   insert into public.gl_accounts (business_id, key, name, kind, tb_code, tb_name, parent_key)
   values (b, k, nm, p_kind, tc, tn, pk) returning id into a;
   perform public.finance_log(b, 'books.account_added', 'gl_accounts', a::text,
@@ -890,6 +922,7 @@ create or replace function public.gl_account_update(p_key text, p_name text defa
 returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
 declare b uuid := public.gl_owner_guard(); a public.gl_accounts; nm text; tc text; tn text; nk text;
 begin
+  perform public.gl_books_lock(b);   -- after the guard's finance_log lock
   select * into a from public.gl_accounts where business_id = b and key = btrim(coalesce(p_key, '')) for update;
   if a.id is null then raise exception 'account_missing: החשבון % לא נמצא', p_key using errcode = '22023'; end if;
   nm := coalesce(nullif(btrim(coalesce(p_name, '')), ''), a.name);
@@ -906,6 +939,7 @@ begin
       raise exception 'account_key_fixed: יש חשבונות תחת החשבון הזה' using errcode = '23514'; end if;
     if nk !~ '^[0-9]{4}(-[0-9]{1,2})?$' then
       raise exception 'account_key: מפתח חשבון — 4 ספרות (אפשר גם "-" ועוד ספרה או שתיים)' using errcode = '22023'; end if;
+    if public.gl_key_system(nk) then raise exception 'account_reserved: המפתח % שמור לחשבון של המערכת', nk using errcode = '23505'; end if;
     if exists (select 1 from public.gl_accounts x where x.business_id = b and x.key = nk) then
       raise exception 'account_exists: כבר יש חשבון עם המפתח %', nk using errcode = '23505'; end if;
   end if;
@@ -922,6 +956,7 @@ create or replace function public.gl_account_set_active(p_key text, p_active boo
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare b uuid := public.gl_owner_guard(); a public.gl_accounts; bal numeric;
 begin
+  perform public.gl_books_lock(b);   -- after the guard's finance_log lock
   select * into a from public.gl_accounts where business_id = b and key = btrim(coalesce(p_key, '')) for update;
   if a.id is null then raise exception 'account_missing: החשבון % לא נמצא', p_key using errcode = '22023'; end if;
   if p_active is null then raise exception 'account_active: פעיל או לא' using errcode = '22023'; end if;
@@ -949,15 +984,18 @@ language plpgsql security invoker set search_path = public, pg_temp as $$
 declare b uuid := public.report_business(p_from, p_to); res jsonb;
 begin
   with x as (
-    select a.key, a.name, a.kind, a.tb_code, a.tb_name, a.parent_key,
+    -- an account the person may not see (another location's cash / cheques, in an entry of a location the person sees — never
+    -- expected) is still a line of the entry: shown without its name, so the trial balance always balances
+    select coalesce(a.key, '?') as key, coalesce(a.name, 'חשבון של סניף אחר') as name, coalesce(a.kind, 'asset') as kind,
+           coalesce(a.tb_code, '?') as tb_code, coalesce(a.tb_name, 'חשבון של סניף אחר') as tb_name, a.parent_key,
            coalesce(sum(case when t.tx_date < p_from then case l.side when 'D' then l.amount else -l.amount end end), 0) as opening,
            coalesce(sum(l.amount) filter (where l.side = 'D' and t.tx_date >= p_from), 0) as debit,
            coalesce(sum(l.amount) filter (where l.side = 'C' and t.tx_date >= p_from), 0) as credit
       from public.gl_lines l
       join public.gl_transactions t on t.id = l.transaction_id
-      join public.gl_accounts a on a.id = l.account_id
+      left join public.gl_accounts a on a.id = l.account_id
      where l.business_id = b and t.tx_date <= p_to
-     group by a.id, a.key, a.name, a.kind, a.tb_code, a.tb_name, a.parent_key
+     group by l.account_id, a.key, a.name, a.kind, a.tb_code, a.tb_name, a.parent_key
   ), g as (
     select tb_code, (array_agg(tb_name order by key))[1] as tb_name, sum(opening) as opening, sum(debit) as debit, sum(credit) as credit, count(*) as n
       from x group by tb_code
@@ -1019,18 +1057,19 @@ begin
     select x.* from public.gl_transactions x where x.business_id = b and x.tx_date between p_from and p_to
   ), e as (
     select t.*, (select y.id from public.gl_transactions y where y.reverses = t.id) as reversed_by,
-           (select jsonb_agg(jsonb_build_object('lineNo', l.line_no, 'account', a.key, 'accountName', a.name, 'side', l.side, 'amount', l.amount,
-                                                'valueDate', l.value_date, 'match1', l.match1, 'match2', l.match2) order by l.line_no)
-              from public.gl_lines l join public.gl_accounts a on a.id = l.account_id where l.transaction_id = t.id) as lines,
-           (select coalesce(sum(l.amount) filter (where l.side = 'D'), 0) from public.gl_lines l where l.transaction_id = t.id) as debit
+           (select jsonb_agg(jsonb_build_object('lineNo', l.line_no, 'account', coalesce(a.key, '?'), 'accountName', coalesce(a.name, 'חשבון של סניף אחר'),
+                                                'side', l.side, 'amount', l.amount, 'valueDate', l.value_date, 'match1', l.match1, 'match2', l.match2) order by l.line_no)
+              from public.gl_lines l left join public.gl_accounts a on a.id = l.account_id where l.transaction_id = t.id) as lines,
+           (select coalesce(sum(l.amount) filter (where l.side = 'D'), 0) from public.gl_lines l where l.transaction_id = t.id) as debit,
+           (select coalesce(sum(l.amount) filter (where l.side = 'C'), 0) from public.gl_lines l where l.transaction_id = t.id) as credit
       from t
   )
   select jsonb_build_object('from', p_from, 'to', p_to, 'count', (select count(*) from e), 'debit', coalesce((select sum(debit) from e), 0),
-    'credit', coalesce((select sum(debit) from e), 0),
+    'credit', coalesce((select sum(credit) from e), 0),
     'entries', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'number', number, 'date', tx_date, 'valueDate', value_date, 'enteredOn', entered_on,
                  'sourceKind', source_kind, 'sourceId', source_id, 'details', details, 'reverses', reverses, 'reversedBy', reversed_by,
                  'ref1Type', ref1_type, 'ref1Number', ref1_number, 'ref2Type', ref2_type, 'ref2Number', ref2_number,
-                 'locationId', location_id, 'debit', debit, 'lines', coalesce(lines, '[]'::jsonb)) order by tx_date, number) from e), '[]'::jsonb))
+                 'locationId', location_id, 'debit', debit, 'credit', credit, 'lines', coalesce(lines, '[]'::jsonb)) order by tx_date, number) from e), '[]'::jsonb))
     into res;
   return res;
 end $$;
@@ -1076,12 +1115,13 @@ language plpgsql security invoker set search_path = public, pg_temp as $$
 declare b uuid := public.report_business(p_as_of, p_as_of); res jsonb;
 begin
   with x as (
-    select a.kind, coalesce(pa.key, a.key) as key, coalesce(pa.name, a.name) as name, coalesce(pa.tb_code, a.tb_code) as tb_code,
-           coalesce(pa.tb_name, a.tb_name) as tb_name,
-           sum(case when (l.side = 'D') = (a.kind in ('asset', 'expense')) then l.amount else -l.amount end) as amount
+    -- an account the person may not see — only another location's cash / cheques can be one: an asset, without its name
+    select coalesce(a.kind, 'asset') as kind, coalesce(pa.key, a.key, '?') as key, coalesce(pa.name, a.name, 'חשבון של סניף אחר') as name,
+           coalesce(pa.tb_code, a.tb_code, '?') as tb_code, coalesce(pa.tb_name, a.tb_name, 'חשבון של סניף אחר') as tb_name,
+           sum(case when (l.side = 'D') = (coalesce(a.kind, 'asset') in ('asset', 'expense')) then l.amount else -l.amount end) as amount
       from public.gl_lines l
       join public.gl_transactions t on t.id = l.transaction_id
-      join public.gl_accounts a on a.id = l.account_id
+      left join public.gl_accounts a on a.id = l.account_id
       left join public.gl_accounts pa on pa.business_id = a.business_id and pa.key = a.parent_key
      where l.business_id = b and t.tx_date <= p_as_of
      group by 1, 2, 3, 4, 5
@@ -1203,9 +1243,9 @@ begin
   end if;
   if p_date is null or p_date > public.il_today() or p_date < date '2000-01-01' then
     raise exception 'journal_date: an entry is dated today or before' using errcode = '22023'; end if;
-  -- 7200 (the owner's answer 15, 27.11.2026): from the books' start an entry is a double one (gl_manual_create); the one-sided
-  -- entries of before it stay as they are, read-only
-  if p_date >= (public.gl_books_ensure(b)).start_date then
+  -- 7200 (the owner's answer 15, 27.11.2026): from the books' start an entry is a double one (gl_manual_create); once the books
+  -- have started, the one-sided entries are read-only — no new one, whatever its date
+  if public.il_today() >= (public.gl_books_ensure(b)).start_date or p_date >= (public.gl_books_ensure(b)).start_date then
     raise exception 'journal_books_started: מתאריך תחילת הספרים (%) פקודה ידנית נרשמת רק כפקודה כפולה (חובה וזכות)', (public.gl_books_ensure(b)).start_date
       using errcode = '23514'; end if;
   lock_end := public.finance_locked_until(b);
@@ -1288,8 +1328,8 @@ begin
   if exists (select 1 from public.journal_entries x where x.reverses = o.id) then
     raise exception 'journal_reversed: the entry was already reversed' using errcode = '23514'; end if;
   if d > public.il_today() or d < o.entry_date then raise exception 'journal_date: a reversal is dated on or after its entry, today or before' using errcode = '22023'; end if;
-  -- 7200 (answer 15): a one-sided entry is reversed only before the books' start (from it — a double entry, gl_manual_create)
-  if d >= (public.gl_books_ensure(b)).start_date then
+  -- 7200 (answer 15): a one-sided entry is reversed only while the books have not started (then — a double entry, gl_manual_create)
+  if public.il_today() >= (public.gl_books_ensure(b)).start_date or d >= (public.gl_books_ensure(b)).start_date then
     raise exception 'journal_books_started: מתאריך תחילת הספרים (%) פקודה ידנית נרשמת רק כפקודה כפולה (חובה וזכות)', (public.gl_books_ensure(b)).start_date
       using errcode = '23514'; end if;
   lock_end := public.finance_locked_until(b);
@@ -1330,7 +1370,7 @@ begin
   return jsonb_build_object('line', l.id, 'status', 'handled');
 end $function$;
 
--- replaces bank_line_reopen() of 20261011005000 — a line posted to an account: the owner; its entry reversed
+-- replaces bank_line_reopen() of 20261011005000 — a line posted to an account: its entry reversed
 CREATE OR REPLACE FUNCTION public.bank_line_reopen(p_line uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -1342,11 +1382,9 @@ begin
   select * into l from public.bank_lines where id = p_line for update;
   if l.id is null or l.business_id <> b then raise exception 'not allowed' using errcode = '42501'; end if;
   if l.status <> 'handled' then raise exception 'bank_line_not_handled: the line is not marked handled' using errcode = '23514'; end if;
-  -- 7200 (answer 17): a line posted to an account (bank_line_classify) is opened again by the owner only; its entry is reversed
-  -- (at commit — zz_gl_post_undo on gl_bank_line_accounts)
+  -- 7200 (answer 17): a line posted to an account (bank_line_classify) — its entry is reversed (at commit — zz_gl_post_more_undo
+  -- on gl_bank_line_accounts)
   if exists (select 1 from public.gl_bank_line_accounts c where c.bank_line_id = l.id and c.active) then
-    if not public.journal_writer() then
-      raise exception 'not allowed: שורה שנרשמה לחשבון נפתחת מחדש רק על ידי הבעלים' using errcode = '42501'; end if;
     update public.gl_bank_line_accounts set active = false, undone_at = now(), undone_by = auth.uid() where bank_line_id = l.id and active;
   end if;
   update public.bank_lines set status = 'open', note = '', handled_by = null, handled_at = null where id = l.id;
@@ -1368,11 +1406,13 @@ revoke execute on function public.gl_bank_line_accounts_guard(), public.gl_accou
   public.gl_write(uuid, text, uuid, text, date, public.gl_line_in[], text, uuid, uuid, uuid, text, int, text, int, text, uuid),
   public.gl_write_reversal(uuid, text, text, date, text, uuid, uuid, uuid), public.gl_standing(text, uuid),
   public.gl_lines_expense(uuid), public.gl_lines_shift(uuid), public.gl_source_more(text, uuid), public.gl_post_more(text, uuid),
-  public.gl_post_safe(text, uuid), public.gl_on_more(), public.gl_owner_guard(), public.gl_chart_ready(uuid) from public, anon, authenticated;
+  public.gl_post_safe(text, uuid), public.gl_on_more(), public.gl_owner_guard(), public.gl_chart_ready(uuid), public.gl_key_system(text) from public, anon, authenticated;
 -- the triggers' WHEN and the view gl_unposted run as whoever writes / reads: a fingerprint of a row, a day
-revoke execute on function public.gl_expense_hash(public.expenses), public.gl_shift_hash(public.register_shifts), public.gl_shift_date(public.register_shifts)
+revoke execute on function public.gl_expense_hash(public.expenses), public.gl_shift_hash(public.register_shifts), public.gl_shift_date(public.register_shifts),
+  public.gl_supplier_role(text, text)
   from public, anon;
-grant execute on function public.gl_expense_hash(public.expenses), public.gl_shift_hash(public.register_shifts), public.gl_shift_date(public.register_shifts)
+grant execute on function public.gl_expense_hash(public.expenses), public.gl_shift_hash(public.register_shifts), public.gl_shift_date(public.register_shifts),
+  public.gl_supplier_role(text, text)
   to authenticated, service_role;
 revoke execute on function public.gl_manual_create(uuid, date, text, jsonb, uuid), public.gl_manual_reverse(uuid, uuid, date, text),
   public.bank_line_classify(uuid, text, text), public.gl_account_add(text, text, text, text, text, text),
@@ -1463,7 +1503,7 @@ end $$;
 --         gl_write(uuid, text, uuid, text, date, gl_line_in[], text, uuid, uuid, uuid, text, int, text, int, text, uuid), gl_books_lock(uuid),
 --         gl_business_vat(uuid), gl_open_date(uuid, date), gl_shift_hash(register_shifts), gl_shift_date(register_shifts),
 --         gl_expense_hash(expenses), gl_payment_money_account(payments), gl_expense_money_account(uuid, text, uuid),
---         gl_supplier_account(uuid, text, text), gl_system_account(uuid, text, text, text, text, text, text);
+--         gl_supplier_account(uuid, text, text), gl_supplier_role(text, text), gl_key_system(text), gl_system_account(uuid, text, text, text, text, text, text);
 --       drop trigger gl_accounts_guard on gl_accounts; drop function gl_accounts_guard();
 --       drop table gl_bank_line_accounts; drop function gl_bank_line_accounts_guard();
 --       alter table gl_transactions drop constraint gl_transactions_source_kind_check, add constraint gl_transactions_source_kind_check

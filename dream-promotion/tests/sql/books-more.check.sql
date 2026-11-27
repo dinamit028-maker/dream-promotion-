@@ -383,9 +383,12 @@ select pg_temp.refused_with($$select public.bank_line_handle(pg_temp.line('עמ�
 select pg_temp.refused_with($$select public.bank_line_classify(pg_temp.line('עמלת ניהול חשבון'), 'BANK', 'עמלה')$$, 'bank_class_account', 'not to BANK itself');
 select pg_temp.refused_with($$select public.bank_line_classify(pg_temp.line('עמלת ניהול חשבון'), '7777', 'עמלה')$$, 'bank_class_account', 'an account of the chart');
 select public.bank_line_handle(pg_temp.line('עמלה ישנה'), 'עמלה מלפני הספרים');
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a2');
+select pg_temp.refused_with($$select public.bank_line_classify(pg_temp.line('עמלת ניהול חשבון'), '6112', 'עמלה')$$, 'not allowed', 'never a cashier');
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a3');
+select pg_temp.refused_with($$select public.bank_line_classify(pg_temp.line('עמלת ניהול חשבון'), '6112', 'עמלה')$$, 'not allowed', 'the bank is the whole business''s');
+-- whoever handles the bank (the owner's decision): an editor
 select pg_temp.as_user('00000000-0000-0000-0000-0000007200a6');
-select pg_temp.refused_with($$select public.bank_line_classify(pg_temp.line('עמלת ניהול חשבון'), '6112', 'עמלה')$$, 'books_not_allowed', 'an editor does not post a line');
-select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
 insert into out72 select 'classify', public.bank_line_classify(pg_temp.line('עמלת ניהול חשבון'), '6112', 'עמלת ניהול חשבון');
 commit;
 create or replace function pg_temp.ctx(p_desc text) returns public.gl_transactions language sql as $$
@@ -400,15 +403,13 @@ select pg_temp.check(pg_temp.lines((pg_temp.ctx('עמלת ניהול חשבון'
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007200a6');
-select pg_temp.refused_with($$select public.bank_line_reopen(pg_temp.line('עמלת ניהול חשבון'))$$, 'not allowed', 'an editor does not open a posted line again');
 select public.bank_line_reopen(pg_temp.line('עמלה ישנה'));
-select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
 select public.bank_line_reopen(pg_temp.line('עמלת ניהול חשבון'));
 commit;
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007200b1', '6112') = 0
   and (select status from public.bank_lines where id = pg_temp.line('עמלת ניהול חשבון')) = 'open'
   and not exists (select 1 from public.gl_bank_line_accounts c where c.bank_line_id = pg_temp.line('עמלת ניהול חשבון') and c.active),
-  'opened again by the owner: reversed, the line open (a note-only line — any writer, as before)');
+  'opened again (by whoever handles the bank): reversed, the line open');
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
@@ -499,8 +500,10 @@ select pg_temp.refused_with($$select public.journal_entry_create(gen_random_uuid
   'journal_books_started', 'a one-sided entry from the start — refused');
 select pg_temp.refused_with($$select public.journal_entry_reverse(gen_random_uuid(), '00000000-0000-0000-0000-0000007200f2', public.il_today(), 'ביטול')$$,
   'journal_books_started', 'nor a reversal dated from the start');
-select pg_temp.check((public.journal_entry_reverse(gen_random_uuid(), '00000000-0000-0000-0000-0000007200f2', date_trunc('month', public.il_today())::date - 1, 'ביטול')->>'created')::boolean,
-  'an old entry reversed before the start — as before');
+select pg_temp.refused_with($$select public.journal_entry_reverse(gen_random_uuid(), '00000000-0000-0000-0000-0000007200f2', date_trunc('month', public.il_today())::date - 1, 'ביטול')$$,
+  'journal_books_started', 'once the books started — read-only, whatever the date');
+select pg_temp.refused_with($$select public.journal_entry_create(gen_random_uuid(), date_trunc('month', public.il_today())::date - 1, 'other', 5, 0, null, null, 'לפני')$$,
+  'journal_books_started', 'nor a new one dated before the start');
 select pg_temp.as_user('00000000-0000-0000-0000-0000007200a5');
 select pg_temp.check((public.journal_entry_create(gen_random_uuid(), public.il_today(), 'other', 5, 0, null, null, 'לפני הספרים')->>'created')::boolean,
   'a business whose books have not started — as before');
@@ -517,6 +520,13 @@ select pg_temp.refused_with($$select public.gl_account_add('050-0000072', 'x', '
 select pg_temp.refused_with($$select public.gl_account_add('4300', 'x', 'income')$$, 'account_exists', 'a key once');
 select pg_temp.refused_with($$select public.gl_account_add('4301', 'x', 'income', null, null, '9999')$$, 'account_parent', 'a parent that exists');
 select pg_temp.refused_with($$select public.gl_account_add('4302', 'x', 'other')$$, 'account_kind', 'a kind');
+select pg_temp.refused_with($$select public.gl_account_add('2150', 'x', 'liability')$$, 'account_reserved', '2150 is the system''s');
+select pg_temp.refused_with($$select public.gl_account_add('1100-5', 'x', 'asset')$$, 'account_reserved', 'a location''s cash key is the system''s');
+select pg_temp.refused_with($$select public.gl_account_add('6101', 'x', 'expense')$$, 'account_reserved', 'the default chart''s keys');
+select pg_temp.refused_with($$select public.gl_account_add('1301', 'x', 'asset', null, null, '1300')$$, 'account_parent', 'never under the customers');
+select pg_temp.refused_with($$select public.gl_account_add('2101', 'x', 'liability', null, null, '2100')$$, 'account_parent', 'nor the suppliers');
+select pg_temp.refused_with($$select public.gl_account_add('4303', 'x', 'expense', null, null, '4300')$$, 'account_parent', 'a parent of the same kind');
+select public.gl_account_add('4304', 'ריבית — משנה', 'income', null, null, '4300');
 select public.bank_line_classify(pg_temp.line('ריבית זכות'), '4300', 'ריבית');
 select public.gl_account_update('4300', 'ריבית מהבנק', null, 'הכנסות אחרות');
 select public.gl_account_update('6118', null, null, null, '6119');
@@ -544,10 +554,67 @@ select pg_temp.refused_with($$update public.gl_accounts set key = '4398' where b
   'account_key_fixed', 'the key of an account with movements — not even directly');
 select pg_temp.refused_with($$update public.gl_accounts set role = 'bank' where business_id = '00000000-0000-0000-0000-0000007200b1' and key = '6119'$$,
   'account_fixed', 'nor its role');
-select pg_temp.check((select count(*) from public.finance_audit_log where business_id = '00000000-0000-0000-0000-0000007200b1' and action like 'books.account%') = 6
+select pg_temp.check((select count(*) from public.finance_audit_log where business_id = '00000000-0000-0000-0000-0000007200b1' and action like 'books.account%') = 7
   and (select count(*) from public.finance_audit_log where business_id = '00000000-0000-0000-0000-0000007200b1' and action in ('books.manual', 'books.manual_reversed')) = 2
   and (select count(*) from public.finance_audit_log where business_id = '00000000-0000-0000-0000-0000007200b1' and action = 'bank.classified') = 3,
   'every change of the chart, every manual entry and every bank line posted — in the audit log');
+
+-- ---- a paid expense whose supplier changes: what was paid moves with it ------------------------------------------------------
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+select pg_temp.exp('00000000-0000-0000-0000-0000007200ec', '00000000-0000-0000-0000-0000007200a1', 'ספק ישן לדוגמה', null, 100, 18, 100, 'office', 'transfer');
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+update public.expenses set supplier_name = 'ספק חדש לדוגמה' where id = '00000000-0000-0000-0000-0000007200ec';
+commit;
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-ספקישןלדוגמה') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-ספקחדשלדוגמה') = 0
+  and pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200ec')).id)
+      = '6110 D 100.00, 1400 D 18.00, S-ספקחדשלדוגמה C 118.00, S-ספקחדשלדוגמה D 118.00, S-ספקישןלדוגמה C 118.00',
+  'the supplier changed after it was paid: the payment moves to the new supplier — both at 0');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+update public.expenses set supplier_name = 'ספק ישן לדוגמה' where id = '00000000-0000-0000-0000-0000007200ec';
+commit;
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-ספקישןלדוגמה') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-ספקחדשלדוגמה') = 0
+  and pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200ec')).id) = '6110 D 100.00, 1400 D 18.00, S-ספקישןלדוגמה C 118.00',
+  'and back: nothing left to move');
+-- a supplier's identity: a long name — by its md5 (the role fits); names with no Hebrew / Latin letter — never merged
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+select pg_temp.exp('00000000-0000-0000-0000-0000007200ed', '00000000-0000-0000-0000-0000007200a1', repeat('ספקארוך', 15), null, 10, 0, 100, 'office', null, 'confirmed', 'receipt');
+select pg_temp.exp('00000000-0000-0000-0000-0000007200ee', '00000000-0000-0000-0000-0000007200a1', 'Поставщик', null, 10, 0, 100, 'office', null, 'confirmed', 'receipt');
+select pg_temp.exp('00000000-0000-0000-0000-0000007200ef', '00000000-0000-0000-0000-0000007200a1', 'Другой', null, 10, 0, 100, 'office', null, 'confirmed', 'receipt');
+commit;
+select pg_temp.check((select role ~ '^supplier:h:[0-9a-f]{32}$' and length(role) <= 80 and key = 'S-' || left(repeat('ספקארוך', 2), 13)
+                        from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000007200b1' and name = left(repeat('ספקארוך', 15), 50))
+  and (select count(distinct a.id) from public.gl_lines l join public.gl_accounts a on a.id = l.account_id
+        where l.transaction_id in ((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200ee')).id, (pg_temp.st('expense', '00000000-0000-0000-0000-0000007200ef')).id)
+          and a.role like 'supplier:r:%') = 2,
+  'a long name: by its md5 (80 at most); two names that normalize to nothing — two suppliers');
+-- a system account's key taken (never expected — gl_account_add refuses it): the posting fails and is listed, never into suspense
+begin;
+insert into public.gl_accounts (business_id, key, name, kind, tb_code, tb_name)
+values ('00000000-0000-0000-0000-0000007200b2', '2150', 'חשבון שתפס את 2150', 'liability', '2150', 'x');
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a4');
+select pg_temp.exp('00000000-0000-0000-0000-0000007200f7', '00000000-0000-0000-0000-0000007200a4', 'ספק לדוגמה', null, 10, 0, 100, 'office', 'cheque', 'confirmed', 'receipt');
+set constraints all immediate;
+reset role;
+select pg_temp.check((select error from public.gl_unposted where source_id = pg_temp.pay_of('00000000-0000-0000-0000-0000007200f7')) like '%gl_key_taken%'
+  and pg_temp.bal('00000000-0000-0000-0000-0000007200b2', '9100') = 0, '2150 taken: the payment is listed with gl_key_taken, nothing in suspense');
+rollback;
+-- an entry of L2 with a line on the main location's cash (an account a member of L2 does not see)
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+select public.gl_manual_create('00000000-0000-0000-0000-000000720103', public.il_today(), 'העברת מזומן בין סניפים',
+  '[{"account": "1100-1", "side": "D", "amount": 1}, {"account": "1100", "side": "C", "amount": 1}]', '00000000-0000-0000-0000-0000007200c2');
+commit;
 
 -- ---- the keys: a supplier's ("S-…") is never a customer's ------------------------------------------------------------------
 select pg_temp.check(public.gl_customer_key('', 'S-000000067') = 'C-S-000000067' and public.gl_customer_key('', 'S-ספקלדוגמה') = 'C-S-ספקלדוגמה'
@@ -607,7 +674,8 @@ select pg_temp.check((pg_temp.o('tb')->'total'->>'debit')::numeric = (pg_temp.o(
   and not exists (select 1 from jsonb_array_elements(pg_temp.o('tb')->'accounts') a where (a->>'closing')::numeric <> pg_temp.bal('00000000-0000-0000-0000-0000007200b1', a->>'key'))
   and jsonb_array_length(pg_temp.o('tb')->'accounts') = (select count(distinct l.account_id) from public.gl_lines l where l.business_id = '00000000-0000-0000-0000-0000007200b1')
   and (select sum((g->>'closing')::numeric) from jsonb_array_elements(pg_temp.o('tb')->'groups') g) = 0
-  and exists (select 1 from jsonb_array_elements(pg_temp.o('tb')->'groups') g where g->>'tbCode' = 'SUPPLIERS' and (g->>'accounts')::int = 4),
+  and exists (select 1 from jsonb_array_elements(pg_temp.o('tb')->'groups') g where g->>'tbCode' = 'SUPPLIERS'
+                and (g->>'accounts')::int = (select count(*) from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000007200b1' and parent_key = '2100')),
   'the trial balance: debit = credit, closing sums to 0, every account''s balance, by trial-balance code');
 select pg_temp.check((pg_temp.o('tb later')->'total'->>'debit')::numeric = 0
   and not exists (select 1 from jsonb_array_elements(pg_temp.o('tb later')->'accounts') a where (a->>'opening')::numeric <> (a->>'closing')::numeric),
@@ -620,6 +688,7 @@ select pg_temp.check((pg_temp.o('ledger cash')->>'closing')::numeric = pg_temp.b
   'the ledger: the running balance ends at the balance; 2100 — every supplier, with the references');
 select pg_temp.check((pg_temp.o('journal')->>'count')::int = pg_temp.n('00000000-0000-0000-0000-0000007200b1')
   and (pg_temp.o('journal')->>'debit')::numeric = (pg_temp.o('tb')->'total'->>'debit')::numeric
+  and (pg_temp.o('journal')->>'credit')::numeric = (pg_temp.o('tb')->'total'->>'credit')::numeric
   and (select bool_and((e->>'number')::int > 0 and jsonb_array_length(e->'lines') >= 2) from jsonb_array_elements(pg_temp.o('journal')->'entries') e)
   and exists (select 1 from jsonb_array_elements(pg_temp.o('journal')->'entries') e where e->>'id' = '00000000-0000-0000-0000-000000720101'
                 and e->>'reversedBy' = '00000000-0000-0000-0000-000000720102'),
@@ -642,10 +711,28 @@ select pg_temp.check((pg_temp.o('reconcile')->>'same')::boolean and pg_temp.o('r
   and (pg_temp.row(pg_temp.o('reconcile'), 'vat_input')->>'books')::numeric = (pg_temp.row(pg_temp.o('reconcile'), 'vat_input')->>'source')::numeric,
   format('gl_reconcile: the books = the existing reports, every row (%s)', pg_temp.o('reconcile')->'rows'));
 select pg_temp.check((pg_temp.o('tb L2')->'total'->>'debit')::numeric = (pg_temp.o('tb L2')->'total'->>'credit')::numeric
-  and (select count(*) from jsonb_array_elements(pg_temp.o('tb L2')->'accounts')) = 2
-  and exists (select 1 from jsonb_array_elements(pg_temp.o('tb L2')->'accounts') a where a->>'key' = '1100-1' and (a->>'closing')::numeric = 2),
-  'a member limited to L2: the books of L2 only (its day''s difference), balanced');
+  and (select count(*) from jsonb_array_elements(pg_temp.o('tb L2')->'accounts')) = 3
+  and exists (select 1 from jsonb_array_elements(pg_temp.o('tb L2')->'accounts') a where a->>'key' = '1100-1' and (a->>'closing')::numeric = 3)
+  and exists (select 1 from jsonb_array_elements(pg_temp.o('tb L2')->'accounts') a where a->>'key' = '?' and (a->>'closing')::numeric = -1),
+  'a member limited to L2: the books of L2 only, balanced — the main cash it does not see shown without its name');
 select pg_temp.check(jsonb_array_length(pg_temp.o('tb S')->'accounts') = 0, 'another business: nothing of L');
+
+-- an expense of before the start, paid then, voided now: the cash back posts by its own day (money / the supplier)
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+select pg_temp.exp('00000000-0000-0000-0000-0000007200f8', '00000000-0000-0000-0000-0000007200a1', 'ספק ישן לדוגמה', null, 20, 0, 100, 'office', 'cash', 'confirmed', 'receipt',
+                   date_trunc('month', public.il_today())::date - 5);
+commit;
+select pg_temp.check(pg_temp.st('expense', '00000000-0000-0000-0000-0000007200f8') is null or (pg_temp.st('expense', '00000000-0000-0000-0000-0000007200f8')).id is null,
+  'an expense of before the start: not in the books');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+update public.expenses set status = 'void', void_reason = 'בוטלה אחרי ההתחלה' where id = '00000000-0000-0000-0000-0000007200f8';
+commit;
+select pg_temp.check(pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200f8', 'reversal'))).id) = '1100 D 20.00, S-ספקישןלדוגמה C 20.00',
+  'voided after the start: the cash back posts (the cash / the supplier), by its day');
 
 -- the RLS of the new table; every entry balanced, numbered 1..n; nothing left unposted
 begin;
