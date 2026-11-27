@@ -16,6 +16,9 @@
 -- phones 050-00000NN; mails *.example.test.
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
+-- books-core.check.sql (which runs before this file) runs 7100 again over the database — that restores the old gl_post_safe, gl_unposted
+-- and gl_key_reserved: 7200 is run again here, as books-more.check.sql does
+\ir ../../supabase/migrations/20261129007200_books_more.sql
 
 create or replace function pg_temp.check(ok boolean, msg text) returns void language plpgsql as $$
 begin if ok is not true then raise exception 'CHECK FAILED: %', msg; end if; end $$;
@@ -209,7 +212,7 @@ insert into out98 select 'pl', public.report_profit_loss(date_trunc('month', pub
 insert into out98 select 'bs', public.report_balance_sheet(public.il_today());
 insert into out98 select 'fs', public.finance_summary(date_trunc('month', public.il_today())::date, public.il_today());
 insert into out98 select 'rec', public.gl_reconcile(date_trunc('month', public.il_today())::date, public.il_today());
-insert into out98 select 'tbs', (select jsonb_object_agg(a->>'key', (a->>'closing')::numeric) from jsonb_array_elements(public.report_trial_balance(date '2000-01-01', public.il_today() + 90)->'accounts') a);
+insert into out98 select 'tbs', (select jsonb_object_agg(a->>'key', (a->>'closing')::numeric) from jsonb_array_elements(public.report_trial_balance(date_trunc('month', public.il_today())::date, public.il_today() + 90)->'accounts') a);
 commit;
 select pg_temp.check((pg_temp.o('tb')#>>'{total,opening}')::numeric = 0 and (pg_temp.o('tb')#>>'{total,closing}')::numeric = 0 and (pg_temp.o('tb')#>>'{total,debit}')::numeric = (pg_temp.o('tb')#>>'{total,credit}')::numeric
   and (pg_temp.o('tb-day')#>>'{total,closing}')::numeric = 0 and (pg_temp.o('tb-next')#>>'{total,debit}')::numeric = 0 and (pg_temp.o('tb-next')#>>'{total,closing}')::numeric = 0,
