@@ -49,24 +49,31 @@ export async function loadBooksStart(): Promise<string | null> {
 }
 
 /**
- * the owner's "לרשום עכשיו": gl_replay(business, null, p_limit) of the current business, a few batches (REPLAY_BATCHES × limit);
- * what is still left after them is posted by the night's timer (replayPending). A database whose gl_replay takes no limit (the
- * first version of 7100): one call, all of it. The business is the one the person works in (the database checks it again —
- * finance_guard, journal_writer).
+ * "לרשום עכשיו" (the owner — retry: true, the owner asks explicitly: the sources that failed for good today are tried again) and
+ * the posting after a moved start (retry: false): gl_replay(business, null, p_limit, p_retry) of the current business, a few
+ * batches (REPLAY_BATCHES × limit); what is still left is posted by the night's timer (replayPending, retry false). A database
+ * with an older gl_replay (no p_retry, or no p_limit): the same call without them. The business is the one the person works in
+ * (the database checks it again — finance_guard, journal_writer).
  */
 export const REPLAY_LIMIT = 100;
 export const REPLAY_BATCHES = 3;
-export async function replayNow(business: string): Promise<{ ok: true; posted: number; failed: number; left: number | null } | { ok: false; error: string }> {
-  let posted = 0, failed = 0, left: number | null = null;
+export type ReplayResult = { ok: true; posted: number; failed: number; skipped: number; left: number | null } | { ok: false; error: string };
+export async function replayNow(business: string, o: { retry?: boolean } = {}): Promise<ReplayResult> {
+  let posted = 0, failed = 0, skipped = 0, left: number | null = null;
+  const tries = [
+    { p_business: business, p_from: null, p_limit: REPLAY_LIMIT, p_retry: o.retry === true },
+    { p_business: business, p_from: null, p_limit: REPLAY_LIMIT },
+    { p_business: business, p_from: null },
+  ];
   for (let i = 0; i < REPLAY_BATCHES; i++) {
-    let r = await supabase().rpc('gl_replay', { p_business: business, p_from: null, p_limit: REPLAY_LIMIT });
-    if (r.error && isFunctionMissing(r.error)) r = await supabase().rpc('gl_replay', { p_business: business, p_from: null });
-    if (r.error) return posted || failed ? { ok: true, posted, failed, left } : { ok: false, error: financeError(r.error) };
+    let r = await supabase().rpc('gl_replay', tries[0]);
+    for (let t = 1; r.error && isFunctionMissing(r.error) && t < tries.length; t++) r = await supabase().rpc('gl_replay', tries[t]);
+    if (r.error) return posted || failed || skipped ? { ok: true, posted, failed, skipped, left } : { ok: false, error: financeError(r.error) };
     const x = replayLeft(r.data);
-    posted += x.posted; failed += x.failed; left = x.left;
+    posted += x.posted; failed += x.failed; skipped += x.skipped; left = x.left;
     if (left === 0 || left == null || x.posted === 0) break;
   }
-  return { ok: true, posted, failed, left };
+  return { ok: true, posted, failed, skipped, left };
 }
 
 /** whether migration 7100 is in the database (gl_books_state answers — anything but "no such function"); asked once a page */

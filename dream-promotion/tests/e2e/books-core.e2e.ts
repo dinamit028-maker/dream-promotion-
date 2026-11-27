@@ -193,6 +193,7 @@ async function main() {
         await axe(page, `${view} books move confirm`);
         await confirm.getByRole('button', { name: `אישור — ${ddmm(monthStart)}` }).click();
         await page.getByText(`תחילת הספרים נשמרה: ${ddmm(monthStart)}. נרשמה פקודה אחת.`).waitFor();
+        assert.equal(fake.booksLastRetry, false, 'after a move: retry false (nothing failed yet; the night keeps it false too)');
         await c.getByText('כבר נרשמו פקודות בספרים — תאריך ההתחלה קבוע.').waitFor();
         await c.getByText(/פקודות שנרשמו:\s*1/).waitFor();
         await c.getByText('פעילים').waitFor();
@@ -261,6 +262,7 @@ async function main() {
       assert.equal(fake.booksPending, 50);
       await c.getByRole('button', { name: 'לרשום עכשיו' }).click();
       await page.getByText('נרשמו 50 פקודות.').waitFor();
+      assert.equal(fake.booksLastRetry, true, 'the owner\'s button asks with retry');
       await c.getByText(/ממתינים לרישום:\s*0/).first().waitFor();
       assert.equal(await c.getByRole('button', { name: 'לרשום עכשיו' }).count(), 0, 'nothing left — no button');
     } finally { await ctx.close(); }

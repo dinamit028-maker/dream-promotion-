@@ -193,11 +193,13 @@ test('the card: the suspense balance (9100) from the trial balance; gl_replay\'s
   assert.equal(suspenseOf([{ key: '1100', closing: 50 }, { key: '9100', closing: 12.3 }, { key: '9100', closing: 0.1 }]), 12.4);
   assert.equal(suspenseOf([{ key: '1100', closing: 50 }]), 0);
   assert.equal(suspenseOf(null), null);
-  assert.deepEqual(replayLeft({ posted: 3, failed: 1, left: 7 }), { posted: 3, failed: 1, left: 7 });
-  assert.deepEqual(replayLeft({ business: 'x', from: '2026-12-01', posted: 2, failed: 0 }), { posted: 2, failed: 0, left: null }, 'the first gl_replay — no "left"');
-  assert.deepEqual(replayLeft('x'), { posted: 0, failed: 0, left: null });
+  assert.deepEqual(replayLeft({ posted: 3, failed: 1, skipped: 2, left: 7 }), { posted: 3, failed: 1, skipped: 2, left: 7 });
+  assert.deepEqual(replayLeft({ business: 'x', from: '2026-12-01', posted: 2, failed: 0 }), { posted: 2, failed: 0, skipped: 0, left: null }, 'the first gl_replay — no "left"');
+  assert.deepEqual(replayLeft('x'), { posted: 0, failed: 0, skipped: 0, left: null });
   assert.equal(replayMessage({ posted: 1, failed: 0, left: 0 }), 'נרשמה פקודה אחת.');
   assert.equal(replayMessage({ posted: 300, failed: 0, left: 120 }), 'נרשמו 300 פקודות. עוד 120 יירשמו הלילה, לבד.');
+  assert.equal(replayMessage({ posted: 4, failed: 0, skipped: 3, left: 3 }), 'נרשמו 4 פקודות. 3 נכשלו היום ויטופלו מחר, או בלחיצה על "לרשום עכשיו".');
+  assert.equal(replayMessage({ posted: 4, failed: 0, skipped: 3, left: 10 }), 'נרשמו 4 פקודות. עוד 7 יירשמו הלילה, לבד. 3 נכשלו היום ויטופלו מחר, או בלחיצה על "לרשום עכשיו".');
   assert.equal(replayMessage({ posted: 0, failed: 2, left: 2 }), 'לא נרשם דבר חדש. עוד 2 יירשמו הלילה, לבד. 2 לא נרשמו גם הפעם — נשארים ב"ממתינים לרישום".');
 });
 

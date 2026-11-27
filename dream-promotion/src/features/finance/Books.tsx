@@ -57,7 +57,7 @@ export function BooksSettings({ say, fail, business }: { say: (m: string) => voi
   async function doReplay() {
     if (!business) return;
     setBusy(true);
-    const r = await replayNow(business);
+    const r = await replayNow(business, { retry: true });   // the owner asks: what failed today is tried again
     setBusy(false);
     if (!r.ok) { fail(r.error); return; }
     await reload();

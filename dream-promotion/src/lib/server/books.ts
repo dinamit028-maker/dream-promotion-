@@ -15,6 +15,7 @@ export async function replayPending(db: SupabaseClient, deadline: number, o: { l
   const clock = o.clock ?? Date.now, limit = o.limit ?? 200, maxCalls = o.maxCalls ?? 5;
   const r: ReplayReport = { ready: true, posted: 0, failed: 0, skipped: 0, left: null, calls: 0 };
   while (r.calls < maxCalls && clock() < deadline) {
+    // retry false (the database's default): a source that failed for good today waits for tomorrow or the owner's button
     const { data, error } = await db.rpc('gl_replay_pending', { p_limit: limit });
     r.calls++;
     if (error) {

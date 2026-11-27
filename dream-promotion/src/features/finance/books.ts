@@ -73,15 +73,18 @@ export function suspenseOf(rows: unknown): number | null {
   return a / 100;
 }
 const cnt = (v: unknown) => (Number.isSafeInteger(Number(v)) && Number(v) >= 0 ? Number(v) : 0);
-/** gl_replay's answer → what it posted, what failed, what is left (null — the database did not say: it posted all it could) */
-export function replayLeft(v: unknown): { posted: number; failed: number; left: number | null } {
+/** gl_replay's answer → what it posted, what failed, what it skipped (failed for good today — retry false), what is left (null —
+ *  the database did not say: it posted all it could) */
+export function replayLeft(v: unknown): { posted: number; failed: number; skipped: number; left: number | null } {
   const r = (v ?? {}) as Record<string, unknown>;
-  return { posted: cnt(r.posted), failed: cnt(r.failed), left: r.left == null ? null : cnt(r.left) };
+  return { posted: cnt(r.posted), failed: cnt(r.failed), skipped: cnt(r.skipped), left: r.left == null ? null : cnt(r.left) };
 }
-/** what the owner reads after "לרשום עכשיו" */
-export function replayMessage(r: { posted: number; failed: number; left: number | null }): string {
+/** what the owner reads after "לרשום עכשיו" (or after a moved start) */
+export function replayMessage(r: { posted: number; failed: number; skipped?: number; left: number | null }): string {
   const done = r.posted === 1 ? 'נרשמה פקודה אחת.' : r.posted ? `נרשמו ${r.posted} פקודות.` : 'לא נרשם דבר חדש.';
-  const rest = r.left ? ` עוד ${r.left} יירשמו הלילה, לבד.` : '';
+  const skippedN = r.skipped ?? 0;
+  const rest = r.left && r.left > skippedN ? ` עוד ${r.left - skippedN} יירשמו הלילה, לבד.` : '';
   const bad = r.failed ? ` ${r.failed} לא נרשמו גם הפעם — נשארים ב"ממתינים לרישום".` : '';
-  return done + rest + bad;
+  const skipped = skippedN ? ` ${skippedN} נכשלו היום ויטופלו מחר, או בלחיצה על "לרשום עכשיו".` : '';
+  return done + rest + bad + skipped;
 }
