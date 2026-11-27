@@ -181,8 +181,9 @@ export function DocView({ doc: initial, onClose, onChanged }: { doc: DocRow; onC
             blocked={awaiting ? AWAITING_STAFF : null} blockedNote={AWAITING_SHORT} />
         )}
         {vat && (doc.docType === 305 || doc.docType === 320) && !fullyCredited && <Button variant="ghost" onClick={() => setDialog('credit')}>חשבונית זיכוי</Button>}
-        {/* 2.121 (answer 19): a tax invoice from a transaction invoice — once the database's link is known (TAX_FROM_300_LINK) */}
-        {TAX_FROM_300_LINK && vat && doc.docType === 300 && !cancelled && taxed && !taxed.by305 && !taxed.by320 && <Button variant="ghost" onClick={() => setDialog('tax300')}>הפקת חשבונית מס</Button>}
+        {/* 2.121 (answer 19): a tax invoice from a transaction invoice — after 7100; not while a payment link on the 300 is open (or paid,
+            its receipt still to come — heldBy): the database refuses it too (invoice_from_300_paylink) */}
+        {TAX_FROM_300_LINK && vat && doc.docType === 300 && !cancelled && taxed && !taxed.by305 && !taxed.by320 && !(links.links && heldBy(links.links) > 0) && <Button variant="ghost" onClick={() => setDialog('tax300')}>הפקת חשבונית מס</Button>}
         {ga.canDeliver && <Button variant="ghost" onClick={() => setDialog('deliver')}>תעודת משלוח מההזמנה</Button>}
         {ga.canInvoice && <Button variant={doc.docType === 200 ? 'primary' : 'ghost'} onClick={() => setDialog('invoice')}>{doc.docType === 200 ? 'הפקת חשבונית' : 'חשבונית מההזמנה'}</Button>}
         {ga.canReturn && <Button variant="ghost" onClick={() => setDialog('return')}>תעודת החזרה</Button>}

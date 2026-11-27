@@ -279,7 +279,19 @@ async function main() {
     try {
       const d = dialog(page);
       await d.getByRole('button', { name: 'קבלה על תשלום' }).waitFor({ timeout: 120_000 });   // open before its 305
-      await d.getByRole('button', { name: 'הפקת חשבונית מס' }).click();
+      // an open payment link on the 300: no tax invoice from it (the database refuses it too) — until the link is cancelled
+      const link = { id: 'e0000000-0000-4000-8000-000000000300', business_id: BIZ, user_id: OWNER, kind: 'document', document_id: T300, package_id: null, quote_id: null,
+        appointment_id: null, lead_id: null, label: 'חשבונית עסקה 1', customer_name: 'לקוח עסקה דמו', customer_phone: '', customer_email: '', amount: 100, is_test: true,
+        provider: 'mock', status: 'sent', expires_at: new Date(Date.now() + 86_400_000).toISOString(), sent_via: 'link', sends: 1, paid_at: null, paid_amount: null,
+        paid_late: false, failed_at: null, fail_reason: '', cancelled_at: null, receipt_status: 'none', receipt_document_id: null, receipt_error: '', created_at: new Date().toISOString() };
+      (fake.tables.payment_requests ??= []).push(link);
+      await page.goto(`${BASE}/finance/documents?open=${T300}`, { waitUntil: 'domcontentloaded' });
+      await dialog(page).getByRole('button', { name: 'קבלה על תשלום' }).waitFor({ timeout: 120_000 });
+      await dialog(page).getByText('נשלח', { exact: true }).first().waitFor();   // the link is on the screen (its pill)
+      assert.equal(await dialog(page).getByRole('button', { name: 'הפקת חשבונית מס' }).count(), 0, 'an open link — no tax invoice');
+      Object.assign(link, { status: 'cancelled', cancelled_at: new Date().toISOString() });
+      await page.goto(`${BASE}/finance/documents?open=${T300}`, { waitUntil: 'domcontentloaded' });
+      await dialog(page).getByRole('button', { name: 'הפקת חשבונית מס' }).click({ timeout: 120_000 });
       const t = dialog(page);
       await t.getByText('חשבונית מס על חשבונית עסקה 1').waitFor();
       await t.getByText(/סה״כ:\s*₪590/).first().waitFor();

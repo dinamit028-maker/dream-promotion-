@@ -39,10 +39,13 @@ export const BOOKS_START_MISSING = 'לא הצלחנו לקרוא את תאריך
  * key in 1225; null — a database before 7100 (every key exactly as before). Any other failure throws BOOKS_START_MISSING.
  */
 export async function loadBooksStart(): Promise<string | null> {
-  let r: BooksLoad;
-  try { r = await loadBooks(); } catch { throw new Error(BOOKS_START_MISSING); }
-  if (!r.ok) throw new Error(BOOKS_START_MISSING);
-  return r.ready ? r.state.startDate : null;
+  // gl_books_state only — never the trial balance or the unposted list (an export needs the date, nothing else)
+  let res: { data: unknown; error: { code?: string } | null };
+  try { res = await supabase().rpc('gl_books_state'); } catch { throw new Error(BOOKS_START_MISSING); }
+  if (res.error) { if (isFunctionMissing(res.error)) return null; throw new Error(BOOKS_START_MISSING); }
+  const state = toBooksState(res.data);
+  if (!state) throw new Error(BOOKS_START_MISSING);
+  return state.startDate;
 }
 
 /**

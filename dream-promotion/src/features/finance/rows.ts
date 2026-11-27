@@ -42,6 +42,7 @@ export function financeError(e: unknown): string {
   if (/books_started/.test(m)) return 'כבר נרשמו פקודות בספרים — אי אפשר להזיז את תאריך ההתחלה.';
   if (/opening_done/.test(m)) return 'יתרות הפתיחה כבר נרשמו. תיקון — בפקודה.';
   // 2.121 (answer 19): a tax invoice made from a transaction invoice (documents_validate of 7100)
+  if (/invoice_from_300_paylink/.test(m)) return 'יש לינק תשלום פתוח על חשבון העסקה — מבטלים אותו קודם או מחכים לתשלום.';
   if (/invoice_from_300_closed/.test(m)) return 'על חשבון העסקה הזה כבר הופקה חשבונית מס (או חשבונית מס / קבלה) — רעננו.';
   if (/invoice_from_300: [^\n]*בוטל/.test(m)) return 'חשבון העסקה בוטל — לא מפיקים ממנו חשבונית מס.';
   if (/invoice_from_300/.test(m)) return 'חשבון העסקה לא נמצא בעסק הזה.';

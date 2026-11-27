@@ -115,6 +115,7 @@ test('the database\'s refusals in Hebrew (documents_installments, gl_books_start
   assert.match(he('period_locked: the books are closed until 2026-10-31'), /הספרים סגורים/);
   assert.match(he('invoice_from_300_closed: על חשבון העסקה הזה כבר הופקה חשבונית מס'), /כבר הופקה חשבונית מס/);
   assert.equal(he('invoice_from_300: חשבון העסקה בוטל'), 'חשבון העסקה בוטל — לא מפיקים ממנו חשבונית מס.');
+  assert.equal(he('invoice_from_300_paylink: open link'), 'יש לינק תשלום פתוח על חשבון העסקה — מבטלים אותו קודם או מחכים לתשלום.');
   assert.equal(he('invoice_from_300: חשבון העסקה לא נמצא בעסק הזה'), 'חשבון העסקה לא נמצא בעסק הזה.');
   for (const m of ['installments_count: x', 'books_started: x']) assert.ok(!/[0-9]{9}|₪/.test(he(m)), 'no number, no amount');
 });
@@ -150,6 +151,11 @@ test('moving the start: the 1st of a month, from 2000, up to next month (Israel 
   const back = startMoveExplain('2026-06-01', '2026-11-27');
   assert.ok(back[0].includes('01/06/2026') && /נרשם עכשיו/.test(back[1]) && /אי אפשר להזיז/.test(back[2]));
   assert.match(startMoveExplain('2026-12-01', '2026-11-27')[1], /לא נרשם כלום/);
+  // moving back: the warning about field 1225 of the documents of those months (a file already delivered); forward — none
+  const warn = startMoveExplain('2026-06-01', '2026-11-27', '2026-12-01');
+  assert.ok(warn.some((x) => /שדה 1225/.test(x) && x.includes('01/06/2026') && /כבר נמסר/.test(x)));
+  assert.ok(!startMoveExplain('2027-01-01', '2026-12-05', '2026-12-01').some((x) => /1225/.test(x)));
+  assert.ok(!startMoveExplain('2026-06-01', '2026-11-27').some((x) => /1225/.test(x)), 'no current start given — no warning');
 });
 
 // ---- review of 2.121 (the brain, 27.11.2026): what did not post — the night's timer and "לרשום עכשיו"; the suspense account --------
@@ -158,18 +164,24 @@ test('the night: replayPending calls gl_replay_pending with a limit, a few times
   let left = 450;
   const db = { rpc: async (fn: string, a: { p_limit: number }) => { calls.push([fn, a]); const n = Math.min(a.p_limit, left); left -= n; return { data: { posted: n, failed: 0, left }, error: null }; } };
   const r = await replayPending(db as never, Date.now() + 10_000, { limit: 200 });
-  assert.deepEqual(r, { ready: true, posted: 450, failed: 0, left: 0, calls: 3 });
+  assert.deepEqual(r, { ready: true, posted: 450, failed: 0, skipped: 0, left: 0, calls: 3 });
   assert.deepEqual(calls[0], ['gl_replay_pending', { p_limit: 200 }]);
   // at most maxCalls; a call that posted nothing stops (what is left fails again — tomorrow)
   left = 10_000;
   assert.equal((await replayPending(db as never, Date.now() + 10_000, { limit: 100, maxCalls: 2 })).calls, 2);
   const stuck = { rpc: async () => ({ data: { posted: 0, failed: 3, left: 3 }, error: null }) };
-  assert.deepEqual(await replayPending(stuck as never, Date.now() + 10_000), { ready: true, posted: 0, failed: 3, left: 3, calls: 1 });
+  assert.deepEqual(await replayPending(stuck as never, Date.now() + 10_000), { ready: true, posted: 0, failed: 3, skipped: 0, left: 3, calls: 1 });
+  // a call that posted nothing but skipped some (a busy business) with more left goes on; skipped with nothing left stops
+  let k = 0;
+  const busy = { rpc: async () => { k++; return { data: k < 3 ? { posted: 0, failed: 0, skipped: 5, left: 5 } : { posted: 5, failed: 0, skipped: 0, left: 0 }, error: null }; } };
+  assert.deepEqual(await replayPending(busy as never, Date.now() + 10_000), { ready: true, posted: 5, failed: 0, skipped: 10, left: 0, calls: 3 });
+  const busyDone = { rpc: async () => ({ data: { posted: 0, failed: 0, skipped: 2, left: 0 }, error: null }) };
+  assert.equal((await replayPending(busyDone as never, Date.now() + 10_000)).calls, 1);
   // no time: no call
   assert.equal((await replayPending(db as never, Date.now() - 1)).calls, 0);
   // before 7100 (or before the function): silently nothing
   const old = { rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.gl_replay_pending' } }) };
-  assert.deepEqual(await replayPending(old as never, Date.now() + 10_000), { ready: false, posted: 0, failed: 0, left: null, calls: 1 });
+  assert.deepEqual(await replayPending(old as never, Date.now() + 10_000), { ready: false, posted: 0, failed: 0, skipped: 0, left: null, calls: 1 });
   // any other error: logged by its code only, no message (it may name a document)
   const logged: unknown[][] = []; const orig = console.error; console.error = (...a: unknown[]) => { logged.push(a); };
   try { await replayPending({ rpc: async () => ({ data: null, error: { code: '57014', message: 'canceling statement — 305 1234 לקוחה' } }) } as never, Date.now() + 10_000); }

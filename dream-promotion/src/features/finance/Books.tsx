@@ -95,7 +95,7 @@ export function BooksSettings({ say, fail, business }: { say: (m: string) => voi
       {state.canMoveStart && confirming && day && (
         <section aria-label="אישור הזזת תחילת הספרים" className="grid gap-2 rounded-2xl border border-amber-500/50 p-3 text-sm">
           <p className="font-bold">להזיז את תחילת הספרים ל-{ddmmyyyy(day)}?</p>
-          <ul className="grid list-disc gap-1 ps-5">{startMoveExplain(day, today).map((x) => <li key={x}>{x}</li>)}</ul>
+          <ul className="grid list-disc gap-1 ps-5">{startMoveExplain(day, today, state.startDate).map((x) => <li key={x}>{x}</li>)}</ul>
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" disabled={busy} onClick={() => void doMove()}>{busy ? 'רגע…' : `אישור — ${ddmmyyyy(day)}`}</Button>
             <Button variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>ביטול</Button>

@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   try {
     const start = Date.now(), db = adminDb();
     const originals = await keepUnsavedOriginals(db, start + 10_000).catch(() => ({ ready: false, kept: 0, failed: 0, left: 0 }));
-    const books = await replayPending(db, Date.now() + 8_000).catch(() => ({ ready: false, posted: 0, failed: 0, left: null, calls: 0 }));
+    const books = await replayPending(db, Date.now() + 8_000).catch(() => ({ ready: false, posted: 0, failed: 0, skipped: 0, left: null, calls: 0 }));
     // the originals that could not be kept go into the same alert (counts only)
     const r = await backupCron(db, Date.now(), start + 45_000, { originalsFailed: originals.failed });
     return NextResponse.json({ ...r, originals, books }, { status: r.ready ? 200 : 503 });

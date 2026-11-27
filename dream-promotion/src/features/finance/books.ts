@@ -55,10 +55,11 @@ export function startMonthProblem(month: string, today: string, current: string)
   return null;
 }
 /** what the owner reads before confirming a move (the in-page confirmation) */
-export const startMoveExplain = (day: string, today: string): string[] => [
+export const startMoveExplain = (day: string, today: string, current: string = day): string[] => [
   `הספרים יתחילו ב-${day.split('-').reverse().join('/')}. מסמכים, תשלומים והפקדות מהיום הזה והלאה יירשמו בספרים (פקודה לכל אחד), לפי הסדר.`,
   day <= today ? 'מה שכבר הופק מאז נרשם עכשיו — מיד אחרי האישור.' : 'עד היום הזה לא נרשם כלום.',
   'אחרי שנרשמה הפקודה הראשונה אי אפשר להזיז את התאריך יותר.',
+  ...(day < current ? [`שימו לב: במסמכים מ-${day.split('-').reverse().join('/')} ואילך מפתח הלקוח בקובץ לרשות המסים (שדה 1225) נכתב לפי הספרים. אצל לקוח שהמפתח שלו נראה כמו חשבון של המערכת (4 ספרות או BANK) או מתחיל ברווח — המפתח ישתנה. אם קובץ של החודשים האלה כבר נמסר לרשות המסים או לרואה החשבון, כדאי לבדוק איתו לפני שמזיזים.`] : []),
   'יתרות הפתיחה (לפי רואה החשבון) נרשמות בתאריך ההתחלה — הטופס יגיע בשלב הבא.',
 ];
 
