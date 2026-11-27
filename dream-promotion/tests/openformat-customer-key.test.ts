@@ -30,7 +30,7 @@ test('the "C-" rule: four digits (a location\'s "-n" of one or two digits) or BA
     assert.ok(!glKeyReserved(k), JSON.stringify(k));
   }
   assert.equal(glCustomerKey('1234', 'דנה'), 'C-1234', 'a phone of four digits');
-  assert.equal(glCustomerKey('', '  bank'), 'C-  bank', 'btrim — only for the test; the key keeps its spaces (as the SQL)');
+  assert.equal(glCustomerKey('', '  bank'), 'C-bank', 'the name is trimmed first (step 1), then "C-"');
   assert.equal(glCustomerKey('', '1150-12'), 'C-1150-12');
   assert.equal(glCustomerKey('', 'BANKS'), 'BANKS');
   // C100 1225 of such a customer is not the bank's / the account's key any more — never one account with the deposit (420)
@@ -45,12 +45,12 @@ test('the "C-" rule: four digits (a location\'s "-n" of one or two digits) or BA
 test('the key is cut to 15 characters (code points — as Postgres left()), trailing spaces off, an empty one is CASH', () => {
   assert.equal(glCustomerKey('', 'אבגדהוזחטיכלמנסעפ'), 'אבגדהוזחטיכלמנס');
   assert.equal(glCustomerKey('', 'דנה כהן        x'), 'דנה כהן', 'the 15 characters end in spaces → rtrim');
-  assert.equal(glCustomerKey('   ', 'דנה'), 'CASH', 'a phone of spaces only: the SQL takes it (nullif only empties ""), then it is empty → CASH');
+  assert.equal(glCustomerKey('   ', 'דנה'), 'דנה', 'a phone of spaces only is empty after cleaning — the name');
   assert.equal(glCustomerKey('', '😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀'), '😀'.repeat(15), 'an emoji is one character (not two UTF-16 units)');
   assert.equal(glCustomerKey('', '\u00A0דנה\u00A0'), '\u00A0דנה\u00A0', 'rtrim removes plain spaces only');
 });
 
-test('Hebrew names and isoText: the key is the raw text; the file writes X(key, 15) — the same 15 characters in 1225 and in B110 1403', () => {
+test('Hebrew names and isoText: the key is cleaned as the file writes text, then cut; the file writes X(key, 15) — the same 15 characters in 1225 and in B110 1403', () => {
   const names = ['דנה דמו', 'מס׳ 5 בע״מ', 'שירותי ניקיון ״הכוכב״ — דמו', 'קפה ₪ דמו', 'דנה\u200F כהן', 'נִיקוּד דמו'];
   for (const name of names) {
     const d = { customerName: name, customerPhone: '' };
@@ -62,11 +62,36 @@ test('Hebrew names and isoText: the key is the raw text; the file writes X(key, 
     assert.equal(customerKeyField({ customerName: name }), before({ customerName: name }), name);
   }
   assert.equal(customerKeyField({ customerName: 'מס׳ 5 בע״מ' }).trimEnd(), "מס' 5 בע\"מ");
-  // longer than 15 with a mark that isoText drops inside the first 15 characters: the books' key is cut first (as the SQL does),
-  // so the file has one character fewer than before 2.121 — the one case (besides "C-") where 1225 is not as it was
+  // longer than 15 with a mark that isoText drops inside the first 15 characters: cleaned first, then cut (db-agent, 27.11.2026) —
+  // the file has the same 15 characters as before 2.121
   const marked = 'דנה\u200Fכהןלוימרכזדמו';
-  assert.equal(customerKeyField({ customerName: marked }).trimEnd(), isoText(Array.from(marked).slice(0, 15).join('')));
-  assert.notEqual(customerKeyField({ customerName: marked }), before({ customerName: marked }));
+  assert.equal(customerKeyField({ customerName: marked }).trimEnd(), isoText(marked).slice(0, 15));
+  assert.equal(customerKeyField({ customerName: marked }), before({ customerName: marked }));
+});
+
+test('the cleaning (step 1) — the cases of the brain\'s list, as public.gl_customer_key answers them (db-agent, 27.11.2026)', () => {
+  const RLM = '\u200F', LRM = '\u200E', BOM = '\uFEFF', ZWSP = '\u200B';
+  assert.equal(glCustomerKey(`${RLM}050-0000071${LRM}`, 'x'), '050-0000071');
+  assert.equal(glCustomerKey(`${LRM}${BOM}`, 'דנה'), 'דנה', 'a phone of marks only is empty — the name');
+  assert.equal(glCustomerKey('', 'שָׁלוֹם'), 'שלום', 'the points dropped');
+  assert.equal(glCustomerKey('', 'דנה\r\n\nכהן'), 'דנה כהן', 'a run of CR / LF is one space');
+  assert.equal(glCustomerKey('', `${ZWSP.repeat(20)}abcdefghijklmnopq`), 'abcdefghijklmno', 'dropped before the cut');
+  assert.equal(glCustomerKey('', '   abc  '), 'abc', 'leading spaces trimmed too');
+  assert.equal(glCustomerKey('\u2066 \u2069', ''), 'CASH');
+  assert.equal(glCustomerKey('', `${LRM}1300`), 'C-1300', 'a mark does not hide a system key');
+  assert.equal(glCustomerKey('', 'בית\u05BEקפה'), 'בית\u05BEקפה', 'the maqaf is kept (isoText writes it "-")');
+  assert.equal(glCustomerKey('', 'abcdefghijklm\rxyz'), 'abcdefghijklm x');
+  assert.equal(glCustomerKey(null, null), 'CASH');
+});
+
+test('the dropped characters are exactly isoText\'s: every code point of U+0000–U+FFFF is dropped by both or by neither', () => {
+  for (let c = 0; c <= 0xffff; c++) {
+    if (c >= 0xd800 && c <= 0xdfff) continue;
+    const ch = String.fromCharCode(c);
+    const byIso = isoText(`a${ch}b`) === 'ab';
+    const byKey = glCustomerKey('', `a${ch}b`) === 'ab';
+    if (byIso !== byKey) assert.fail(`U+${c.toString(16).padStart(4, '0')}: isoText ${byIso ? 'drops' : 'keeps'} it, the key ${byKey ? 'drops' : 'keeps'} it`);
+  }
 });
 
 test('a business with no such customer: the whole export is byte for byte as before 2.121', () => {
