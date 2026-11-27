@@ -296,3 +296,190 @@ select pg_temp.check((pg_temp.o('cust')->>'sum')::numeric = (
          - coalesce(sum(case when d.doc_type = 320 and exists (select 1 from public.documents o where o.id = d.paid_document_id and o.doc_type = 300) then d.total else 0 end), 0)   -- a 320 paying a 300 closes it
       from public.documents d where d.business_id = '00000000-0000-0000-0000-0000000696b1')
   , 'the customers'' sub-ledger of the licensed business = Σ invoices − Σ money received − Σ credits (computed from the documents, not the entries)');
+
+-- the other accounts, against the documents' own fields (licensed): income, VAT, the money, 1310
+select pg_temp.check(-((pg_temp.o('tbs')->>'4100')::numeric + coalesce((pg_temp.o('tbs')->>'4110')::numeric, 0)) = (
+    select coalesce(sum(case when doc_type in (305, 320) then after_discount when doc_type = 330 then -after_discount else 0 end), 0)
+      from public.documents where business_id = '00000000-0000-0000-0000-0000000696b1'),
+  'income (services + goods) = Σ the invoices before VAT − Σ the credits (the 300 and the receipts of the 300 earn nothing)');
+select pg_temp.check(-(pg_temp.o('tbs')->>'2200')::numeric = (select coalesce(sum(case when doc_type in (305, 320) then vat_amount when doc_type = 330 then -vat_amount else 0 end), 0)
+                                                               from public.documents where business_id = '00000000-0000-0000-0000-0000000696b1'),
+  'VAT output = Σ the VAT of the invoices − Σ the credits');
+select pg_temp.check((select coalesce(sum(v::numeric), 0) from jsonb_each_text(pg_temp.o('tbs')) e(k, v) where k in ('1100', '1100-1', '1150', '1250', '1350', 'BANK'))
+  = (select coalesce(sum(abs((p->>'amount')::numeric)), 0) from public.documents d, jsonb_array_elements(d.payments) p
+      where d.business_id = '00000000-0000-0000-0000-0000000696b1' and d.doc_type in (320, 400)),
+  'the money accounts together = Σ what the receipts took (no refund yet)');
+select pg_temp.check((pg_temp.o('tbs')->>'1310')::numeric = 0, '1310 = the open 300s: every one is closed (by a 320 / a 305)');
+
+-- ======================================================================================================================
+-- 3. a posting that fails never blocks — a register sale, its refund, a deposit and its cancellation, a 300 and its cancellation
+-- ======================================================================================================================
+create or replace function public.qa96_fail() returns trigger language plpgsql as $$ begin raise exception 'qa96: no entry today' using errcode = '23514'; end $$;
+create trigger qa96_fail before insert on public.gl_transactions for each row when (new.business_id = '00000000-0000-0000-0000-0000000696b1') execute function public.qa96_fail();
+create temp table n_before as select count(*) as n from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b1';
+insert into public.sales (id, user_id, items, subtotal, total, vat_rate, vat_amount, method, status, paid_at)
+values ('00000000-0000-0000-0000-0000000696f5', '00000000-0000-0000-0000-0000000696a2', '[{"name":"שירות","price":118,"qty":1,"kind":"other"}]', 118, 118, 18, 18, 'cash', 'paid', now());
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a2');   -- the cashier's sale
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a2', 320, pg_temp.svc(100), 'sale:00000000-0000-0000-0000-0000000696f5',
+  '{"sale_id": "00000000-0000-0000-0000-0000000696f5", "source": "pos"}', null, 18, '0500009631'));
+commit;
+select pg_temp.check((pg_temp.d('sale:00000000-0000-0000-0000-0000000696f5')).id is not null and exists (select 1 from public.payments p where p.document_id = (pg_temp.d('sale:00000000-0000-0000-0000-0000000696f5')).id),
+  'a failing posting: the cashier''s sale is issued, with its payment row — nothing blocked');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
+insert into public.sale_refunds (id, user_id, sale_id, amount, vat_amount, method, items, restock, reason)
+values ('00000000-0000-0000-0000-0000000696f6', '00000000-0000-0000-0000-0000000696a1', '00000000-0000-0000-0000-0000000696f5', 59, 9, 'cash', '[]', false, 'החזר');
+commit;
+select pg_temp.check(exists (select 1 from public.payments where refund_id = '00000000-0000-0000-0000-0000000696f6' and direction = 'out' and amount = 59), 'the register''s refund goes out although the posting fails');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
+select public.bank_deposit_create('00000000-0000-0000-0000-0000000696e1', public.il_today(), null, 100, '{}', 'הפקדה');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 300, pg_temp.svc(50), 'q96:fail300', '{}', null, 18, '0500009632'));
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
+select public.bank_deposit_cancel('00000000-0000-0000-0000-0000000696e1', 'בטעות');
+insert into public.document_cancellations (document_id, user_id, reason) values ((pg_temp.d('q96:fail300')).id, '00000000-0000-0000-0000-0000000696a1', 'נרשם בטעות');
+commit;
+select pg_temp.check((select status from public.bank_deposits where id = '00000000-0000-0000-0000-0000000696e1') = 'cancelled'
+  and exists (select 1 from public.document_cancellations where document_id = (pg_temp.d('q96:fail300')).id),
+  'the deposit and its cancellation, the 300 and its cancellation — all kept');
+select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b1') = (select n from n_before), 'no entry was written while the posting failed');
+select pg_temp.check((select count(distinct (source_kind, source_id)) from public.gl_post_failures where business_id = '00000000-0000-0000-0000-0000000696b1' and error like '%qa96%') >= 6,
+  'every source that failed is recorded (the sale, the refund money, the deposit, its cancellation, the 300, its cancellation)');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
+insert into out96 select 'unposted', jsonb_build_object('n', count(*), 'withError', count(*) filter (where error like '%qa96%')) from public.gl_unposted;
+commit;
+select pg_temp.check((pg_temp.o('unposted')->>'n')::int >= 6 and (pg_temp.o('unposted')->>'n') = (pg_temp.o('unposted')->>'withError'), 'listed in gl_unposted, each with its error');
+drop trigger qa96_fail on public.gl_transactions;
+drop function public.qa96_fail();
+create temp table rp as select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null) as r;
+create temp table rp2 as select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null) as r;
+select pg_temp.check((select (r->>'posted')::int >= 6 and (r->>'failed')::int = 0 from rp), 'the replay posts what failed');
+select pg_temp.check((select (r->>'posted')::int = 0 from rp2), 'a second replay posts nothing — exactly once');
+select pg_temp.check((select count(*) from public.gl_unposted where business_id = '00000000-0000-0000-0000-0000000696b1') = 0, 'nothing left unposted');
+select pg_temp.check(pg_temp.sig((select t.id from public.gl_transactions t join public.payments p on p.id = t.source_id where t.source_kind = 'payment' and p.refund_id = '00000000-0000-0000-0000-0000000696f6'))
+  = '1100 C 59.00, ' || (select key from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000000696b1' and role = 'customer:CASH') || ' D 59.00', 'the refund''s money, posted late: the customer / the cash');
+select pg_temp.check(not exists (select 1 from public.gl_transactions t where t.business_id = '00000000-0000-0000-0000-0000000696b1'
+                                   and (select coalesce(sum(case side when 'D' then amount else -amount end), 1) from public.gl_lines l where l.transaction_id = t.id) <> 0),
+  'every entry still balances after the late postings');
+
+-- ======================================================================================================================
+-- 4. the start date: nothing posts before it; a document of before it, cancelled after it; the start moves once
+-- ======================================================================================================================
+begin;
+alter table public.documents disable trigger d_documents_issue_day;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a7');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a7', 300, pg_temp.svc(200), 'o96:old300', jsonb_build_object('doc_date', (date_trunc('month', public.il_today()) - interval '10 days')::date), null, 18, '0500009641'));
+reset role;
+set constraints all immediate;
+alter table public.documents enable trigger d_documents_issue_day;
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a7');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a7', 305, pg_temp.svc(100), 'o96:new305', '{}', null, 18, '0500009642'));
+commit;
+select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b3') = 0, 'the default start is next month: today''s and last month''s documents post nothing');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a7');
+select pg_temp.refused_with($$select public.gl_books_start_set(date_trunc('month', public.il_today())::date + 4)$$, 'books_start_date', 'not the 1st');
+select pg_temp.refused_with($$select public.gl_books_start_set((date_trunc('month', public.il_today()) + interval '2 months')::date)$$, 'books_start_date', 'more than the next month');
+select pg_temp.refused_with($$select public.gl_books_start_set(date '1999-01-01')$$, 'books_start_date', 'a date from the last century');
+insert into out96 select 'o-start', public.gl_books_start_set(date_trunc('month', public.il_today())::date);
+commit;
+select pg_temp.check((pg_temp.o('o-start')->>'posted')::int = 1, 'the move replays exactly the documents since the start (today''s 305) — not the 300 of last month');
+select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b3') = 1
+  and (select count(*) from public.gl_transactions t where t.business_id = '00000000-0000-0000-0000-0000000696b3' and t.idempotency_key = 'document:' || (pg_temp.d('o96:old305')).id) = 0, 'one entry: the 305');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a7');
+select pg_temp.refused_with($$select public.gl_books_start_set(date_trunc('month', public.il_today())::date)$$, 'books_started', 'the start does not move once an entry was posted');
+-- the 300 of last month, cancelled now: it was never in the books — the cancellation posts nothing (its balance belongs to the opening balances)
+insert into public.document_cancellations (document_id, user_id, reason) values ((pg_temp.d('o96:old300')).id, '00000000-0000-0000-0000-0000000696a7', 'נרשם בטעות');
+commit;
+select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b3') = 1
+  and not exists (select 1 from public.gl_unposted where business_id = '00000000-0000-0000-0000-0000000696b3' and source_kind = 'cancellation'),
+  'the cancellation of a document of before the start posts nothing and is not "unposted"');
+create temp table rp3 as select public.gl_replay('00000000-0000-0000-0000-0000000696b3', null) as r;
+select pg_temp.check((select (r->>'posted')::int = 0 from rp3), 'a replay of the business that moved: nothing again');
+
+-- ======================================================================================================================
+-- 5. who reads and writes the books
+-- ======================================================================================================================
+create or replace function pg_temp.probe(p_user text) returns void language plpgsql as $q$
+begin
+  perform pg_temp.as_user(p_user);
+  perform pg_temp.refused($$select public.gl_books_start_set(date_trunc('month', public.il_today())::date)$$, 'start_set by ' || p_user);
+  perform pg_temp.refused($$select public.gl_opening_balances('[{"account": "BANK", "side": "D", "amount": 1}]')$$, 'opening by ' || p_user);
+  perform pg_temp.refused($$select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null)$$, 'replay of Lic by ' || p_user);
+  perform pg_temp.refused($$select public.gl_post('document', '00000000-0000-0000-0000-000000000000')$$, 'gl_post by ' || p_user);
+  perform pg_temp.refused($$select public.gl_lines_document('00000000-0000-0000-0000-000000000000')$$, 'gl_lines_document by ' || p_user);
+  perform pg_temp.refused($$insert into public.gl_transactions (business_id, number, tx_date, value_date, source_kind, idempotency_key, location_id) values ('00000000-0000-0000-0000-0000000696b1', 99999, public.il_today(), public.il_today(), 'opening', 'q96:x', '00000000-0000-0000-0000-0000000696b1')$$, 'insert an entry by ' || p_user);
+  perform pg_temp.refused($$update public.gl_books set start_date = date '2000-01-01'$$, 'update the books by ' || p_user);
+  perform pg_temp.refused($$insert into public.gl_accounts (business_id, key, name, kind, tb_code, tb_name) values ('00000000-0000-0000-0000-0000000696b1', 'ZZ', 'x', 'asset', 'x', 'x')$$, 'insert an account by ' || p_user);
+  perform pg_temp.refused($$delete from public.gl_lines$$, 'delete lines by ' || p_user);
+end $q$;
+-- the owner of the licensed business: reads, never writes by hand
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
+select pg_temp.check((select count(*) from public.gl_transactions) > 10 and (select count(*) from public.gl_accounts) > 10, 'the owner reads the entries and the chart');
+select pg_temp.refused($$insert into public.gl_lines (transaction_id, business_id, line_no, account_id, side, amount, value_date, location_id) select id, business_id, 99, (select id from public.gl_accounts limit 1), 'D', 1, public.il_today(), location_id from public.gl_transactions limit 1$$, 'the owner inserts a line by hand');
+select pg_temp.refused($$select public.gl_post('document', (select id from public.documents limit 1))$$, 'the owner calls gl_post');
+rollback;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a3');    -- a viewer: reads (a finance member), never writes
+insert into out96 select 'viewer', jsonb_build_object('tx', (select count(*) from public.gl_transactions), 'acc', (select count(*) from public.gl_accounts));
+select pg_temp.probe('00000000-0000-0000-0000-0000000696a3');
+rollback;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a2');    -- the cashier
+insert into out96 select 'cashier96', jsonb_build_array((select count(*) from public.gl_transactions), (select count(*) from public.gl_lines), (select count(*) from public.gl_accounts), (select count(*) from public.gl_books), (select count(*) from public.gl_unposted), (select count(*) from public.gl_post_failures));
+select pg_temp.refused('select public.gl_books_state()', 'a cashier reads the state');
+select pg_temp.refused('select * from public.gl_trial_balance(date ''2000-01-01'', date ''2100-01-01'')', 'a cashier reads the trial balance') where false;
+select pg_temp.probe('00000000-0000-0000-0000-0000000696a2');
+rollback;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a4');    -- calendar
+insert into out96 select 'calendar96', jsonb_build_array((select count(*) from public.gl_transactions), (select count(*) from public.gl_lines), (select count(*) from public.gl_accounts), (select count(*) from public.gl_books));
+select pg_temp.probe('00000000-0000-0000-0000-0000000696a4');
+rollback;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a5');    -- agenda
+insert into out96 select 'agenda96', jsonb_build_array((select count(*) from public.gl_transactions), (select count(*) from public.gl_lines), (select count(*) from public.gl_accounts), (select count(*) from public.gl_books));
+select pg_temp.probe('00000000-0000-0000-0000-0000000696a5');
+rollback;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000000696a7');    -- the owner of ANOTHER business, working in their own: Lic's books are not theirs
+insert into out96 select 'other96', jsonb_build_object('lic', (select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b1'),
+  'licLines', (select count(*) from public.gl_lines where business_id = '00000000-0000-0000-0000-0000000696b1'), 'licAcc', (select count(*) from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000000696b1'),
+  'ex', (select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b2'));
+select pg_temp.refused_with($$select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null)$$, 'not allowed', 'never another business''s replay');
+rollback;
+begin;
+set local role anon;
+select pg_temp.refused($$select count(*) from public.gl_accounts$$, 'anon reads the chart');
+select pg_temp.refused($$select public.gl_books_state()$$, 'anon reads the state');
+select pg_temp.refused($$select public.gl_replay('00000000-0000-0000-0000-0000000696b1', null)$$, 'anon replays');
+rollback;
+select pg_temp.check((pg_temp.o('viewer')->>'tx')::int > 10, 'a viewer reads the books (a finance member) — and writes nothing');
+select pg_temp.check(pg_temp.o('cashier96') = '[0, 0, 0, 0, 0, 0]', 'a cashier reads nothing: not entries, lines, accounts, books, unposted, failures');
+select pg_temp.check(pg_temp.o('calendar96') = '[0, 0, 0, 0]', 'a calendar member reads nothing');
+select pg_temp.check(pg_temp.o('agenda96') = '[0, 0, 0, 0]', 'an agenda member reads nothing');
+select pg_temp.check((pg_temp.o('other96')->>'lic')::int = 0 and (pg_temp.o('other96')->>'licLines')::int = 0 and (pg_temp.o('other96')->>'licAcc')::int = 0 and (pg_temp.o('other96')->>'ex')::int = 0,
+  'another business reads none of Lic''s (nor Ex''s) books');
