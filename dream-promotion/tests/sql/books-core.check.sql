@@ -471,3 +471,15 @@ select pg_temp.check(public.gl_customer_key('', '') = 'CASH' and public.gl_custo
   and public.gl_customer_key('', 'bank') = 'C-bank' and public.gl_customer_key('', '1100-1') = 'C-1100-1'
   and public.gl_customer_key('', 'שם ארוך מאוד של לקוחה לדוגמה') = rtrim(left('שם ארוך מאוד של לקוחה לדוגמה', 15)),
   'the customer key = field 1225 (the phone, else the name, else CASH; 15 characters), never a system key');
+-- the key is the text as the file writes it (isoText) BEFORE it is cut to 15: CR / LF runs → one space, direction marks, zero-width
+-- characters, the BOM and Hebrew points dropped, spaces trimmed; the maqaf (U+05BE) and other characters stay
+select pg_temp.check(public.gl_customer_key(chr(8207) || '050-0000071' || chr(8206), 'x') = '050-0000071', 'direction marks around a phone are dropped');
+select pg_temp.check(public.gl_customer_key(chr(8206) || chr(65279), 'דנה') = 'דנה', 'a phone of marks only is no phone — the name');
+select pg_temp.check(public.gl_customer_key('', 'שָׁלוֹם') = 'שלום', 'Hebrew points (niqqud, the shin dot) are dropped');
+select pg_temp.check(public.gl_customer_key('', 'דנה' || chr(13) || chr(10) || chr(10) || 'כהן') = 'דנה כהן', 'a run of CR / LF is one space');
+select pg_temp.check(public.gl_customer_key('', repeat(chr(8203), 20) || 'abcdefghijklmnopq') = 'abcdefghijklmno', 'dropped first, then cut to 15');
+select pg_temp.check(public.gl_customer_key('', '   abc  ') = 'abc' and public.gl_customer_key(chr(8294) || ' ' || chr(8297), '') = 'CASH',
+  'trimmed at both ends; nothing left → CASH');
+select pg_temp.check(public.gl_customer_key('', chr(8206) || '1300') = 'C-1300' and public.gl_customer_key('', 'בית' || chr(1470) || 'קפה') = 'בית' || chr(1470) || 'קפה',
+  'the system-key rule after the clean-up; a maqaf stays');
+select pg_temp.check(public.gl_customer_key('', 'abcdefghijklm' || chr(13) || 'xyz') = 'abcdefghijklm x', 'the space of a line break counts in the 15');

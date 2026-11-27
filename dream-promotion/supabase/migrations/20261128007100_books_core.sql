@@ -58,7 +58,8 @@
 -- "_viewer_delete" and the rollback notes — run it in the SQL Editor (the MCP stops on it).
 -- Runs after 4600 (locations), 5000 (deposits), 5100 (manual journal — journal_writer), 6800 (stage 1 — cardKind) and 7000 (stage 3
 -- — the deposit document, document_numbering) — it stops at the top without them, changing nothing.
--- Deploy order: this migration may run before the code (the screens do not read the books yet; posting starts on the start date).
+-- Deploy order: THE CODE FIRST, then this migration (as STATUS.md says): the code of 2.121 writes field 1225 with the same key as
+-- gl_customer_key (customer-key.ts) and sends a card's installments; posting starts on the start date.
 
 -- RUN IT AS ONE SCRIPT IN THE SQL EDITOR (one transaction: all of it or nothing). A busy moment never holds the issuing of
 -- documents behind it: a table it changes that stays locked for more than 5 seconds stops it ("lock_timeout: … nothing was changed
@@ -348,12 +349,21 @@ create or replace function public.gl_key_reserved(p_key text) returns boolean la
   select coalesce(p_key ~ '^[0-9]{4}(-[0-9]{1,2})?$' or upper(btrim(p_key)) = 'BANK', false)
 $$;
 
--- a customer's key = field 1225 of its documents as openformat.ts writes it (customerKeyField: the phone, else the name, else
--- 'CASH'; the first 15 characters — the file pads it with spaces, the key here is without them); a key that looks like a system
--- key gets "C-" in front (the TS must write the same 1225 — see the report of 4ב)
+-- a customer's key = field 1225 of its documents (customer-key.ts — the same algorithm, step by step):
+--   1. each of the phone and the name is first made as the file writes text (openformat.ts isoText): every run of CR / LF → one
+--      space, then the characters isoText drops removed — direction marks and embeddings, zero-width characters, the BOM, Hebrew
+--      points and cantillation (U+200B–U+200F, U+202A–U+202E, U+2060–U+2069, U+061C, U+FEFF, U+0591–U+05BD, U+05BF–U+05C7) —
+--      then plain spaces trimmed at both ends;
+--   2. the phone, else the name, else 'CASH' (the first that is not empty after step 1);
+--   3. its first 15 characters (code points), trailing spaces trimmed ('' → 'CASH') — the file pads it to 15 with spaces;
+--   4. a key that looks like a system key (gl_key_reserved) gets "C-" in front (again 15 characters, trailing spaces trimmed)
 create or replace function public.gl_customer_key(p_phone text, p_name text) returns text language sql immutable set search_path = public, pg_temp as $$
   select case when public.gl_key_reserved(k) then rtrim(left('C-' || k, 15)) else k end
-    from (select coalesce(nullif(rtrim(left(coalesce(nullif(p_phone, ''), nullif(p_name, ''), 'CASH'), 15)), ''), 'CASH') as k) x
+    from (select coalesce(nullif(rtrim(left(coalesce(nullif(ph, ''), nullif(nm, ''), 'CASH'), 15)), ''), 'CASH') as k
+            from (select btrim(regexp_replace(regexp_replace(coalesce(p_phone, ''), '[\r\n]+', ' ', 'g'),
+                                              '[\u200B-\u200F\u202A-\u202E\u2060-\u2069\u061C\uFEFF\u0591-\u05BD\u05BF-\u05C7]', '', 'g'), ' ') as ph,
+                         btrim(regexp_replace(regexp_replace(coalesce(p_name, ''), '[\r\n]+', ' ', 'g'),
+                                              '[\u200B-\u200F\u202A-\u202E\u2060-\u2069\u061C\uFEFF\u0591-\u05BD\u05BF-\u05C7]', '', 'g'), ' ') as nm) t) x
 $$;
 
 -- a document's number as C100 1204 writes it (seriesNumber): eight digits for a number of a location's series, else as it is
