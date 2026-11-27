@@ -437,12 +437,13 @@ async function main() {
       assert.equal(await dialog().getByRole('radio', { name: 'תעודת משלוח' }).count(), 0);
     });
 
-    await step('2.122 (7200): a line of the books\' time — the owner posts it to an account; a member who is not the owner is told; before 7200 as before', async () => {
+    await step('2.122 (7200): a line of the books\' time — posted to an account by the owner, and by a member who is not the owner (a party account warns); before 7200 as before', async () => {
       const monthStart = `${TODAY.slice(0, 7)}-01`;
       fake.booksStart = monthStart;       // the books started this month: today's lines are of the books' time
       const acc = (id: string, key: string, name: string, kind: string, role: string | null) => ({ id, business_id: BIZ, key, name, kind, tb_code: key, tb_name: name.slice(0, 30), role, active: true });
       fake.tables.gl_accounts = [acc('acc-bank', 'BANK', 'בנק', 'asset', 'bank'), acc('acc-1100', '1100', 'קופת מזומן — ראשי', 'asset', `cash:${BIZ}`),
-        acc('acc-6112', '6112', 'עמלות בנק וסליקה', 'expense', 'expense:fees'), acc('acc-7001', '7001', 'סגור', 'income', null)];
+        acc('acc-6112', '6112', 'עמלות בנק וסליקה', 'expense', 'expense:fees'), acc('acc-7001', '7001', 'סגור', 'income', null),
+        acc('acc-s67', 'S-000000067', 'ספק דמו', 'liability', 'supplier:000000067')];
       fake.tables.gl_accounts[3].active = false;
       fake.tables.gl_bank_line_accounts = [];
       const proto = fake.tables.bank_lines[0];
@@ -463,7 +464,9 @@ async function main() {
         const options = await select.locator('option').allTextContents();
         assert.ok(!options.some((o: string) => /^BANK/.test(o)), 'the bank itself is not offered');
         assert.ok(!options.some((o: string) => o.includes('7001')), 'an inactive account is not offered');
+        assert.ok(!options.some((o: string) => o.includes('S-000000067')), 'a supplier only by a search');
         await select.selectOption('6112');
+        assert.equal(await d.getByText('אם יש תשלום — מתאימים אותו במקום').count(), 0, 'no warning for an expense account');
         await d.getByLabel('הערה').fill('עמלת העברה בנקאית');
         await shot('cash-6-classify.png');
         await d.getByRole('button', { name: 'רישום לחשבון' }).click();
@@ -476,14 +479,26 @@ async function main() {
         await lineOf('עמלת העברה').getByRole('button', { name: 'החזרה לטיפול' }).click();
         await page.getByText('השורה חזרה לטיפול').waitFor();
         assert.deepEqual(fake.tables.gl_bank_line_accounts.map((c) => c.active), [false]);
-        // a member who is not the owner: no account to pick — told that the owner does it
+        // a member who is not the owner (the owner's decision of 27.11.2026): whoever may mark a line handled posts it too; a
+        // supplier's account warns that a payment is matched instead; reopened by them as well
         fake.tables.business_members[0].role = 'editor';
         try {
           await bank();
-          await lineOf('עמלת העברה').getByText('רק הבעלים רושמים אותה לחשבון', { exact: false }).waitFor();
-          assert.equal(await lineOf('עמלת העברה').getByRole('button', { name: 'רישום לחשבון' }).count(), 0);
-          const refused = fake.rpc('bank_line_classify', { p_line: LINE, p_account: '6112', p_note: 'עמלה' });
-          assert.match(refused.body.message, /^books_not_allowed/);
+          await lineOf('עמלת העברה').getByRole('button', { name: 'רישום לחשבון' }).click();
+          const e = dialog();
+          await e.getByLabel('חיפוש חשבון').fill('ספק');
+          const sel = e.getByLabel('חשבון', { exact: true });
+          await sel.locator('option', { hasText: 'S-000000067' }).waitFor({ state: 'attached' });
+          await sel.selectOption('S-000000067');
+          await e.getByText('אם יש תשלום — מתאימים אותו במקום').waitFor();
+          await e.getByLabel('הערה').fill('החזר לספק');
+          await e.getByRole('button', { name: 'רישום לחשבון' }).click();
+          await page.getByText('השורה נרשמה לחשבון S-000000067').waitFor();
+          assert.deepEqual(fake.tables.gl_bank_line_accounts.map((c) => [c.account_id, c.active]), [['acc-6112', false], ['acc-s67', true]]);
+          await page.getByRole('tab', { name: /טופלו/ }).click();
+          await lineOf('עמלת העברה').getByRole('button', { name: 'החזרה לטיפול' }).click();
+          await page.getByText('השורה חזרה לטיפול').waitFor();
+          assert.deepEqual(fake.tables.gl_bank_line_accounts.map((c) => c.active), [false, false]);
         } finally { fake.tables.business_members[0].role = 'owner'; }
         // before 7200: as before — the note
         fake.booksMore = false;

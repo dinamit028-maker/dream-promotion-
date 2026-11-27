@@ -127,6 +127,15 @@ export function classifyChoices(accounts: GlAccount[], q = '', limit = 60): GlAc
     .filter((a) => (s.length >= 2 ? a.key.toLowerCase().startsWith(s) || a.name.toLowerCase().includes(s) : s ? a.key.toLowerCase().startsWith(s) && !partyAccount(a) : !partyAccount(a)))
     .slice(0, limit);
 }
+/** a customer's / a supplier's account was picked for a bank line (by its role, or a supplier's "S-" key): a payment of theirs is
+ *  matched instead (bank_match) — else the money is in the books twice */
+export const isPartyAccount = (key: string, accounts: GlAccount[]): boolean => {
+  const k = key.trim();
+  if (!k) return false;
+  const a = accounts.find((x) => x.key === k);
+  return a ? partyAccount(a) : k.startsWith('S-');
+};
+export const PARTY_ACCOUNT_WARNING = 'אם יש תשלום — מתאימים אותו במקום';
 export const KIND_HE: Record<string, string> = { asset: 'נכס', liability: 'התחייבות', equity: 'הון', income: 'הכנסה', expense: 'הוצאה' };
 /** an account as the picker and the handled line show it — "6112 · עמלות בנק וסליקה" */
 export const accountLabel = (a: Pick<GlAccount, 'key' | 'name'>) => `${a.key} · ${a.name}`;

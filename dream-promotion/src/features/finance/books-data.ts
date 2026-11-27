@@ -89,22 +89,21 @@ export function booksReady(): Promise<boolean> {
  * id — through the RLS: a member who may not see it gets no row, never an error). Before 7200 (no such table — PGRST205 / 42P01)
  * or on any failure: null — the bank and the journal behave exactly as before (and if the database is 7200 after all, its own
  * refusal — bank_line_account_required / journal_books_started — is said in Hebrew). Then gl_books_state: the start and the owner.
- * Asked once a page (a success is kept; a null is asked again next time).
+ * Only "7200 is there" is kept for the page (asked again while it is not); the start date is read again on every load — the owner
+ * may move it (gl_books_start_set) while the page is open.
  */
 export interface BooksMore { startDate: string; owner: boolean }
-let moreOnce: Promise<BooksMore | null> | null = null;
-export function loadBooksMore(): Promise<BooksMore | null> {
-  moreOnce ??= (async (): Promise<BooksMore | null> => {
-    try {
-      const probe = await supabase().from('gl_bank_line_accounts').select('id').limit(1);
-      if (probe.error) return null;
-      const { data, error } = await supabase().rpc('gl_books_state');
-      if (error) return null;
-      const st = toBooksState(data);
-      return st ? { startDate: st.startDate, owner: st.owner } : null;
-    } catch { return null; }
-  })().then((v) => { if (!v) moreOnce = null; return v; });
-  return moreOnce;
+let moreReady: Promise<boolean> | null = null;
+export async function loadBooksMore(): Promise<BooksMore | null> {
+  moreReady ??= Promise.resolve(supabase().from('gl_bank_line_accounts').select('id').limit(1)).then(({ error }) => !error, () => false)
+    .then((v) => { if (!v) moreReady = null; return v; });
+  if (!(await moreReady)) return null;
+  try {
+    const { data, error } = await supabase().rpc('gl_books_state');
+    if (error) return null;
+    const st = toBooksState(data);
+    return st ? { startDate: st.startDate, owner: st.owner } : null;
+  } catch { return null; }
 }
 /** the active accounts of the chart (for the bank's picker) — [] when they cannot be read (the picker then takes a key) */
 export async function loadAccounts(): Promise<GlAccount[]> {
@@ -130,8 +129,8 @@ export async function loadLineAccounts(lineIds: string[]): Promise<Map<string, s
   } catch { /* the label is a help only */ }
   return out;
 }
-/** the owner posts a line of the books' time to an account (bank_line_classify — the database checks the owner, the line, the
- *  account, the note) */
+/** a line of the books' time posted to an account (bank_line_classify — whoever may handle a bank line: the whole business's
+ *  money, writing — bank_guard(true), the owner's decision of 27.11.2026; the database checks the line, the account, the note) */
 export async function classifyLine(line: string, account: string, note: string): Promise<{ ok: true; account: string } | { ok: false; error: string }> {
   try {
     const { data, error } = await supabase().rpc('bank_line_classify', { p_line: line, p_account: account.trim(), p_note: note.trim().slice(0, 300) });

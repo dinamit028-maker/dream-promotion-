@@ -2083,7 +2083,8 @@ export class FakeSupabase {
       return ok({ line: line.id, status: 'handled' });
     }
     if (fn === 'bank_line_classify') {
-      if (!this.journalWriter()) return bad('42501', 'books_not_allowed: רק הבעלים רושמים שורת בנק לחשבון');
+      // bank_guard(true) (above / can_write): whoever may mark a line handled — the owner's decision of 27.11.2026
+      if (!this.finance.member) return bad('42501', 'not allowed');
       if (line.status !== 'open') return bad('23514', 'bank_line_closed: the line is already matched or handled');
       const note = String(args.p_note ?? '').trim();
       if (note.length < 2) return bad('22023', 'reason_required: a reason or a note, two letters at least');
@@ -2099,9 +2100,8 @@ export class FakeSupabase {
     }
     if (fn === 'bank_line_reopen') {
       if (line.status !== 'handled') return bad('23514', 'bank_line_not_handled: the line is not marked handled');
-      // 7200: a line posted to an account — the owner only; its classification undone (the entry reversed, in the database)
+      // 7200: a line posted to an account — its classification undone (bank_guard(true), as any reopen — the owner's decision of 27.11.2026) (the entry reversed, in the database)
       const cls = this.t('gl_bank_line_accounts').filter((c) => c.bank_line_id === line.id && c.active);
-      if (cls.length && !this.journalWriter()) return bad('42501', 'not allowed: שורה שנרשמה לחשבון נפתחת מחדש רק על ידי הבעלים');
       for (const c of cls) Object.assign(c, { active: false, undone_at: now(), undone_by: this.opts.userId });
       Object.assign(line, { status: 'open', note: '', handled_at: null });
       this.log('bank.reopened', line.id, {});

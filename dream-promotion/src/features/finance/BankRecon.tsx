@@ -12,7 +12,7 @@ import {
   type BankLine, type BankLineIn, type ColumnMap, type DepositCard, type Grid, type PayCard, type Statement,
 } from './bank';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, ddmmyyyy, ils, periodNow, todayIL, type Period } from './ui';
-import { KIND_HE, accountLabel, bankLineNeedsAccount, classifyChoices, classifyProblem, type GlAccount } from './books';
+import { KIND_HE, PARTY_ACCOUNT_WARNING, accountLabel, bankLineNeedsAccount, classifyChoices, classifyProblem, isPartyAccount, type GlAccount } from './books';
 import { classifyLine, loadAccounts, loadBooksMore, loadLineAccounts, type BooksMore } from './books-data';
 
 /**
@@ -22,8 +22,9 @@ import { classifyLine, loadAccounts, loadBooksMore, loadLineAccounts, type Books
  * it; or chosen by hand (several receipts for one line, to the agora); or marked handled with a note (a bank fee). A match
  * approved by mistake is undone with a reason. The bank is the whole business's: a member limited to some locations does not see it.
  * 2.122 (migration 7200, the owner's answer 17): a line dated on / after the books' start that is handled without a document is
- * posted to an account the owner picks ("רישום לחשבון" — bank_line_classify); anyone else is told only the owner does it. A line
- * before the start — "טופל בלי התאמה" with a note, as before. Before 7200 (loadBooksMore = null) — everything as before.
+ * posted to an account ("רישום לחשבון" — bank_line_classify), by whoever may mark a line handled today (bank_guard(true) — the
+ * owner's decision of 27.11.2026; same condition as "טופל בלי התאמה"). A line before the start — "טופל בלי התאמה" with a note, as
+ * before. Before 7200 (loadBooksMore = null) — everything as before.
  */
 type Filter = 'open' | 'matched' | 'handled' | 'all';
 const addDays = (d: string, n: number) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
@@ -143,8 +144,7 @@ export function BankRecon() {
                     </>}
                     <Button size="sm" variant="ghost" onClick={() => setPicking(l)}>{s ? 'בחירה אחרת' : 'התאמה ידנית'}</Button>
                     {!needsAccount(l) ? <Button size="sm" variant="ghost" onClick={() => setNoting(l)}>טופל בלי התאמה</Button>
-                      : more?.owner ? <Button size="sm" variant="ghost" onClick={() => openClassify(l)}>רישום לחשבון</Button>
-                        : <span className="text-xs text-muted">שורה מתאריך תחילת הספרים בלי מסמך — רק הבעלים רושמים אותה לחשבון.</span>}
+                      : <Button size="sm" variant="ghost" onClick={() => openClassify(l)}>רישום לחשבון</Button>}
                   </div>
                 )}
                 {l.status === 'matched' && (
@@ -276,6 +276,7 @@ function ClassifyDialog({ line, accounts, onClose, onDone }: { line: BankLine; a
           </Select>
         </Field>
       </>}
+      {isPartyAccount(account, accounts ?? []) && <div className="mb-3"><Note tone="warn">{PARTY_ACCOUNT_WARNING}</Note></div>}
       <Field label="הערה"><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder="למשל עמלת בנק חודשית" /></Field>
       {err && <Note tone="warn">{err}</Note>}
       <div className="mt-3 flex gap-2">

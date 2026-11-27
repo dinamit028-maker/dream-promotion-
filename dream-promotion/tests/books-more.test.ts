@@ -81,3 +81,18 @@ test('moving the start: the 1225 warning names the supplier-looking keys too ("S
   const warn = startMoveExplain('2026-06-01', '2026-11-27', '2026-12-01');
   assert.ok(warn.some((x) => /שדה 1225/.test(x) && x.includes('"S-"') && /BANK/.test(x)));
 });
+
+test('review 2.122: a customer\'s / a supplier\'s account picked for a bank line warns — a payment is matched instead', async () => {
+  const { isPartyAccount, PARTY_ACCOUNT_WARNING } = await import('../src/features/finance/books');
+  const acc = toGlAccounts([
+    { key: '6112', name: 'עמלות', kind: 'expense', role: 'expense:fees' },
+    { key: '050-0000072', name: 'לקוחה דמו', kind: 'asset', role: 'customer:050-0000072' },
+    { key: 'S-000000067', name: 'ספק דמו', kind: 'liability', role: 'supplier:000000067' },
+  ]);
+  assert.equal(PARTY_ACCOUNT_WARNING, 'אם יש תשלום — מתאימים אותו במקום');
+  assert.equal(isPartyAccount('6112', acc), false);
+  assert.equal(isPartyAccount('050-0000072', acc), true, 'a customer');
+  assert.equal(isPartyAccount('S-000000067', acc), true, 'a supplier');
+  assert.equal(isPartyAccount('S-999', []), true, 'a typed supplier key (no chart readable)');
+  assert.equal(isPartyAccount('', acc), false);
+});
