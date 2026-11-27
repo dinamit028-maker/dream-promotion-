@@ -84,6 +84,7 @@ async function main() {
     const f = new FakeSupabase(seed(), { businessId: BIZ, userId: OWNER, email: 'owner@example.test' });
     f.counters.set(320, 1);
     f.booksStart = MONTH_START;
+    f.booksShowScreens = true;                         // 7300: the owner turned the screens on
     if (o.books !== false) glSeed(f as any, { date: TODAY, docId: DOC });
     return f;
   };
@@ -370,7 +371,7 @@ async function main() {
       await page.getByLabel('סכום שורה 1').fill('500');
       await page.getByRole('radiogroup', { name: 'חשבון או לקוח — שורה 2' }).getByRole('radio', { name: 'ספק' }).click();
       await page.getByLabel('ספק שורה 2').fill('חשמל');
-      await page.getByRole('button', { name: /ספק חשמל דמו · 000000117/ }).click();
+      await page.getByRole('button', { name: /ספק חשמל דמו · עם ע\.מ 000000117/ }).click();
       await page.getByText('ע.מ 000000117').waitFor();
       await page.getByRole('radiogroup', { name: 'חובה או זכות — שורה 2' }).getByRole('radio', { name: 'זכות' }).click();
       await page.getByLabel('סכום שורה 2').fill('200');
@@ -410,6 +411,35 @@ async function main() {
     });
   }
 
+  await step('the owner\'s switch (7300): hidden until turned on in the settings — then in the menu and the search; before 7300 — the owner', async () => {
+    fake = fresh();
+    fake.booksShowScreens = false;
+    const { ctx, page } = await open('/finance/books', 'desktop');
+    try {
+      await page.getByText(/מסכי הנהלת החשבונות כבויים/).waitFor({ timeout: 120_000 });
+      assert.equal(await page.locator('a[href="/finance/books"]').count(), 0, 'off — not in the menu');
+      await page.goto(`${BASE}/finance/settings`, { waitUntil: 'domcontentloaded' });
+      const box = page.getByRole('checkbox', { name: 'להציג הנהלת חשבונות' });
+      await box.waitFor({ timeout: 120_000 });
+      assert.equal(await box.isChecked(), false);
+      await box.check();
+      await page.getByText('מסכי הנהלת החשבונות מוצגים').first().waitFor();
+      assert.equal(fake.booksShowScreens, true);
+      await page.locator('a[href="/finance/books"]').first().waitFor();
+      await shot(page, 'desktop-13-switch.png', false);
+      const r = fake.rpc('gl_books_screens_set', { p_on: false });
+      assert.equal(r.status, 200);
+    } finally { await ctx.close(); }
+    fake = fresh();
+    fake.booksShowScreens = null;                      // a database before 7300: no switch — the owner sees the area
+    const o = await open('/finance/settings', 'desktop');
+    try {
+      await o.page.getByRole('region', { name: 'ספרים', exact: true }).waitFor({ timeout: 120_000 });
+      await o.page.locator('a[href="/finance/books"]').first().waitFor();
+      assert.equal(await o.page.getByRole('checkbox', { name: 'להציג הנהלת חשבונות' }).count(), 0, 'no switch before 7300');
+    } finally { await o.ctx.close(); }
+  });
+
   await step('a member who is not the owner: the reports, no owner forms, no edits; with empty books — not in the menu', async () => {
     fake = fresh();
     fake.owner = false;
@@ -429,11 +459,12 @@ async function main() {
       const r = fake.rpc('gl_manual_create', { p_id: 'e0000000-0000-4000-8000-0000000000f1', p_date: TODAY, p_details: 'בדיקה', p_lines: [] });
       assert.equal(r.status, 400); assert.match(r.body.message, /^books_not_allowed/);
     } finally { await ctx.close(); }
-    fake = fresh({ books: false });
+    fake = fresh();
     fake.owner = false;
+    fake.booksShowScreens = false;                     // the owner did not turn the screens on
     ({ ctx, page } = await open('/finance/books', 'desktop'));
     try {
-      await page.getByText(/הספרים עוד ריקים/).waitFor({ timeout: 120_000 });
+      await page.getByText(/הבעלים מפעילים אותם בהגדרות הכספים/).waitFor({ timeout: 120_000 });
       assert.equal(await page.locator('a[href="/finance/books"]').count(), 0, 'not in the menu');
     } finally { await ctx.close(); }
   });

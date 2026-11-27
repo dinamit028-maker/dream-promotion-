@@ -1796,7 +1796,7 @@ export class FakeSupabase {
     if (!this.finance.member) return refuse('42501', 'not allowed');
     const owner = this.journalWriter();
     const state = () => ({ startDate: this.booksStartDate(), started: this.today() >= this.booksStartDate(), transactions: this.booksTx,
-      openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner });
+      openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner, ...(this.booksShowScreens == null ? {} : { showScreens: this.booksShowScreens }) });
     if (fn === 'gl_books_state') return { status: 200, body: state() };
     if (fn === 'gl_trial_balance') {
       return { status: 200, body: this.booksSuspense ? [{ account_id: 'acc-9100', key: '9100', name: 'חשבון מעבר — לבירור', kind: 'asset', tb_code: '9100', tb_name: 'חשבון מעבר',
@@ -2121,6 +2121,8 @@ export class FakeSupabase {
   journalWriterPublic() { return this.journalWriter(); }
   /** 2.123: migration 7300 is in the database — gl_opening_balances takes a supplier's line (before it: refused, opening_account) */
   booksOpeningSuppliers = true;
+  /** 2.123 (7300): the owner's switch of the books' screens (gl_books_state().showScreens) — null: a database before 7300 (no key) */
+  booksShowScreens: boolean | null = null;
   /** 2.123: a difference the books' reconciliation reports (gl_reconcile — area → amount) */
   booksReconDiff: Record<string, number> = {};
   /** journal_writer(): the business's owners — role owner, full access, every location */
@@ -2723,7 +2725,8 @@ export class FakeSupabase {
     if (table === 'gl_accounts' || table === 'gl_bank_line_accounts') {
       if (!this.booksCore || (table === 'gl_bank_line_accounts' && !this.booksMore)) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
-      if (this.memberLocations || !this.finance.member) return json(200, []);   // _whole_business / _finance_privacy: no row, no error
+      // gl_bank_line_accounts: _whole_business; gl_accounts: the accounts of no location (the fake's) — _location_gate of 7100
+      if ((table === 'gl_bank_line_accounts' && this.memberLocations) || !this.finance.member) return json(200, []);
     }
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();

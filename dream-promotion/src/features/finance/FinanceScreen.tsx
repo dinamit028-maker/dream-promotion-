@@ -128,9 +128,9 @@ function FinanceProvider({ children }: { children: ReactNode }) {
   // (else the menu as it was)
   const journal = useJournalReadyState() === true;
   const cash = Boolean(state?.profile.cashDrawers);
-  // 2.123 (stage 4ד): "הנהלת חשבונות" once migration 7200 is there — the owner, or the whole of the money once the books have an entry
-  const booksArea = useBooksArea();
+  // 2.123 (stage 4ד): "הנהלת חשבונות" once migration 7200 is there and the owner turned the screens on (ledger.ts showBooksArea)
   const access = useApp((s) => s.access);
+  const booksArea = useBooksArea(access === 'full');
   const books = showBooksArea({ ready: booksArea.asked && booksArea.state != null, state: booksArea.state, access });
   useModuleGroups(cash || journal || books ? financeGroups({ cash, journal, books }) : null);
 

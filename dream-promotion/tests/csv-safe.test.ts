@@ -73,3 +73,9 @@ test('the time clock\'s file: as before; a formula-looking employee name / note 
   assert.match(bad, /"'-מיכל","2026-10-05"/);
   assert.match(bad, /"'=1\+1"/);
 });
+
+import { csv as attendanceCsv } from '../src/features/attendance/exports';
+test('the attendance files: quoted only when needed, as before; the same rule against formulas', () => {
+  assert.equal(attendanceCsv([['מיכל', '8:15', 3, 'a,b', 'x"y']]), '\uFEFFמיכל,8:15,3,"a,b","x""y"\r\n', 'normal rows — byte for byte as before');
+  assert.equal(attendanceCsv([['=1+1', '@x', '\tתו', '-0:30', '-5']]), '\uFEFF"\'=1+1","\'@x","\'\tתו","\'-0:30",-5\r\n', 'a numeric text stays a number');
+});

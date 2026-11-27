@@ -1,5 +1,5 @@
 import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
-import { glKeyReserved } from '@/features/documents/customer-key';
+import { glCustomerKey, glKeyReserved } from '@/features/documents/customer-key';
 import type { BooksState } from './books';
 import { normalizeSupplier } from './expenses';
 import type { ReportTable } from './statements';
@@ -27,12 +27,15 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 // ---- who sees the area ---------------------------------------------------------------------------------------------------------
 /**
  * The area "הנהלת חשבונות" in the menu (answer 13: every business keeps books; the screens hidden by default for a small business).
- * The rule (finance-agent, 27.11.2026 — to confirm with the owner): only once migration 7200 is in the database (`ready`), only for a
- * member with the whole of the money (access 'full' — never a cashier or a calendar member), and only once the books have an entry —
- * or for the owner (journal_writer), who enters the opening balances before the first entry. What each one reads is the RLS's.
+ * Only once migration 7200 is in the database (`ready`), only for a member with the whole of the money (access 'full' — never a
+ * cashier or a calendar member), and only when the owner turned the screens on. What each one reads is the RLS's.
  */
 export function showBooksArea(o: { ready: boolean; state: BooksState | null; access: string | null | undefined }): boolean {
-  return Boolean(o.ready && o.state && o.access === 'full' && (o.state.owner || o.state.transactions > 0));
+  // the owner's decision in the review of 2.123.0 (27.11.2026): hidden until the owner turns the screens on —
+  // gl_books_state().showScreens (migration 7300, gl_books_screens_set; the switch is in the "ספרים" card of the money settings);
+  // a database before 7300 says nothing of it (absent): the owner only
+  if (!o.ready || !o.state || o.access !== 'full') return false;
+  return o.state.showScreens === undefined ? o.state.owner : o.state.showScreens;
 }
 
 export type BooksView = 'tb' | 'ledger' | 'journal' | 'pnl' | 'balance' | 'chart' | 'manual' | 'opening' | 'reconcile';
@@ -50,12 +53,16 @@ export const booksViews = (s: Pick<BooksState, 'owner' | 'openingEntered'>) =>
 export type AccountKind = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
 export const KINDS: AccountKind[] = ['asset', 'liability', 'equity', 'income', 'expense'];
 export const KIND_LABEL: Record<AccountKind, string> = { asset: 'נכס', liability: 'התחייבות', equity: 'הון', income: 'הכנסה', expense: 'הוצאה' };
-export interface ChartAccount { key: string; name: string; kind: AccountKind; tbCode: string; tbName: string; parentKey: string | null; role: string | null; active: boolean }
+export interface ChartAccount {
+  key: string; name: string; kind: AccountKind; tbCode: string; tbName: string; parentKey: string | null; role: string | null; active: boolean;
+  /** a customer's account: the CRM card it was opened for (gl_accounts.lead_id), when known */
+  leadId?: string | null;
+}
 /** gl_accounts rows (key, name, kind, tb_code, tb_name, parent_key, role, active) → the chart, by key; a row that is not one is dropped */
 export function toChart(rows: unknown): ChartAccount[] {
   return arr(rows).filter((r) => r && typeof r.key === 'string' && r.key && typeof r.name === 'string' && KINDS.includes(r.kind))
     .map((r) => ({ key: String(r.key), name: String(r.name), kind: r.kind as AccountKind, tbCode: str(r.tb_code), tbName: str(r.tb_name),
-      parentKey: strOrNull(r.parent_key), role: strOrNull(r.role), active: r.active !== false }))
+      parentKey: strOrNull(r.parent_key), role: strOrNull(r.role), active: r.active !== false, ...(r.lead_id ? { leadId: String(r.lead_id) } : {}) }))
     .sort((a, b) => a.key.localeCompare(b.key, 'en'));
 }
 /** who the account is: the system's (a role), a customer's / a supplier's (role customer: / supplier:), or one the owner added */
@@ -190,15 +197,19 @@ const blankOpening = (l: OpeningLine) => !l.account.trim() && !l.supplier && !l.
  */
 export const OPENING_SUPPLIER_NOT_YET = 'יתרת פתיחה לספק חדש עוד לא אפשרית — צריך עדכון של המסד. ספק שכבר יש לו חשבון בלוח (מפתח שמתחיל ב-S-) — בוחרים אותו כ"חשבון".';
 export const openingSupplierRefused = (raw: string, lines: OpeningLine[]) =>
-  lines.some((l) => l.supplier) && /\bopening_(account|line)\b/.test(raw) && !/opening_supplier/.test(raw);
+  // before 7300 a supplier's line has no "account": the old function refuses it as an account with an empty key
+  // ('opening_account: חשבון % לא נמצא' with '' — two spaces); any other refusal is said as it is
+  lines.some((l) => l.supplier) && /\bopening_account: חשבון {2}לא נמצא/.test(raw);
 /** the suppliers of the business's expenses (supplier_name, supplier_dealer) — once each, as the books know a supplier (party_key:
  *  the dealer number, else the normalized name — expense_norm_supplier / normalizeSupplier); a name that normalizes to nothing
  *  without a dealer number is left out (the database would key it by the name itself) */
 export function supplierChoices(rows: unknown, q = '', limit = 8): OpeningSupplier[] {
   const seen = new Map<string, OpeningSupplier>();
-  for (const r of arr(rows)) {
-    const dealer = /^\d{9}$/.test(str(r?.supplier_dealer).trim()) ? str(r.supplier_dealer).trim() : '';
-    const name = str(r?.supplier_name).trim().slice(0, 120);
+  const all = arr(rows).map((r) => ({ dealer: /^\d{9}$/.test(str(r?.supplier_dealer).trim()) ? str(r.supplier_dealer).trim() : '', name: str(r?.supplier_name).trim().slice(0, 120) }));
+  // the same name with a dealer number and without: the one with the number (the screen marks it "עם ע.מ")
+  const dealerNames = new Set(all.filter((x) => x.dealer && normalizeSupplier(x.name)).map((x) => normalizeSupplier(x.name)));
+  for (const { dealer, name } of all) {
+    if (!dealer && dealerNames.has(normalizeSupplier(name))) continue;
     const k = dealer ? `d:${dealer}` : normalizeSupplier(name) ? `n:${normalizeSupplier(name)}` : '';
     if (k && !seen.has(k)) seen.set(k, { dealer, name });
   }
@@ -210,6 +221,20 @@ export function supplierChoices(rows: unknown, q = '', limit = 8): OpeningSuppli
 export function openingBalance(lines: OpeningLine[]) {
   const b = entryBalance(lines.filter((l) => !blankOpening(l)).map((l) => ({ account: l.account, side: l.side, amount: l.amount })));
   return { debit: b.debit, credit: b.credit, toOpening: b.debit - b.credit };
+}
+/**
+ * a CRM card → its opening line's account: the account the card's documents post to. A document's customer is the card's billing
+ * name, else its name (the composer — ui.tsx CustomerFields), and its key is gl_customer_key(phone, that name) (customer-key.ts).
+ * A customer's account the database opened for this card already (gl_accounts.lead_id) — that one first; else one with that key.
+ */
+export function openingCustomer(lead: { id: string; name: string; phone?: string | null; billingName?: string | null }, chart: ChartAccount[]):
+  { account: string; name: string; existing: boolean } {
+  const byLead = chart.find((a) => a.leadId === lead.id && originOf(a) === 'customer');
+  if (byLead) return { account: byLead.key, name: byLead.name, existing: true };
+  const docName = lead.billingName || lead.name || '';
+  const key = glCustomerKey(lead.phone ?? '', docName);
+  const byKey = chart.find((a) => a.key === key);
+  return { account: key, name: byKey?.name ?? docName.trim().slice(0, 50), existing: Boolean(byKey) };
 }
 /** what is wrong, Hebrew — gl_opening_balances' checks: 1–2000 lines; an account of the chart, or a new customer with a name and a key
  *  that is not the system's (gl_key_reserved — "S-" too); never 3100 itself; amounts above 0 to the agora */

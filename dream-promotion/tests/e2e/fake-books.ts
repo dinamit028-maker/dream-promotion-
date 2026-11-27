@@ -7,6 +7,7 @@
  * so the real screens run end to end. Demo data only.
  */
 import { randomUUID } from 'node:crypto';
+import { normalizeSupplier } from '../../src/features/finance/expenses';
 
 type Row = Record<string, any>;
 export interface BooksFake {
@@ -15,8 +16,9 @@ export interface BooksFake {
   finance: { member: boolean; lockedUntil: string | null };
   /** 2.123: a difference the reconciliation reports (area → amount) — none: the books and the reports agree */
   booksReconDiff?: Record<string, number>;
-  /** 2.123: migration 7300 — a supplier's line in the opening balances */
+  /** 2.123: migration 7300 — a supplier's line in the opening balances; the owner's switch of the screens */
   booksOpeningSuppliers?: boolean;
+  booksShowScreens?: boolean | null;
 }
 const t = (f: BooksFake, n: string) => (f.tables[n] ||= []);
 const ok = (body: any) => ({ status: 200, body });
@@ -83,6 +85,12 @@ const owner = (f: BooksFake & { journalWriterPublic?: () => boolean }) => (f.jou
 
 export function booksScreensRpc(f: BooksFake & { journalWriterPublic?: () => boolean }, fn: string, a: any): { status: number; body: any } | null {
   const reports = ['report_trial_balance', 'report_ledger', 'report_journal', 'report_profit_loss', 'report_balance_sheet', 'gl_reconcile'];
+  if (fn === 'gl_books_screens_set') {
+    if (!f.booksCore || !f.booksMore || f.booksShowScreens == null) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    if (!f.finance.member || !owner(f)) return no('42501', 'books_not_allowed: רק הבעלים רושמים בספרים');
+    f.booksShowScreens = a.p_on === true;
+    return ok({ showScreens: f.booksShowScreens });
+  }
   const writes = ['gl_manual_create', 'gl_manual_reverse', 'gl_account_add', 'gl_account_update', 'gl_account_set_active', 'gl_opening_balances'];
   if (!reports.includes(fn) && !writes.includes(fn)) return null;
   if (!f.booksCore || (!f.booksMore && fn !== 'gl_opening_balances')) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
@@ -275,9 +283,10 @@ function opening(f: BooksFake, a: any, st: string): { status: number; body: any 
       const dl = String(l.supplier.dealer ?? '').trim(), nm = String(l.supplier.name ?? '').trim();
       if ((dl && !/^\d{9}$/.test(dl)) || !nm || nm.length > 120) return no('22023', 'opening_supplier: ספק — שם (עד 120 תווים), ומספר עוסק של 9 ספרות או ריק');
       const dealer = dl;
-      const role = dealer ? `supplier:d:${dealer}` : `supplier:n:${nm.toLowerCase().replace(/[^0-9a-zא-ת]+/g, '')}`;
+      // party_key: the dealer number, else the name as expense_norm_supplier / normalizeSupplier reads it
+      const role = dealer ? `supplier:d:${dealer}` : `supplier:n:${normalizeSupplier(nm)}`;
       let s = t(f, 'gl_accounts').find((x) => x.business_id === f.opts.businessId && x.role === role);
-      if (!s) s = account(f, dealer ? `S-${dealer}` : `S-${nm.toLowerCase().replace(/[^0-9a-zא-ת]+/g, '').slice(0, 13)}`, nm || 'ספק', 'liability', 'SUPPLIERS', 'ספקים', role, '2100');
+      if (!s) s = account(f, dealer ? `S-${dealer}` : `S-${normalizeSupplier(nm).slice(0, 13)}`, nm || 'ספק', 'liability', 'SUPPLIERS', 'ספקים', role, '2100');
       out.push([s.key, l.side, l.amount]);
       if (l.side === 'D') ds += ag(l.amount); else cs += ag(l.amount);
       continue;

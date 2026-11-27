@@ -12,10 +12,12 @@ import { israelParts } from '../src/lib/il-time';
 import {
   SYSTEM_KEYS, accountAddProblems, accountUpdateProblems, balanceSheetTable, bookJournalTable, booksError, booksViews, canDeactivate, canReverseEntry, chartList,
   docRefKey, docRefs, entryBalance, emptyManual, groupTrialBalance, isSystemKey, ledgerTable, manualArgs, manualProblems, openingArgs, openingBalance, openingProblems,
-  OPENING_SUPPLIER_NOT_YET, openingSupplierRefused, originOf, parseAgorot, supplierChoices, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, tbBalanced, toBalanceSheet, toBookJournal, toChart,
+  OPENING_SUPPLIER_NOT_YET, openingCustomer, openingSupplierRefused, originOf, parseAgorot, supplierChoices, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, tbBalanced, toBalanceSheet, toBookJournal, toChart,
   toLedger, toProfitLoss, toReconcile, toTrialBalance, trialBalanceTable, type ChartAccount,
 } from '../src/features/finance/ledger';
 import { tableCsv, pdfBody } from '../src/features/finance/statements';
+import { toBooksState } from '../src/features/finance/books';
+import { appEntries } from '../src/components/shell/menu-search';
 import { financeError } from '../src/features/finance/rows';
 import { glCustomerKey } from '../src/features/documents/customer-key';
 import { FINANCE_SECTIONS, financeHref, sectionOfPath } from '../src/features/finance/routes';
@@ -41,13 +43,22 @@ const CHART: ChartAccount[] = toChart([
   { key: 'x', name: 'שבור', kind: 'nope' },
 ]);
 
-test('who sees "הנהלת חשבונות": after 7200, the whole of the money, the owner — or anyone once the books have an entry', () => {
-  assert.equal(showBooksArea({ ready: false, state: state({ owner: true }), access: 'full' }), false, 'before 7200 — hidden');
+test('who sees "הנהלת חשבונות": after 7200, the whole of the money, once the owner turned the screens on (before 7300 — the owner)', () => {
+  const st = (o: Partial<{ owner: boolean; transactions: number; showScreens: boolean }>) => ({ ...state(o), ...('showScreens' in o ? { showScreens: o.showScreens } : {}) });
+  assert.equal(showBooksArea({ ready: false, state: st({ owner: true, showScreens: true }), access: 'full' }), false, 'before 7200 — hidden');
   assert.equal(showBooksArea({ ready: true, state: null, access: 'full' }), false);
-  assert.equal(showBooksArea({ ready: true, state: state({ owner: true }), access: 'full' }), true, 'the owner — also before the first entry');
-  assert.equal(showBooksArea({ ready: true, state: state(), access: 'full' }), false, 'a member, empty books — hidden (answer 13)');
-  assert.equal(showBooksArea({ ready: true, state: state({ transactions: 3 }), access: 'full' }), true, 'a member once the books have an entry');
-  for (const a of ['register', 'calendar', 'agenda', null]) assert.equal(showBooksArea({ ready: true, state: state({ owner: true, transactions: 9 }), access: a }), false, `never ${a}`);
+  // before 7300 (no showScreens): the owner only — whatever the entries
+  assert.equal(showBooksArea({ ready: true, state: st({ owner: true }), access: 'full' }), true);
+  assert.equal(showBooksArea({ ready: true, state: st({ transactions: 30 }), access: 'full' }), false, 'a member — not before the owner\'s switch exists');
+  // 7300: the owner's switch — hidden by default, for everyone (the owner too: the switch is in the settings)
+  assert.equal(showBooksArea({ ready: true, state: st({ owner: true, transactions: 30, showScreens: false }), access: 'full' }), false);
+  assert.equal(showBooksArea({ ready: true, state: st({ showScreens: true }), access: 'full' }), true, 'turned on — every member with the whole of the money');
+  for (const a of ['register', 'calendar', 'agenda', null]) assert.equal(showBooksArea({ ready: true, state: st({ owner: true, showScreens: true }), access: a }), false, `never ${a}`);
+  const raw = { startDate: START, transactions: 0 };
+  assert.equal('showScreens' in toBooksState(raw)!, false, 'a database before 7300 — no key (the state as before)');
+  assert.equal(toBooksState({ ...raw, showScreens: false })!.showScreens, false);
+  assert.ok(appEntries({ books: true }).some((e) => e.href === '/finance/books'), 'the search — under the menu\'s condition');
+  assert.ok(!appEntries({}).some((e) => e.href === '/finance/books'));
   assert.deepEqual(booksViews(state()).map((v) => v.id), ['tb', 'ledger', 'journal', 'pnl', 'balance', 'chart', 'reconcile'], 'no owner forms for a member');
   assert.deepEqual(booksViews(state({ owner: true })).map((v) => v.id), ['tb', 'ledger', 'journal', 'pnl', 'balance', 'chart', 'manual', 'opening', 'reconcile']);
   assert.ok(!booksViews(state({ owner: true, openingEntered: true })).some((v) => v.id === 'opening'), 'opening balances — once');
@@ -304,6 +315,8 @@ test('7300: a supplier\'s opening line — the suppliers of the expenses once ea
     { supplier_name: 'חשמל  דמו', supplier_dealer: '' }, { supplier_name: 'חשמל דמו', supplier_dealer: null }, { supplier_name: '!!!', supplier_dealer: '' },
     { supplier_name: 'Acme', supplier_dealer: '12' },
   ];
+  assert.deepEqual(supplierChoices([...rows, { supplier_name: 'ACME', supplier_dealer: '000000125' }]).map((x) => [x.dealer, x.name]),
+    [['', 'חשמל  דמו'], ['000000109', 'ספק דמו בע״מ'], ['000000125', 'ACME']], 'the same name with a dealer number and without — the one with it');
   assert.deepEqual(supplierChoices(rows), [{ dealer: '', name: 'חשמל  דמו' }, { dealer: '000000109', name: 'ספק דמו בע״מ' }, { dealer: '', name: 'Acme' }],
     'by dealer number, else the normalized name (as party_key); a dealer that is not 9 digits is none; a name of no letters is left out');
   assert.deepEqual(supplierChoices(rows, '000000'), [{ dealer: '000000109', name: 'ספק דמו בע״מ' }]);
@@ -320,6 +333,19 @@ test('7300: a supplier\'s opening line — the suppliers of the expenses once ea
   assert.equal(openingSupplierRefused('opening_account: חשבון  לא נמצא (לקוח חדש — עם שם, ומפתח שאינו של המערכת) 22023', [line]), true);
   assert.equal(openingSupplierRefused('opening_account: חשבון 9999 לא נמצא', [{ ...line, supplier: null, account: '9999' }]), false, 'no supplier line — the usual message');
   assert.equal(openingSupplierRefused('opening_supplier: ספק — שם', [line]), false, '7300\'s own refusal — its own message');
+  assert.equal(openingSupplierRefused('opening_account: חשבון 3100 לא נמצא', [line]), false, 'another line\'s refusal — its own message');
+  assert.equal(openingSupplierRefused('opening_line: כל שורה', [line]), false);
   assert.match(OPENING_SUPPLIER_NOT_YET, /עוד לא אפשרית/);
   assert.match(financeError({ message: 'opening_supplier: ספק — שם (עד 120 תווים), ומספר עוסק של 9 ספרות או ריק', code: '22023' }), /שם \(חובה, עד 120 תווים\)/);
+});
+
+test('an opening customer: the key and the name its documents use — the billing name, else the name; an existing account first', () => {
+  // a card with a billing name and no phone: documents are issued to the billing name → the key is of that name
+  const card = { id: 'f0000000-0000-4000-8000-0000000000c1', name: 'דנה', phone: '', billingName: 'דנה כהן בע״מ' };
+  assert.deepEqual(openingCustomer(card, CHART), { account: glCustomerKey('', 'דנה כהן בע״מ'), name: 'דנה כהן בע״מ', existing: false });
+  assert.equal(openingCustomer(card, CHART).account, 'דנה כהן בע״מ');
+  assert.deepEqual(openingCustomer({ ...card, billingName: '', phone: '0501234567' }, CHART), { account: '0501234567', name: 'לקוחה דמו', existing: true }, 'an account with that key exists');
+  const withLead = [...CHART, ...toChart([{ key: '0509999999', name: 'דנה (ישן)', kind: 'asset', tb_code: 'CUSTOMERS', tb_name: 'לקוחות', parent_key: '1300',
+    role: 'customer:0509999999', active: true, lead_id: card.id }])];
+  assert.deepEqual(openingCustomer(card, withLead), { account: '0509999999', name: 'דנה (ישן)', existing: true }, 'the account opened for this card — first');
 });

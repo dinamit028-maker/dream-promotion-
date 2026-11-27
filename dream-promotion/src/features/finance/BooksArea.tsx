@@ -6,14 +6,13 @@ import { Modal, Spinner } from '@/components/ui/feedback';
 import { cx } from '@/lib/utils';
 import { useLocations } from '@/features/locations/store';
 import { LocationField, locationColumn } from '@/features/locations/LocationSwitch';
-import { glCustomerKey } from '@/features/documents/customer-key';
 import { useFinance } from './FinanceScreen';
 import { TableCard } from './ReportBook';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, Stat, ddmmyyyy, ils, periodNow, todayIL, type Period } from './ui';
 import {
   KIND_LABEL, KINDS, RECON_BALANCES, RECON_AREA, accountAddProblems, accountText, accountUpdateProblems, ag, balanceSheetTable, bookJournalTable, booksViews,
   canDeactivate, canReverseEntry, chartList, docRefKey, docRefs, emptyLine, emptyManual, emptyOpening, entryBalance, groupTrialBalance, isBooksView, ledgerTable,
-  manualProblems, openingBalance, openingProblems, originOf, supplierChoices, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, sourceLabel,
+  manualProblems, openingBalance, openingCustomer, openingProblems, originOf, supplierChoices, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, sourceLabel,
   tbBalanced, trialBalanceTable, type AccountDraft, type BalanceSheet, type BooksView, type ChartAccount, type EntryLine, type ManualDraft, type OpeningLine, type Part,
   type Side,
 } from './ledger';
@@ -31,6 +30,8 @@ import type { BooksState } from './books';
  * Nothing is computed here: every number is the database's (report_* / gl_reconcile); the forms check by the database's rules first.
  * Every table downloads as CSV and PDF (statements.ts tableCsv / report-pdf). Mobile first: lists, never a page that scrolls sideways.
  */
+/** the journal's entries shown at a time */
+const JOURNAL_PAGE = 200;
 export const BOOKS_MIGRATION = 'הנהלת החשבונות תופיע כאן אחרי עדכון המסד (מיגרציה 20261129007200).';
 
 /** a signed amount, its sign before the shekel and kept left to right in the Hebrew line ("−₪50", never "₪50−") */
@@ -69,7 +70,8 @@ export function BooksArea() {
   if (!area.state) return <Note tone="warn">{BOOKS_MIGRATION}</Note>;
   const st = area.state;
   if (!showBooksArea({ ready: true, state: st, access: appAccess })) {
-    return <Note>הספרים עוד ריקים — הם יוצגו כאן מהפקודה הראשונה (תחילת הספרים: {ddmmyyyy(st.startDate)}).</Note>;
+    return <Note>{st.owner ? 'מסכי הנהלת החשבונות כבויים. מפעילים אותם בהגדרות הכספים ← ספרים ← "להציג הנהלת חשבונות".'
+      : 'מסכי הנהלת החשבונות לא מוצגים בעסק הזה — הבעלים מפעילים אותם בהגדרות הכספים.'}</Note>;
   }
   const views = booksViews(st);
   const shown = views.some((v) => v.id === view) ? view : 'tb';
@@ -132,8 +134,8 @@ function TrialBalanceView({ period, subtitle, onOpen }: { period: Period; subtit
                     <span className="col-span-2 text-xs text-muted">חובה <Money v={group.debit} /> · זכות <Money v={group.credit} /> · פתיחה <Money v={group.opening} /></span>
                   </summary>
                   <ul className="grid gap-1 border-t border-line/60 p-2">
-                    {accounts.map((a) => (
-                      <li key={a.key}>
+                    {accounts.map((a, i) => (
+                      <li key={`${a.key}:${i}`}>
                         <button type="button" onClick={() => onOpen(a.key)} disabled={a.key === '?'}
                           className="grid min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-2 text-start text-sm hover:bg-surface-2">
                           <span className="min-w-0 break-words">{accountText(a)}</span>
@@ -237,12 +239,16 @@ function JournalView({ period, subtitle, owner, onOpen }: { period: Period; subt
   const r = useRes(() => loadBookJournal(period.from, period.to), [period.from, period.to]);
   const [ids, setIds] = useState<Record<string, string>>({});
   const [undo, setUndo] = useState<{ id: string; number: number; date: string } | null>(null);
+  // a long period: the first 200 entries, then "עוד" (the totals and the files — of all of them)
+  const [shownN, setShownN] = useState(JOURNAL_PAGE);
+  useEffect(() => { setShownN(JOURNAL_PAGE); }, [period.from, period.to]);
+  const visible = useMemo(() => r.data?.entries.slice(0, shownN) ?? [], [r.data, shownN]);
   useEffect(() => {
     let alive = true;
-    setIds({});
-    if (r.data) void loadDocIds(docRefs(r.data.entries)).then((m) => { if (alive) setIds(m); });
+    if (visible.length) void loadDocIds(docRefs(visible)).then((m) => { if (alive) setIds((x) => ({ ...x, ...m })); });
     return () => { alive = false; };
-  }, [r.data]);
+  }, [visible]);
+  useEffect(() => { setIds({}); }, [r.data]);
   if (!r.data) return <Wait error={r.error} retry={r.retry} />;
   const j = r.data;
   const numberOf = new Map(j.entries.map((e) => [e.id, e.number]));
@@ -262,7 +268,7 @@ function JournalView({ period, subtitle, owner, onOpen }: { period: Period; subt
       </div>
       {!j.entries.length ? <Card className="p-4"><p className="text-sm text-muted">אין פקודות בתקופה הזו.</p></Card> : (
         <ul className="grid gap-2" aria-label="פקודות היומן">
-          {j.entries.map((e) => (
+          {visible.map((e) => (
             <li key={e.id} data-entry={e.number}>
               <Card className="min-w-0 p-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -291,6 +297,9 @@ function JournalView({ period, subtitle, owner, onOpen }: { period: Period; subt
             </li>
           ))}
         </ul>
+      )}
+      {j.entries.length > visible.length && (
+        <div><Button variant="ghost" onClick={() => setShownN((n) => n + JOURNAL_PAGE)}>עוד ({j.entries.length - visible.length} פקודות)</Button></div>
       )}
       <TableCard table={bookJournalTable(j)} period={period} subtitle={subtitle} exportOnly />
       {undo && <ReverseDialog entry={undo} onClose={() => setUndo(null)} onDone={(n) => { const was = undo.number; setUndo(null); say(`פקודה ${n} הופכת את פקודה ${was}`); r.retry(); }} />}
@@ -337,8 +346,8 @@ function PartList({ title, part, total, onOpen }: { title: string; part: Part; t
       <p className="mb-1 font-bold">{title}</p>
       {!part.accounts.length ? <p className="text-sm text-muted">אין.</p> : (
         <ul className="grid gap-0.5 text-sm">
-          {part.accounts.map((a) => (
-            <li key={a.key}><button type="button" onClick={() => onOpen(a.key)} disabled={a.key === '?'}
+          {part.accounts.map((a, i) => (
+            <li key={`${a.key}:${i}`}><button type="button" onClick={() => onOpen(a.key)} disabled={a.key === '?'}
               className="grid min-h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-1 text-start hover:bg-surface-2">
               <span className="min-w-0 break-words">{accountText(a)}</span><Money v={a.amount} /></button></li>
           ))}
@@ -596,10 +605,17 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
     if (s.length < 2) return [];
     return leads.filter((l) => l.name.toLowerCase().includes(s) || (l.phone ?? '').replace(/\D/g, '').includes(s.replace(/\D/g, '') || '§')).slice(0, 6);
   }, [q, leads]);
-  const pickLead = useCallback((i: number, l: { name: string; phone?: string | null }) => {
-    // the customer's account as its documents post to it (gl_customer_key: the phone, else the name — customer-key.ts)
-    setLine(i, { account: glCustomerKey(l.phone ?? '', l.name), name: l.name.slice(0, 50), customer: true }); setQ(null);
-  }, []);
+  // a customer's account that exists already (it had documents) — offered first; then the CRM's cards
+  const accHits = useMemo(() => {
+    const s = q?.text.trim().toLowerCase() ?? '';
+    if (s.length < 2) return [];
+    return chart.filter((a) => originOf(a) === 'customer' && a.active && (a.name.toLowerCase().includes(s) || a.key.toLowerCase().startsWith(s))).slice(0, 4);
+  }, [q, chart]);
+  const pickLead = useCallback((i: number, l: { id: string; name: string; phone?: string | null; billingName?: string | null }) => {
+    // the account the card's documents post to (the billing name, else the name; gl_customer_key — customer-key.ts)
+    const c = openingCustomer(l, chart);
+    setLine(i, { account: c.account, name: c.name, customer: true }); setQ(null);
+  }, [chart]);
   async function save() {
     const e = openingProblems(lines, chart);
     if (e.length) { setErrors(e); return; }
@@ -635,7 +651,7 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
                   {sq?.i === i && supHits.length > 0 && (
                     <div className="absolute inset-x-0 top-full z-10 mt-1 grid rounded-2xl border border-line bg-surface p-1 shadow-lg">
                       {supHits.map((h) => <button key={`${h.dealer}:${h.name}`} type="button" onClick={() => { setLine(i, { supplier: h }); setSq(null); }}
-                        className="min-h-11 rounded-xl px-3 text-start text-sm hover:bg-surface-2">{h.name}{h.dealer ? ` · ${h.dealer}` : ''}</button>)}
+                        className="min-h-11 rounded-xl px-3 text-start text-sm hover:bg-surface-2">{h.name}{h.dealer ? ` · עם ע.מ ${h.dealer}` : ''}</button>)}
                     </div>
                   )}
                 </div>
@@ -655,9 +671,11 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
             ) : (
               <div className="relative">
                 <Input value={q?.i === i ? q.text : ''} onChange={(e) => setQ({ i, text: e.target.value })} placeholder="חיפוש לקוח (שם או טלפון)" aria-label={`לקוח שורה ${i + 1}`} />
-                {q?.i === i && hits.length > 0 && (
+                {q?.i === i && (hits.length > 0 || accHits.length > 0) && (
                   <div className="absolute inset-x-0 top-full z-10 mt-1 grid rounded-2xl border border-line bg-surface p-1 shadow-lg">
-                    {hits.map((h) => <button key={h.id} type="button" onClick={() => pickLead(i, h)} className="min-h-11 rounded-xl px-3 text-start text-sm hover:bg-surface-2">{h.name}{h.phone ? ` · ${h.phone}` : ''}</button>)}
+                    {accHits.map((a) => <button key={`acc:${a.key}`} type="button" onClick={() => { setLine(i, { account: a.key, name: a.name, customer: true }); setQ(null); }}
+                      className="min-h-11 rounded-xl px-3 text-start text-sm hover:bg-surface-2">{a.name} <span className="text-xs text-muted">· חשבון קיים {a.key}</span></button>)}
+                    {hits.map((h) => <button key={h.id} type="button" onClick={() => pickLead(i, h)} className="min-h-11 rounded-xl px-3 text-start text-sm hover:bg-surface-2">{h.billingName || h.name}{h.phone ? ` · ${h.phone}` : ''}</button>)}
                   </div>
                 )}
               </div>

@@ -84,7 +84,7 @@ export const CASH_GROUP: ModuleGroup = {
 /** 2.96 (T13א): manual journal entries — in "דוחות ורואה חשבון" once migration 20261011005100 is in the database (every business) */
 export const JOURNAL_LINK: ModuleGroup['links'][number] = { href: financeHref('journal'), label: 'פקודות יומן', Icon: Notebook };
 /** 2.123 (stage 4ד): the double-entry books — in "דוחות ורואה חשבון" once migration 20261129007200 is in the database, for whom
- *  ledger.ts showBooksArea says (the owner, or anyone with the whole of the money once the books have an entry) */
+ *  ledger.ts showBooksArea says (once the owner turned them on; before migration 7300 — the owner only) */
 export const BOOKS_LINK: ModuleGroup['links'][number] = { href: financeHref('books'), label: 'הנהלת חשבונות', Icon: BookOpen };
 /** the module's groups — with the desks' group after the expenses when they are on, the journal once it is in the database, and the
  *  books' area when it is shown */

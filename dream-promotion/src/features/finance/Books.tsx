@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Button, Card, Field, Input } from '@/components/ui/primitives';
 import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
 import { loadBooks, moveBooksStart, replayNow } from './books-data';
-import { useBooksArea } from './ledger-data';
+import { setBooksScreens, useBooksArea } from './ledger-data';
 import { financeHref } from './routes';
 import { latestStart, monthOf, firstOf, replayMessage, showBooks, startMonthProblem, startMoveExplain, type BooksState } from './books';
 
@@ -86,7 +86,16 @@ export function BooksSettings({ say, fail, business }: { say: (m: string) => voi
         )}
       </ul>
       <p className="mb-2 text-xs text-muted">כל מסמך, תשלום והפקדה מתאריך ההתחלה נרשמים בספרים לבד (פקודה מאוזנת לכל אחד). מה שהופק לפני כן — לא.{area.state ? ' יתרות הפתיחה, לוח החשבונות, הכרטסות והדוחות — ב"הנהלת חשבונות".' : ''}</p>
-      {area.state && <p className="mb-2"><Link href={financeHref('books', state.openingEntered ? {} : { view: 'opening' })} className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold">
+      {/* 2.123 (migration 7300 — the owner's decision): the books' screens are shown only once the owner turns them on */}
+      {area.state && area.state.showScreens !== undefined && (
+        <label className="mb-2 flex min-h-11 items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" className="h-5 w-5" checked={area.state.showScreens} disabled={busy}
+            onChange={async (e) => { const on = e.target.checked; setBusy(true); const r = await setBooksScreens(on); setBusy(false);
+              if (!r.ok) fail(r.error); else say(on ? 'מסכי הנהלת החשבונות מוצגים' : 'מסכי הנהלת החשבונות הוסתרו'); }} />
+          להציג הנהלת חשבונות
+        </label>
+      )}
+      {area.state && area.state.showScreens !== false && <p className="mb-2"><Link href={financeHref('books', state.openingEntered ? {} : { view: 'opening' })} className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold">
         {state.openingEntered ? 'להנהלת החשבונות' : 'להנהלת החשבונות — יתרות פתיחה'}</Link></p>}
 
       {state.canMoveStart && !confirming && (

@@ -31,11 +31,12 @@ export const loadProfitLoss = (from: string, to: string): Promise<Res<ProfitLoss
 export const loadBalanceSheet = (asOf: string): Promise<Res<BalanceSheet>> => rpc('report_balance_sheet', { p_as_of: asOf }, toBalanceSheet);
 export const loadReconcile = (from: string, to: string): Promise<Res<Reconcile>> => rpc('gl_reconcile', { p_from: from, p_to: to }, toReconcile);
 
-/** the chart — every account, active or not (gl_accounts through the RLS: the whole business's money; a member limited to locations
- *  reads none — then the screens take the accounts of the trial balance) */
+/** the chart — every account, active or not (gl_accounts through the RLS: the business's money; a member limited to locations reads
+ *  the accounts of no location and of their own locations — gl_accounts_location_gate of 7100; another location's cash / cheques
+ *  are not among them). An empty chart (not opened yet) — the ledger then takes the accounts of the trial balance */
 export async function loadChart(): Promise<Res<ChartAccount[]>> {
   try {
-    const { data, error } = await supabase().from('gl_accounts').select('key, name, kind, tb_code, tb_name, parent_key, role, active').order('key').limit(10000);
+    const { data, error } = await supabase().from('gl_accounts').select('key, name, kind, tb_code, tb_name, parent_key, role, active, lead_id').order('key').limit(10000);
     if (error) return { ok: false, error: financeError(error) };
     return { ok: true, data: toChart(data) };
   } catch (e) { return { ok: false, error: financeError(e) }; }
@@ -50,8 +51,11 @@ export async function loadDocIds(refs: { type: number; number: number }[]): Prom
     const nums = [...new Set(refs.map((r) => r.number))];
     const types = [...new Set(refs.map((r) => r.type))];
     const batches = Array.from({ length: Math.ceil(nums.length / 100) }, (_, i) => nums.slice(i * 100, i * 100 + 100));
-    const res = await Promise.all(batches.map((b) => supabase().from('documents').select('id, doc_type, doc_number').in('doc_type', types).in('doc_number', b).limit(1000)));
-    for (const r of res) for (const d of (r.data ?? []) as { id: string; doc_type: number; doc_number: number }[]) out[`doc:${d.doc_type}:${Number(d.doc_number)}`] = String(d.id);
+    // at most 3 requests at a time (a long period has many references)
+    for (let i = 0; i < batches.length; i += 3) {
+      const res = await Promise.all(batches.slice(i, i + 3).map((b) => supabase().from('documents').select('id, doc_type, doc_number').in('doc_type', types).in('doc_number', b).limit(1000)));
+      for (const r of res) for (const d of (r.data ?? []) as { id: string; doc_type: number; doc_number: number }[]) out[`doc:${d.doc_type}:${Number(d.doc_number)}`] = String(d.id);
+    }
   } catch { /* a help only */ }
   return out;
 }
@@ -89,14 +93,30 @@ export async function saveOpening(lines: OpeningLine[], chart: ChartAccount[]): 
   } catch (e) { return { ok: false, error: financeError(e) }; }
 }
 
-/** the books' state for the area (7200 there, the person in the business): null while asking / before 7200 / not readable */
-export function useBooksArea(): { asked: boolean; state: BooksState | null; reload: () => void } {
+/** the owner turns the books' screens on / off (migration 7300 — gl_books_screens_set; the database checks the owner) */
+export async function setBooksScreens(on: boolean): Promise<Res<true>> {
+  const r = await rpc('gl_books_screens_set', { p_on: on }, () => true as const);
+  if (r.ok) booksAreaChanged();
+  return r;
+}
+/** every open useBooksArea reads the state again (the menu, the search, the settings card) */
+const AREA_EVENT = 'dp:books-area';
+export const booksAreaChanged = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(AREA_EVENT)); };
+/** the books' state for the area (7200 there, the person in the business): null while asking / before 7200 / not readable.
+ *  `enabled` false — not asked at all (a cashier, a calendar member) */
+export function useBooksArea(enabled = true): { asked: boolean; state: BooksState | null; reload: () => void } {
   const [s, setS] = useState<{ asked: boolean; state: BooksState | null }>({ asked: false, state: null });
   const [n, setN] = useState(0);
   useEffect(() => {
+    const on = () => setN((x) => x + 1);
+    window.addEventListener(AREA_EVENT, on);
+    return () => window.removeEventListener(AREA_EVENT, on);
+  }, []);
+  useEffect(() => {
     let alive = true;
+    if (!enabled) { setS({ asked: true, state: null }); return () => { alive = false; }; }
     void loadBooksMoreState().then((st) => { if (alive) setS({ asked: true, state: st }); }, () => alive && setS({ asked: true, state: null }));
     return () => { alive = false; };
-  }, [n]);
-  return { ...s, reload: () => setN((x) => x + 1) };
+  }, [n, enabled]);
+  return { ...s, reload: booksAreaChanged };
 }
