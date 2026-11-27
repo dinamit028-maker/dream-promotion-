@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { financeError } from './rows';
+import { pageAll } from './paging';
 import { loadBooksMoreState } from './books-data';
 import type { BooksState } from './books';
 import {
@@ -36,7 +37,9 @@ export const loadReconcile = (from: string, to: string): Promise<Res<Reconcile>>
  *  are not among them). An empty chart (not opened yet) — the ledger then takes the accounts of the trial balance */
 export async function loadChart(): Promise<Res<ChartAccount[]>> {
   try {
-    const { data, error } = await supabase().from('gl_accounts').select('key, name, kind, tb_code, tb_name, parent_key, role, active, lead_id').order('key').limit(10000);
+    // every account, in pages (max_rows): by key — unique in the business, so the pages never overlap
+    const { data, error } = await pageAll((from, to) => supabase().from('gl_accounts').select('key, name, kind, tb_code, tb_name, parent_key, role, active, lead_id')
+      .order('key').range(from, to));
     if (error) return { ok: false, error: financeError(error) };
     return { ok: true, data: toChart(data) };
   } catch (e) { return { ok: false, error: financeError(e) }; }
@@ -53,7 +56,8 @@ export async function loadDocIds(refs: { type: number; number: number }[]): Prom
     const batches = Array.from({ length: Math.ceil(nums.length / 100) }, (_, i) => nums.slice(i * 100, i * 100 + 100));
     // at most 3 requests at a time (a long period has many references)
     for (let i = 0; i < batches.length; i += 3) {
-      const res = await Promise.all(batches.slice(i, i + 3).map((b) => supabase().from('documents').select('id, doc_type, doc_number').in('doc_type', types).in('doc_number', b).limit(1000)));
+      const res = await Promise.all(batches.slice(i, i + 3).map((b) => pageAll((from, to) => supabase().from('documents').select('id, doc_type, doc_number')
+        .in('doc_type', types).in('doc_number', b).order('id').range(from, to))));
       for (const r of res) for (const d of (r.data ?? []) as { id: string; doc_type: number; doc_number: number }[]) out[`doc:${d.doc_type}:${Number(d.doc_number)}`] = String(d.id);
     }
   } catch { /* a help only */ }
@@ -63,8 +67,9 @@ export async function loadDocIds(refs: { type: number; number: number }[]): Prom
 /** the suppliers of the business's expenses (name, dealer number) for the opening balances' supplier picker — [] on a failure */
 export async function loadExpenseSuppliers(): Promise<unknown[]> {
   try {
-    const { data, error } = await supabase().from('expenses').select('supplier_name, supplier_dealer').order('created_at', { ascending: false }).limit(5000);
-    return error ? [] : (data ?? []);
+    const { data, error } = await pageAll((from, to) => supabase().from('expenses').select('supplier_name, supplier_dealer')
+      .order('created_at', { ascending: false }).order('id').range(from, to), 20_000);
+    return error ? [] : data;
   } catch { return []; }
 }
 

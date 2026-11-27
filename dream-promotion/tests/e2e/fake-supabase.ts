@@ -2121,6 +2121,8 @@ export class FakeSupabase {
   journalWriterPublic() { return this.journalWriter(); }
   /** 2.123: migration 7300 is in the database — gl_opening_balances takes a supplier's line (before it: refused, opening_account) */
   booksOpeningSuppliers = true;
+  /** 2.123: PostgREST's max_rows — a GET answers at most this many rows (Infinity: off) */
+  maxRows = Infinity;
   /** 2.123 (7300): the owner's switch of the books' screens (gl_books_state().showScreens) — null: a database before 7300 (no key) */
   booksShowScreens: boolean | null = null;
   /** 2.123: a difference the books' reconciliation reports (gl_reconcile — area → amount) */
@@ -2813,7 +2815,8 @@ export class FakeSupabase {
         const keys = order.split(',').map((o) => { const [c, dir] = o.split('.'); return { c, desc: dir === 'desc' }; });
         list = [...list].sort((a, b) => { for (const k of keys) { const x = a[k.c] ?? '', y = b[k.c] ?? ''; if (x < y) return k.desc ? 1 : -1; if (x > y) return k.desc ? -1 : 1; } return 0; });
       }
-      const limit = Number(url.searchParams.get('limit') ?? Infinity);
+      // PostgREST's max_rows (Supabase: 1000) — off unless a test turns it on
+      const limit = Math.min(Number(url.searchParams.get('limit') ?? Infinity), this.maxRows);
       const offset = Number(url.searchParams.get('offset') ?? 0);
       const page = list.slice(offset, offset + limit);
       // { count: 'exact' } (a receipt's / credit's "next" key counts what exists): PostgREST answers in Content-Range

@@ -31,7 +31,7 @@ export function Stat({ label, value, hint, tone, onClick }: { label: string; val
 
 export function Pill({ children, tone = 'default' }: { children: ReactNode; tone?: 'default' | 'ok' | 'warn' | 'bad' | 'info' }) {
   const tones = { default: 'bg-surface-2 text-muted', ok: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', warn: 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
-    bad: 'bg-red-500/15 text-red-700 dark:text-red-300', info: 'bg-primary-soft text-primary' };
+    bad: 'bg-red-500/15 text-red-700 dark:text-red-300', info: 'bg-primary-soft text-primary-text' };
   return <span className={cx('inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-bold', tones[tone])}>{children}</span>;
 }
 

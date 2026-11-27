@@ -19,6 +19,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { FakeSupabase, session, type Tables } from './fake-supabase';
 import { glSeed } from './fake-books';
+import { randomUUID } from 'node:crypto';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.E2E_BOOKS4_PORT ?? 3248);
@@ -71,6 +72,8 @@ async function main() {
   const AXE_PATH = [path.join(ROOT, 'node_modules/axe-core/axe.min.js'), path.join(ROOT, '../storefront/node_modules/axe-core/axe.min.js')].find((f) => existsSync(f));
   const AXE = AXE_PATH ? readFileSync(AXE_PATH, 'utf8') : null;
   const axeFindings: string[] = [];
+  /** serious / critical findings fail the run (2.123 review) */
+  const axeSerious: string[] = [];
   const dev = spawn('npx', ['next', 'dev', '-p', String(PORT)], {
     cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
     env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: 'http://sb.test', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-test-key', NEXT_TELEMETRY_DISABLED: '1' },
@@ -122,12 +125,13 @@ async function main() {
     const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
     assert.ok(sw <= iw + 1, `${what}: the page scrolls sideways (${sw} > ${iw})`);
   };
-  const axe = async (page: any, what: string) => {
+  /** axe on the page — or on one part of it (`within`, a CSS selector: a card of another screen, whose other parts are not of this change) */
+  const axe = async (page: any, what: string, within?: string) => {
     if (!AXE) return;
     await settle(page);
     await page.evaluate(AXE);
-    const v = await page.evaluate(`axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }).then(r => r.violations.map(v => v.id + ' (' + v.impact + '): ' + v.nodes.slice(0, 3).map(n => n.target.join(' ')).join(' | ')))`);
-    for (const x of v as string[]) axeFindings.push(`${what}: ${x}`);
+    const v = await page.evaluate(`axe.run(${within ? JSON.stringify(within) : 'document'}, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }).then(r => r.violations.map(v => v.id + ' (' + v.impact + '): ' + v.nodes.slice(0, 3).map(n => n.target.join(' ')).join(' | ')))`);
+    for (const x of v as string[]) { axeFindings.push(`${what}: ${x}`); if (/\((serious|critical)\)/.test(x)) axeSerious.push(`${what}: ${x}`); }
   };
   const step = async (name: string, fn: () => Promise<void>) => {
     if (process.env.BOOKS4_ONLY && !name.includes(process.env.BOOKS4_ONLY)) return;
@@ -339,7 +343,8 @@ async function main() {
         [['1100', 'D', 1000], ['0529999999', 'D', 250], ['S-000000109', 'C', 300], ['3100', 'C', 950]]);
       assert.equal(fake.tables.gl_accounts.find((a: any) => a.key === '0529999999')!.name, 'לקוח פתיחה דמו', 'a new customer by its card');
       await views(page).getByRole('button', { name: 'מאזן בוחן', exact: true }).waitFor();
-      assert.equal(await views(page).getByRole('button', { name: 'יתרות פתיחה', exact: true }).count(), 0, 'once — the form is gone');
+      // once — the form is gone (the books' state is read again after the save)
+      await views(page).getByRole('button', { name: 'יתרות פתיחה', exact: true }).waitFor({ state: 'detached', timeout: 30_000 });
     } finally { await ctx.close(); }
   });
 
@@ -431,6 +436,17 @@ async function main() {
       const r = fake.rpc('gl_books_screens_set', { p_on: false });
       assert.equal(r.status, 200);
     } finally { await ctx.close(); }
+    // the switch in the "ספרים" card, on a phone
+    fake.booksShowScreens = true;
+    const ph = await open('/finance/settings', 'phone');
+    try {
+      const card = ph.page.getByRole('region', { name: 'ספרים', exact: true });
+      await card.getByRole('checkbox', { name: 'להציג הנהלת חשבונות' }).waitFor({ timeout: 120_000 });
+      await card.scrollIntoViewIfNeeded();
+      await noSideScroll(ph.page, 'phone books card');
+      await shot(ph.page, 'phone-14-books-card.png', false);
+      await axe(ph.page, 'phone books card', 'section[aria-label="ספרים"]');
+    } finally { await ph.ctx.close(); }
     fake = fresh();
     fake.booksShowScreens = null;                      // a database before 7300: no switch — the owner sees the area
     const o = await open('/finance/settings', 'desktop');
@@ -439,6 +455,23 @@ async function main() {
       await o.page.locator('a[href="/finance/books"]').first().waitFor();
       assert.equal(await o.page.getByRole('checkbox', { name: 'להציג הנהלת חשבונות' }).count(), 0, 'no switch before 7300');
     } finally { await o.ctx.close(); }
+  });
+
+  await step('a large chart (more than PostgREST\'s 1000 rows a page): every account loads', async () => {
+    fake = fresh();
+    fake.maxRows = 1000;
+    for (let k = 7000; k < 8200; k++) fake.tables.gl_accounts.push({ id: randomUUID(), business_id: BIZ, key: String(k), name: `חשבון דמו ${k}`, kind: 'expense',
+      tb_code: '7000', tb_name: 'דמו', parent_key: null, role: null, active: true });
+    assert.ok(fake.tables.gl_accounts.length > 1200);
+    const { ctx, page } = await open('/finance/books', 'desktop');
+    try {
+      await ready(page);
+      await view(page, 'לוח חשבונות');
+      const list = page.getByRole('list', { name: 'לוח החשבונות' });
+      await list.locator('li[data-account="8199"]').waitFor({ timeout: 60_000 });   // on the second page
+      await list.locator('li[data-account="BANK"]').waitFor();
+      assert.equal(await list.locator('li[data-account^="7"], li[data-account^="8"]').count(), 1200, 'all 1200 of them');
+    } finally { await ctx.close(); }
   });
 
   await step('a member who is not the owner: the reports, no owner forms, no edits; with empty books — not in the menu', async () => {
@@ -477,6 +510,7 @@ async function main() {
   console.log(axeFindings.length ? `\naxe: ${axeFindings.length} finding(s)\n${[...new Set(axeFindings)].join('\n')}` : (AXE ? '\naxe: no WCAG A/AA violation on these screens' : '\naxe: not run (axe-core not found)'));
   const passed = results.filter((r) => r.ok).length;
   console.log(`\n${passed}/${results.length} steps passed`);
-  process.exit(passed === results.length && !relevant.length ? 0 : 1);
+  if (axeSerious.length) console.log(`\naxe: ${axeSerious.length} serious / critical — the run fails`);
+  process.exit(passed === results.length && !relevant.length && !axeSerious.length ? 0 : 1);
 }
 void main().catch((e) => { console.error(e); process.exit(1); });

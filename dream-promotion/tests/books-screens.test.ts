@@ -349,3 +349,21 @@ test('an opening customer: the key and the name its documents use — the billin
     role: 'customer:0509999999', active: true, lead_id: card.id }])];
   assert.deepEqual(openingCustomer(card, withLead), { account: '0509999999', name: 'דנה (ישן)', existing: true }, 'the account opened for this card — first');
 });
+
+import { PAGE, pageAll } from '../src/features/finance/paging';
+test('reading every row past PostgREST\'s max_rows (1000): pages until a short one; a failed page fails it all', async () => {
+  const rows = Array.from({ length: 2500 }, (_, i) => i);
+  const asked: [number, number][] = [];
+  // a server that answers at most 1000 rows, whatever is asked (max_rows)
+  const server = async (from: number, to: number) => { asked.push([from, to]); return { data: rows.slice(from, Math.min(to + 1, from + 1000)), error: null }; };
+  const all = await pageAll(server);
+  assert.equal(all.data.length, 2500);
+  assert.deepEqual(asked, [[0, 999], [1000, 1999], [2000, 2999]]);
+  assert.equal(PAGE, 1000);
+  const exact = await pageAll(async (from, to) => ({ data: rows.slice(0, 2000).slice(from, to + 1), error: null }));
+  assert.equal(exact.data.length, 2000, 'a last full page — one more (empty) read');
+  const capped = await pageAll(server, 1500);
+  assert.equal(capped.data.length, 1500, 'up to max');
+  const failed = await pageAll(async (from) => (from ? { data: null, error: { message: 'x' } } : { data: rows.slice(0, 1000), error: null }));
+  assert.ok(failed.error, 'never a list cut in the middle without saying so');
+});

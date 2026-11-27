@@ -1,6 +1,7 @@
 'use client';
 import { supabase } from '@/lib/supabase/client';
 import { financeError } from './rows';
+import { pageAll } from './paging';
 import { isFunctionMissing } from './delivery';
 import { SUSPENSE_TO, replayLeft, suspenseOf, toBooksState, toGlAccounts, type BooksState, type GlAccount } from './books';
 
@@ -119,7 +120,8 @@ export async function loadBooksMoreState(): Promise<BooksState | null> {
 /** the active accounts of the chart (for the bank's picker) — [] when they cannot be read (the picker then takes a key) */
 export async function loadAccounts(): Promise<GlAccount[]> {
   try {
-    const { data, error } = await supabase().from('gl_accounts').select('key, name, kind, role, active').eq('active', true).order('key').limit(5000);
+    // every active account, in pages (PostgREST's max_rows cuts one long answer — paging.ts)
+    const { data, error } = await pageAll((from, to) => supabase().from('gl_accounts').select('key, name, kind, role, active').eq('active', true).order('key').range(from, to));
     return error ? [] : toGlAccounts(data);
   } catch { return []; }
 }
