@@ -260,7 +260,7 @@ export function PaymentsEditor({ payments, onChange, total, today, withholding =
               </div>
               {installmentsErrors(p).length > 0 && (p.installments != null || p.firstDue)
                 ? <p aria-live="polite" className="text-xs text-warn">{installmentsErrors(p).join(' · ')}</p>
-                : <span className="text-xs text-muted">{isInstallments(p.installments) ? `${p.installments} תשלומים, חודש אחרי חודש${p.firstDue ? ` — הראשון ב-${ddmmyyyy(p.firstDue)}` : ' — הראשון ביום התשלום'}.` : `${INSTALLMENTS_MIN} עד ${INSTALLMENTS_MAX} תשלומים.`}</span>}
+                : <span className="text-xs text-muted">{isInstallments(p.installments) ? `${p.installments} תשלומים, חודש אחרי חודש${p.firstDue ? ` — הראשון ב-\u2066${ddmmyyyy(p.firstDue)}\u2069` : ' — הראשון ביום התשלום'}.` : `${INSTALLMENTS_MIN} עד ${INSTALLMENTS_MAX} תשלומים.`}</span>}
             </div>
           )}
           {p.method === 'withholding' && (

@@ -165,10 +165,20 @@ export class FakeSupabase {
     const docs = this.t('documents'), pays = this.t('payments'), canc = new Set(this.t('document_cancellations').map((c) => c.document_id));
     return docs.filter((d) => d.doc_type === 305 || d.doc_type === 300).map((d) => {
       const credited = docs.filter((c) => c.doc_type === 330 && c.base_doc_type === d.doc_type && c.base_doc_number === d.doc_number).reduce((a, c) => a + Number(c.total), 0);
-      const paid = pays.filter((p) => p.applies_to === d.id).reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * Number(p.amount), 0);
+      const paidOn = (id: string) => pays.filter((p) => p.applies_to === id).reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * Number(p.amount), 0);
+      // 2.121 (7100 — the view's answer 19): a 300 a tax invoice (305) was made from is closed (balance 0, closed_by — the first 305
+      // by link_no); that 305's paid includes what was paid on the 300 (one debt). Before 7100: as before (no closed_by)
+      const closer = this.booksCore && d.doc_type === 300
+        ? docs.filter((f) => f.doc_type === 305 && f.base_doc_type === 300 && Number(f.base_doc_number) === Number(d.doc_number)).sort((a, z) => Number(a.link_no) - Number(z.link_no))[0]
+        : undefined;
+      const from300 = this.booksCore && d.doc_type === 305 && d.base_doc_type === 300
+        ? docs.find((b) => b.doc_type === 300 && Number(b.doc_number) === Number(d.base_doc_number)) : undefined;
+      const paid = paidOn(d.id) + (from300 ? paidOn(from300.id) : 0);
       return { id: d.id, business_id: d.business_id, doc_type: d.doc_type, doc_number: d.doc_number, doc_date: d.doc_date, due_date: d.due_date ?? null, customer_name: d.customer_name,
         customer_phone: d.customer_phone ?? '', customer_email: d.customer_email ?? '', lead_id: d.lead_id ?? null, total: Number(d.total), share_token: d.share_token,
-        credited: Math.round(credited * 100) / 100, paid: Math.round(paid * 100) / 100, balance: Math.round((Number(d.total) - credited - paid) * 100) / 100, cancelled: canc.has(d.id) };
+        credited: Math.round(credited * 100) / 100, paid: Math.round(paid * 100) / 100,
+        balance: closer ? 0 : Math.round((Number(d.total) - credited - paid) * 100) / 100, cancelled: canc.has(d.id),
+        ...(this.booksCore ? { closed_by: closer?.id ?? null } : {}) };
     });
   }
   /** 2.89: the view receivable_lines — an invoice without a plan is one line; with a plan, a line per payment, paid in order */

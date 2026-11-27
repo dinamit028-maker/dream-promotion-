@@ -218,7 +218,7 @@ async function main() {
         assert.equal(fake.tables.documents.length, 1, 'nothing issued');
         const first = addDays(TODAY, 10);
         await d.getByLabel('חיוב ראשון בתשלומים 1').fill(first);
-        await d.getByText(`6 תשלומים, חודש אחרי חודש — הראשון ב-${ddmm(first)}.`).waitFor();
+        await d.getByText(`6 תשלומים, חודש אחרי חודש — הראשון ב-\u2066${ddmm(first)}\u2069.`).waitFor();   // the date isolated (RTL: the period stays last)
         await noSideScroll(page, `${view} installments`);
         await shot(page, `${tag}4-installments.png`);
         await axe(page, `${view} installments`);
@@ -272,6 +272,9 @@ async function main() {
     fake.tables.documents.push({ ...fake.tables.documents[0], id: T300, doc_type: 300, doc_number: 1, link_no: 2, payments: [], share_token: '3'.repeat(64),
       customer_name: 'לקוח עסקה דמו', idempotency_key: 'direct:t300' });
     fake.counters.set(300, 1);
+    // answer 18: 100 already paid on the 300 (a receipt) — after the 305 it counts against the 305 (one debt)
+    fake.tables.payments.push({ id: 'd0000000-0000-4000-8000-000000000300', business_id: BIZ, user_id: OWNER, direction: 'in', amount: 100, method: 'cash', paid_on: TODAY,
+      source: 'document', document_id: null, applies_to: T300, sale_id: null, lead_id: null, reference: {}, note: '', created_at: `${TODAY}T09:00:00Z` });
     const { ctx, page } = await open(`/finance/documents?open=${T300}`, 'desktop');
     try {
       const d = dialog(page);
@@ -289,6 +292,10 @@ async function main() {
       assert.deepEqual([doc.base_doc_type, doc.base_doc_number, doc.idempotency_key, doc.total, doc.vat_amount, doc.customer_name, doc.paid_document_id],
         [300, 1, `tax300:${T300}`, 590, 90, 'לקוח עסקה דמו', null]);
       assert.deepEqual(doc.lines, base.lines);
+      // the view (7100): the 300 closed by it, the 305 owes the rest
+      const rv = fake.receivables();
+      const r300 = rv.find((x: any) => x.id === T300)!, r305 = rv.find((x: any) => x.id === doc.id)!;
+      assert.deepEqual([r300.balance, r300.closed_by, r305.paid, r305.balance, r305.closed_by], [0, doc.id, 100, 490, null]);
       await page.waitForTimeout(600);
       assert.equal(await page.getByRole('dialog').last().getByRole('button', { name: 'הפקת חשבונית מס' }).count(), 0, 'once — the button is gone');
       // the 300 is closed by its 305: no payment, link or plan on it any more — what is owed is on the 305
