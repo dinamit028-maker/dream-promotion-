@@ -5,11 +5,14 @@
 -- — its account found or opened by gl_supplier_account(business, dealer, name) (7200): the same account (role) that supplier's
 -- expenses post to later. Everything else as before: once, dated the start date, the owner, the rest against 3100; an "account"
 -- line as before (a new customer — with "name", never a reserved key: four digits, BANK or "S-…").
+-- Also (answer 13, confirmed by the owner 27.11.2026): the books' screens are hidden by default — gl_books.show_screens (false),
+-- turned on / off by the owner only (gl_books_screens_set); gl_books_state() says it ("showScreens"). The books post either way.
 -- Replaces (same signature) — md5 of prosrc. BEFORE running, compare the old one with the live database; AFTER, the new one:
 --   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.gl_opening_balances(jsonb)'::regprocedure
 --   gl_opening_balances(jsonb)   of 7100   e39e88dce864a72cb3ae53480642e30d  d41d6b0a2acecc2c6ecfd8f7ee85bdf2
--- Running 7100 again after this one brings the old one back — then run this one again. No table changes, no row changes, no
--- drop / delete. Runs after 7200 — it stops at the top without it, changing nothing. RUN IT AS ONE SCRIPT IN THE SQL EDITOR.
+--   gl_books_state()             of 7100   e6ca162810b13e6737c06cbc0cba46e7  3c7ec2364edb0a985b7154e3c6ee7a38
+-- Running 7100 again after this one brings the old ones back — then run this one again. One new column (gl_books.show_screens,
+-- not null default false — no existing row changes otherwise), no drop / delete. Runs after 7200 — it stops at the top without it, changing nothing. RUN IT AS ONE SCRIPT IN THE SQL EDITOR.
 set local lock_timeout = '5s';
 
 do $$
@@ -82,9 +85,46 @@ begin
   return jsonb_build_object('id', tx, 'number', bk.last_tx_no + 1, 'date', bk.start_date, 'debit', dsum, 'credit', csum, 'opening', dsum - csum);
 end $function$;
 
+-- answer 13: the books' screens — hidden until the owner turns them on (the books post either way)
+alter table public.gl_books add column if not exists show_screens boolean not null default false;
+
+-- replaces gl_books_state() of 20261128007100 — the same keys, and "showScreens"
+create or replace function public.gl_books_state() returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare b uuid := public.finance_guard(); bk public.gl_books;
+begin
+  bk := public.gl_books_ensure(b);
+  return jsonb_build_object('startDate', bk.start_date, 'started', public.il_today() >= bk.start_date,
+    'transactions', bk.last_tx_no, 'openingEntered', bk.opening_tx is not null,
+    'canMoveStart', not exists (select 1 from public.gl_transactions t where t.business_id = b),
+    'owner', public.journal_writer(), 'showScreens', bk.show_screens);
+end $$;
+
+-- the owner turns the books' screens on / off (journal_writer, can_write; in the audit log). Returns { showScreens, changed }
+create or replace function public.gl_books_screens_set(p_on boolean) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare b uuid := public.finance_guard(); bk public.gl_books;
+begin
+  if not public.can_write() or not public.journal_writer() then
+    raise exception 'books_not_allowed: רק הבעלים מציגים או מסתירים את מסכי הנהלת החשבונות' using errcode = '42501'; end if;
+  if p_on is null then raise exception 'books_screens: להציג או להסתיר' using errcode = '22023'; end if;
+  perform public.gl_books_ensure(b);
+  perform pg_advisory_xact_lock(hashtextextended('finance_audit:' || b::text, 0));   -- finance_log's lock first, then the books'
+  select * into bk from public.gl_books where business_id = b for update;
+  if bk.show_screens = p_on then return jsonb_build_object('showScreens', p_on, 'changed', false); end if;
+  update public.gl_books set show_screens = p_on, updated_at = now() where business_id = b;
+  perform public.finance_log(b, case when p_on then 'books.screens_on' else 'books.screens_off' end, 'gl_books', b::text,
+    jsonb_build_object('from', bk.show_screens, 'to', p_on));
+  return jsonb_build_object('showScreens', p_on, 'changed', true);
+end $$;
+revoke execute on function public.gl_books_screens_set(boolean) from public, anon;
+grant execute on function public.gl_books_screens_set(boolean) to authenticated;
+
 -- the grants of 7100 stay (create or replace keeps them): the owner's function, never anon
 revoke execute on function public.gl_opening_balances(jsonb) from public, anon;
 grant execute on function public.gl_opening_balances(jsonb) to authenticated, service_role;
 
--- Rollback (by hand): run again gl_opening_balances() of 20261128007100 (section 8 only) — the supplier accounts it opened stay
+-- Rollback (by hand): drop function gl_books_screens_set(boolean); run again gl_books_state() of 20261128007100 (section 9 only);
+-- alter table gl_books drop column show_screens (the screens then follow the code's default); run again gl_opening_balances() of
+-- 20261128007100 (section 8 only) — the supplier accounts it opened stay
 -- (gl_accounts are never removed), and so does an opening entry already recorded.

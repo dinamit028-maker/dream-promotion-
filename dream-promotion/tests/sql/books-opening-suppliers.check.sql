@@ -5,6 +5,8 @@
 --   3. the opening: suppliers by dealer number and by name, a customer and BANK, the rest against 3100 — once
 --   4. an expense of the same supplier afterwards posts to the very account the opening opened (by dealer number — whatever the
 --      name; by the normalized name)
+--   5. answer 13: the books' screens hidden by default; only the owner turns them on / off (audit log); gl_books_state says it
+--      (every key of 7100 kept); the books post either way
 -- Fixtures only, fictional: dealer numbers 000000059 / 000000067 (valid check digit), phones 050-00000NN, mails *.example.test.
 \set ON_ERROR_STOP 1
 set client_min_messages = warning;
@@ -112,3 +114,41 @@ select pg_temp.check(pg_temp.bal('S-000000067') = -618 and pg_temp.bal('S-ספק
 select pg_temp.check(not exists (select 1 from public.gl_transactions t where t.business_id = '00000000-0000-0000-0000-0000007300b1'
                        and (select sum(case side when 'D' then amount else -amount end) from public.gl_lines l where l.transaction_id = t.id) <> 0),
   'every entry balanced');
+
+-- ---- 5. answer 13: the books' screens — hidden until the owner turns them on ------------------------------------------------------
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000007300a3', 'cashier@open-73.example.test');
+insert into public.business_members (business_id, user_id, role, access, locations) values
+  ('00000000-0000-0000-0000-0000007300b1', '00000000-0000-0000-0000-0000007300a3', 'editor', 'register', null);
+update public.profiles set current_business_id = '00000000-0000-0000-0000-0000007300b1' where id = '00000000-0000-0000-0000-0000007300a3';
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007300a1');
+insert into out73 select 'state before', public.gl_books_state();
+select pg_temp.as_user('00000000-0000-0000-0000-0000007300a2');
+select pg_temp.refused_with($$select public.gl_books_screens_set(true)$$, 'books_not_allowed', 'an editor does not turn them on');
+select pg_temp.as_user('00000000-0000-0000-0000-0000007300a3');
+select pg_temp.refused_with($$select public.gl_books_screens_set(true)$$, 'not allowed', 'never a cashier');
+select pg_temp.as_user('00000000-0000-0000-0000-0000007300a1');
+select pg_temp.refused_with($$select public.gl_books_screens_set(null)$$, 'books_screens', 'on or off');
+insert into out73 select 'on', public.gl_books_screens_set(true);
+insert into out73 select 'on again', public.gl_books_screens_set(true);
+insert into out73 select 'state on', public.gl_books_state();
+commit;
+select pg_temp.check((pg_temp.o('state before')->>'showScreens')::boolean = false
+  and (select array_agg(k order by k) from jsonb_object_keys(pg_temp.o('state before')) k)
+      = array['canMoveStart', 'openingEntered', 'owner', 'showScreens', 'startDate', 'started', 'transactions']
+  and (pg_temp.o('on')->>'changed')::boolean and not (pg_temp.o('on again')->>'changed')::boolean
+  and (pg_temp.o('state on')->>'showScreens')::boolean
+  and (select count(*) from public.finance_audit_log where business_id = '00000000-0000-0000-0000-0000007300b1' and action = 'books.screens_on') = 1,
+  'hidden by default; the owner turns them on (once in the audit log); every key of gl_books_state kept');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007300a1');
+insert into out73 select 'off', public.gl_books_screens_set(false);
+insert into public.expenses (id, user_id, supplier_name, supplier_dealer, supplier_doc_type, doc_date, category, amount_before_vat, vat_amount, total)
+values ('00000000-0000-0000-0000-0000007300e3', '00000000-0000-0000-0000-0000007300a1', 'ספק פתיחה לדוגמה', '000000067', 'receipt', public.il_today(), 'office', 7, 0, 7);
+commit;
+select pg_temp.check((pg_temp.o('off')->>'showScreens')::boolean = false
+  and (select show_screens from public.gl_books where business_id = '00000000-0000-0000-0000-0000007300b1') = false
+  and pg_temp.bal('S-000000067') = -625,
+  'turned off again — and the books post either way');
