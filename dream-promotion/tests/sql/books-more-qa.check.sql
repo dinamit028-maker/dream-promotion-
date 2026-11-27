@@ -217,8 +217,16 @@ commit;
 select pg_temp.check((pg_temp.o('tb')#>>'{total,opening}')::numeric = 0 and (pg_temp.o('tb')#>>'{total,closing}')::numeric = 0 and (pg_temp.o('tb')#>>'{total,debit}')::numeric = (pg_temp.o('tb')#>>'{total,credit}')::numeric
   and (pg_temp.o('tb-day')#>>'{total,closing}')::numeric = 0 and (pg_temp.o('tb-next')#>>'{total,debit}')::numeric = 0 and (pg_temp.o('tb-next')#>>'{total,closing}')::numeric = 0,
   'the trial balance nets to 0 — month, day, and a later period with no movement');
-select pg_temp.check((pg_temp.o('pl')->>'profit')::numeric = (pg_temp.o('fs')->>'profit')::numeric,
-  format('the profit and loss profit (%s) = finance_summary''s profit (%s)', pg_temp.o('pl')->>'profit', pg_temp.o('fs')->>'profit'));
+-- the profit of the books = finance_summary's profit + what only the books know: the manual entries, the register's differences and
+-- the bank lines posted to an account (the profit of those entries, computed here from their own lines)
+create temp table only_books as
+  select coalesce(sum(case when a.kind = 'income' then (case l.side when 'C' then l.amount else -l.amount end)
+                           when a.kind = 'expense' then (case l.side when 'D' then -l.amount else l.amount end) end), 0) as profit
+    from public.gl_lines l join public.gl_transactions t on t.id = l.transaction_id join public.gl_accounts a on a.id = l.account_id
+   where l.business_id = '00000000-0000-0000-0000-0000000698b1' and t.source_kind in ('manual', 'shift', 'bank_class', 'bank_unclass', 'opening');
+select pg_temp.check((select profit from only_books) = -(300 + 30 + 12), 'what only the books know: the manual 300, the bank fee 30, the register''s 12 short (the reversed manual entry nets 0)');
+select pg_temp.check((pg_temp.o('pl')->>'profit')::numeric - (select profit from only_books) = (pg_temp.o('fs')->>'profit')::numeric,
+  format('the profit and loss profit (%s) less what only the books know (%s) = finance_summary''s profit (%s)', pg_temp.o('pl')->>'profit', (select profit from only_books), pg_temp.o('fs')->>'profit'));
 select pg_temp.check(coalesce((pg_temp.o('tbs')->>'2200')::numeric, 0) * -1 - coalesce((pg_temp.o('tbs')->>'1400')::numeric, 0) * -1 * -1 = (pg_temp.o('fs')->>'vatPayable')::numeric
   or true, 'placeholder');
 select pg_temp.check(-(pg_temp.o('tbs')->>'2200')::numeric = (pg_temp.o('fs')#>>'{revenue,vat}')::numeric,
