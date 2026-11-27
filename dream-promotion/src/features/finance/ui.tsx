@@ -5,7 +5,7 @@ import { cx } from '@/lib/utils';
 import { israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
 import type { Lead } from '@/types';
-import { CARD_KINDS, EMPTY_CHEQUE, PAY_METHODS, WITHHOLDING, chequeErrors, type DocPayMethod, type PaymentEntry } from './payments';
+import { CARD_KINDS, EMPTY_CHEQUE, FIRST_DUE_DAYS, INSTALLMENTS_MAX, INSTALLMENTS_MIN, PAY_METHODS, WITHHOLDING, addDaysISO, chequeErrors, installmentsErrors, isInstallments, type DocPayMethod, type PaymentEntry } from './payments';
 import type { ComposeCustomer, ComposeLine } from './compose';
 import type { CatalogItem, ItemKind } from '@/features/catalog/catalog';
 import { ProductControls, type EditorFocus } from '@/features/catalog/PublishSwitch';
@@ -179,8 +179,10 @@ export function LinesEditor({ lines, onChange, catalog, products, productsReady 
  * migration 20261011004900 is in the database): tax the customer withheld at source is one more line — its amount comes off the
  * money line next to it, so the receipt still adds up (565 by transfer + 25 withheld = the invoice's 590).
  */
-export function PaymentsEditor({ payments, onChange, total, today, withholding = false }: {
+export function PaymentsEditor({ payments, onChange, total, today, withholding = false, installments = true }: {
   payments: PaymentEntry[]; onChange: (p: PaymentEntry[]) => void; total: number; today: string; withholding?: boolean;
+  /** 2.121 (answer 8): a card payment of kind "תשלומים" asks how many and the first charge — off for money back */
+  installments?: boolean;
 }) {
   const set = (i: number, patch: Partial<PaymentEntry>) => {
     const cur = payments[i];
@@ -212,7 +214,7 @@ export function PaymentsEditor({ payments, onChange, total, today, withholding =
         <div key={i} className="grid gap-1.5 rounded-2xl border border-line p-2">
           <div className="grid grid-cols-[minmax(0,1fr)_6.5rem_8.5rem] gap-1.5">
             <SmallSelect value={p.method} onChange={(e) => set(i, { method: e.target.value as DocPayMethod, ...(e.target.value === 'cheque' && !p.cheque ? { cheque: { ...EMPTY_CHEQUE } } : {}),
-              ...(e.target.value !== 'card' ? { cardKind: null } : {}) })} aria-label={`אמצעי תשלום ${i + 1}`}>
+              ...(e.target.value !== 'card' ? { cardKind: null, installments: null, firstDue: null } : {}) })} aria-label={`אמצעי תשלום ${i + 1}`}>
               {PAY_METHODS.map((m) => <option key={m.id} value={m.id}>{m.icon} {m.label}</option>)}
               {(withholding || p.method === 'withholding') && <option value={WITHHOLDING.id}>{WITHHOLDING.icon} {WITHHOLDING.label}</option>}
             </SmallSelect>
@@ -237,9 +239,28 @@ export function PaymentsEditor({ payments, onChange, total, today, withholding =
             <div role="radiogroup" aria-label={`סוג עסקת האשראי ${i + 1}`} aria-required="true" className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs font-semibold">סוג העסקה *</span>
               {CARD_KINDS.map((k) => (
-                <Chip key={k.id} on={p.cardKind === k.id} onClick={() => set(i, { cardKind: k.id })} className="min-h-9" role="radio" aria-checked={p.cardKind === k.id}>{k.label}</Chip>
+                <Chip key={k.id} on={p.cardKind === k.id} onClick={() => set(i, { cardKind: k.id, ...(k.id !== 2 ? { installments: null, firstDue: null } : {}) })} className="min-h-9" role="radio" aria-checked={p.cardKind === k.id}>{k.label}</Chip>
               ))}
               {!p.cardKind && <span aria-live="polite" className="text-xs text-warn">בוחרים לפני ההפקה</span>}
+            </div>
+          )}
+          {/* 2.121 (migration 7100 — answer 8 of stage 4): installments — how many (required) and the first charge (optional) */}
+          {installments && p.method === 'card' && p.cardKind === 2 && (
+            <div className="grid gap-1.5">
+              <div className="flex flex-wrap items-end gap-1.5">
+                <label className="grid gap-0.5 text-xs font-semibold">מספר תשלומים *
+                  <Input type="number" inputMode="numeric" min={INSTALLMENTS_MIN} max={INSTALLMENTS_MAX} step={1} required aria-required="true"
+                    value={p.installments ?? ''} onChange={(e) => set(i, { installments: e.target.value === '' ? null : Number(e.target.value) })}
+                    aria-label={`מספר תשלומים ${i + 1}`} className="w-24 px-2 py-2 text-center" />
+                </label>
+                <label className="grid gap-0.5 text-xs font-semibold">חיוב ראשון (לא חובה)
+                  <Input type="date" value={p.firstDue ?? ''} min={p.date || undefined} max={/^\d{4}-\d{2}-\d{2}$/.test(p.date) ? addDaysISO(p.date, FIRST_DUE_DAYS) : undefined}
+                    onChange={(e) => set(i, { firstDue: e.target.value || null })} aria-label={`חיוב ראשון בתשלומים ${i + 1}`} className="px-2 py-2" />
+                </label>
+              </div>
+              {installmentsErrors(p).length > 0 && (p.installments != null || p.firstDue)
+                ? <p aria-live="polite" className="text-xs text-warn">{installmentsErrors(p).join(' · ')}</p>
+                : <span className="text-xs text-muted">{isInstallments(p.installments) ? `${p.installments} תשלומים, חודש אחרי חודש${p.firstDue ? ` — הראשון ב-\u2066${ddmmyyyy(p.firstDue)}\u2069` : ' — הראשון ביום התשלום'}.` : `${INSTALLMENTS_MIN} עד ${INSTALLMENTS_MAX} תשלומים.`}</span>}
             </div>
           )}
           {p.method === 'withholding' && (

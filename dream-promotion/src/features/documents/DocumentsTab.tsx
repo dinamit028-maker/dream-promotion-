@@ -9,6 +9,7 @@ import { ils } from '@/features/register/money';
 import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
 import { loadDocCodes } from './doc-codes';
 import { loadBranchInfo } from '@/features/finance/numbering-data';
+import { BOOKS_START_MISSING, loadBooksStart } from '@/features/finance/books-data';
 import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './export-scope';
 import { ScopeNote } from './ScopeNote';
 import { multiLocation } from '@/features/locations/locations';
@@ -204,8 +205,12 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
       branches = await loadBranchInfo(docs.filter((d) => d.docDate >= from && d.docDate <= to), bid);
     }
     catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : 'לא הצלחנו לקרוא את מספור הסניפים — נסו שוב.' }); setResult(null); setBusy(false); return; }
+    // 2.121 (migration 7100): the books' start — documents from it on carry the books' customer key in 1225; before 7100 — none
+    let booksStart: string | null;
+    try { booksStart = await loadBooksStart(); }
+    catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : BOOKS_START_MISSING }); setResult(null); setBusy(false); return; }
     const startedAt = new Date().toISOString();
-    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches });
+    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart });
     const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
     const bkmvZip = await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
     const outer = new JSZip(); const folder = f.dir.replace(/\\/g, '/');

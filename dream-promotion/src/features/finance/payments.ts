@@ -71,8 +71,46 @@ export const CARD_KINDS: { id: CardKind; label: string }[] = [
 export const isCardKind = (v: unknown): v is CardKind => v === 1 || v === 2 || v === 3 || v === 4 || v === 5;
 export const cardKindLabel = (v: unknown) => CARD_KINDS.find((k) => k.id === v)?.label ?? '';
 
-/** pct: tax withheld at source — the percent on the customer's certificate (optional); cardKind — a card payment's kind (1315) */
-export interface PaymentEntry { method: DocPayMethod; amount: number; date: string; cheque?: Cheque; pct?: number | null; cardKind?: CardKind | null }
+/**
+ * 2.121 — a card payment in installments (cardKind 2): how many, and when the first is charged. Stage 4, answer 8
+ * (docs/ita-registration/STAGE4_PLAN_HE.md, 26–27.11.2026, the owner with the accountant): the books write a line per installment,
+ * each with its own value date — the instructions 1.31, clarification 12 (p. 22): a card deal in 6 installments, a line per
+ * installment with its value date (1363). The form asks the number (2–36, required once "תשלומים" is chosen) and, optionally, the
+ * first charge's day (from the payment's day to a year after it — 366 days; none = the payment's day). The database checks the
+ * same (documents_installments, migration 20261128007100: installments_card_only / installments_count / installments_refund /
+ * installments_first_due). A database before 7100 ignores both keys (documents_validate names no list of keys). Money back
+ * (a refund receipt) is never in installments — the refund form does not ask (PaymentsEditor installments={false}).
+ */
+export const INSTALLMENTS_MIN = 2;
+export const INSTALLMENTS_MAX = 36;
+/** the latest first charge: the payment's day + 366 days (documents_installments: fd > pd + 366 is refused) */
+export const FIRST_DUE_DAYS = 366;
+export const INSTALLMENTS_MISSING = `בתשלומים — כמה תשלומים (${INSTALLMENTS_MIN} עד ${INSTALLMENTS_MAX})`;
+export const FIRST_DUE_BAD = 'מועד החיוב הראשון — מיום התשלום ועד שנה אחריו';
+/** a calendar day plus n days (YYYY-MM-DD — calendar arithmetic only, no time of day and no time zone) */
+export function addDaysISO(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+export const isInstallments = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= INSTALLMENTS_MIN && v <= INSTALLMENTS_MAX;
+const isDay = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && addDaysISO(s, 0) === s;
+/** what is wrong in a card payment's installments — Hebrew, none when fine (only a card payment of kind 2 is asked) */
+export function installmentsErrors(p: Pick<PaymentEntry, 'method' | 'cardKind' | 'date' | 'installments' | 'firstDue'>): string[] {
+  if (p.method !== 'card' || p.cardKind !== 2) return [];
+  const e: string[] = [];
+  if (!isInstallments(p.installments)) e.push(INSTALLMENTS_MISSING);
+  if (p.firstDue) {
+    if (!isDay(p.firstDue) || !isDay(p.date) || p.firstDue < p.date || p.firstDue > addDaysISO(p.date, FIRST_DUE_DAYS)) e.push(FIRST_DUE_BAD);
+  }
+  return e;
+}
+
+/** pct: tax withheld at source — the percent on the customer's certificate (optional); cardKind — a card payment's kind (1315);
+ *  installments / firstDue (2.121) — a card payment of kind 2: how many, the first charge's day (optional) */
+export interface PaymentEntry {
+  method: DocPayMethod; amount: number; date: string; cheque?: Cheque; pct?: number | null; cardKind?: CardKind | null;
+  installments?: number | null; firstDue?: string | null;
+}
 /** a payment as a document stores it (D120): the code for the file, the method itself, a cheque's details, a withholding's percent */
 export const toDocPayment = (p: PaymentEntry) => ({
   method: payCode(p.method), amount: Math.round(p.amount * 100) / 100, date: p.date, m: p.method,
@@ -80,6 +118,8 @@ export const toDocPayment = (p: PaymentEntry) => ({
   ...(p.method === 'withholding' && p.pct != null ? { pct: Math.round(p.pct * 100) / 100 } : {}),
   // 2.118: a card payment's kind (field 1315) — on a card payment only (the database refuses it on any other)
   ...(p.method === 'card' && isCardKind(p.cardKind) ? { cardKind: p.cardKind } : {}),
+  // 2.121 (migration 7100, answer 8): installments — a card payment of kind 2 only, a JSON number; the first charge only when given
+  ...(p.method === 'card' && p.cardKind === 2 && isInstallments(p.installments) ? { installments: p.installments, ...(p.firstDue && isDay(p.firstDue) ? { firstDue: p.firstDue } : {}) } : {}),
 });
 /** a withholding's percent: 0–100, up to two decimals, or none — null when fine (the database checks the same) */
 export function withholdingPctError(pct: number | null | undefined): string | null {

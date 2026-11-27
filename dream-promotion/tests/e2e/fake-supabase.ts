@@ -125,6 +125,22 @@ export class FakeSupabase {
   /** 2.120: migration 7000 is in the database (numbering per location — the owner's switch, branch codes, a series per location;
    *  a bank deposit's document 420) — false: as before it (no such functions, a deposit with no document, one series) */
   cpaStage3 = true;
+  /** 2.121: migration 7100 is in the database (the books — gl_books_state, gl_books_start_set, the view gl_unposted; a card payment's
+   *  installments checked — documents_installments) — false: as before it (no such functions; "installments" / "firstDue" ignored) */
+  booksCore = true;
+  /** 2.121: the books' start date (gl_books.start_date) — null: the default (the 1st of next month, as the migration gives it) */
+  booksStart: string | null = null;
+  /** 2.121: the entries written (gl_books.last_tx_no — the fake posts nothing by itself; a start moved back posts the documents since) */
+  booksTx = 0;
+  booksOpening = false;
+  /** 2.121: sources that did not post (the view gl_unposted lists this many) — gl_replay posts them, p_limit at a time */
+  booksPending = 0;
+  /** 2.121: sources that fail every time (failed for good today): gl_replay skips them unless p_retry, then counts them failed */
+  booksFailing = 0;
+  /** 2.121: the last gl_replay's p_retry (what the screen asked) */
+  booksLastRetry: boolean | null = null;
+  /** 2.121: the suspense account's balance (9100, in the trial balance) */
+  booksSuspense = 0;
   /** 2.120: when the business switched to numbering per location (document_numbering.per_location_since); null — one series */
   numberingSince: string | null = null;
   /** 2.120: a location's series of a document type: "location:type" → its last running number (document_series) */
@@ -153,10 +169,20 @@ export class FakeSupabase {
     const docs = this.t('documents'), pays = this.t('payments'), canc = new Set(this.t('document_cancellations').map((c) => c.document_id));
     return docs.filter((d) => d.doc_type === 305 || d.doc_type === 300).map((d) => {
       const credited = docs.filter((c) => c.doc_type === 330 && c.base_doc_type === d.doc_type && c.base_doc_number === d.doc_number).reduce((a, c) => a + Number(c.total), 0);
-      const paid = pays.filter((p) => p.applies_to === d.id).reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * Number(p.amount), 0);
+      const paidOn = (id: string) => pays.filter((p) => p.applies_to === id).reduce((a, p) => a + (p.direction === 'in' ? 1 : -1) * Number(p.amount), 0);
+      // 2.121 (7100 — the view's answer 19): a 300 a tax invoice (305) was made from is closed (balance 0, closed_by — the first 305
+      // by link_no); that 305's paid includes what was paid on the 300 (one debt). Before 7100: as before (no closed_by)
+      const closer = this.booksCore && d.doc_type === 300
+        ? docs.filter((f) => f.doc_type === 305 && f.base_doc_type === 300 && Number(f.base_doc_number) === Number(d.doc_number)).sort((a, z) => Number(a.link_no) - Number(z.link_no))[0]
+        : undefined;
+      const from300 = this.booksCore && d.doc_type === 305 && d.base_doc_type === 300
+        ? docs.find((b) => b.doc_type === 300 && Number(b.doc_number) === Number(d.base_doc_number)) : undefined;
+      const paid = paidOn(d.id) + (from300 ? paidOn(from300.id) : 0);
       return { id: d.id, business_id: d.business_id, doc_type: d.doc_type, doc_number: d.doc_number, doc_date: d.doc_date, due_date: d.due_date ?? null, customer_name: d.customer_name,
         customer_phone: d.customer_phone ?? '', customer_email: d.customer_email ?? '', lead_id: d.lead_id ?? null, total: Number(d.total), share_token: d.share_token,
-        credited: Math.round(credited * 100) / 100, paid: Math.round(paid * 100) / 100, balance: Math.round((Number(d.total) - credited - paid) * 100) / 100, cancelled: canc.has(d.id) };
+        credited: Math.round(credited * 100) / 100, paid: Math.round(paid * 100) / 100,
+        balance: closer ? 0 : Math.round((Number(d.total) - credited - paid) * 100) / 100, cancelled: canc.has(d.id),
+        ...(this.booksCore ? { closed_by: closer?.id ?? null } : {}) };
     });
   }
   /** 2.89: the view receivable_lines — an invoice without a plan is one line; with a plan, a line per payment, paid in order */
@@ -429,6 +455,9 @@ export class FakeSupabase {
       }
       if ((r.doc_type === 320 || r.doc_type === 400) && (r.payments ?? []).some((p: Row) => Number(p.method) === 3 && ![1, 2, 3, 4, 5].includes(p.cardKind))) return 'card_kind_missing: a card payment names its kind';
       if ((r.payments ?? []).some((p: Row) => Number(p.method) !== 3 && p.cardKind != null)) return 'card_kind_not_card: only a card payment has a kind';
+      // 2.121 (migration 7100, documents_installments): a card payment in installments — kind 2, a JSON number 2–36, never a refund,
+      // the first charge from the payment's day to a year after it
+      if (this.booksCore) { const e = this.installmentsCheck(r); if (e) return e; }
       // 2.94: tax withheld at source — a receipt's, with a customer, a percent that is one, never all of it (before 4900: no such method)
       const held = (r.payments ?? []).filter((p: Row) => p.m === 'withholding');
       if (held.length) {
@@ -1652,8 +1681,16 @@ export class FakeSupabase {
     if ((goodsType || [100, 200].includes(r.base_doc_type)) && !this.cashTables) return 'new row for relation "documents" violates check constraint "documents_doc_type_check"';
     // 2.118 (migration 6800): an exempt dealer's refund receipt (a 400 below zero) points to the receipt it refunds — checked above
     if (r.base_doc_type != null && r.doc_type !== 330 && !(r.doc_type === 400 && Number(r.total) < 0 && r.base_doc_type === 400)) {
-      const ok = (r.doc_type === 200 && r.base_doc_type === 100) || (r.doc_type === 210 && r.base_doc_type === 200) || ([300, 305, 320].includes(r.doc_type) && [100, 200].includes(r.base_doc_type));
+      const ok = (r.doc_type === 200 && r.base_doc_type === 100) || (r.doc_type === 210 && r.base_doc_type === 200) || ([300, 305, 320].includes(r.doc_type) && [100, 200].includes(r.base_doc_type))
+        || (this.booksCore && r.doc_type === 305 && r.base_doc_type === 300);   // 2.121 (7100, answer 19): a tax invoice made from a 300
       if (!ok || r.base_doc_number == null) return 'only a credit invoice points to a base document (or a document made from an order or a delivery note)';
+      if (r.doc_type === 305 && r.base_doc_type === 300) {
+        const t = this.t('documents').find((d) => d.doc_type === 300 && Number(d.doc_number) === Number(r.base_doc_number));
+        if (!t) return 'invoice_from_300: חשבון העסקה לא נמצא בעסק הזה';
+        if (this.docCancelled(t.id)) return 'invoice_from_300: חשבון העסקה בוטל';
+        if (this.t('documents').some((x) => !this.docCancelled(x.id) && ((x.doc_type === 305 && x.base_doc_type === 300 && Number(x.base_doc_number) === Number(t.doc_number))
+          || (x.doc_type === 320 && x.paid_document_id === t.id)))) return 'invoice_from_300_closed: על חשבון העסקה הזה כבר הופקה חשבונית מס';
+      }
     }
     if (goodsType) {
       if (!this.t('business_finance_profile')[0]?.sells_products) return 'goods_off: orders, delivery notes and return notes are for a business that sells products (turned on in the settings)';
@@ -1724,6 +1761,66 @@ export class FakeSupabase {
   private depositDocKey(id: string): Row {
     const x = this.cpaStage3 ? this.t('documents').find((d) => d.deposit_id === id) : undefined;
     return x ? { document: { id: x.id, number: x.doc_number } } : {};
+  }
+  /** 2.121 (7100): documents_installments — the same refusals as the database's (tests/sql/books-core.check.sql proves the real one) */
+  private installmentsCheck(r: Row): string | null {
+    const addDays = (d: string, n: number) => { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd + n)).toISOString().slice(0, 10); };
+    for (const p of (Array.isArray(r.payments) ? r.payments : []) as Row[]) {
+      if (!('installments' in p) && !('firstDue' in p)) continue;
+      if (Number(p.method) !== 3 || String(p.cardKind ?? '') !== '2') return 'installments_card_only: מספר תשלומים — רק בתשלום בכרטיס אשראי מסוג "תשלומים" (cardKind 2)';
+      if (typeof p.installments !== 'number' || !Number.isInteger(p.installments) || p.installments < 2 || p.installments > 36) return 'installments_count: מספר התשלומים — 2 עד 36';
+      if (!(Number(p.amount) > 0)) return 'installments_refund: החזר לא מחולק לתשלומים';
+      if ('firstDue' in p) {
+        const pd = /^\d{4}-\d{2}-\d{2}$/.test(String(p.date ?? '')) ? String(p.date) : String(r.doc_date ?? this.today());
+        const fd = String(p.firstDue ?? '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fd) || fd < pd || fd > addDays(pd, 366)) return 'installments_first_due: מועד התשלום הראשון — תאריך מיום התשלום ועד שנה אחריו';
+      }
+    }
+    return null;
+  }
+  /** 2.121 (7100): the books' start date as gl_books gives it (the default — the 1st of the month after the migration ran: next month) */
+  private booksStartDate(): string {
+    if (this.booksStart) return this.booksStart;
+    const [y, m] = this.today().split('-').map(Number);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  }
+  /** 2.121 (7100): gl_books_state / gl_books_start_set — their checks; the fake's "posting" counts the documents since the start */
+  private booksRpc(fn: string, args: any): { status: number; body: any } | null {
+    if (!['gl_books_state', 'gl_books_start_set', 'gl_opening_balances', 'gl_replay', 'gl_trial_balance'].includes(fn)) return null;
+    if (!this.booksCore) return { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn} in the schema cache` } };
+    const refuse = (code: string, message: string) => ({ status: 400, body: { code, message, details: null, hint: null } });
+    if (!this.finance.member) return refuse('42501', 'not allowed');
+    const owner = this.journalWriter();
+    const state = () => ({ startDate: this.booksStartDate(), started: this.today() >= this.booksStartDate(), transactions: this.booksTx,
+      openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner });
+    if (fn === 'gl_books_state') return { status: 200, body: state() };
+    if (fn === 'gl_trial_balance') {
+      return { status: 200, body: this.booksSuspense ? [{ account_id: 'acc-9100', key: '9100', name: 'חשבון מעבר — לבירור', kind: 'asset', tb_code: '9100', tb_name: 'חשבון מעבר',
+        parent_key: null, opening: 0, debit: Math.max(this.booksSuspense, 0), credit: Math.max(-this.booksSuspense, 0), closing: this.booksSuspense }] : [] };
+    }
+    if (!owner) return refuse('42501', 'not allowed');
+    if (fn === 'gl_replay') {
+      if (args.p_business !== this.opts.businessId) return refuse('42501', 'not allowed');
+      const n = args.p_limit == null ? this.booksPending : Math.min(Number(args.p_limit), this.booksPending);
+      this.booksPending -= n; this.booksTx += n;
+      this.booksLastRetry = args.p_retry ?? null;
+      const failing = this.booksFailing;
+      return { status: 200, body: { business: args.p_business, posted: n, failed: args.p_retry ? failing : 0, skipped: args.p_retry ? 0 : failing,
+        left: this.booksPending + failing } };
+    }
+    if (fn !== 'gl_books_start_set') return refuse('0A000', `${fn}: not in the fake (stage 4ד)`);
+    const day = String(args.p_start ?? '');
+    const [y, m] = this.today().split('-').map(Number);
+    const latest = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    if (!/^\d{4}-\d{2}-01$/.test(day) || day > latest || day < '2000-01-01') return refuse('22023', 'books_start_date: תחילת הספרים — ה-1 בחודש, עד החודש הבא');
+    if (this.booksTx > 0) return refuse('23514', 'books_started: כבר נרשמו פקודות בספרים — אי אפשר להזיז את תאריך ההתחלה');
+    if (this.finance.lockedUntil && day <= this.finance.lockedUntil) return refuse('23514', `period_locked: the books are closed until ${this.finance.lockedUntil}`);
+    const from = this.booksStartDate();
+    this.booksStart = day;
+    this.log('books.start', this.opts.businessId, { from, to: day });
+    // 7100: the move posts nothing itself — the documents since then are "unposted" (gl_replay / the night post them)
+    this.booksPending += this.t('documents').filter((d) => [300, 305, 320, 330, 400].includes(Number(d.doc_type)) && String(d.doc_date) >= day).length;
+    return { status: 200, body: { startDate: day, unposted: this.booksPending } };
   }
   /** 2.120 (7000): document_numbering_state / document_numbering_per_location / location_branch_code_set */
   numberingRpc(fn: string, args: any): { status: number; body: any } | null {
@@ -2087,6 +2184,8 @@ export class FakeSupabase {
     if (cashed) return cashed;
     const numbered = this.numberingRpc(fn, args);
     if (numbered) return numbered;
+    const booked = this.booksRpc(fn, args);
+    if (booked) return booked;
     if (fn === 'pos_employees') return { status: 200, body: this.t('employees').filter((e) => e.active !== false).map((e) => ({ id: e.id, name: e.name })) };
     if (fn === 'business_for_user') return { status: 200, body: this.opts.businessId };
     // 2.105 (migration 5700): the team for the calendar — names, colours, who is a practitioner; never a number
@@ -2566,6 +2665,13 @@ export class FakeSupabase {
       if (!this.cpaStage2) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
       if (table === 'document_allocation_status') this.tables.document_allocation_status = this.allocationStatus();
+    }
+    // 2.121 (7100): the view of what did not post — none before the migration; after it, booksPending rows (gl_replay posts them)
+    if (table === 'gl_unposted') {
+      if (!this.booksCore) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
+      if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for view ${table}` });
+      this.tables.gl_unposted = Array.from({ length: this.booksPending + this.booksFailing }, (_, i) => ({ business_id: this.opts.businessId, source_kind: 'document', source_id: `pending-${i}`,
+        source_date: this.booksStartDate(), label: `מסמך ${i + 1}`, error: '23514 demo' }));
     }
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();

@@ -237,10 +237,14 @@ select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 400, 18
 select pg_temp.check((select balance from public.receivables where id = '00000000-0000-0000-0000-0000000ea305') = 0, 'the invoice is paid');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 400, 1, 0, 0, '{"paid_document_id":"00000000-0000-0000-0000-0000000ea305"}'))$$,
   'receipt_exceeds_balance: 0.00 left', 'a receipt on a paid invoice');
--- a transaction invoice (300) of a VAT business: a 400 is refused, a 320 pays it
+-- a transaction invoice (300) of a VAT business: a 320 pays it; and (7100 — the owner's answer 18, 27.11.2026: legal, not refused)
+-- a plain receipt (400) pays another one — never beyond its balance
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 300, 200, 36, 18, '{"id":"00000000-0000-0000-0000-0000000ea300","idempotency_key":"alpha-300"}'));
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 400, 236, 0, 0, '{"paid_document_id":"00000000-0000-0000-0000-0000000ea300"}'))$$,
-  'tax invoice-receipt (320)', 'a VAT business pays a 300 with a plain receipt');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 300, 200, 36, 18, '{"id":"00000000-0000-0000-0000-0000000ea301","idempotency_key":"alpha-300b"}'));
+select pg_temp.check(pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 400, 236, 0, 0, '{"paid_document_id":"00000000-0000-0000-0000-0000000ea301","idempotency_key":"receipt:alpha300b:1"}')) is not null,
+  'a VAT business pays a 300 with a plain receipt (answer 18)');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 400, 1, 0, 0, '{"paid_document_id":"00000000-0000-0000-0000-0000000ea301"}'))$$,
+  'receipt_exceeds_balance', 'never beyond the 300''s balance');
 select pg_temp.check(pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000e0e01', 320, 200, 36, 18, '{"paid_document_id":"00000000-0000-0000-0000-0000000ea300","idempotency_key":"receipt:alpha300:1"}')) is not null,
   'a 320 pays the 300');
 commit;
