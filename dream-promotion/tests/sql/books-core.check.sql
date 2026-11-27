@@ -170,7 +170,22 @@ set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007100a4');
 insert into out71 select 'start E', public.gl_books_start_set(date_trunc('month', public.il_today())::date);
 commit;
-select pg_temp.check((pg_temp.o('start L')->>'posted')::int = 2 and (pg_temp.o('start E')->>'posted')::int = 1, 'the replay posted the documents since the start');
+select pg_temp.check((pg_temp.o('start L')->>'pending')::int = 2 and (pg_temp.o('start E')->>'pending')::int = 1
+  and (select count(*) from public.gl_transactions where business_id::text like '00000000-0000-0000-0000-0000007100b%') = 0,
+  'moving the start posts nothing itself: what is since then is pending');
+-- the batches: the owner's screen, one at a time (L), and the server's timer for everything (E)
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+insert into out71 select 'replay L1', public.gl_replay('00000000-0000-0000-0000-0000007100b1', null, 1);
+insert into out71 select 'replay L2', public.gl_replay('00000000-0000-0000-0000-0000007100b1', null, 1);
+select pg_temp.refused_with($$select public.gl_replay_pending(10)$$, 'permission denied', 'the timer''s batch is the server''s only');
+commit;
+insert into out71 select 'pending', public.gl_replay_pending(1000);
+select pg_temp.check((pg_temp.o('replay L1')->>'posted')::int = 1 and (pg_temp.o('replay L1')->>'left')::int = 1
+  and (pg_temp.o('replay L2')->>'posted')::int = 1 and (pg_temp.o('replay L2')->>'left')::int = 0
+  and (pg_temp.o('pending')->>'posted')::int >= 1 and (pg_temp.o('pending')->>'left')::int = 0,
+  'gl_replay in batches (posted, left); gl_replay_pending posts the rest of every business');
 select pg_temp.check((pg_temp.txd('b71:old305')).number = 1 and (pg_temp.txd('b71:oldchq')).number = 2, 'in time order: 1, 2');
 select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:old305')).id) = '050-0000071 D 1180.00, 4100 C 1000.00, 2200 C 180.00', '305: the customer / income + VAT');
 select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:oldchq')).id) = '050-0000071 D 118.00, 4100 C 100.00, 2200 C 18.00, 1150 D 118.00, 050-0000071 C 118.00',
