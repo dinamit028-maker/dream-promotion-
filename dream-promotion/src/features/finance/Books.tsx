@@ -56,7 +56,7 @@ export function BooksSettings({ say, fail }: { say: (m: string) => void; fail: (
       <p className="mb-1 font-bold">ספרים (הנהלת חשבונות כפולה)</p>
       <ul className="mb-2 grid gap-1 text-sm">
         <li>תחילת הספרים: <strong dir="ltr" className="tabular-nums">{ddmmyyyy(state.startDate)}</strong>{' '}
-          {state.started ? <Pill tone="ok">פעילים</Pill> : <Pill tone="info">יתחילו בתאריך הזה</Pill>}</li>
+          {state.started ? <Pill tone="ok">פעילים</Pill> : <span className="text-xs text-muted">(יתחילו בתאריך הזה)</span>}</li>
         <li>יתרות פתיחה: {state.openingEntered ? <Pill tone="ok">נרשמו</Pill> : <Pill tone="warn">עוד לא נרשמו</Pill>}</li>
         <li>פקודות שנרשמו: <strong className="tabular-nums">{state.transactions}</strong></li>
         {unposted != null && <li>ממתינים לרישום: <strong className="tabular-nums">{unposted}</strong>{unposted > 0 ? ' — לא נרשמו בספרים (הסיבה נשמרת לבדיקה)' : ''}</li>}
