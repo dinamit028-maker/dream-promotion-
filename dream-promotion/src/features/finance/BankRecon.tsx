@@ -133,7 +133,7 @@ export function BankRecon() {
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
                     <Pill tone={l.status === 'open' ? 'warn' : l.status === 'matched' ? 'ok' : 'default'}>{LINE_STATUS[l.status]}</Pill>
-                    <strong className={l.amount > 0 ? 'tabular-nums text-emerald-600 dark:text-emerald-400' : 'tabular-nums text-red-600 dark:text-red-400'}>{l.amount > 0 ? '+' : '−'}{ils(Math.abs(l.amount))}</strong>
+                    <strong dir="ltr" className={l.amount > 0 ? 'tabular-nums text-emerald-600 dark:text-emerald-400' : 'tabular-nums text-red-600 dark:text-red-400'}>{l.amount > 0 ? '+' : '−'}{ils(Math.abs(l.amount))}</strong>
                   </span>
                 </div>
                 {l.status === 'open' && (
@@ -208,7 +208,7 @@ function PickDialog({ line, cand, onClose, onDone }: { line: BankLine; cand: { p
   }
   return (
     <Modal open onClose={onClose} wide>
-      <h3 className="mb-1 font-display text-lg font-extrabold">התאמה: {line.description || 'שורה'} · {line.amount > 0 ? '+' : '−'}{ils(Math.abs(line.amount))}</h3>
+      <h3 className="mb-1 font-display text-lg font-extrabold">התאמה: {line.description || 'שורה'} · <bdi dir="ltr" className="tabular-nums">{line.amount > 0 ? '+' : '−'}{ils(Math.abs(line.amount))}</bdi></h3>
       <p className="mb-2 text-sm text-muted">{inMoney ? 'קבלות והפקדות' : 'תשלומים (הוצאות, החזרים)'} שעוד לא הותאמו. אפשר לבחור כמה — הסכום צריך להיות שווה לשורה.</p>
       <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="חיפוש לפי שם או סכום" className="mb-2 py-2" aria-label="חיפוש" />
       {!list.length ? <p className="text-sm text-muted">אין מה להתאים בתקופה הזו.</p> : (
@@ -260,7 +260,7 @@ function ClassifyDialog({ line, accounts, onClose, onDone }: { line: BankLine; a
   }
   return (
     <Modal open onClose={onClose}>
-      <h3 className="mb-1 font-display text-lg font-extrabold">רישום לחשבון: {line.description || 'שורה'} · {inMoney ? '+' : '−'}{ils(Math.abs(line.amount))}</h3>
+      <h3 className="mb-1 font-display text-lg font-extrabold">רישום לחשבון: {line.description || 'שורה'} · <bdi dir="ltr" className="tabular-nums">{inMoney ? '+' : '−'}{ils(Math.abs(line.amount))}</bdi></h3>
       <p className="mb-3 text-sm text-muted">
         השורה מתאריך תחילת הספרים ואין לה מסמך — היא נרשמת בספרים לחשבון שבוחרים ({inMoney ? 'הבנק בחובה, החשבון בזכות' : 'החשבון בחובה, הבנק בזכות'}).
         אפשר להחזיר אותה לטיפול — הרישום מתבטל בפקודה הפוכה.
@@ -366,7 +366,7 @@ function UploadDialog({ defaultAccount, onClose, onDone }: { defaultAccount: str
         {read.lines.length > 0 ? (
           <div className="rounded-2xl bg-surface-2 p-3 text-sm">
             <p><strong>{sum.count} שורות</strong>{sum.from ? ` · ${ddmmyyyy(sum.from)}–${ddmmyyyy(sum.to)}` : ''} · נכנס {ils(sum.in)} · יצא {ils(sum.out)}{read.skipped ? ` · ${read.skipped} שורות בלי תאריך או סכום דולגו` : ''}</p>
-            <ul className="mt-1 grid gap-0.5 text-xs">{read.lines.slice(0, 5).map((l, i) => <li key={i} className="flex justify-between gap-2"><span className="truncate">{ddmmyyyy(l.date)} · {l.description}</span><span className="tabular-nums">{l.amount > 0 ? '+' : '−'}{ils(Math.abs(l.amount))}</span></li>)}</ul>
+            <ul className="mt-1 grid gap-0.5 text-xs">{read.lines.slice(0, 5).map((l, i) => <li key={i} className="flex justify-between gap-2"><span className="truncate">{ddmmyyyy(l.date)} · {l.description}</span><span dir="ltr" className="tabular-nums">{l.amount > 0 ? '+' : '−'}{ils(Math.abs(l.amount))}</span></li>)}</ul>
           </div>
         ) : <Note tone="warn">לא נמצאו שורות עם תאריך וסכום. בדקו את העמודות.</Note>}
       </>}

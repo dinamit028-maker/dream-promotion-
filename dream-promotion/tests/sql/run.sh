@@ -16,9 +16,14 @@ done
 echo "migrations: $(ls supabase/migrations/*.sql | wc -l) applied"
 # every check file runs (one failure does not hide the next); the run fails if any of them failed
 failed=0
+rm -f /tmp/dp-books-real-db.json  # the real-DB check must never read an older run's dump
 for f in tests/sql/*.check.sql; do
   if as_pg env PGOPTIONS="$PGOPTIONS" "${PSQL[@]}" -o /dev/null -d "$DB" -f "$f"; then echo "ok: $f"; else echo "FAILED: $f"; failed=1; fi
 done
+# 2.123: the books' screens against the real reports — books-screens-qa.check.sql (above) wrote /tmp/dp-books-real-db.json; the
+# screens' helpers must show exactly its numbers (a missing dump fails — never skipped)
+if npx -y tsx --test tests/sql/books-screens-real-db.ts >/tmp/dp-books-real-db.log 2>&1; then echo "ok: tests/sql/books-screens-real-db.ts"
+else echo "FAILED: tests/sql/books-screens-real-db.ts"; tail -40 /tmp/dp-books-real-db.log; failed=1; fi
 # numbering, idempotency and credit limits with several connections at once
 bash tests/sql/concurrency.sh "$DB" || failed=1
 # a business with one location: the same rows and the same view before and after migration 4600 (locations)

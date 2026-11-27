@@ -1,5 +1,5 @@
 import {
-  ArrowsClockwise, Bank, Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Notebook, Package, Receipt, ShoppingCart,
+  ArrowsClockwise, Bank, BookOpen, Briefcase, ChartBar, ChartPieSlice, ClipboardText, Coins, FileText, GearSix, HandCoins, Hourglass, Notebook, Package, Receipt, ShoppingCart,
   TrendUp, Truck, Vault, Wallet,
 } from '@/components/ui/Icon';
 import type { ModuleAction, ModuleConfig, ModuleGroup } from '@/components/shell/module-nav';
@@ -83,10 +83,16 @@ export const CASH_GROUP: ModuleGroup = {
 };
 /** 2.96 (T13א): manual journal entries — in "דוחות ורואה חשבון" once migration 20261011005100 is in the database (every business) */
 export const JOURNAL_LINK: ModuleGroup['links'][number] = { href: financeHref('journal'), label: 'פקודות יומן', Icon: Notebook };
-/** the module's groups — with the desks' group after the expenses when they are on, and the journal once it is in the database */
-export function financeGroups(o: { cash: boolean; journal?: boolean }): ModuleGroup[] {
+/** 2.123 (stage 4ד): the double-entry books — in "דוחות ורואה חשבון" once migration 20261129007200 is in the database, for whom
+ *  ledger.ts showBooksArea says (once the owner turned them on; before migration 7300 — the owner only) */
+export const BOOKS_LINK: ModuleGroup['links'][number] = { href: financeHref('books'), label: 'הנהלת חשבונות', Icon: BookOpen };
+/** the module's groups — with the desks' group after the expenses when they are on, the journal once it is in the database, and the
+ *  books' area when it is shown */
+export function financeGroups(o: { cash: boolean; journal?: boolean; books?: boolean }): ModuleGroup[] {
   let groups = FINANCE_MODULE.groups;
-  if (o.journal) groups = groups.map((g) => (g.id === 'reports' ? { ...g, links: [...g.links, JOURNAL_LINK] } : g));
+  if (o.journal || o.books) {
+    groups = groups.map((g) => (g.id === 'reports' ? { ...g, links: [...g.links, ...(o.journal ? [JOURNAL_LINK] : []), ...(o.books ? [BOOKS_LINK] : [])] } : g));
+  }
   if (!o.cash) return groups;
   const at = groups.findIndex((g) => g.id === 'expenses') + 1;
   return [...groups.slice(0, at), CASH_GROUP, ...groups.slice(at)];

@@ -54,6 +54,7 @@ export const KEYWORDS: Record<string, string[]> = {
   '/finance/reports': ['רווח והפסד', 'מע״מ', 'דוח מע״מ', 'דוח', 'סיכום תקופה'],
   '/finance/accountant': ['רו״ח', 'ממשק פתוח', 'מבנה אחיד', 'סגירת ספרים', 'נעילת תקופה', 'יומן ביקורת', 'חבילה לרואה חשבון'],
   '/finance/journal': ['פקודה ידנית', 'פקודת יומן', 'תיקון', 'הפרשה', 'העברה בין סיווגים'],
+  '/finance/books': ['הנהלת חשבונות', 'הנה״ח', 'מאזן בוחן', 'כרטסת', 'יומן', 'מאזן', 'רווח והפסד', 'לוח חשבונות', 'יתרות פתיחה', 'פקודה כפולה', 'חובה וזכות'],
   '/finance/settings': ['פרטי בנק', 'מספר הקצאה', 'רשות המסים', 'מקדמות', 'תנאי תשלום'],
   // חנות
   '/store/collections': ['קטגוריות'],
@@ -95,10 +96,10 @@ export function moduleEntries(name: string, groups: ModuleGroup[]): MenuEntry[] 
  * every screen the person may open from the app's menu: the app's own (מלאי only with several locations, ניהול only for the
  * system's admins), the modules' (כספים — with what this business turned on, when known; חנות), and the reports inside כספים
  */
-export function appEntries(o: { multi?: boolean; admin?: boolean; cash?: boolean; journal?: boolean } = {}): MenuEntry[] {
+export function appEntries(o: { multi?: boolean; admin?: boolean; cash?: boolean; journal?: boolean; books?: boolean } = {}): MenuEntry[] {
   const own = [...NAV.flatMap((n) => (n.href === '/register' && o.multi ? [n, NAV_STOCK] : [n])), ...NAV_BOTTOM_ALL, ...(o.admin ? [NAV_ADMIN] : [])]
     .map((n) => entry(n.href, n.label, '', n.Icon));
-  return dedupe([...own, ...moduleEntries(FINANCE_MODULE.name, financeGroups({ cash: Boolean(o.cash), journal: Boolean(o.journal) })),
+  return dedupe([...own, ...moduleEntries(FINANCE_MODULE.name, financeGroups({ cash: Boolean(o.cash), journal: Boolean(o.journal), books: Boolean(o.books) })),
     ...moduleEntries(STORE_MODULE.name, STORE_MODULE.groups), ...moduleEntries(ATTENDANCE_MODULE.name, ATTENDANCE_MODULE.groups), ...DEEP_LINKS]);
 }
 /** one entry per address — the first wins (a module's own menu before the app's) */

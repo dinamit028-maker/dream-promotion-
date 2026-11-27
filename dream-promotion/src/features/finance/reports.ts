@@ -4,6 +4,7 @@ import { categoryLabel, SUPPLIER_DOC_TYPES, vatDeductible, type Expense } from '
 import { LEDGER_SOURCE_HE, payLabel, type LedgerRow } from './payments';
 import { STATUS_HE, byLines, type Receivable } from './receivables';
 import type { Line } from './plans';
+import { csvCell } from '@/lib/csv-safe';
 
 /**
  * Report periods and the accountant's files (CSV, UTF-8 with BOM so Excel shows Hebrew). The totals themselves come
@@ -30,7 +31,8 @@ export function previousPeriod(kind: PeriodKind, ref: string) {
   return periodOf(kind, d.toISOString().slice(0, 10));
 }
 
-const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+export { csvSafe } from '@/lib/csv-safe';
+const esc = csvCell;
 /** a CSV file as Excel opens it in Hebrew (UTF-8 with BOM) — every report file of the module is made by it */
 export const csv = (head: string[], rows: unknown[][]) => '﻿' + [head.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\r\n');
 const money = (n: number) => n.toFixed(2);

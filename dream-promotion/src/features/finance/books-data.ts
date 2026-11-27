@@ -1,6 +1,7 @@
 'use client';
 import { supabase } from '@/lib/supabase/client';
 import { financeError } from './rows';
+import { pageAll } from './paging';
 import { isFunctionMissing } from './delivery';
 import { SUSPENSE_TO, replayLeft, suspenseOf, toBooksState, toGlAccounts, type BooksState, type GlAccount } from './books';
 
@@ -105,10 +106,22 @@ export async function loadBooksMore(): Promise<BooksMore | null> {
     return st ? { startDate: st.startDate, owner: st.owner } : null;
   } catch { return null; }
 }
+/** 2.123 — the whole state of the books (gl_books_state) once 7200 is in the database (the same check as loadBooksMore); null before
+ *  it, or when it cannot be read (a member who may not see the money) — the area "הנהלת חשבונות" is then not shown */
+export async function loadBooksMoreState(): Promise<BooksState | null> {
+  moreReady ??= Promise.resolve(supabase().from('gl_bank_line_accounts').select('id').limit(1)).then(({ error }) => !error, () => false)
+    .then((v) => { if (!v) moreReady = null; return v; });
+  if (!(await moreReady)) return null;
+  try {
+    const { data, error } = await supabase().rpc('gl_books_state');
+    return error ? null : toBooksState(data);
+  } catch { return null; }
+}
 /** the active accounts of the chart (for the bank's picker) — [] when they cannot be read (the picker then takes a key) */
 export async function loadAccounts(): Promise<GlAccount[]> {
   try {
-    const { data, error } = await supabase().from('gl_accounts').select('key, name, kind, role, active').eq('active', true).order('key').limit(5000);
+    // every active account, in pages (PostgREST's max_rows cuts one long answer — paging.ts)
+    const { data, error } = await pageAll((from, to) => supabase().from('gl_accounts').select('key, name, kind, role, active').eq('active', true).order('key').range(from, to));
     return error ? [] : toGlAccounts(data);
   } catch { return []; }
 }

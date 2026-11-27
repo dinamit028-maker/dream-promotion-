@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { csvSafe } from '@/lib/csv-safe';
 import { ABSENCE_LABEL, DAY_NAMES, DAY_TYPE_LABEL, METHOD_LABEL, STATUS_LABEL, hm, pctColumns, type AbsenceKind, type DayRow, type MonthReport } from './hours-engine';
 
 /**
@@ -79,7 +80,9 @@ export function payrollHeader(cols: number[]) {
 
 /** CSV (UTF-8 with BOM, so Excel shows Hebrew); hours as H:MM (exact), counts as plain numbers */
 export function csv(rows: (string | number)[][]) {
-  const cell = (v: string | number) => (typeof v === 'number' ? String(v) : /[",\r\n]/.test(v) || /^[=+\-@]/.test(v) ? `"${(/^[=+\-@]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"` : v);
+  // 2.123: the app's one rule against formulas (lib/csv-safe.ts — = + - @, a tab, a CR; a number stays a number); quoted only when needed,
+  // as before
+  const cell = (v: string | number) => { if (typeof v === 'number') return String(v); const t = csvSafe(v); return /[",\r\n]/.test(t) || t !== v ? `"${t.replace(/"/g, '""')}"` : t; };
   return '\uFEFF' + rows.map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
 }
 

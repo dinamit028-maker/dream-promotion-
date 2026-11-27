@@ -16,6 +16,8 @@ export interface BooksState {
   canMoveStart: boolean;
   /** journal_writer(): the business's owner (role owner, full access, every location) */
   owner: boolean;
+  /** 2.123 (migration 7300): the owner turned the books' screens on (gl_books_screens_set) — absent before 7300 */
+  showScreens?: boolean;
 }
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** gl_books_state()'s answer → the state; null when it is not one (never a guess) */
@@ -25,7 +27,7 @@ export function toBooksState(v: unknown): BooksState | null {
   const n = Number(r.transactions);
   if (!Number.isSafeInteger(n) || n < 0) return null;
   return { startDate: r.startDate, started: r.started === true, transactions: n, openingEntered: r.openingEntered === true,
-    canMoveStart: r.canMoveStart === true, owner: r.owner === true };
+    canMoveStart: r.canMoveStart === true, owner: r.owner === true, ...(typeof r.showScreens === 'boolean' ? { showScreens: r.showScreens } : {}) };
 }
 /** the card is the owner's only, and only once the migration is in the database (state) */
 export const showBooks = (s: BooksState | null): s is BooksState => Boolean(s && s.owner);
@@ -60,7 +62,7 @@ export const startMoveExplain = (day: string, today: string, current: string = d
   day <= today ? 'מה שכבר הופק מאז נרשם עכשיו — מיד אחרי האישור.' : 'עד היום הזה לא נרשם כלום.',
   'אחרי שנרשמה הפקודה הראשונה אי אפשר להזיז את התאריך יותר.',
   ...(day < current ? [`שימו לב: במסמכים מ-${day.split('-').reverse().join('/')} ואילך מפתח הלקוח בקובץ לרשות המסים (שדה 1225) נכתב לפי הספרים. אצל לקוח שהמפתח שלו נראה כמו חשבון של המערכת (4 ספרות, BANK, או מתחיל ב-"S-" כמו חשבון ספק) או מתחיל ברווח — המפתח ישתנה. אם קובץ של החודשים האלה כבר נמסר לרשות המסים או לרואה החשבון, כדאי לבדוק איתו לפני שמזיזים.`] : []),
-  'יתרות הפתיחה (לפי רואה החשבון) נרשמות בתאריך ההתחלה — הטופס יגיע בשלב הבא.',
+  'יתרות הפתיחה (לפי רואה החשבון) נרשמות בתאריך ההתחלה — ב"הנהלת חשבונות ← יתרות פתיחה".',
 ];
 
 /** the trial balance's last date for "now" (entries are dated up to today; a far date keeps a late one in) */

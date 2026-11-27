@@ -30,6 +30,7 @@ import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
 import { MANUAL_KEY, partyKey } from '../../src/features/finance/statements';
+import { booksScreensRpc } from './fake-books';
 import { ATT_FUNCTION_ONLY, ATT_TABLES, F101_TABLES, attDefaults, attendanceRpc, form101AfterInsert, form101Insert, form101Update } from './fake-attendance';
 
 type Row = Record<string, any>;
@@ -1795,7 +1796,7 @@ export class FakeSupabase {
     if (!this.finance.member) return refuse('42501', 'not allowed');
     const owner = this.journalWriter();
     const state = () => ({ startDate: this.booksStartDate(), started: this.today() >= this.booksStartDate(), transactions: this.booksTx,
-      openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner });
+      openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner, ...(this.booksShowScreens == null ? {} : { showScreens: this.booksShowScreens }) });
     if (fn === 'gl_books_state') return { status: 200, body: state() };
     if (fn === 'gl_trial_balance') {
       return { status: 200, body: this.booksSuspense ? [{ account_id: 'acc-9100', key: '9100', name: 'חשבון מעבר — לבירור', kind: 'asset', tb_code: '9100', tb_name: 'חשבון מעבר',
@@ -2116,6 +2117,16 @@ export class FakeSupabase {
     const seen = this.locationFilter();
     return this.t('journal_entries').filter((j) => j.business_id === this.opts.businessId && (!seen || seen.includes(j.location_id)));
   }
+  /** 2.123: journal_writer() for fake-books.ts */
+  journalWriterPublic() { return this.journalWriter(); }
+  /** 2.123: migration 7300 is in the database — gl_opening_balances takes a supplier's line (before it: refused, opening_account) */
+  booksOpeningSuppliers = true;
+  /** 2.123: PostgREST's max_rows — a GET answers at most this many rows (Infinity: off) */
+  maxRows = Infinity;
+  /** 2.123 (7300): the owner's switch of the books' screens (gl_books_state().showScreens) — null: a database before 7300 (no key) */
+  booksShowScreens: boolean | null = null;
+  /** 2.123: a difference the books' reconciliation reports (gl_reconcile — area → amount) */
+  booksReconDiff: Record<string, number> = {};
   /** journal_writer(): the business's owners — role owner, full access, every location */
   private journalWriter() {
     const m = this.t('business_members').find((x) => x.user_id === this.opts.userId && (x.business_id ?? this.opts.businessId) === this.opts.businessId);
@@ -2204,6 +2215,10 @@ export class FakeSupabase {
   rpc(fn: string, args: any): { status: number; body: any } {
     // 2.107 (5800): the attendance functions — none before the migration
     if (fn.startsWith('att_')) return this.attendanceTables ? attendanceRpc(this, fn, args)! : { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn}` } };
+    // 2.123 (stage 4ד): the books' reports and the owner's functions (fake-books.ts) — before the reports of 4900 (report_*) and
+    // 7100's own (gl_opening_balances)
+    const screens = booksScreensRpc(this as any, fn, args);
+    if (screens) return screens;
     const journaled = this.journalRpc(fn, args);
     if (journaled) return journaled;
     const placed = this.locationRpc(fn, args);
@@ -2712,7 +2727,8 @@ export class FakeSupabase {
     if (table === 'gl_accounts' || table === 'gl_bank_line_accounts') {
       if (!this.booksCore || (table === 'gl_bank_line_accounts' && !this.booksMore)) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
-      if (this.memberLocations || !this.finance.member) return json(200, []);   // _whole_business / _finance_privacy: no row, no error
+      // gl_bank_line_accounts: _whole_business; gl_accounts: the accounts of no location (the fake's) — _location_gate of 7100
+      if ((table === 'gl_bank_line_accounts' && this.memberLocations) || !this.finance.member) return json(200, []);
     }
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();
@@ -2799,7 +2815,8 @@ export class FakeSupabase {
         const keys = order.split(',').map((o) => { const [c, dir] = o.split('.'); return { c, desc: dir === 'desc' }; });
         list = [...list].sort((a, b) => { for (const k of keys) { const x = a[k.c] ?? '', y = b[k.c] ?? ''; if (x < y) return k.desc ? 1 : -1; if (x > y) return k.desc ? -1 : 1; } return 0; });
       }
-      const limit = Number(url.searchParams.get('limit') ?? Infinity);
+      // PostgREST's max_rows (Supabase: 1000) — off unless a test turns it on
+      const limit = Math.min(Number(url.searchParams.get('limit') ?? Infinity), this.maxRows);
       const offset = Number(url.searchParams.get('offset') ?? 0);
       const page = list.slice(offset, offset + limit);
       // { count: 'exact' } (a receipt's / credit's "next" key counts what exists): PostgREST answers in Content-Range

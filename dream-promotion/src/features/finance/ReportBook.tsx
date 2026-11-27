@@ -48,9 +48,14 @@ function Waiting({ r }: { r: Loaded<unknown> }) {
   return r.error ? <LoadFailed message={r.error} onRetry={r.retry} /> : <div className="py-8 text-center"><Spinner /></div>;
 }
 
-/** a report's table on the screen, with "CSV" and "PDF" — a click on a row (when given) opens what it is about */
-export function TableCard({ table, period, subtitle, onRow, rowHint, empty = 'אין נתונים לתקופה הזו.' }: {
-  table: ReportTable; period: Period; subtitle: string; onRow?: (i: number) => void; rowHint?: string; empty?: string;
+/**
+ * a report's table on the screen, with "CSV" and "PDF" — a click on a row (when given) opens what it is about.
+ * 2.123: `stack` — on a phone every row is a block of "label: value" (a table of many text columns broke its narrow columns letter by
+ * letter — the one-sided journal, QA 2.122); from sm up, the table as before. `exportOnly` — the title and the two files only (a screen
+ * that lays the same table out its own way: the books' screens).
+ */
+export function TableCard({ table, period, subtitle, onRow, rowHint, empty = 'אין נתונים לתקופה הזו.', stack, exportOnly }: {
+  table: ReportTable; period: Period; subtitle: string; onRow?: (i: number) => void; rowHint?: string; empty?: string; stack?: boolean; exportOnly?: boolean;
 }) {
   const { fail, say } = useFinance();
   const [busy, setBusy] = useState(false);
@@ -76,8 +81,21 @@ export function TableCard({ table, period, subtitle, onRow, rowHint, empty = 'א
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => void pdfFile()} aria-label={`${table.title} — הורדת PDF`}>{busy ? <Spinner /> : 'PDF'}</Button>
         </div>
       </div>
-      {!table.rows.length ? <p className="py-2 text-sm text-muted">{empty}</p> : (
-        <div className="-mx-1 overflow-x-auto px-1">
+      {exportOnly ? null : !table.rows.length ? <p className="py-2 text-sm text-muted">{empty}</p> : <>
+        {stack && (
+          <ul className="grid gap-2 sm:hidden" aria-label={table.title}>
+            {[...table.rows, ...(table.total ? [table.total] : [])].map((r, k) => (
+              <li key={k} className={cx('rounded-xl border border-line/60 p-2 text-sm', k === table.rows.length && 'font-black')}>
+                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+                  {r.map((v, i) => { const t = cellText(v, table.columns[i].type, 'show'); return t ? (
+                    <div key={i} className="contents"><dt className="text-xs text-muted">{table.columns[i].label}</dt>
+                      <dd className="min-w-0 break-words">{isNumeric(table.columns[i].type) ? <span dir="ltr" className="tabular-nums">{t}</span> : t}</dd></div>) : null; })}
+                </dl>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className={cx('-mx-1 overflow-x-auto px-1', stack && 'hidden sm:block')}>
           <table className="w-full min-w-[520px] text-sm" aria-label={table.title}>
             <thead>
               <tr className="border-b border-line text-xs text-muted">{table.columns.map((c, i) => <th key={i} className={cx(cls(i), 'font-semibold')}>{c.label}</th>)}</tr>
@@ -93,7 +111,7 @@ export function TableCard({ table, period, subtitle, onRow, rowHint, empty = 'א
             </tbody>
           </table>
         </div>
-      )}
+      </>}
       {onRow && rowHint && table.rows.length > 0 && <p className="mt-1 text-xs text-muted">{rowHint}</p>}
       {table.note && <p className="mt-2 text-xs text-muted">{table.note}</p>}
     </Card>

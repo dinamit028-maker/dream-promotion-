@@ -1,4 +1,5 @@
 import { israelParts } from '@/lib/il-time';
+import { csvCell } from '@/lib/csv-safe';
 import { vatOfGross } from '@/features/finance/vat';
 
 /**
@@ -106,7 +107,7 @@ export function summarize(sales: Sale[], fromDay: string, toDay: string, refunds
 
 /** CSV for the accountant (UTF-8 BOM): every sale, and every refund as a negative row on the day it was made. */
 export function salesCsv(sales: Sale[], fromDay: string, toDay: string, refunds: Refund[] = []) {
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const esc = csvCell;   // 2.123: a formula-looking text cell gets an apostrophe (lib/csv-safe.ts)
   const st = { paid: 'שולם', pending: 'ממתין לתשלום', cancelled: 'בוטל' } as const;
   const items = (ls: Line[]) => ls.map((l) => `${l.name}${l.qty > 1 ? ` ×${l.qty}` : ''}`).join(' + ');
   const saleRows = sales.filter((s) => saleDay(s) >= fromDay && saleDay(s) <= toDay)

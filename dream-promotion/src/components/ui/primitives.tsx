@@ -18,7 +18,7 @@ export function Button({
   // press feedback uses opacity + shadow, never a transform that nudges neighbours
   const base = 'inline-flex items-center justify-center gap-2 rounded-full font-semibold transition-[background-color,box-shadow,opacity,color] duration-200 active:opacity-80 disabled:opacity-50 disabled:pointer-events-none';
   const variants: Record<Variant, string> = {
-    primary: 'bg-primary text-white shadow-[0_6px_18px_rgba(107,59,245,.28)] hover:shadow-[0_10px_26px_rgba(107,59,245,.38)]',
+    primary: 'bg-primary-strong text-white shadow-[0_6px_18px_rgba(107,59,245,.28)] hover:shadow-[0_10px_26px_rgba(107,59,245,.38)]',
     ghost: 'border border-line bg-surface hover:bg-surface-2',
     soft: 'bg-surface-2 hover:bg-primary-soft hover:text-primary',
   };
@@ -41,7 +41,7 @@ export function Chip({ on, className, ...p }: ButtonHTMLAttributes<HTMLButtonEle
     <button aria-pressed={p.role || on === undefined ? undefined : on} className={cx(
       // a caller's own height (min-h-9) replaces the 44px one: Tailwind 4 would let the larger value win
       'inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-4 text-sm font-semibold transition-colors', /\bmin-h-/.test(className ?? '') ? '' : 'min-h-11',
-      on ? 'border-primary bg-primary-soft text-primary' : 'border-transparent bg-surface-2 hover:border-line',
+      on ? 'border-primary bg-primary-soft text-primary-text' : 'border-transparent bg-surface-2 hover:border-line',
       className,
     )} {...p} />
   );
@@ -50,7 +50,7 @@ export function Chip({ on, className, ...p }: ButtonHTMLAttributes<HTMLButtonEle
 export function Pill({ children, tone = 'default' }: { children: ReactNode; tone?: 'default' | 'ai' | 'ok' | 'warn' }) {
   const tones = {
     default: 'bg-surface-2 text-muted',
-    ai: 'bg-primary-soft text-primary',
+    ai: 'bg-primary-soft text-primary-text',
     ok: 'bg-(--ok-soft) text-ok',
     warn: 'bg-(--warn-soft) text-warn',
   };

@@ -7,6 +7,9 @@ import { MagnifyingGlass, Star, X } from '@/components/ui/Icon';
 import { useLocations } from '@/features/locations/store';
 import { multiLocation } from '@/features/locations/locations';
 import { journalReady } from '@/features/finance/journal-data';
+import { useBooksArea } from '@/features/finance/ledger-data';
+import { showBooksArea } from '@/features/finance/ledger';
+import { useApp } from '@/lib/store';
 import { appEntries, dedupe, moduleEntries, searchMenu, type MenuEntry } from './menu-search';
 import { favoriteEntries } from './favorites';
 import { useFavorites } from './favorites-store';
@@ -24,9 +27,13 @@ export function useMenuEntries(o: { admin?: boolean; moduleName?: string; module
   const [journal, setJournal] = useState(false);
   // the journal's screen exists once its migration is in the database (asked once an app open)
   useEffect(() => { let alive = true; void journalReady().then((v) => { if (alive) setJournal(v); }); return () => { alive = false; }; }, []);
+  // 2.123: "הנהלת חשבונות" — under the menu's own condition (ledger.ts showBooksArea; asked only with the whole of the money)
+  const access = useApp((s) => s.access);
+  const area = useBooksArea(access === 'full');
+  const books = showBooksArea({ ready: area.state != null, state: area.state, access });
   const { admin, moduleName, moduleGroups } = o;
-  return useMemo(() => dedupe([...(moduleName && moduleGroups ? moduleEntries(moduleName, moduleGroups) : []), ...appEntries({ multi, admin, journal })]),
-    [multi, admin, journal, moduleName, moduleGroups]);
+  return useMemo(() => dedupe([...(moduleName && moduleGroups ? moduleEntries(moduleName, moduleGroups) : []), ...appEntries({ multi, admin, journal, books })]),
+    [multi, admin, journal, books, moduleName, moduleGroups]);
 }
 
 /** ☆ next to a screen: on — in the favorites (a filled star, always shown); off — shown on hover / focus, or always (`always`) */

@@ -1,3 +1,4 @@
+import { csvCell } from '@/lib/csv-safe';
 import { refundDay, saleDay, type ItemKind, type Line, type Refund, type Sale } from './money';
 
 /**
@@ -83,7 +84,7 @@ export function commissionReport(sales: Sale[], refunds: Refund[], employees: Co
 
 /** CSV for payroll (UTF-8 BOM) */
 export function commissionsCsv(rows: CommissionRow[], month: string) {
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const esc = csvCell;   // 2.123: a formula-looking text cell gets an apostrophe (lib/csv-safe.ts)
   const lines = rows.map((r) => [month, r.name, r.sales, r.gross.toFixed(2), r.refunds.toFixed(2), r.base.service.toFixed(2), r.servicePct, r.base.product.toFixed(2), r.productPct, r.commission.toFixed(2)].map(esc).join(','));
   return '﻿' + ['חודש,עובד/ת,מכירות,סה״כ כולל מע״מ,החזרים,בסיס טיפולים (לפני מע״מ),% טיפולים,בסיס מוצרים (לפני מע״מ),% מוצרים,עמלה', ...lines].join('\r\n');
 }
