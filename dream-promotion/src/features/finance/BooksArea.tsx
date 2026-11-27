@@ -17,7 +17,7 @@ import {
   type Side,
 } from './ledger';
 import {
-  addAccount, createManual, loadBalanceSheet, loadExpenseSuppliers, loadBookJournal, loadChart, loadDocIds, loadLedger, loadProfitLoss, loadReconcile, loadTrialBalance, reverseManual,
+  CHART_MAX, SUPPLIER_ROWS_MAX, addAccount, createManual, loadBalanceSheet, loadExpenseSuppliers, loadBookJournal, loadChart, loadDocIds, loadLedger, loadProfitLoss, loadReconcile, loadTrialBalance, reverseManual,
   saveOpening, setAccountActive, updateAccount, useBooksArea, type Res,
 } from './ledger-data';
 import type { BooksState } from './books';
@@ -77,7 +77,7 @@ export function BooksArea() {
   const shown = views.some((v) => v.id === view) ? view : 'tb';
   const subtitle = `${period.kind === 'custom' ? '' : `${period.label} · `}${ddmmyyyy(period.from)} – ${ddmmyyyy(period.to)}`;
   const openLedger = (key: string) => { setAccount(key); setView('ledger'); };
-  const accounts = chart.data ?? [];
+  const accounts = chart.data?.accounts ?? [];
   const reloadChart = () => setChartN((x) => x + 1);
   const withPeriod = ['tb', 'ledger', 'journal', 'pnl', 'reconcile'].includes(shown);
 
@@ -95,6 +95,9 @@ export function BooksArea() {
       {shown === 'journal' && <JournalView period={period} subtitle={subtitle} owner={st.owner} onOpen={openLedger} />}
       {shown === 'pnl' && <ProfitLossView period={period} subtitle={subtitle} onOpen={openLedger} />}
       {shown === 'balance' && <BalanceView onOpen={openLedger} />}
+      {chart.data?.truncated && ['chart', 'ledger', 'manual', 'opening'].includes(shown) && (
+        <Note tone="warn">{`לוח החשבונות ארוך מ-${CHART_MAX.toLocaleString('he-IL')} חשבונות — מוצגים הראשונים בלבד. חשבון שלא ברשימה — מקלידים את המפתח שלו.`}</Note>
+      )}
       {shown === 'chart' && (chart.data ? <ChartView chart={accounts} owner={st.owner} reload={reloadChart} onOpen={openLedger} />
         : <Wait error={chart.error} retry={chart.retry} />)}
       {shown === 'manual' && st.owner && (chart.data ? <ManualView state={st} chart={accounts} onDone={() => { area.reload(); setView('journal'); }} />
@@ -595,7 +598,8 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
   // 2.123: a supplier's line (migration 7300 — an older database refuses it, said as "not possible yet" — saveOpening); the
   // suppliers of the expenses to pick from, or a new one by name (and dealer number)
   const [supRows, setSupRows] = useState<unknown[]>([]);
-  useEffect(() => { void loadExpenseSuppliers().then(setSupRows); }, []);
+  const [supCut, setSupCut] = useState(false);
+  useEffect(() => { void loadExpenseSuppliers().then((r) => { setSupRows(r.rows); setSupCut(r.truncated); }); }, []);
   const [sq, setSq] = useState<{ i: number; text: string; dealer: string } | null>(null);
   const supHits = useMemo(() => (sq ? supplierChoices(supRows, sq.text) : []), [sq, supRows]);
   const kindOf = (l: OpeningLine) => (l.supplier ? 'supplier' : l.customer ? 'customer' : 'account');
@@ -688,6 +692,7 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
         ))}
       </ol>
       <div className="my-2"><Button size="sm" variant="ghost" onClick={() => setLines((x) => [...x, emptyOpening('D')])}>+ שורה</Button></div>
+      {supCut && <p className="mb-2 text-xs text-muted">{`רשימת הספקים נבנתה מ-${SUPPLIER_ROWS_MAX.toLocaleString('he-IL')} ההוצאות האחרונות — ספק ישן שלא מופיע: "ספק חדש" עם אותו שם ומספר עוסק.`}</p>}
       <BalanceBar debit={b.debit} credit={b.credit} note={b.toOpening !== 0 ? <span>יירשם ב-3100: <Money v={-b.toOpening / 100} /></span> : undefined} />
       <p className="mt-2 text-xs text-muted">לקוח — לפי הכרטיס שלו (הטלפון, ואם אין — השם), כדי שהמסמכים שלו יירשמו לאותו חשבון. ספק — מההוצאות, או ספק חדש (שם, ומספר עוסק אם יש), כדי שהחשבוניות שלו יירשמו לאותו חשבון. יתרה שהעסק חייב לספק — בזכות.</p>
       {errors.length > 0 && <div className="mt-2"><Note tone="warn">{errors.map((x) => <span key={x} className="block">{x}</span>)}</Note></div>}

@@ -423,6 +423,10 @@ async function main() {
     try {
       await page.getByText(/מסכי הנהלת החשבונות כבויים/).waitFor({ timeout: 120_000 });
       assert.equal(await page.locator('a[href="/finance/books"]').count(), 0, 'off — not in the menu');
+      // the one-sided journal (closed from the books' start): off — the way to the switch, not to a hidden screen
+      await page.goto(`${BASE}/finance/journal`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'להפעלת הנהלת חשבונות (הגדרות)' }).waitFor({ timeout: 120_000 });
+      assert.equal(await page.getByRole('button', { name: 'לפקודה כפולה' }).count(), 0);
       await page.goto(`${BASE}/finance/settings`, { waitUntil: 'domcontentloaded' });
       const box = page.getByRole('checkbox', { name: 'להציג הנהלת חשבונות' });
       await box.waitFor({ timeout: 120_000 });
@@ -433,6 +437,8 @@ async function main() {
       assert.equal(fake.booksShowScreens, true);
       await page.locator('a[href="/finance/books"]').first().waitFor();
       await shot(page, 'desktop-13-switch.png', false);
+      await page.goto(`${BASE}/finance/journal`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'לפקודה כפולה' }).waitFor({ timeout: 120_000 });
       const r = fake.rpc('gl_books_screens_set', { p_on: false });
       assert.equal(r.status, 200);
     } finally { await ctx.close(); }

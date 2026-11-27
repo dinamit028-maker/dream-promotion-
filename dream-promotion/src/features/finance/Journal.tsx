@@ -16,6 +16,8 @@ import {
 import { TableCard } from './ReportBook';
 import { journalClosed } from './books';
 import { loadBooksMore, type BooksMore } from './books-data';
+import { useBooksArea } from './ledger-data';
+import { showBooksArea } from './ledger';
 import { JOURNAL_BOOKS_CLOSED } from './rows';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, Stat, ddmmyyyy, ils, periodNow, todayIL, type Period } from './ui';
 
@@ -49,6 +51,10 @@ export function Journal() {
   useEffect(() => { if (ready) void loadWriter().then(setWriter); }, [ready]);
   useEffect(() => { if (ready) void loadBooksMore().then(setMore); }, [ready]);
   const closed = journalClosed(todayIL(), more?.startDate ?? null);
+  // 2.123: the double-entry form — only where "הנהלת חשבונות" is shown (the owner's switch; before 7300 — the owner); else the switch
+  const appAccess = useApp((s) => s.access);
+  const area = useBooksArea(closed && appAccess === 'full');
+  const booksShown = showBooksArea({ ready: area.state != null, state: area.state, access: appAccess });
 
   const totals = useMemo(() => entriesTotals(list ?? []), [list]);
   const multi = locState.locations.filter((l) => l.active).length > 1;
@@ -66,7 +72,9 @@ export function Journal() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <PeriodPicker value={period} onChange={setPeriod} vatKind={profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'} />
         {closed ? <span className="flex flex-wrap items-center gap-2"><span className="text-xs text-muted" role="note">{JOURNAL_BOOKS_CLOSED}</span>
-            {more?.owner && <Button size="sm" variant="ghost" onClick={() => go('books', { view: 'manual' })}>לפקודה כפולה</Button>}</span>
+            {more?.owner && (booksShown
+              ? <Button size="sm" variant="ghost" onClick={() => go('books', { view: 'manual' })}>לפקודה כפולה</Button>
+              : <Button size="sm" variant="ghost" onClick={() => go('settings')}>להפעלת הנהלת חשבונות (הגדרות)</Button>)}</span>
           : writer ? <Button variant="primary" onClick={() => setAdding(true)}>+ פקודה ידנית</Button>
           : <span className="text-xs text-muted">רק הבעלים (ורואה חשבון שצורף לעסק) רושמים פקודות.</span>}
       </div>

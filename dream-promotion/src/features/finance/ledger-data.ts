@@ -35,13 +35,14 @@ export const loadReconcile = (from: string, to: string): Promise<Res<Reconcile>>
 /** the chart — every account, active or not (gl_accounts through the RLS: the business's money; a member limited to locations reads
  *  the accounts of no location and of their own locations — gl_accounts_location_gate of 7100; another location's cash / cheques
  *  are not among them). An empty chart (not opened yet) — the ledger then takes the accounts of the trial balance */
-export async function loadChart(): Promise<Res<ChartAccount[]>> {
+export const CHART_MAX = 50_000;
+export async function loadChart(): Promise<Res<{ accounts: ChartAccount[]; truncated: boolean }>> {
   try {
     // every account, in pages (max_rows): by key — unique in the business, so the pages never overlap
-    const { data, error } = await pageAll((from, to) => supabase().from('gl_accounts').select('key, name, kind, tb_code, tb_name, parent_key, role, active, lead_id')
-      .order('key').range(from, to));
+    const { data, error, truncated } = await pageAll((from, to) => supabase().from('gl_accounts').select('key, name, kind, tb_code, tb_name, parent_key, role, active, lead_id')
+      .order('key').range(from, to), CHART_MAX);
     if (error) return { ok: false, error: financeError(error) };
-    return { ok: true, data: toChart(data) };
+    return { ok: true, data: { accounts: toChart(data), truncated } };
   } catch (e) { return { ok: false, error: financeError(e) }; }
 }
 
@@ -65,12 +66,13 @@ export async function loadDocIds(refs: { type: number; number: number }[]): Prom
 }
 
 /** the suppliers of the business's expenses (name, dealer number) for the opening balances' supplier picker — [] on a failure */
-export async function loadExpenseSuppliers(): Promise<unknown[]> {
+export const SUPPLIER_ROWS_MAX = 20_000;
+export async function loadExpenseSuppliers(): Promise<{ rows: unknown[]; truncated: boolean }> {
   try {
-    const { data, error } = await pageAll((from, to) => supabase().from('expenses').select('supplier_name, supplier_dealer')
-      .order('created_at', { ascending: false }).order('id').range(from, to), 20_000);
-    return error ? [] : data;
-  } catch { return []; }
+    const { data, error, truncated } = await pageAll((from, to) => supabase().from('expenses').select('supplier_name, supplier_dealer')
+      .order('created_at', { ascending: false }).order('id').range(from, to), SUPPLIER_ROWS_MAX);
+    return error ? { rows: [], truncated: false } : { rows: data, truncated };
+  } catch { return { rows: [], truncated: false }; }
 }
 
 type Wrote = { id: string; number: number; created: boolean };

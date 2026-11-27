@@ -5,7 +5,8 @@
  * and the CSV / PDF builders turn those answers into what the user sees, and every number is compared with the database's own
  * (and with sums straight from gl_lines). Also: CSV injection in every export of the books, the manual form's one-agora rule, the
  * double tap, and who sees the area. Demo data only.
- * Missing dump = FAIL: produce it with  DP_TEST_DB=<private db> bash tests/sql/run.sh  (or run that one check file on a migrated db).
+ * Run by tests/sql/run.sh right after the check files (not by npm test — it needs the dump). Missing dump = FAIL, never skipped.
+ * Alone: on a migrated db, run that check file, then  npx -y tsx --test tests/sql/books-screens-real-db.ts
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,9 +15,9 @@ import {
   ag, balanceSheetTable, bookJournalTable, canReverseEntry, emptyManual, entryBalance, groupTrialBalance, ledgerTable, manualArgs, manualProblems, profitLossTable,
   reconcileTable, showBooksArea, tbBalanced, toBalanceSheet, toBookJournal, toChart, toLedger, toProfitLoss, toReconcile, toTrialBalance, trialBalanceTable,
   parseAgorot, openingArgs, openingProblems, emptyOpening, type ManualDraft,
-} from '../src/features/finance/ledger';
-import { tableCsv, pdfBody, type ReportTable } from '../src/features/finance/statements';
-import { csvSafe } from '../src/features/finance/reports';
+} from '../../src/features/finance/ledger';
+import { tableCsv, pdfBody, type ReportTable } from '../../src/features/finance/statements';
+import { csvSafe } from '../../src/features/finance/reports';
 
 const DUMP = '/tmp/dp-books-real-db.json';
 const load = (): Record<string, any> => {
@@ -63,7 +64,7 @@ test('real db: ledgers — the opening, the running balance and the closing are 
 });
 
 test('real db: the customer account key = glCustomerKey of the CRM card (phone 050-0000081)', async () => {
-  const { glCustomerKey } = await import('../src/features/documents/customer-key');
+  const { glCustomerKey } = await import('../../src/features/documents/customer-key');
   const d = load();
   assert.equal(glCustomerKey('050-0000081', 'לקוח בדיקה לדוגמה'), '050-0000081');
   assert.ok(d['ledger:050-0000081'], 'the ledger of that very key exists in the real books');

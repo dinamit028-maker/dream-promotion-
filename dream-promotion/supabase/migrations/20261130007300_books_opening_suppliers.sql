@@ -11,6 +11,7 @@
 --   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = 'public.gl_opening_balances(jsonb)'::regprocedure
 --   gl_opening_balances(jsonb)   of 7100   e39e88dce864a72cb3ae53480642e30d  d41d6b0a2acecc2c6ecfd8f7ee85bdf2
 --   gl_books_state()             of 7100   e6ca162810b13e6737c06cbc0cba46e7  3c7ec2364edb0a985b7154e3c6ee7a38
+--   gl_books_screens_set(boolean)   new                                     9e93f3df5f37636fc3897658da14ed1d
 -- Running 7100 again after this one brings the old ones back — then run this one again. One new column (gl_books.show_screens,
 -- not null default false — no existing row changes otherwise), no drop / delete. Runs after 7200 — it stops at the top without it, changing nothing. RUN IT AS ONE SCRIPT IN THE SQL EDITOR.
 set local lock_timeout = '5s';

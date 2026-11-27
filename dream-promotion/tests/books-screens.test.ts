@@ -351,19 +351,21 @@ test('an opening customer: the key and the name its documents use — the billin
 });
 
 import { PAGE, pageAll } from '../src/features/finance/paging';
-test('reading every row past PostgREST\'s max_rows (1000): pages until a short one; a failed page fails it all', async () => {
+test('reading every row past PostgREST\'s max_rows: moves on by the rows it got, until an empty page; truncated past max; a failed page fails it', async () => {
   const rows = Array.from({ length: 2500 }, (_, i) => i);
   const asked: [number, number][] = [];
-  // a server that answers at most 1000 rows, whatever is asked (max_rows)
-  const server = async (from: number, to: number) => { asked.push([from, to]); return { data: rows.slice(from, Math.min(to + 1, from + 1000)), error: null }; };
-  const all = await pageAll(server);
-  assert.equal(all.data.length, 2500);
-  assert.deepEqual(asked, [[0, 999], [1000, 1999], [2000, 2999]]);
+  const server = (cap: number) => async (from: number, to: number) => { asked.push([from, to]); return { data: rows.slice(from, Math.min(to + 1, from + cap)), error: null }; };
+  const all = await pageAll(server(1000));
+  assert.deepEqual([all.data.length, all.truncated], [2500, false]);
+  assert.deepEqual(asked, [[0, 999], [1000, 1999], [2000, 2999], [2500, 3499]], 'an empty page ends it');
   assert.equal(PAGE, 1000);
-  const exact = await pageAll(async (from, to) => ({ data: rows.slice(0, 2000).slice(from, to + 1), error: null }));
-  assert.equal(exact.data.length, 2000, 'a last full page — one more (empty) read');
-  const capped = await pageAll(server, 1500);
-  assert.equal(capped.data.length, 1500, 'up to max');
+  // a server whose max_rows is 300: still every row, in order
+  const small = await pageAll(server(300));
+  assert.deepEqual(small.data, rows);
+  const capped = await pageAll(server(1000), 1500);
+  assert.deepEqual([capped.data.length, capped.truncated], [1500, true], 'more than max — said');
+  const exact = await pageAll(server(1000), 2500);
+  assert.deepEqual([exact.data.length, exact.truncated], [2500, false], 'exactly max — not truncated');
   const failed = await pageAll(async (from) => (from ? { data: null, error: { message: 'x' } } : { data: rows.slice(0, 1000), error: null }));
   assert.ok(failed.error, 'never a list cut in the middle without saying so');
 });

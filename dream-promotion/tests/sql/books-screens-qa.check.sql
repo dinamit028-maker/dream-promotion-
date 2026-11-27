@@ -1,6 +1,6 @@
 -- QA 2.123 (stage 4ד) on a real Postgres: 7200 + 7300 again, then
 --   1. a seeded month (opening balances with a customer and suppliers, expenses of those suppliers, manual entries, one reversed) —
---      the real report_* functions' answers are written to /tmp/dp-books-real-db.json, which tests/books-screens-real-db.test.ts
+--      the real report_* functions' answers are written to /tmp/dp-books-real-db.json, which tests/sql/books-screens-real-db.ts (run by tests/sql/run.sh)
 --      compares with what the screens' pure helpers (ledger.ts) show: the screens must show exactly the database's numbers
 --   2. a manual entry off by one agora is refused (nothing kept); the same id twice = one entry (a double tap)
 --   3. the customer's account key = what glCustomerKey writes for the CRM card (the key the test file also computes in TypeScript)
@@ -97,7 +97,7 @@ insert into outq select 'open', public.gl_opening_balances('[
   {"account": "050-0000081", "name": "לקוח בדיקה לדוגמה", "side": "D", "amount": 50.25}]');
 select pg_temp.refused_with($$select public.gl_opening_balances('[{"account":"BANK","side":"D","amount":1}]')$$, 'opening_done', 'opening balances only once');
 commit;
--- 3. the customer's account key is the one glCustomerKey writes (TS side: tests/books-screens-real-db.test.ts)
+-- 3. the customer's account key is the one glCustomerKey writes (TS side: tests/sql/books-screens-real-db.ts (run by tests/sql/run.sh))
 select pg_temp.check(exists (select 1 from public.gl_accounts where business_id = '00000000-0000-0000-0000-00000000a0b1' and key = '050-0000081' and parent_key = '1300'),
   'the customer line opens an account under 1300 by the key it was given');
 
