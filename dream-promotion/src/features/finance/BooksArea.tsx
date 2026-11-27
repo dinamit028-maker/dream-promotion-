@@ -13,12 +13,12 @@ import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, Stat, ddmmyyyy, ils,
 import {
   KIND_LABEL, KINDS, RECON_BALANCES, RECON_AREA, accountAddProblems, accountText, accountUpdateProblems, ag, balanceSheetTable, bookJournalTable, booksViews,
   canDeactivate, canReverseEntry, chartList, docRefKey, docRefs, emptyLine, emptyManual, emptyOpening, entryBalance, groupTrialBalance, isBooksView, ledgerTable,
-  manualProblems, openingBalance, openingProblems, originOf, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, sourceLabel,
+  manualProblems, openingBalance, openingProblems, openingSuppliersReady, originOf, supplierChoices, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, sourceLabel,
   tbBalanced, trialBalanceTable, type AccountDraft, type BalanceSheet, type BooksView, type ChartAccount, type EntryLine, type ManualDraft, type OpeningLine, type Part,
   type Side,
 } from './ledger';
 import {
-  addAccount, createManual, loadBalanceSheet, loadBookJournal, loadChart, loadDocIds, loadLedger, loadProfitLoss, loadReconcile, loadTrialBalance, reverseManual,
+  addAccount, createManual, loadBalanceSheet, loadExpenseSuppliers, loadBookJournal, loadChart, loadDocIds, loadLedger, loadProfitLoss, loadReconcile, loadTrialBalance, reverseManual,
   saveOpening, setAccountActive, updateAccount, useBooksArea, type Res,
 } from './ledger-data';
 import type { BooksState } from './books';
@@ -583,6 +583,13 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
   const [busy, setBusy] = useState(false);
   const active = useMemo(() => chart.filter((a) => a.active && a.key !== '3100'), [chart]);
   const setLine = (i: number, p: Partial<OpeningLine>) => setLines((x) => x.map((l, k) => (k === i ? { ...l, ...p } : l)));
+  // 2.123: a supplier's line — only once the database takes it (migration 7300); the suppliers of the expenses to pick from
+  const suppliersOn = openingSuppliersReady(state);
+  const [supRows, setSupRows] = useState<unknown[]>([]);
+  useEffect(() => { if (suppliersOn) void loadExpenseSuppliers().then(setSupRows); }, [suppliersOn]);
+  const [sq, setSq] = useState<{ i: number; text: string; dealer: string } | null>(null);
+  const supHits = useMemo(() => (sq ? supplierChoices(supRows, sq.text) : []), [sq, supRows]);
+  const kindOf = (l: OpeningLine) => (l.supplier ? 'supplier' : l.customer ? 'customer' : 'account');
   const b = openingBalance(lines);
   const hits = useMemo(() => {
     const s = q?.text.trim().toLowerCase() ?? '';
@@ -612,11 +619,35 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
         {lines.map((l, i) => (
           <li key={i} className="grid gap-2 rounded-xl border border-line/60 p-2" data-line={i + 1}>
             <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={`חשבון או לקוח — שורה ${i + 1}`}>
-              <Chip role="radio" aria-checked={!l.customer} on={!l.customer} className="min-h-11 px-3" onClick={() => setLine(i, { customer: false, account: '', name: '' })}>חשבון</Chip>
-              <Chip role="radio" aria-checked={l.customer} on={l.customer} className="min-h-11 px-3" onClick={() => setLine(i, { customer: true, account: '', name: '' })}>לקוח</Chip>
+              <Chip role="radio" aria-checked={kindOf(l) === 'account'} on={kindOf(l) === 'account'} className="min-h-11 px-3" onClick={() => setLine(i, { customer: false, supplier: null, account: '', name: '' })}>חשבון</Chip>
+              <Chip role="radio" aria-checked={kindOf(l) === 'customer'} on={kindOf(l) === 'customer'} className="min-h-11 px-3" onClick={() => setLine(i, { customer: true, supplier: null, account: '', name: '' })}>לקוח</Chip>
+              {suppliersOn && <Chip role="radio" aria-checked={kindOf(l) === 'supplier'} on={kindOf(l) === 'supplier'} className="min-h-11 px-3"
+                onClick={() => { setLine(i, { customer: false, supplier: { dealer: '', name: '' }, account: '', name: '' }); setSq({ i, text: '', dealer: '' }); }}>ספק</Chip>}
               {lines.length > 1 && <Button size="sm" variant="ghost" className="ms-auto" onClick={() => setLines((x) => x.filter((_, k) => k !== i))} aria-label={`הסרת שורה ${i + 1}`}>✕</Button>}
             </div>
-            {!l.customer ? (
+            {l.supplier ? ((l.supplier.name || l.supplier.dealer) && sq?.i !== i ? (
+              <p className="text-sm">{l.supplier.name || 'ספק'}{l.supplier.dealer ? <span className="text-xs text-muted"> · ע.מ {l.supplier.dealer}</span> : null}{' '}
+                <button type="button" className="min-h-9 text-xs text-primary" onClick={() => setSq({ i, text: '', dealer: '' })}>החלפה</button></p>
+            ) : (
+              <div className="grid gap-2">
+                <div className="relative">
+                  <Input value={sq?.i === i ? sq.text : ''} onChange={(e) => setSq({ i, text: e.target.value, dealer: sq?.i === i ? sq.dealer : '' })} placeholder="ספק מההוצאות (שם או מספר עוסק)" aria-label={`ספק שורה ${i + 1}`} />
+                  {sq?.i === i && supHits.length > 0 && (
+                    <div className="absolute inset-x-0 top-full z-10 mt-1 grid rounded-2xl border border-line bg-surface p-1 shadow-lg">
+                      {supHits.map((h) => <button key={`${h.dealer}:${h.name}`} type="button" onClick={() => { setLine(i, { supplier: h }); setSq(null); }}
+                        className="min-h-11 rounded-xl px-3 text-start text-sm hover:bg-surface-2">{h.name}{h.dealer ? ` · ${h.dealer}` : ''}</button>)}
+                    </div>
+                  )}
+                </div>
+                {sq?.i === i && sq.text.trim() && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input value={sq.dealer} onChange={(e) => setSq({ ...sq, dealer: e.target.value.replace(/\D/g, '').slice(0, 9) })} placeholder="ע.מ / ח.פ (לא חובה)" inputMode="numeric" dir="ltr"
+                      aria-label={`מספר עוסק של ספק חדש — שורה ${i + 1}`} className="w-44" />
+                    <Button size="sm" variant="ghost" onClick={() => { setLine(i, { supplier: { name: sq.text.trim().slice(0, 120), dealer: sq.dealer } }); setSq(null); }}>ספק חדש: {sq.text.trim()}</Button>
+                  </div>
+                )}
+              </div>
+            )) : !l.customer ? (
               <div className="min-w-0"><AccountSearch id={`opening-${i}`} accounts={active} value={l.account} label={`חשבון שורה ${i + 1}`} onPick={(k) => setLine(i, { account: k })} />
                 {chart.find((a) => a.key === l.account.trim()) && <span className="text-xs text-muted">{chart.find((a) => a.key === l.account.trim())!.name}</span>}</div>
             ) : l.account ? (
@@ -640,7 +671,7 @@ function OpeningView({ state, chart, onDone }: { state: BooksState; chart: Chart
       </ol>
       <div className="my-2"><Button size="sm" variant="ghost" onClick={() => setLines((x) => [...x, emptyOpening('D')])}>+ שורה</Button></div>
       <BalanceBar debit={b.debit} credit={b.credit} note={b.toOpening !== 0 ? <span>יירשם ב-3100: <Money v={-b.toOpening / 100} /></span> : undefined} />
-      <p className="mt-2 text-xs text-muted">לקוח — לפי הכרטיס שלו (הטלפון, ואם אין — השם), כדי שהמסמכים שלו יירשמו לאותו חשבון. ספק — רק ספק שכבר יש לו חשבון בלוח (מפתח שמתחיל ב-S-); ספק חדש עוד לא אפשרי כאן.</p>
+      <p className="mt-2 text-xs text-muted">לקוח — לפי הכרטיס שלו (הטלפון, ואם אין — השם), כדי שהמסמכים שלו יירשמו לאותו חשבון. {suppliersOn ? 'ספק — מההוצאות או ספק חדש (שם ומספר עוסק), כדי שהחשבוניות שלו יירשמו לאותו חשבון.' : 'ספק — רק ספק שכבר יש לו חשבון בלוח (מפתח שמתחיל ב-S-); ספק חדש עוד לא אפשרי כאן.'}</p>
       {errors.length > 0 && <div className="mt-2"><Note tone="warn">{errors.map((x) => <span key={x} className="block">{x}</span>)}</Note></div>}
       <div className="mt-3"><Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'רושם…' : 'רישום יתרות הפתיחה'}</Button></div>
     </Card>

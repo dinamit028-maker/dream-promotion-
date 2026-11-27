@@ -56,6 +56,14 @@ export async function loadDocIds(refs: { type: number; number: number }[]): Prom
   return out;
 }
 
+/** the suppliers of the business's expenses (name, dealer number) for the opening balances' supplier picker — [] on a failure */
+export async function loadExpenseSuppliers(): Promise<unknown[]> {
+  try {
+    const { data, error } = await supabase().from('expenses').select('supplier_name, supplier_dealer').order('created_at', { ascending: false }).limit(5000);
+    return error ? [] : (data ?? []);
+  } catch { return []; }
+}
+
 type Wrote = { id: string; number: number; created: boolean };
 const wrote = (j: any): Wrote => ({ id: String(j?.id ?? ''), number: Number(j?.number ?? 0), created: j?.created !== false });
 /** a manual double entry (the owner) — the id is the form's: a second tap returns the same entry */

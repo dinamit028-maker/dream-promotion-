@@ -15,6 +15,8 @@ export interface BooksFake {
   finance: { member: boolean; lockedUntil: string | null };
   /** 2.123: a difference the reconciliation reports (area → amount) — none: the books and the reports agree */
   booksReconDiff?: Record<string, number>;
+  /** 2.123: migration 7300 — a supplier's line in the opening balances */
+  booksOpeningSuppliers?: boolean;
 }
 const t = (f: BooksFake, n: string) => (f.tables[n] ||= []);
 const ok = (body: any) => ({ status: 200, body });
@@ -266,6 +268,18 @@ function opening(f: BooksFake, a: any, st: string): { status: number; body: any 
   for (const l of ls) {
     if (typeof l.amount !== 'number') return no('22023', 'opening_amount: סכום — מספר');
     if (!['D', 'C'].includes(l.side) || l.amount <= 0) return no('22023', 'opening_line: כל שורה');
+    // 7300: a supplier by its dealer number / name — the account an expense of it posts to (gl_supplier_account: "S-" + the dealer
+    // number, else "S-" + the normalized name); before 7300 the line has no account — refused as before
+    if (l.supplier && f.booksOpeningSuppliers) {
+      const dealer = /^\d{9}$/.test(String(l.supplier.dealer ?? '')) ? String(l.supplier.dealer) : '';
+      const nm = String(l.supplier.name ?? '').trim();
+      const role = dealer ? `supplier:d:${dealer}` : `supplier:n:${nm.toLowerCase().replace(/[^0-9a-zא-ת]+/g, '')}`;
+      let s = t(f, 'gl_accounts').find((x) => x.business_id === f.opts.businessId && x.role === role);
+      if (!s) s = account(f, dealer ? `S-${dealer}` : `S-${nm.toLowerCase().replace(/[^0-9a-zא-ת]+/g, '').slice(0, 13)}`, nm || 'ספק', 'liability', 'SUPPLIERS', 'ספקים', role, '2100');
+      out.push([s.key, l.side, l.amount]);
+      if (l.side === 'D') ds += ag(l.amount); else cs += ag(l.amount);
+      continue;
+    }
     const k = String(l.account ?? '').trim();
     if (!byKey(f, k)) {
       const nm = String(l.name ?? '').trim();

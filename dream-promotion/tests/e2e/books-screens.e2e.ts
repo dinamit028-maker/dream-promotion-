@@ -342,6 +342,42 @@ async function main() {
     } finally { await ctx.close(); }
   });
 
+  await step('7300: a supplier\'s opening line — from the expenses, or a new one; before 7300 — no "ספק"', async () => {
+    fake = fresh();
+    const { ctx, page } = await open('/finance/books?view=opening', 'desktop');
+    try {
+      await ready(page);
+      await page.getByRole('radiogroup', { name: 'חשבון או לקוח — שורה 1' }).waitFor();
+      assert.equal(await page.getByRole('radio', { name: 'ספק', exact: true }).count(), 0, 'an older database: no supplier picker');
+      await page.getByText(/ספק חדש עוד לא אפשרי כאן/).waitFor();
+    } finally { await ctx.close(); }
+    fake = fresh();
+    fake.booksOpeningSuppliers = true;
+    fake.tables.expenses.push({ id: 'd0000000-0000-4000-8000-000000000072', business_id: BIZ, user_id: OWNER, supplier_name: 'ספק חשמל דמו', supplier_dealer: '000000117',
+      created_at: `${TODAY}T07:00:00Z` });
+    const o = await open('/finance/books?view=opening', 'desktop');
+    try {
+      const page = o.page;
+      await ready(page);
+      await page.getByLabel('חשבון שורה 1').fill('1100');
+      await page.getByLabel('סכום שורה 1').fill('500');
+      await page.getByRole('radiogroup', { name: 'חשבון או לקוח — שורה 2' }).getByRole('radio', { name: 'ספק' }).click();
+      await page.getByLabel('ספק שורה 2').fill('חשמל');
+      await page.getByRole('button', { name: /ספק חשמל דמו · 000000117/ }).click();
+      await page.getByText('ע.מ 000000117').waitFor();
+      await page.getByRole('radiogroup', { name: 'חובה או זכות — שורה 2' }).getByRole('radio', { name: 'זכות' }).click();
+      await page.getByLabel('סכום שורה 2').fill('200');
+      await shot(page, 'desktop-12-opening-supplier.png');
+      await axe(page, 'desktop opening supplier');
+      await page.getByRole('button', { name: 'רישום יתרות הפתיחה' }).click();
+      await page.getByText(/יתרות הפתיחה נרשמו/).first().waitFor();
+      const s = fake.tables.gl_accounts.find((a: any) => a.key === 'S-000000117')!;
+      assert.equal(s.role, 'supplier:d:000000117', 'the account an expense of it posts to');
+      const tx = fake.tables.gl_transactions.find((x: any) => x.source_kind === 'opening')!;
+      assert.ok(fake.tables.gl_lines.some((l: any) => l.transaction_id === tx.id && l.account_id === s.id && l.side === 'C' && l.amount === 200));
+    } finally { await o.ctx.close(); }
+  });
+
   for (const v of ['desktop', 'phone'] as const) {
     await step(`${v}: התאמה — a difference marked; CSV of the trial balance`, async () => {
       fake = fresh();

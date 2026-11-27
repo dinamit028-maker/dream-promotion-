@@ -1796,7 +1796,7 @@ export class FakeSupabase {
     if (!this.finance.member) return refuse('42501', 'not allowed');
     const owner = this.journalWriter();
     const state = () => ({ startDate: this.booksStartDate(), started: this.today() >= this.booksStartDate(), transactions: this.booksTx,
-      openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner });
+      openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner, ...(this.booksOpeningSuppliers ? { openingSuppliers: true } : {}) });
     if (fn === 'gl_books_state') return { status: 200, body: state() };
     if (fn === 'gl_trial_balance') {
       return { status: 200, body: this.booksSuspense ? [{ account_id: 'acc-9100', key: '9100', name: 'חשבון מעבר — לבירור', kind: 'asset', tb_code: '9100', tb_name: 'חשבון מעבר',
@@ -2119,6 +2119,8 @@ export class FakeSupabase {
   }
   /** 2.123: journal_writer() for fake-books.ts */
   journalWriterPublic() { return this.journalWriter(); }
+  /** 2.123: migration 7300 (to be confirmed) — gl_opening_balances takes a supplier's line; gl_books_state says "openingSuppliers" */
+  booksOpeningSuppliers = false;
   /** 2.123: a difference the books' reconciliation reports (gl_reconcile — area → amount) */
   booksReconDiff: Record<string, number> = {};
   /** journal_writer(): the business's owners — role owner, full access, every location */

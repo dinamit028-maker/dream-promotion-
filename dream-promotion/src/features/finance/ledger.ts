@@ -1,6 +1,7 @@
 import { DOC_LABEL, docNumberLabel } from '@/features/documents/documents';
 import { glKeyReserved } from '@/features/documents/customer-key';
 import type { BooksState } from './books';
+import { normalizeSupplier } from './expenses';
 import type { ReportTable } from './statements';
 
 /**
@@ -175,10 +176,31 @@ export function reverseProblems(o: { date: string; entryDate: string; today: str
 }
 
 // ---- the opening balances (gl_opening_balances, once) ---------------------------------------------------------------------------
-/** a line: an account of the chart, or a new customer (account = its key — glCustomerKey of the CRM card — and its name) */
-export interface OpeningLine { account: string; name: string; side: Side; amount: string; customer: boolean }
-export const emptyOpening = (side: Side = 'D'): OpeningLine => ({ account: '', name: '', side, amount: '', customer: false });
-const blankOpening = (l: OpeningLine) => !l.account.trim() && !l.amount.trim();
+/** a line: an account of the chart, a new customer (account = its key — glCustomerKey of the CRM card — and its name), or (2.123,
+ *  migration 7300 — when the database says it takes them) a supplier by its dealer number and name: the database opens its account
+ *  as an expense of that supplier would (gl_supplier_account), so the opening balance and its later invoices meet in one account */
+export interface OpeningSupplier { dealer: string; name: string }
+export interface OpeningLine { account: string; name: string; side: Side; amount: string; customer: boolean; supplier?: OpeningSupplier | null }
+export const emptyOpening = (side: Side = 'D'): OpeningLine => ({ account: '', name: '', side, amount: '', customer: false, supplier: null });
+const blankOpening = (l: OpeningLine) => !l.account.trim() && !l.supplier && !l.amount.trim();
+/** the database takes a supplier's line in the opening balances (migration 7300) — gl_books_state's "openingSuppliers" (the contract
+ *  of 7300 to be confirmed; absent = an older database: no supplier picker, the message as before) */
+export const openingSuppliersReady = (s: { openingSuppliers?: boolean } | null | undefined) => s?.openingSuppliers === true;
+/** the suppliers of the business's expenses (supplier_name, supplier_dealer) — once each, as the books know a supplier (party_key:
+ *  the dealer number, else the normalized name — expense_norm_supplier / normalizeSupplier); a name that normalizes to nothing
+ *  without a dealer number is left out (the database would key it by the name itself) */
+export function supplierChoices(rows: unknown, q = '', limit = 8): OpeningSupplier[] {
+  const seen = new Map<string, OpeningSupplier>();
+  for (const r of arr(rows)) {
+    const dealer = /^\d{9}$/.test(str(r?.supplier_dealer).trim()) ? str(r.supplier_dealer).trim() : '';
+    const name = str(r?.supplier_name).trim().slice(0, 120);
+    const k = dealer ? `d:${dealer}` : normalizeSupplier(name) ? `n:${normalizeSupplier(name)}` : '';
+    if (k && !seen.has(k)) seen.set(k, { dealer, name });
+  }
+  const s = q.trim().toLowerCase();
+  return [...seen.values()].filter((x) => !s || x.name.toLowerCase().includes(s) || x.dealer.startsWith(s.replace(/\D/g, '') || '§'))
+    .sort((a, b) => a.name.localeCompare(b.name, 'he')).slice(0, limit);
+}
 /** Σ debit, Σ credit, and what the database puts on 3100 (יתרות פתיחה) to balance it: credit (debit − credit) — in agorot */
 export function openingBalance(lines: OpeningLine[]) {
   const b = entryBalance(lines.filter((l) => !blankOpening(l)).map((l) => ({ account: l.account, side: l.side, amount: l.amount })));
@@ -191,6 +213,13 @@ export function openingProblems(lines: OpeningLine[], chart: ChartAccount[]): st
   const ls = lines.filter((l) => !blankOpening(l));
   if (!ls.length || ls.length > 2000) out.push('רשימת יתרות — 1 עד 2000 שורות.');
   ls.forEach((l, i) => {
+    if (l.supplier) {
+      const d = l.supplier.dealer.trim(), n = l.supplier.name.trim();
+      if (d && !/^\d{9}$/.test(d)) out.push(`שורה ${i + 1}: מספר עוסק של ספק — 9 ספרות.`);
+      if (!n && !d) out.push(`שורה ${i + 1}: ספק — שם או מספר עוסק.`);
+      if (parseAgorot(l.amount) == null) out.push(`שורה ${i + 1}: סכום מעל 0, עד אגורות.`);
+      return;
+    }
     const k = l.account.trim();
     const a = chart.find((x) => x.key === k);
     if (!k) out.push(`שורה ${i + 1}: בוחרים חשבון או לקוח.`);
@@ -202,6 +231,7 @@ export function openingProblems(lines: OpeningLine[], chart: ChartAccount[]): st
 }
 export function openingArgs(lines: OpeningLine[], chart: ChartAccount[]) {
   return lines.filter((l) => !blankOpening(l)).map((l) => {
+    if (l.supplier) return { supplier: { dealer: l.supplier.dealer.trim(), name: l.supplier.name.trim().slice(0, 120) }, side: l.side, amount: sh(parseAgorot(l.amount) ?? 0) };
     const k = l.account.trim();
     const known = chart.some((a) => a.key === k);
     return { account: k, side: l.side, amount: sh(parseAgorot(l.amount) ?? 0), ...(!known && l.name.trim() ? { name: l.name.trim().slice(0, 50) } : {}) };
