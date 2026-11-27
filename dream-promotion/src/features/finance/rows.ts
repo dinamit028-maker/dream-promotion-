@@ -1,14 +1,15 @@
 import type { NewDoc } from './compose';
 import { numberingError } from './numbering';
+import { booksError } from './ledger';
 
 /**
  * The documents row and the Hebrew of a database refusal — plain functions, used by the money screens (api.ts) and by the
  * dashboard's server (an online order's document, issued with the service role — src/lib/server/commerce.ts).
  */
 export const FINANCE_MIGRATION = 'צריך להריץ את מיגרציה 20261004003100 (כספים) ב-Supabase לפני שהמסך הזה עובד.';
-/** 2.122: the one-sided manual entries from the books' start (journal_entry_create / _reverse of 7200 refuse; the double-entry
- *  screen — gl_manual_create — is stage 4ד) */
-export const JOURNAL_BOOKS_CLOSED = 'מתחילת הספרים פקודות נרשמות בחובה וזכות — המסך יגיע בעדכון הבא.';
+/** 2.122: the one-sided manual entries from the books' start (journal_entry_create / _reverse of 7200 refuse); 2.123: the
+ *  double-entry form is "הנהלת חשבונות ← פקודה ידנית" (gl_manual_create) */
+export const JOURNAL_BOOKS_CLOSED = 'מתחילת הספרים פקודות נרשמות בחובה וזכות — ב"הנהלת חשבונות ← פקודה ידנית".';
 const missing = (m: string) => /schema cache|does not exist|PGRST20[24]|42P01|42703|Could not find/i.test(m);
 
 /** a database refusal → what to tell the user */
@@ -18,6 +19,9 @@ export function financeError(e: unknown): string {
   // 2.120 (migration 20261127007000): numbering per location, branch codes, the bank deposit's document (420)
   const numbering = numberingError(m);
   if (numbering) return numbering;
+  // 2.123 (stage 4ד — the books' screens): the chart, the manual double entry, the opening balances, the ledger
+  const books = booksError(m);
+  if (books) return books;
   if (/business_details_missing/.test(m)) return 'חסרים פרטי העסק למסמכים (מספר עוסק בן 9 ספרות) — ממלאים ב"הגדרות".';
   if (/doc_type_not_allowed/.test(m)) return 'סוג המסמך הזה לא מתאים לסוג העסק (עוסק פטור לא מפיק חשבונית מס).';
   if (/period_locked/.test(m)) return 'הספרים סגורים לתקופה הזו — אי אפשר להפיק או לשנות בה מסמכים והוצאות.';

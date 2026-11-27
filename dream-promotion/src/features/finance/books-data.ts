@@ -105,6 +105,17 @@ export async function loadBooksMore(): Promise<BooksMore | null> {
     return st ? { startDate: st.startDate, owner: st.owner } : null;
   } catch { return null; }
 }
+/** 2.123 — the whole state of the books (gl_books_state) once 7200 is in the database (the same check as loadBooksMore); null before
+ *  it, or when it cannot be read (a member who may not see the money) — the area "הנהלת חשבונות" is then not shown */
+export async function loadBooksMoreState(): Promise<BooksState | null> {
+  moreReady ??= Promise.resolve(supabase().from('gl_bank_line_accounts').select('id').limit(1)).then(({ error }) => !error, () => false)
+    .then((v) => { if (!v) moreReady = null; return v; });
+  if (!(await moreReady)) return null;
+  try {
+    const { data, error } = await supabase().rpc('gl_books_state');
+    return error ? null : toBooksState(data);
+  } catch { return null; }
+}
 /** the active accounts of the chart (for the bank's picker) — [] when they cannot be read (the picker then takes a key) */
 export async function loadAccounts(): Promise<GlAccount[]> {
   try {

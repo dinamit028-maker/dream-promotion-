@@ -5,7 +5,7 @@
  * Pure functions only: the proxy runs before every /finance request.
  */
 export type FinanceSection = 'overview' | 'documents' | 'income' | 'receivables' | 'quotes' | 'packages' | 'recurring' | 'expenses' | 'cash' | 'bank' | 'reports'
-  | 'accountant' | 'journal' | 'settings';
+  | 'accountant' | 'journal' | 'books' | 'settings';
 
 export const FINANCE_SECTIONS: readonly { id: FinanceSection; path: string; label: string }[] = [
   { id: 'overview', path: '/finance', label: 'לובי כספים' },
@@ -23,6 +23,9 @@ export const FINANCE_SECTIONS: readonly { id: FinanceSection; path: string; labe
   { id: 'accountant', path: '/finance/accountant', label: 'רואה חשבון' },
   // 2.96 (T13א): in the menu once migration 20261011005100 is in the database (module.ts, financeGroups)
   { id: 'journal', path: '/finance/journal', label: 'פקודות יומן' },
+  // 2.123 (stage 4ד): the double-entry books — in the menu once migration 20261129007200 is in the database (module.ts, BOOKS_LINK;
+  // ledger.ts showBooksArea)
+  { id: 'books', path: '/finance/books', label: 'הנהלת חשבונות' },
   { id: 'settings', path: '/finance/settings', label: 'הגדרות כספים' },
 ];
 const BY_ID = new Map(FINANCE_SECTIONS.map((s) => [s.id, s]));

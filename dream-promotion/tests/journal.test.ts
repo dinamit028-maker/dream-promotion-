@@ -181,8 +181,9 @@ test('the menu: "פקודות יומן" under the reports once the migration is 
   assert.equal(JOURNAL_LINK.href, '/finance/journal');
   assert.deepEqual(financeGroups({ cash: false }), FINANCE_MODULE.groups, 'neither: the menu as it was');
   assert.deepEqual(financeGroups({ cash: false, journal: true }).find((g) => g.id === 'reports')?.links.map((l) => l.label), ['דוחות', 'רואה חשבון', 'פקודות יומן']);
-  const links = financeGroups({ cash: true, journal: true }).flatMap((g) => g.links.map((l) => l.href));
-  assert.deepEqual([...links].sort(), FINANCE_SECTIONS.map((s) => s.path).sort(), 'all 14 screens');
+  // 2.123: with the books' area too (when shown) — every screen once
+  const links = financeGroups({ cash: true, journal: true, books: true }).flatMap((g) => g.links.map((l) => l.href));
+  assert.deepEqual([...links].sort(), FINANCE_SECTIONS.map((s) => s.path).sort(), 'all 15 screens');
   assert.equal(new Set(links).size, links.length, 'none twice');
   assert.equal(FINANCE_MODULE.groups.find((g) => g.id === 'reports')?.links.length, 2, 'the module\'s own groups are not changed');
 });

@@ -30,6 +30,7 @@ import { planLines } from '../../src/features/finance/plans';
 import { duplicateReasons } from '../../src/features/finance/expenses';
 import { firstCharge, onOrAfter } from '../../src/features/finance/recurring';
 import { MANUAL_KEY, partyKey } from '../../src/features/finance/statements';
+import { booksScreensRpc } from './fake-books';
 import { ATT_FUNCTION_ONLY, ATT_TABLES, F101_TABLES, attDefaults, attendanceRpc, form101AfterInsert, form101Insert, form101Update } from './fake-attendance';
 
 type Row = Record<string, any>;
@@ -2116,6 +2117,10 @@ export class FakeSupabase {
     const seen = this.locationFilter();
     return this.t('journal_entries').filter((j) => j.business_id === this.opts.businessId && (!seen || seen.includes(j.location_id)));
   }
+  /** 2.123: journal_writer() for fake-books.ts */
+  journalWriterPublic() { return this.journalWriter(); }
+  /** 2.123: a difference the books' reconciliation reports (gl_reconcile — area → amount) */
+  booksReconDiff: Record<string, number> = {};
   /** journal_writer(): the business's owners — role owner, full access, every location */
   private journalWriter() {
     const m = this.t('business_members').find((x) => x.user_id === this.opts.userId && (x.business_id ?? this.opts.businessId) === this.opts.businessId);
@@ -2204,6 +2209,10 @@ export class FakeSupabase {
   rpc(fn: string, args: any): { status: number; body: any } {
     // 2.107 (5800): the attendance functions — none before the migration
     if (fn.startsWith('att_')) return this.attendanceTables ? attendanceRpc(this, fn, args)! : { status: 404, body: { code: 'PGRST202', message: `Could not find the function public.${fn}` } };
+    // 2.123 (stage 4ד): the books' reports and the owner's functions (fake-books.ts) — before the reports of 4900 (report_*) and
+    // 7100's own (gl_opening_balances)
+    const screens = booksScreensRpc(this as any, fn, args);
+    if (screens) return screens;
     const journaled = this.journalRpc(fn, args);
     if (journaled) return journaled;
     const placed = this.locationRpc(fn, args);

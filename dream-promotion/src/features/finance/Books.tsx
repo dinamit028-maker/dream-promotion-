@@ -1,8 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Button, Card, Field, Input } from '@/components/ui/primitives';
 import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
 import { loadBooks, moveBooksStart, replayNow } from './books-data';
+import { useBooksArea } from './ledger-data';
+import { financeHref } from './routes';
 import { latestStart, monthOf, firstOf, replayMessage, showBooks, startMonthProblem, startMoveExplain, type BooksState } from './books';
 
 /**
@@ -20,6 +23,8 @@ export function BooksSettings({ say, fail, business }: { say: (m: string) => voi
   const [month, setMonth] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 2.123: the books' screens ("הנהלת חשבונות") — once migration 7200 is in the database
+  const area = useBooksArea();
   async function reload() {
     const r = await loadBooks();
     if (r.ok && r.ready) { setState(r.state); setUnposted(r.unposted); setSuspense(r.suspense); setError(null); }
@@ -80,7 +85,9 @@ export function BooksSettings({ say, fail, business }: { say: (m: string) => voi
           <li>חשבון מעבר — לבירור (9100): <strong dir="ltr" className="tabular-nums">{ils(suspense)}</strong> — סכומים שלא נמצא להם חשבון; לבירור עם רואה החשבון.</li>
         )}
       </ul>
-      <p className="mb-2 text-xs text-muted">כל מסמך, תשלום והפקדה מתאריך ההתחלה נרשמים בספרים לבד (פקודה מאוזנת לכל אחד). מה שהופק לפני כן — לא. יתרות הפתיחה, הכרטסות והדוחות — בשלב הבא.</p>
+      <p className="mb-2 text-xs text-muted">כל מסמך, תשלום והפקדה מתאריך ההתחלה נרשמים בספרים לבד (פקודה מאוזנת לכל אחד). מה שהופק לפני כן — לא.{area.state ? ' יתרות הפתיחה, לוח החשבונות, הכרטסות והדוחות — ב"הנהלת חשבונות".' : ''}</p>
+      {area.state && <p className="mb-2"><Link href={financeHref('books', state.openingEntered ? {} : { view: 'opening' })} className="inline-flex min-h-11 items-center rounded-full border border-line px-4 text-sm font-semibold">
+        {state.openingEntered ? 'להנהלת החשבונות' : 'להנהלת החשבונות — יתרות פתיחה'}</Link></p>}
 
       {state.canMoveStart && !confirming && (
         <div className="flex flex-wrap items-end gap-2">

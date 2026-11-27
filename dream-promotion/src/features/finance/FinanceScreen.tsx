@@ -16,6 +16,8 @@ import { Note, type CatalogPick } from './ui';
 import { financeHref, financeLabel, sectionOfPath, type FinanceSection } from './routes';
 import { financeActions, financeGroups } from './module';
 import { useJournalReadyState } from './journal-data';
+import { useBooksArea } from './ledger-data';
+import { showBooksArea } from './ledger';
 import { catalogPicks, type CatalogItem } from '@/features/catalog/catalog';
 import { loadCatalog } from '@/features/catalog/data';
 
@@ -126,7 +128,11 @@ function FinanceProvider({ children }: { children: ReactNode }) {
   // (else the menu as it was)
   const journal = useJournalReadyState() === true;
   const cash = Boolean(state?.profile.cashDrawers);
-  useModuleGroups(cash || journal ? financeGroups({ cash, journal }) : null);
+  // 2.123 (stage 4ד): "הנהלת חשבונות" once migration 7200 is there — the owner, or the whole of the money once the books have an entry
+  const booksArea = useBooksArea();
+  const access = useApp((s) => s.access);
+  const books = showBooksArea({ ready: booksArea.asked && booksArea.state != null, state: booksArea.state, access });
+  useModuleGroups(cash || journal || books ? financeGroups({ cash, journal, books }) : null);
 
   const ctx = useMemo<Ctx | null>(() => {
     if (!state || !userId) return null;

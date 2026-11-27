@@ -38,7 +38,7 @@ const TEAL_LIGHT = 'rgb(15, 118, 110)';
 // the phone's menu: the links that sit inside a group (the group opens first)
 const GROUP_OF: Record<string, string> = {
   'מסמכים': 'הכנסות', 'הכנסות': 'הכנסות', 'חייבים': 'הכנסות', 'הצעות מחיר': 'הכנסות', 'חבילות': 'הכנסות', 'דוחות': 'דוחות ורואה חשבון', 'רואה חשבון': 'דוחות ורואה חשבון',
-  'פקודות יומן': 'דוחות ורואה חשבון',
+  'פקודות יומן': 'דוחות ורואה חשבון', 'הנהלת חשבונות': 'דוחות ורואה חשבון',
 };
 const PATH_OF: Record<string, string> = Object.fromEntries(FINANCE_SECTIONS.map((s) => [s.label, s.path]));
 // the menu of a business that did not turn the desks on: "קופות ובנק" is in it only once they are (2.95, cash-bank.e2e.ts)
@@ -454,10 +454,11 @@ async function main() {
         await noSideScroll(page, s.label);
       }
       await shot(page, 'm1-phone-settings.jpg');
-      // the phone's back button: the screen before, and the one before it; forward again (2.96: "פקודות יומן" — after "רואה חשבון")
+      // the phone's back button: the screen before, and the one before it; forward again (2.96: "פקודות יומן" — after "רואה חשבון";
+      // 2.123: "הנהלת חשבונות" — after it, for the owner once migration 7200 is there)
+      await page.goBack(); await at(page, '/finance/books'); await heading(page, 'הנהלת חשבונות');
       await page.goBack(); await at(page, '/finance/journal'); await heading(page, 'פקודות יומן');
-      await page.goBack(); await at(page, '/finance/accountant'); await heading(page, 'רואה חשבון');
-      await page.goForward(); await at(page, '/finance/journal'); await heading(page, 'פקודות יומן');
+      await page.goForward(); await at(page, '/finance/books'); await heading(page, 'הנהלת חשבונות');
       // a direct link (a refresh, a link in a message) opens that screen, and the bottom bar marks it
       await goto(page, '/finance/receivables');
       await heading(page, 'חייבים');
@@ -627,8 +628,10 @@ async function main() {
       await p.getByText('רווח משוער').waitFor();
       // 2.96: "פקודות יומן" joins the menu once the screen knows migration 5100 is there
       await side.getByRole('link', { name: 'פקודות יומן' }).waitFor();
+      // 2.123: "הנהלת חשבונות" — the owner, once migration 7200 is there (the fake has it)
+      await side.getByRole('link', { name: 'הנהלת חשבונות' }).waitFor();
       assert.deepEqual((await side.getByRole('link').allInnerTexts()).map((t: string) => t.trim()),
-        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'חיובים חוזרים', 'הוצאות', 'דוחות', 'רואה חשבון', 'פקודות יומן', 'הגדרות כספים']);
+        ['חזרה ל-Dream', 'לובי כספים', 'מסמכים', 'הכנסות', 'חייבים', 'הצעות מחיר', 'חבילות', 'חיובים חוזרים', 'הוצאות', 'דוחות', 'רואה חשבון', 'פקודות יומן', 'הנהלת חשבונות', 'הגדרות כספים']);
       for (const g of ['הכנסות', 'דוחות ורואה חשבון']) await side.locator('p', { hasText: new RegExp(`^${g}$`) }).waitFor();
       await heading(p, 'כספים · FollowMe');
       assert.equal(await p.getByRole('button', { name: 'תפריט', exact: true }).count(), 0, 'no bottom bar');

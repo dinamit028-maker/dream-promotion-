@@ -475,7 +475,7 @@ async function main() {
       fake.booksStart = `${TODAY.slice(0, 7)}-01`;     // the books started this month
       try {
         await journal();
-        await page.getByText('מתחילת הספרים פקודות נרשמות בחובה וזכות — המסך יגיע בעדכון הבא.').waitFor();
+        await page.getByText('מתחילת הספרים פקודות נרשמות בחובה וזכות — ב"הנהלת חשבונות ← פקודה ידנית".').waitFor();
         await page.getByText(`הספרים התחילו ב-${dmy(fake.booksStart)}`, { exact: false }).waitFor();
         await entry(1).waitFor();
         assert.equal(await page.getByRole('button', { name: '+ פקודה ידנית' }).count(), 0, 'no one-sided entry from the start');

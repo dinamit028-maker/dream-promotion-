@@ -30,7 +30,7 @@ import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, Stat, ddmmyyyy, ils,
  */
 export function Journal() {
   const ready = useJournalReadyState();
-  const { profile, vat, settings, access, say } = useFinance();
+  const { profile, vat, settings, access, say, go } = useFinance();
   const locState = useLocations((x) => x.state);
   const [period, setPeriod] = useState<Period>(() => periodNow(profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'));
   const [list, setList] = useState<JournalEntry[] | null>(null);
@@ -65,7 +65,8 @@ export function Journal() {
       </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <PeriodPicker value={period} onChange={setPeriod} vatKind={profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'} />
-        {closed ? <span className="text-xs text-muted" role="note">{JOURNAL_BOOKS_CLOSED}</span>
+        {closed ? <span className="flex flex-wrap items-center gap-2"><span className="text-xs text-muted" role="note">{JOURNAL_BOOKS_CLOSED}</span>
+            {more?.owner && <Button size="sm" variant="ghost" onClick={() => go('books', { view: 'manual' })}>לפקודה כפולה</Button>}</span>
           : writer ? <Button variant="primary" onClick={() => setAdding(true)}>+ פקודה ידנית</Button>
           : <span className="text-xs text-muted">רק הבעלים (ורואה חשבון שצורף לעסק) רושמים פקודות.</span>}
       </div>
@@ -107,7 +108,7 @@ export function Journal() {
             })}
           </ul>
         )}
-        <TableCard table={table} period={period} subtitle={`${period.label}`} empty="אין פקודות ידניות בתקופה הזו." />
+        <TableCard table={table} period={period} subtitle={`${period.label}`} empty="אין פקודות ידניות בתקופה הזו." stack />
       </>}
       {adding && !closed && <NewEntryDialog vatRate={settings.vatRate} vatOn={vat} lockedUntil={access.lockedUntil} onClose={() => setAdding(false)}
         onDone={(n) => { setAdding(false); say(`פקודה ${n} נרשמה`); void load(); }} />}
