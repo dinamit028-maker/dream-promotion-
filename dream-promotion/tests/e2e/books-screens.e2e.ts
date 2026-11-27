@@ -422,8 +422,9 @@ async function main() {
       const box = page.getByRole('checkbox', { name: 'להציג הנהלת חשבונות' });
       await box.waitFor({ timeout: 120_000 });
       assert.equal(await box.isChecked(), false);
-      await box.check();
+      await box.click();                               // the switch follows the database's answer (no optimistic state)
       await page.getByText('מסכי הנהלת החשבונות מוצגים').first().waitFor();
+      await page.waitForFunction(() => (document.querySelector('input[type=checkbox].h-5') as HTMLInputElement | null)?.checked === true);
       assert.equal(fake.booksShowScreens, true);
       await page.locator('a[href="/finance/books"]').first().waitFor();
       await shot(page, 'desktop-13-switch.png', false);

@@ -171,7 +171,9 @@ test('opening form: one line per account, balanced against 3100 is the database\
 });
 
 // ---- who sees the area ------------------------------------------------------------------------------------------------------------
-test('permissions: the area is for access full only; non-owner needs an entry; cashier / calendar / agenda / null never', () => {
+// 2.123 review (the owner's decision, 27.11.2026): the area is hidden until the owner turns it on (showScreens, 7300); before 7300 —
+// the owner only. The old "a non-owner once the books have an entry" is replaced by the switch (finance-agent, with the positive case)
+test('permissions: the area is for access full only; shown when the owner turned it on (before 7300 — the owner); cashier / calendar / agenda / null never', () => {
   const st = (o: object) => ({ startDate: '2026-12-01', started: true, transactions: 0, openingEntered: false, canMoveStart: true, owner: false, ...o });
   for (const access of ['register', 'calendar', 'agenda', null, undefined, '', 'FULL']) {
     assert.equal(showBooksArea({ ready: true, state: st({ owner: true, transactions: 9 }), access }), false, `access ${String(access)}`);
@@ -179,6 +181,8 @@ test('permissions: the area is for access full only; non-owner needs an entry; c
   assert.equal(showBooksArea({ ready: false, state: st({ owner: true }), access: 'full' }), false);
   assert.equal(showBooksArea({ ready: true, state: null, access: 'full' }), false);
   assert.equal(showBooksArea({ ready: true, state: st({ owner: false, transactions: 0 }), access: 'full' }), false);
-  assert.equal(showBooksArea({ ready: true, state: st({ owner: false, transactions: 3 }), access: 'full' }), true);
+  assert.equal(showBooksArea({ ready: true, state: st({ owner: false, transactions: 3 }), access: 'full' }), false, 'before 7300 — a member does not see it');
+  assert.equal(showBooksArea({ ready: true, state: st({ owner: false, transactions: 3, showScreens: true }), access: 'full' }), true, 'turned on — a member sees it');
+  assert.equal(showBooksArea({ ready: true, state: st({ owner: true, transactions: 3, showScreens: false }), access: 'full' }), false, 'off — the owner too');
   assert.equal(showBooksArea({ ready: true, state: st({ owner: true }), access: 'full' }), true);
 });
