@@ -41,11 +41,16 @@
 --   journal_entry_reverse(uuid, uuid, date, text)                     5100   812aa37a4e6e1a07602dde179a590404  c4bd3b8e2a1b6c6b15e3443c288da42f
 --   bank_line_handle(uuid, text)                                      5000   d427b10d56b3009b657edfb9e4790e03  84d19d8e5aa92364a854e9490a8e06e2
 --   bank_line_reopen(uuid)                                            5000   fab202148af12b0a96e797261d0b2499  7ca09783cc566ae6efc53f452a24fc15
+--   gl_key_reserved(text)                                             7100   8c13361c82be9fb00504da119cd4cd3a  4aae5a733c41a197d474ec27d6b3d31d
+--   gl_customer_account(uuid, text, text, text, uuid, text, text)     7100   f5098d61fcaf7cfb8ebb9f01b7b06b0c  3dbd3be79a1180dce191d80bf80c8b7d
 --   view gl_unposted — md5(pg_get_viewdef('public.gl_unposted'::regclass)) (the text may differ between Postgres versions — local
 --   16 here; if the old one differs live, compare the definition itself)
 --                                                                     7100   fdcbae58f3e50d1032de1a37546886dd  3db606da2ce6e2789135f5112db369e1
 -- Running 5000, 5100 or 7100 again after this one brings back an old version (7100: gl_post_safe and gl_unposted — the new sources
--- then stop posting and are not listed) — then run this one again.
+-- then stop posting and are not listed; gl_key_reserved / gl_customer_account — the supplier keys' guard) — then run this one again.
+-- The keys (before any posting — the books start 1.12.2026): a supplier's key is "S-" + the dealer number, else "S-" + the
+-- normalized name; gl_key_reserved now also reserves every key that starts with "S-", so a customer whose phone / name gives
+-- such a key gets "C-" in front (as a system-looking key) — the TS (customer-key.ts glKeyReserved) changes with it, the same day.
 -- Existing tables: gl_transactions gets a nullable column (source_hash) and a wider source_kind check (dropped and added again in
 -- one ALTER — the only "drop" here; run it in the SQL Editor, the MCP stops on it); expenses, payments, register_shifts and
 -- bank_matches get deferred triggers that only read them. No existing row changes: nothing here updates or removes a row of an
@@ -192,6 +197,40 @@ begin
 end $$;
 
 -- ============================================================================================================================
+-- 1a. the keys: a supplier's key ("S-…") is never a customer's
+-- ============================================================================================================================
+-- replaces gl_key_reserved(text) of 20261128007100 — a system key (four digits, "-n" for a location's; BANK) or a supplier's
+-- ("S-" + its dealer number or its name): never a customer's (gl_customer_key gives such a one "C-"). The TS: customer-key.ts
+-- glKeyReserved = /^[0-9]{4}(-[0-9]{1,2})?$/.test(k) || btrim(k).toUpperCase() === 'BANK' || k.startsWith('S-')
+create or replace function public.gl_key_reserved(p_key text) returns boolean language sql immutable set search_path = public, pg_temp as $$
+  select coalesce(p_key ~ '^[0-9]{4}(-[0-9]{1,2})?$' or upper(btrim(p_key)) = 'BANK' or p_key like 'S-%', false)
+$$;
+
+-- replaces gl_customer_account(uuid, text, text, text, uuid, text, text) of 20261128007100 — a customer's key that is already
+-- another kind of account's (never expected: gl_key_reserved) is refused (the posting fails, is recorded and listed), never
+-- posted into that account
+create or replace function public.gl_customer_account(p_business uuid, p_phone text, p_name text, p_dealer text, p_lead uuid, p_street text, p_city text)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare k text := public.gl_customer_key(p_phone, p_name); r text; a uuid;
+begin
+  r := 'customer:' || k;
+  select id into a from public.gl_accounts where business_id = p_business and role = r;
+  if a is not null then return a; end if;
+  perform public.gl_chart_ensure(p_business);
+  insert into public.gl_accounts (business_id, key, name, kind, tb_code, tb_name, parent_key, role, lead_id, dealer_number, street, city)
+  values (p_business, k, left(coalesce(nullif(btrim(coalesce(p_name, '')), ''), 'לקוח מזדמן'), 50), 'asset', 'CUSTOMERS', 'לקוחות', '1300', r, p_lead,
+          case when coalesce(p_dealer, '') ~ '^[0-9]{9}$' then p_dealer end, left(coalesce(p_street, ''), 50), left(coalesce(p_city, ''), 30))
+  on conflict (business_id, key) do nothing
+  returning id into a;
+  if a is null then
+    select id into a from public.gl_accounts where business_id = p_business and key = k and role = r;
+    if a is null then
+      raise exception 'gl_key_taken: the customer''s key % is another account''s', k using errcode = '23505'; end if;
+  end if;
+  return a;
+end $$;
+
+-- ============================================================================================================================
 -- 2. helpers: the accounts of the new sources, the fingerprints, the open date, writing an entry
 -- ============================================================================================================================
 -- a system account of a role not in 7100's default chart (2150 cheques to pay) — created on first need; its key taken → suspense
@@ -209,8 +248,9 @@ begin
 end $$;
 
 -- a supplier's account (under 2100) — the same supplier as report_suppliers (party_key: the dealer number, else the normalized
--- name). Its key: "S" + the dealer number, else "S-" + the normalized name (13 characters; an empty one — of the name's md5); a
--- key already taken by another account → "-2", "-3", … (15 characters)
+-- name). Its key: "S-" + the dealer number, else "S-" + the normalized name (13 characters; an empty one — of the name's md5); a
+-- key already taken by another account → "-2", "-3", … (15 characters). A customer's key never starts with "S-" (gl_key_reserved,
+-- below — it gets "C-"), and the owner's keys are four digits: a supplier's account is never a customer's or the owner's
 create or replace function public.gl_supplier_account(p_business uuid, p_dealer text, p_name text) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare pk text := public.party_key(null, p_dealer, p_name); r text; a uuid; base text; k text; n int := 1; nm text;
@@ -219,7 +259,7 @@ begin
   select id into a from public.gl_accounts where business_id = p_business and role = r;
   if a is not null then return a; end if;
   perform public.gl_chart_ensure(p_business);
-  if coalesce(p_dealer, '') ~ '^[0-9]{9}$' then base := 'S' || p_dealer;
+  if coalesce(p_dealer, '') ~ '^[0-9]{9}$' then base := 'S-' || p_dealer;
   else
     nm := public.expense_norm_supplier(p_name);
     base := 'S-' || left(case when nm = '' then left(md5(coalesce(p_name, '')), 8) else nm end, 13);
@@ -1318,6 +1358,9 @@ end $function$;
 -- ============================================================================================================================
 -- 9. who may call what
 -- ============================================================================================================================
+revoke execute on function public.gl_customer_account(uuid, text, text, text, uuid, text, text) from public, anon, authenticated;
+revoke execute on function public.gl_key_reserved(text) from public, anon;
+grant execute on function public.gl_key_reserved(text) to authenticated, service_role;
 revoke execute on function public.gl_bank_line_accounts_guard(), public.gl_accounts_guard(),
   public.gl_system_account(uuid, text, text, text, text, text, text), public.gl_supplier_account(uuid, text, text),
   public.gl_expense_money_account(uuid, text, uuid), public.gl_payment_money_account(public.payments), public.gl_open_date(uuid, date),
@@ -1403,8 +1446,9 @@ end $$;
 --       drop trigger zz_gl_post_more on payments; drop trigger zz_gl_post_more on register_shifts;
 --       drop trigger zz_gl_post_more_change on register_shifts; drop trigger zz_gl_post_more on bank_matches;
 --       drop trigger zz_gl_post_more_undo on bank_matches;
---   * the replaced functions: run again their old versions — gl_post_safe() and the view gl_unposted of 20261128007100 (the view's
---     section 9 only), journal_entry_create() / journal_entry_reverse() of 20261011005100, bank_line_handle() / bank_line_reopen() of
+--   * the replaced functions: run again their old versions — gl_post_safe(), gl_key_reserved(), gl_customer_account() and the view
+--     gl_unposted of 20261128007100 (only while no supplier account was opened: select count(*) from gl_accounts where role like
+--     'supplier:%' = 0 — else a customer could take a supplier's key; the TS's glKeyReserved goes back with them), journal_entry_create() / journal_entry_reverse() of 20261011005100, bank_line_handle() / bank_line_reopen() of
 --     20261011005000 (bank_line_reopen of 5000 does not undo a line's account — only while no line was posted to an account:
 --     select count(*) from gl_bank_line_accounts = 0);
 --   * only while none of the new entries exists (select count(*) from gl_transactions where source_kind in ('expense',

@@ -202,16 +202,16 @@ insert into out72 select 'replay L again', public.gl_replay('00000000-0000-0000-
 commit;
 select pg_temp.check((pg_temp.o('replay L')->>'posted')::int = 5 and (pg_temp.o('replay L')->>'left')::int = 0
   and (pg_temp.o('replay L again')->>'posted')::int = 0, 'gl_replay posts the five; again — nothing');
-select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e1')).id) = '6103 D 100.00, 1400 D 18.00, S000000067 C 118.00',
+select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e1')).id) = '6103 D 100.00, 1400 D 18.00, S-000000067 C 118.00',
   'an expense: rent + VAT input / the supplier (by its dealer number)');
-select pg_temp.check(pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e1'))).id) = 'S000000067 D 118.00, 1100 C 118.00',
+select pg_temp.check(pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e1'))).id) = 'S-000000067 D 118.00, 1100 C 118.00',
   'its payment in cash: the supplier / the cash');
 select pg_temp.check(pg_temp.lines((pg_temp.st('shift', '00000000-0000-0000-0000-0000007200f1')).id) = '6900 D 5.00, 1100 C 5.00', 'the day short by 5: 6900 / the cash');
 select pg_temp.check(pg_temp.lines((select t.id from public.gl_transactions t where t.business_id = '00000000-0000-0000-0000-0000007200b1' and t.source_kind = 'bank_match')) = 'BANK D 118.00, 1250 C 118.00',
   'the card receipt matched at the bank: BANK / card clearing');
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007200b1', '1250') = 0, 'card clearing back to 0');
 select pg_temp.check((select a.parent_key = '2100' and a.tb_code = 'SUPPLIERS' and a.dealer_number = '000000067' and a.kind = 'liability'
-                        from public.gl_accounts a where a.business_id = '00000000-0000-0000-0000-0000007200b1' and a.key = 'S000000067'),
+                        from public.gl_accounts a where a.business_id = '00000000-0000-0000-0000-0000007200b1' and a.key = 'S-000000067'),
   'the supplier''s account: under 2100, its dealer number (1419)');
 select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000007200b3') = 0,
   'S keeps next month: nothing of it posts');
@@ -237,16 +237,16 @@ select pg_temp.check(pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of
 select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e4')).id) = '6117 D 40.00, S-ספקלדוגמה C 40.00'
   and pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e4'))).id) = 'S-ספקלדוגמה D 40.00, BANK C 40.00',
   'an unknown category → 6117 "other"; no VAT; a transfer → BANK');
-select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e5')).id) = '6109 D 1000.00, 1400 D 180.00, S000000075 C 1180.00'
-  and pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e5'))).id) = 'S000000075 D 1180.00, 2150 C 1180.00',
+select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e5')).id) = '6109 D 1000.00, 1400 D 180.00, S-000000075 C 1180.00'
+  and pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e5'))).id) = 'S-000000075 D 1180.00, 2150 C 1180.00',
   'equipment (answer 12) is an expense; a cheque the business wrote → 2150 cheques to pay');
-select pg_temp.check(pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e6'))).id) = 'S000000075 D 20.00, 9100 C 20.00',
+select pg_temp.check(pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e6'))).id) = 'S-000000075 D 20.00, 9100 C 20.00',
   'paid "other" → suspense');
-select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e7')).id) = '6103 C 50.00, 1400 C 9.00, S000000067 D 59.00'
-  and pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e7'))).id) = 'BANK D 59.00, S000000067 C 59.00',
+select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e7')).id) = '6103 C 50.00, 1400 C 9.00, S-000000067 D 59.00'
+  and pg_temp.lines((pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e7'))).id) = 'BANK D 59.00, S-000000067 C 59.00',
   'a supplier''s credit note: the mirror; its money back: the bank / the supplier');
 select pg_temp.check(pg_temp.lines((pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e2')).id) = '6105 D 109.00, 1400 D 9.00, S-ספקלדוגמה C 118.00'
-  and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-ספקלדוגמה') = -118 and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S000000067') = 0,
+  and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-ספקלדוגמה') = -118 and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-000000067') = 0,
   'a draft posts when confirmed (unpaid: the supplier is owed); a paid supplier at 0');
 select pg_temp.check((select count(*) from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000007200b1' and parent_key = '2100') = 3
   and (select count(*) from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000007200b1' and key = '2150' and role = 'cheques_out') = 1,
@@ -280,7 +280,7 @@ update public.expenses set status = 'void', void_reason = 'נרשמה בטעות
 commit;
 select pg_temp.check(pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e5') is null or (pg_temp.st('expense', '00000000-0000-0000-0000-0000007200e5')).id is null,
   'a void: no entry of the expense stands');
-select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S000000075') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', '2150') = 0
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-000000075') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', '2150') = 0
   and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', '6109') = 0
   and (pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e5', 'reversal'))).reverses
       = (pg_temp.tx('expense_payment', pg_temp.pay_of('00000000-0000-0000-0000-0000007200e5'))).id
@@ -549,6 +549,28 @@ select pg_temp.check((select count(*) from public.finance_audit_log where busine
   and (select count(*) from public.finance_audit_log where business_id = '00000000-0000-0000-0000-0000007200b1' and action = 'bank.classified') = 3,
   'every change of the chart, every manual entry and every bank line posted — in the audit log');
 
+-- ---- the keys: a supplier's ("S-…") is never a customer's ------------------------------------------------------------------
+select pg_temp.check(public.gl_customer_key('', 'S-000000067') = 'C-S-000000067' and public.gl_customer_key('', 'S-ספקלדוגמה') = 'C-S-ספקלדוגמה'
+  and public.gl_customer_key('S-0000000000001', '') = 'C-S-00000000000' and public.gl_customer_key('', 's-abc') = 's-abc'
+  and public.gl_customer_key('', 'S abc') = 'S abc' and public.gl_key_reserved('S-x') and not public.gl_key_reserved('S') and not public.gl_key_reserved('XS-1'),
+  'a customer''s key that starts with "S-" gets "C-" (15 characters), as a system key');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007200a1');
+-- a customer with no phone whose name is a supplier's key
+select pg_temp.doc('00000000-0000-0000-0000-0000007200a1', 320, 10, 'b72:skey', null, '{"customer_phone": "", "customer_name": "S-000000067"}');
+commit;
+select pg_temp.check(pg_temp.lines((select t.id from public.gl_transactions t join public.documents d on t.idempotency_key = 'document:' || d.id where d.idempotency_key = 'b72:skey'))
+                     = 'C-S-000000067 D 11.80, 4100 C 10.00, 2200 C 1.80, 1100 D 11.80, C-S-000000067 C 11.80'
+  and pg_temp.bal('00000000-0000-0000-0000-0000007200b1', 'S-000000067') = 0
+  and (select role = 'customer:C-S-000000067' and parent_key = '1300' from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000007200b1' and key = 'C-S-000000067'),
+  'a customer named as a supplier''s key: its own account (C-…), never the supplier''s');
+-- never expected (the keys never meet): a key already another kind of account's — refused, never posted into it
+insert into public.gl_accounts (business_id, key, name, kind, tb_code, tb_name, role)
+values ('00000000-0000-0000-0000-0000007200b1', 'XX-72', 'חשבון בדיקה', 'asset', 'XX', 'בדיקה', 'test:72');
+select pg_temp.refused_with($$select public.gl_customer_account('00000000-0000-0000-0000-0000007200b1', '', 'XX-72', null, null, null, null)$$,
+  'gl_key_taken', 'a customer never posts into another kind of account');
+
 -- ---- the reports (answer 16) and gl_reconcile ----------------------------------------------------------------------------------
 -- an invoice still open (the receivables), and half of it paid
 begin;
@@ -594,7 +616,7 @@ select pg_temp.check((pg_temp.o('ledger cash')->>'closing')::numeric = pg_temp.b
   and (pg_temp.o('ledger cash')->'lines'->-1->>'balance')::numeric = (pg_temp.o('ledger cash')->>'closing')::numeric
   and (pg_temp.o('ledger suppliers')->>'closing')::numeric = (select sum(pg_temp.bal('00000000-0000-0000-0000-0000007200b1', a.key)) from public.gl_accounts a
                                                                where a.business_id = '00000000-0000-0000-0000-0000007200b1' and (a.key = '2100' or a.parent_key = '2100'))
-  and exists (select 1 from jsonb_array_elements(pg_temp.o('ledger suppliers')->'lines') x where x->>'account' = 'S000000067' and x->>'ref2Number' is not null),
+  and exists (select 1 from jsonb_array_elements(pg_temp.o('ledger suppliers')->'lines') x where x->>'account' = 'S-000000067' and x->>'ref2Number' is not null),
   'the ledger: the running balance ends at the balance; 2100 — every supplier, with the references');
 select pg_temp.check((pg_temp.o('journal')->>'count')::int = pg_temp.n('00000000-0000-0000-0000-0000007200b1')
   and (pg_temp.o('journal')->>'debit')::numeric = (pg_temp.o('tb')->'total'->>'debit')::numeric
