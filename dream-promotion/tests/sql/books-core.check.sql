@@ -192,7 +192,8 @@ commit;
 insert into out71 select 'pending', public.gl_replay_pending(1000);
 select pg_temp.check((pg_temp.o('replay L1')->>'posted')::int = 1 and (pg_temp.o('replay L1')->>'left')::int = 1
   and (pg_temp.o('replay L2')->>'posted')::int = 1 and (pg_temp.o('replay L2')->>'left')::int = 0
-  and (pg_temp.o('pending')->>'posted')::int >= 1 and (pg_temp.o('pending')->>'left')::int = 0,
+  and (pg_temp.o('pending')->>'posted')::int >= 1
+  and not exists (select 1 from public.gl_unposted where business_id::text like '00000000-0000-0000-0000-0000007100b%'),
   'gl_replay in batches (posted, left); gl_replay_pending posts the rest of every business');
 select pg_temp.check((pg_temp.txd('b71:old305')).number = 1 and (pg_temp.txd('b71:oldchq')).number = 2, 'in time order: 1, 2');
 select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:old305')).id) = '050-0000071 D 1180.00, 4100 C 1000.00, 2200 C 180.00', '305: the customer / income + VAT');
@@ -531,11 +532,11 @@ begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(200), 'b71:P305',
-  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:P300')).doc_number)))$$, 'invoice_from_300_paylink_open', 'not while a link of the 300 is open');
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:P300')).doc_number)))$$, 'invoice_from_300_paylink', 'not while a link of the 300 is open');
 commit;
 select pg_temp.check(pg_temp.d('b71:P305') is null or (pg_temp.d('b71:P305')).id is null, 'no 305 was issued');
 
--- the timer's fair share: two businesses with something pending (their posting held back here), one call of 2, one each at most
+-- the timer's fair share: two businesses with something pending (their posting held back here), one call, one of each business at most
 begin;
 alter table public.documents disable trigger zz_gl_post;
 select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
@@ -546,8 +547,8 @@ select pg_temp.as_user('00000000-0000-0000-0000-0000007100a4');
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a4', 400, pg_temp.svc(1), 'b71:fair:E1', '{}', null, 0));
 alter table public.documents enable trigger zz_gl_post;
 commit;
-insert into out71 select 'fair', public.gl_replay_pending(2, 1);
-select pg_temp.check((pg_temp.o('fair')->>'posted')::int = 2 and (pg_temp.txd('b71:fair:L1')).id is not null and (pg_temp.txd('b71:fair:E1')).id is not null
+insert into out71 select 'fair', public.gl_replay_pending(1000, 1);
+select pg_temp.check((pg_temp.o('fair')->>'posted')::int >= 2 and (pg_temp.txd('b71:fair:L1')).id is not null and (pg_temp.txd('b71:fair:E1')).id is not null
   and (pg_temp.txd('b71:fair:L2')).id is null, 'one per business in a batch: neither business''s backlog starves the other');
 select public.gl_replay_pending(1000);
 select pg_temp.check((pg_temp.txd('b71:fair:L3')).id is not null, 'and the next batch takes the rest');

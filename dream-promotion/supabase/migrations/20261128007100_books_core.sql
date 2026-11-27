@@ -58,7 +58,7 @@
 -- Replaces (same signatures) — md5 of prosrc. BEFORE running, compare the old one with the live database; AFTER, the new one:
 --   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure
 --   function                         of     old                               new
---   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  59c294527b4564b745eefff20c4d2d5b
+--   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  cd96e97580c91c2b4e2d821cea531a51
 --   document_cancellations_check()   7000   625b00ea9a1d98e58f0f2b6f580655e8  07205c1ce140cd0bb23284215536966d
 --   documents_after_insert()         6800   59a0a64ba390722ae5681d1d5a69e2f0  7d944cd6ce946e499d28724ef43f59e5
 --   documents_more_checks()          3200   1523ec252074219f805903d91252cda5  7b95a97bd98f2ab40bd64008f35f8d1c
@@ -1393,7 +1393,7 @@ begin
       if exists (select 1 from public.payment_requests x where x.document_id = tgt.id
                    and ((x.status in ('sent', 'failed') and x.expires_at > now())
                         or (x.status = 'paid' and x.receipt_status in ('pending', 'awaiting', 'blocked')))) then
-        raise exception 'invoice_from_300_paylink_open: לחשבון העסקה יש לינק לתשלום פתוח — מבטלים אותו (או מחכים לקבלה שלו) לפני חשבונית המס' using errcode = '23514'; end if;
+        raise exception 'invoice_from_300_paylink: לחשבון העסקה יש לינק לתשלום פתוח — מבטלים אותו (או מחכים לקבלה שלו) לפני חשבונית המס' using errcode = '23514'; end if;
       if exists (select 1 from public.document_cancellations x where x.document_id = tgt.id) then
         raise exception 'invoice_from_300: חשבון העסקה בוטל' using errcode = '23514'; end if;
       if exists (select 1 from public.documents x where x.business_id = new.business_id and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)
