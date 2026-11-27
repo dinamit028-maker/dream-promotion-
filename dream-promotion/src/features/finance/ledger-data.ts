@@ -5,7 +5,7 @@ import { financeError } from './rows';
 import { loadBooksMoreState } from './books-data';
 import type { BooksState } from './books';
 import {
-  manualArgs, openingArgs, toBalanceSheet, toBookJournal, toChart, toLedger, toProfitLoss, toReconcile, toTrialBalance, type BalanceSheet, type BookJournal,
+  OPENING_SUPPLIER_NOT_YET, manualArgs, openingArgs, openingSupplierRefused, toBalanceSheet, toBookJournal, toChart, toLedger, toProfitLoss, toReconcile, toTrialBalance, type BalanceSheet, type BookJournal,
   type ChartAccount, type Ledger, type ManualDraft, type OpeningLine, type ProfitLoss, type Reconcile, type TrialBalance,
 } from './ledger';
 
@@ -79,8 +79,15 @@ export const updateAccount = (key: string, d: { name: string; tbCode: string; tb
     p_new_key: d.newKey.trim() || null }, (j) => ({ key: String(j?.key ?? key) }));
 export const setAccountActive = (key: string, active: boolean) => rpc('gl_account_set_active', { p_key: key, p_active: active }, (j) => ({ active: j?.active === true }));
 /** the opening balances, once (the owner) */
-export const saveOpening = (lines: OpeningLine[], chart: ChartAccount[]) =>
-  rpc('gl_opening_balances', { p_lines: openingArgs(lines, chart) }, (j) => ({ number: Number(j?.number ?? 0), opening: Number(j?.opening ?? 0) }));
+export async function saveOpening(lines: OpeningLine[], chart: ChartAccount[]): Promise<Res<{ number: number; opening: number }>> {
+  try {
+    const { data, error } = await supabase().rpc('gl_opening_balances', { p_lines: openingArgs(lines, chart) });
+    // a database before 7300 reads no "account" in a supplier's line — said as "not possible yet", never as a missing account
+    if (error && openingSupplierRefused(`${error.message ?? ''} ${error.code ?? ''}`, lines)) return { ok: false, error: OPENING_SUPPLIER_NOT_YET };
+    if (error || data == null) return { ok: false, error: financeError(error) };
+    return { ok: true, data: { number: Number((data as any)?.number ?? 0), opening: Number((data as any)?.opening ?? 0) } };
+  } catch (e) { return { ok: false, error: financeError(e) }; }
+}
 
 /** the books' state for the area (7200 there, the person in the business): null while asking / before 7200 / not readable */
 export function useBooksArea(): { asked: boolean; state: BooksState | null; reload: () => void } {

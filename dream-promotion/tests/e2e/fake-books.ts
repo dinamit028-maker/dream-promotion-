@@ -271,8 +271,10 @@ function opening(f: BooksFake, a: any, st: string): { status: number; body: any 
     // 7300: a supplier by its dealer number / name — the account an expense of it posts to (gl_supplier_account: "S-" + the dealer
     // number, else "S-" + the normalized name); before 7300 the line has no account — refused as before
     if (l.supplier && f.booksOpeningSuppliers) {
-      const dealer = /^\d{9}$/.test(String(l.supplier.dealer ?? '')) ? String(l.supplier.dealer) : '';
-      const nm = String(l.supplier.name ?? '').trim();
+      if ('account' in l || typeof l.supplier !== 'object') return no('22023', 'opening_supplier: שורת ספק — "supplier" עם מספר עוסק ושם, בלי "account"');
+      const dl = String(l.supplier.dealer ?? '').trim(), nm = String(l.supplier.name ?? '').trim();
+      if ((dl && !/^\d{9}$/.test(dl)) || !nm || nm.length > 120) return no('22023', 'opening_supplier: ספק — שם (עד 120 תווים), ומספר עוסק של 9 ספרות או ריק');
+      const dealer = dl;
       const role = dealer ? `supplier:d:${dealer}` : `supplier:n:${nm.toLowerCase().replace(/[^0-9a-zא-ת]+/g, '')}`;
       let s = t(f, 'gl_accounts').find((x) => x.business_id === f.opts.businessId && x.role === role);
       if (!s) s = account(f, dealer ? `S-${dealer}` : `S-${nm.toLowerCase().replace(/[^0-9a-zא-ת]+/g, '').slice(0, 13)}`, nm || 'ספק', 'liability', 'SUPPLIERS', 'ספקים', role, '2100');

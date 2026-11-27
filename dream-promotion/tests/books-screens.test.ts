@@ -12,13 +12,12 @@ import { israelParts } from '../src/lib/il-time';
 import {
   SYSTEM_KEYS, accountAddProblems, accountUpdateProblems, balanceSheetTable, bookJournalTable, booksError, booksViews, canDeactivate, canReverseEntry, chartList,
   docRefKey, docRefs, entryBalance, emptyManual, groupTrialBalance, isSystemKey, ledgerTable, manualArgs, manualProblems, openingArgs, openingBalance, openingProblems,
-  openingSuppliersReady, originOf, parseAgorot, supplierChoices, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, tbBalanced, toBalanceSheet, toBookJournal, toChart,
+  OPENING_SUPPLIER_NOT_YET, openingSupplierRefused, originOf, parseAgorot, supplierChoices, profitLossTable, reconDiffers, reconcileTable, refText, reverseProblems, showBooksArea, tbBalanced, toBalanceSheet, toBookJournal, toChart,
   toLedger, toProfitLoss, toReconcile, toTrialBalance, trialBalanceTable, type ChartAccount,
 } from '../src/features/finance/ledger';
 import { tableCsv, pdfBody } from '../src/features/finance/statements';
 import { financeError } from '../src/features/finance/rows';
 import { glCustomerKey } from '../src/features/documents/customer-key';
-import { toBooksState } from '../src/features/finance/books';
 import { FINANCE_SECTIONS, financeHref, sectionOfPath } from '../src/features/finance/routes';
 import { BOOKS_LINK, financeGroups } from '../src/features/finance/module';
 import { REPORT_PDF_LIMITS, reportPdfInput } from '../src/lib/server/report-pdf';
@@ -299,11 +298,7 @@ test('the database\'s refusals in Hebrew — never its amounts or keys', () => {
   assert.equal(booksError('something else'), null);
 });
 
-test('7300 (contract to confirm): a supplier\'s opening line — offered only when the database says so; the suppliers of the expenses once each', () => {
-  const base = { startDate: START, started: true, transactions: 0, openingEntered: false, canMoveStart: true, owner: true };
-  assert.equal(openingSuppliersReady(toBooksState(base)), false, 'an older database — no supplier picker');
-  assert.equal(openingSuppliersReady(toBooksState({ ...base, openingSuppliers: true })), true);
-  assert.deepEqual(toBooksState(base), base, 'the state as before when the database does not say it');
+test('7300: a supplier\'s opening line — the suppliers of the expenses once each; an older database\'s refusal said as "not yet"', () => {
   const rows = [
     { supplier_name: 'ספק דמו בע״מ', supplier_dealer: '000000109' }, { supplier_name: 'ספק דמו', supplier_dealer: '000000109' },
     { supplier_name: 'חשמל  דמו', supplier_dealer: '' }, { supplier_name: 'חשמל דמו', supplier_dealer: null }, { supplier_name: '!!!', supplier_dealer: '' },
@@ -317,6 +312,14 @@ test('7300 (contract to confirm): a supplier\'s opening line — offered only wh
   assert.deepEqual(openingProblems([line], CHART), []);
   assert.deepEqual(openingArgs([line], CHART), [{ supplier: { dealer: '000000109', name: 'ספק דמו בע״מ' }, side: 'C', amount: 300 }]);
   assert.deepEqual(openingBalance([line]), { debit: 0, credit: 30000, toOpening: -30000 });
+  assert.deepEqual(openingProblems([{ ...line, supplier: { dealer: '', name: 'ספק בלי מספר' } }], CHART), [], 'a dealer number is not required');
   assert.match(openingProblems([{ ...line, supplier: { dealer: '12', name: 'x' } }], CHART).join(), /9 ספרות/);
-  assert.match(openingProblems([{ ...line, supplier: { dealer: '', name: '' } }], CHART).join(), /שם או מספר עוסק/);
+  assert.match(openingProblems([{ ...line, supplier: { dealer: '000000109', name: '' } }], CHART).join(), /שם \(חובה/, 'a name is required (7300)');
+  assert.match(openingProblems([{ ...line, supplier: { dealer: '', name: 'א'.repeat(121) } }], CHART).join(), /עד 120/);
+  // before 7300: the old function reads no "account" → opening_account — said as "not possible yet", never "account not found"
+  assert.equal(openingSupplierRefused('opening_account: חשבון  לא נמצא (לקוח חדש — עם שם, ומפתח שאינו של המערכת) 22023', [line]), true);
+  assert.equal(openingSupplierRefused('opening_account: חשבון 9999 לא נמצא', [{ ...line, supplier: null, account: '9999' }]), false, 'no supplier line — the usual message');
+  assert.equal(openingSupplierRefused('opening_supplier: ספק — שם', [line]), false, '7300\'s own refusal — its own message');
+  assert.match(OPENING_SUPPLIER_NOT_YET, /עוד לא אפשרית/);
+  assert.match(financeError({ message: 'opening_supplier: ספק — שם (עד 120 תווים), ומספר עוסק של 9 ספרות או ריק', code: '22023' }), /שם \(חובה, עד 120 תווים\)/);
 });

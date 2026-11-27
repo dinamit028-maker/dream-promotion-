@@ -183,9 +183,14 @@ export interface OpeningSupplier { dealer: string; name: string }
 export interface OpeningLine { account: string; name: string; side: Side; amount: string; customer: boolean; supplier?: OpeningSupplier | null }
 export const emptyOpening = (side: Side = 'D'): OpeningLine => ({ account: '', name: '', side, amount: '', customer: false, supplier: null });
 const blankOpening = (l: OpeningLine) => !l.account.trim() && !l.supplier && !l.amount.trim();
-/** the database takes a supplier's line in the opening balances (migration 7300) — gl_books_state's "openingSuppliers" (the contract
- *  of 7300 to be confirmed; absent = an older database: no supplier picker, the message as before) */
-export const openingSuppliersReady = (s: { openingSuppliers?: boolean } | null | undefined) => s?.openingSuppliers === true;
+/**
+ * Migration 7300 (20261130007300, gl_opening_balances — same signature) takes the supplier's line; nothing in the database says
+ * whether it is there, so the picker is shown with the books' screens (after 7200), and an older database's refusal of a supplier's
+ * line (it reads no "account": opening_account / opening_line) is said as "not possible yet" (openingSupplierRefused).
+ */
+export const OPENING_SUPPLIER_NOT_YET = 'יתרת פתיחה לספק חדש עוד לא אפשרית — צריך עדכון של המסד. ספק שכבר יש לו חשבון בלוח (מפתח שמתחיל ב-S-) — בוחרים אותו כ"חשבון".';
+export const openingSupplierRefused = (raw: string, lines: OpeningLine[]) =>
+  lines.some((l) => l.supplier) && /\bopening_(account|line)\b/.test(raw) && !/opening_supplier/.test(raw);
 /** the suppliers of the business's expenses (supplier_name, supplier_dealer) — once each, as the books know a supplier (party_key:
  *  the dealer number, else the normalized name — expense_norm_supplier / normalizeSupplier); a name that normalizes to nothing
  *  without a dealer number is left out (the database would key it by the name itself) */
@@ -215,8 +220,9 @@ export function openingProblems(lines: OpeningLine[], chart: ChartAccount[]): st
   ls.forEach((l, i) => {
     if (l.supplier) {
       const d = l.supplier.dealer.trim(), n = l.supplier.name.trim();
-      if (d && !/^\d{9}$/.test(d)) out.push(`שורה ${i + 1}: מספר עוסק של ספק — 9 ספרות.`);
-      if (!n && !d) out.push(`שורה ${i + 1}: ספק — שם או מספר עוסק.`);
+      // 7300 (gl_opening_balances): a name (required, up to 120) and a dealer number of 9 digits or none
+      if (d && !/^\d{9}$/.test(d)) out.push(`שורה ${i + 1}: מספר עוסק של ספק — 9 ספרות (או בלי).`);
+      if (!n || n.length > 120) out.push(`שורה ${i + 1}: ספק — שם (חובה, עד 120 תווים).`);
       if (parseAgorot(l.amount) == null) out.push(`שורה ${i + 1}: סכום מעל 0, עד אגורות.`);
       return;
     }
@@ -454,6 +460,7 @@ const BOOKS_HE: [RegExp, string][] = [
   [/\bmanual_reverse\b/, 'פקודה הפוכה לא מבטלים — רושמים פקודה חדשה.'],
   [/\bmanual_entry\b/, 'רק פקודה ידנית מבטלים כאן. רישום אוטומטי מתוקן במקור שלו (המסמך, ההוצאה, הבנק).'],
   [/\bmanual_location\b/, 'הסניף לא פעיל — בוחרים סניף אחר.'],
+  [/\bopening_supplier\b/, 'ספק — שם (חובה, עד 120 תווים), ומספר עוסק של 9 ספרות או בלי.'],
   [/\bopening_account\b/, 'אחד החשבונות לא נמצא בלוח החשבונות (לקוח חדש — עם שם, ומפתח שאינו של המערכת; יתרות פתיחה — לא לחשבון 3100).'],
   [/\bopening_amount\b|\bopening_line\b/, 'כל שורה — חשבון, חובה או זכות, וסכום מעל 0 עד אגורות.'],
   [/\bopening_lines\b/, 'רשימת יתרות — 1 עד 2000 שורות.'],

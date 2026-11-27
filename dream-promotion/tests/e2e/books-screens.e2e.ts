@@ -342,17 +342,24 @@ async function main() {
     } finally { await ctx.close(); }
   });
 
-  await step('7300: a supplier\'s opening line — from the expenses, or a new one; before 7300 — no "ספק"', async () => {
+  await step('7300: a supplier\'s opening line — from the expenses, or a new one; before 7300 — "not possible yet"', async () => {
     fake = fresh();
+    fake.booksOpeningSuppliers = false;                // before 7300: the old function refuses a supplier's line
     const { ctx, page } = await open('/finance/books?view=opening', 'desktop');
     try {
       await ready(page);
-      await page.getByRole('radiogroup', { name: 'חשבון או לקוח — שורה 1' }).waitFor();
-      assert.equal(await page.getByRole('radio', { name: 'ספק', exact: true }).count(), 0, 'an older database: no supplier picker');
-      await page.getByText(/ספק חדש עוד לא אפשרי כאן/).waitFor();
+      await page.getByLabel('חשבון שורה 1').fill('1100');
+      await page.getByLabel('סכום שורה 1').fill('100');
+      await page.getByRole('radiogroup', { name: 'חשבון או לקוח — שורה 2' }).getByRole('radio', { name: 'ספק' }).click();
+      await page.getByLabel('ספק שורה 2').fill('ספק חדש דמו');
+      await page.getByRole('button', { name: 'ספק חדש: ספק חדש דמו' }).click();
+      await page.getByRole('radiogroup', { name: 'חובה או זכות — שורה 2' }).getByRole('radio', { name: 'זכות' }).click();
+      await page.getByLabel('סכום שורה 2').fill('100');
+      await page.getByRole('button', { name: 'רישום יתרות הפתיחה' }).click();
+      await page.getByText(/יתרת פתיחה לספק חדש עוד לא אפשרית/).first().waitFor();
+      assert.equal(fake.booksOpening, false, 'nothing was entered');
     } finally { await ctx.close(); }
     fake = fresh();
-    fake.booksOpeningSuppliers = true;
     fake.tables.expenses.push({ id: 'd0000000-0000-4000-8000-000000000072', business_id: BIZ, user_id: OWNER, supplier_name: 'ספק חשמל דמו', supplier_dealer: '000000117',
       created_at: `${TODAY}T07:00:00Z` });
     const o = await open('/finance/books?view=opening', 'desktop');
