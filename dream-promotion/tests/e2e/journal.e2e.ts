@@ -471,6 +471,28 @@ async function main() {
       assert.equal(await entry(6).getByRole('button', { name: 'פקודה הפוכה' }).count(), 0, 'undone once');
     });
 
+    await step('2.122 (7200): from the books\' start the one-sided form is closed, the entries read-only; before 7200 — as before', async () => {
+      fake.booksStart = `${TODAY.slice(0, 7)}-01`;     // the books started this month
+      try {
+        await journal();
+        await page.getByText('מתחילת הספרים פקודות נרשמות בחובה וזכות — המסך יגיע בעדכון הבא.').waitFor();
+        await page.getByText(`הספרים התחילו ב-${dmy(fake.booksStart)}`, { exact: false }).waitFor();
+        await entry(1).waitFor();
+        assert.equal(await page.getByRole('button', { name: '+ פקודה ידנית' }).count(), 0, 'no one-sided entry from the start');
+        assert.equal(await page.getByRole('button', { name: 'פקודה הפוכה' }).count(), 0, 'read-only');
+        await shot('jr-8-books-started.png');
+        const r = fake.rpc('journal_entry_create', { p_id: 'e1000000-0000-4000-8000-0000000000d5', p_date: TODAY, p_kind: 'other', p_amount: 10, p_vat: 0, p_explanation: 'בדיקה' });
+        assert.equal(r.status, 400); assert.match(r.body.message, /^journal_books_started/);
+        fake.booksMore = false;                          // before 7200: the form as today
+        await journal();
+        await page.getByRole('button', { name: '+ פקודה ידנית' }).waitFor();
+        assert.equal(await page.getByText('מתחילת הספרים פקודות נרשמות בחובה וזכות', { exact: false }).count(), 0);
+      } finally { fake.booksMore = true; fake.booksStart = null; }
+      // before the start (the books start next month): as today
+      await journal();
+      await page.getByRole('button', { name: '+ פקודה ידנית' }).waitFor();
+    });
+
     await step('a phone: the list and the form fit', async () => {
       const { page: phone } = await context(PHONE_VIEW);
       await journal(phone);

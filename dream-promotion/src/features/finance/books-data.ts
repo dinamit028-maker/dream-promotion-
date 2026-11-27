@@ -2,7 +2,7 @@
 import { supabase } from '@/lib/supabase/client';
 import { financeError } from './rows';
 import { isFunctionMissing } from './delivery';
-import { SUSPENSE_TO, replayLeft, suspenseOf, toBooksState, type BooksState } from './books';
+import { SUSPENSE_TO, replayLeft, suspenseOf, toBooksState, toGlAccounts, type BooksState, type GlAccount } from './books';
 
 /**
  * 2.121 — the books from the browser (migration 20261128007100). Before the migration the function is not there (PGRST202 /
@@ -82,4 +82,59 @@ export function booksReady(): Promise<boolean> {
   readyOnce ??= Promise.resolve(supabase().rpc('gl_books_state')).then(({ error }) => !error || !isFunctionMissing(error), () => false)
     .then((v) => { if (!v) readyOnce = null; return v; });
   return readyOnce;
+}
+
+/**
+ * 2.122 — is migration 7200 in the database, and from when are the books? Its table gl_bank_line_accounts answers (a read of one
+ * id — through the RLS: a member who may not see it gets no row, never an error). Before 7200 (no such table — PGRST205 / 42P01)
+ * or on any failure: null — the bank and the journal behave exactly as before (and if the database is 7200 after all, its own
+ * refusal — bank_line_account_required / journal_books_started — is said in Hebrew). Then gl_books_state: the start and the owner.
+ * Only "7200 is there" is kept for the page (asked again while it is not); the start date is read again on every load — the owner
+ * may move it (gl_books_start_set) while the page is open.
+ */
+export interface BooksMore { startDate: string; owner: boolean }
+let moreReady: Promise<boolean> | null = null;
+export async function loadBooksMore(): Promise<BooksMore | null> {
+  moreReady ??= Promise.resolve(supabase().from('gl_bank_line_accounts').select('id').limit(1)).then(({ error }) => !error, () => false)
+    .then((v) => { if (!v) moreReady = null; return v; });
+  if (!(await moreReady)) return null;
+  try {
+    const { data, error } = await supabase().rpc('gl_books_state');
+    if (error) return null;
+    const st = toBooksState(data);
+    return st ? { startDate: st.startDate, owner: st.owner } : null;
+  } catch { return null; }
+}
+/** the active accounts of the chart (for the bank's picker) — [] when they cannot be read (the picker then takes a key) */
+export async function loadAccounts(): Promise<GlAccount[]> {
+  try {
+    const { data, error } = await supabase().from('gl_accounts').select('key, name, kind, role, active').eq('active', true).order('key').limit(5000);
+    return error ? [] : toGlAccounts(data);
+  } catch { return []; }
+}
+/** the account each handled line was posted to (gl_bank_line_accounts, active) — line id → account key; empty on a failure */
+export async function loadLineAccounts(lineIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!lineIds.length) return out;
+  try {
+    const sb = supabase();
+    const batches = Array.from({ length: Math.ceil(lineIds.length / 100) }, (_, i) => lineIds.slice(i * 100, i * 100 + 100));
+    const rows = await Promise.all(batches.map((ids) => sb.from('gl_bank_line_accounts').select('bank_line_id, account_id').eq('active', true).in('bank_line_id', ids)));
+    const all = rows.flatMap((r) => (r.error ? [] : (r.data ?? []))) as { bank_line_id: string; account_id: string }[];
+    const accIds = [...new Set(all.map((r) => String(r.account_id)))];
+    if (!accIds.length) return out;
+    const acc = await sb.from('gl_accounts').select('id, key').in('id', accIds.slice(0, 500));
+    const keyOf = new Map(((acc.data ?? []) as { id: string; key: string }[]).map((a) => [String(a.id), String(a.key)]));
+    for (const r of all) { const k = keyOf.get(String(r.account_id)); if (k) out.set(String(r.bank_line_id), k); }
+  } catch { /* the label is a help only */ }
+  return out;
+}
+/** a line of the books' time posted to an account (bank_line_classify — whoever may handle a bank line: the whole business's
+ *  money, writing — bank_guard(true), the owner's decision of 27.11.2026; the database checks the line, the account, the note) */
+export async function classifyLine(line: string, account: string, note: string): Promise<{ ok: true; account: string } | { ok: false; error: string }> {
+  try {
+    const { data, error } = await supabase().rpc('bank_line_classify', { p_line: line, p_account: account.trim(), p_note: note.trim().slice(0, 300) });
+    if (error || data == null) return { ok: false, error: financeError(error) };
+    return { ok: true, account: String((data as any).account ?? account.trim()) };
+  } catch (e) { return { ok: false, error: financeError(e) }; }
 }

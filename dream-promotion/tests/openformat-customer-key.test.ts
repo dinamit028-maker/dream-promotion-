@@ -138,3 +138,21 @@ test('note 20: the books\' key only from the books start — an older document (
   const keys = both.map((d) => customerKeyField(d, '2026-12-01'));
   c100.forEach((r, i) => { assert.ok(r.includes(keys[i]), `C100 ${i + 1} carries its key`); assert.ok(b110.includes(keys[i].trimEnd())); });
 });
+
+test('2.122 (7200): a supplier\'s key "S-…" is never a customer\'s — the examples of tests/sql/books-more.check.sql', () => {
+  assert.equal(glCustomerKey('', 'S-000000067'), 'C-S-000000067');
+  assert.equal(glCustomerKey('', 'S-ספקלדוגמה'), 'C-S-ספקלדוגמה');
+  assert.equal(glCustomerKey('S-0000000000001', ''), 'C-S-00000000000', 'the phone first, cut to 15, then "C-" and 15 again');
+  assert.equal(Array.from(glCustomerKey('S-0000000000001', '')).length, 15);
+  assert.equal(glCustomerKey('', 's-abc'), 's-abc', 'case-sensitive (LIKE \'S-%\')');
+  assert.equal(glCustomerKey('', 'S abc'), 'S abc', 'a space is not the dash');
+  assert.ok(glKeyReserved('S-x') && glKeyReserved('S-'));
+  for (const k of ['S', 'XS-1', ' S-1', 's-1', 'S–1', 'Ｓ-1']) assert.ok(!glKeyReserved(k), JSON.stringify(k));
+  assert.equal(glCustomerKey('', '  S-12'), 'C-S-12', 'the name is trimmed first (step 1), then reserved');
+  // the file: from the books' start 1225 is the books' key; before it — the legacy key, exactly as before
+  const d = { customerName: 'S-000000067', customerPhone: '' };
+  assert.equal(customerKeyField({ ...d, docDate: START }, START), X('C-S-000000067', 15), 'from the start');
+  assert.equal(customerKeyField({ ...d, docDate: '2026-11-30' }, START), before(d), 'the day before the start — unchanged');
+  assert.equal(customerKeyField({ ...d, docDate: '2026-11-30' }, START), X('S-000000067', 15));
+  assert.equal(customerKeyField(d), before(d), 'no books (before 7100) — unchanged');
+});

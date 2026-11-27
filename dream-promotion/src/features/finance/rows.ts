@@ -6,6 +6,9 @@ import { numberingError } from './numbering';
  * dashboard's server (an online order's document, issued with the service role — src/lib/server/commerce.ts).
  */
 export const FINANCE_MIGRATION = 'צריך להריץ את מיגרציה 20261004003100 (כספים) ב-Supabase לפני שהמסך הזה עובד.';
+/** 2.122: the one-sided manual entries from the books' start (journal_entry_create / _reverse of 7200 refuse; the double-entry
+ *  screen — gl_manual_create — is stage 4ד) */
+export const JOURNAL_BOOKS_CLOSED = 'מתחילת הספרים פקודות נרשמות בחובה וזכות — המסך יגיע בעדכון הבא.';
 const missing = (m: string) => /schema cache|does not exist|PGRST20[24]|42P01|42703|Could not find/i.test(m);
 
 /** a database refusal → what to tell the user */
@@ -37,6 +40,13 @@ export function financeError(e: unknown): string {
   if (/installments_count/.test(m)) return 'מספר התשלומים — 2 עד 36.';
   if (/installments_refund/.test(m)) return 'החזר כספי לא מחולק לתשלומים.';
   if (/installments_first_due/.test(m)) return 'מועד החיוב הראשון — מיום התשלום ועד שנה אחריו.';
+  // 2.122 (migration 20261129007200 — the owner's answers 15, 17 of 27.11.2026): from the books' start a manual entry is a double
+  // one, and a bank line handled without a document is posted to an account (before "books_started" below — it is a part of it)
+  if (/journal_books_started/.test(m)) { const d = /\((\d{4}-\d{2}-\d{2})\)/.exec(m)?.[1]; return `${JOURNAL_BOOKS_CLOSED}${d ? ` (תחילת הספרים: ${d.split('-').reverse().join('/')})` : ''}`; }
+  if (/bank_line_account_required/.test(m)) return 'שורת בנק מתאריך תחילת הספרים נרשמת לחשבון בספרים, לא רק בהערה — רעננו ובחרו "רישום לחשבון".';
+  if (/bank_class_account/.test(m)) return /הבנק עצמו|the bank itself/.test(m) ? 'שורת בנק לא נרשמת לחשבון הבנק עצמו — בוחרים חשבון אחר.' : 'החשבון לא נמצא בלוח החשבונות, או שהוא לא פעיל. רעננו ובחרו חשבון מהרשימה.';
+  if (/books_not_allowed/.test(m)) return 'רק הבעלים של העסק רושמים בספרים.';
+  if (/נפתחת מחדש רק על ידי הבעלים/.test(m)) return 'השורה נרשמה לחשבון בספרים — רק הבעלים מחזירים אותה לטיפול.';
   // 2.121: the books' start date (gl_books_start_set) and the opening balances (gl_opening_balances — the form is of stage 4ד)
   if (/books_start_date/.test(m)) return 'תחילת הספרים — ה-1 בחודש, לכל המאוחר החודש הבא.';
   if (/books_started/.test(m)) return 'כבר נרשמו פקודות בספרים — אי אפשר להזיז את תאריך ההתחלה.';

@@ -14,6 +14,9 @@ import {
   partyText, reverseErrors, vatAt, type JournalDraft, type JournalEntry, type JournalKind,
 } from './journal';
 import { TableCard } from './ReportBook';
+import { journalClosed } from './books';
+import { loadBooksMore, type BooksMore } from './books-data';
+import { JOURNAL_BOOKS_CLOSED } from './rows';
 import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, Stat, ddmmyyyy, ils, periodNow, todayIL, type Period } from './ui';
 
 /**
@@ -21,6 +24,9 @@ import { LOAD_FAILED, LoadFailed, Note, PeriodPicker, Pill, Stat, ddmmyyyy, ils,
  * provision, a move between kinds — recorded by the business's owners with an explanation. It is in the VAT working paper, profit
  * and loss and the cards (marked "פקודה ידנית"), never changed and never removed: undone by a reversing entry, with a reason.
  * Every number follows the location picked at the top, as the reports do.
+ * 2.122 (migration 7200, the owner's answer 15): from the books' start (today, Israel time, on / after it) a manual entry is a
+ * double one — this one-sided form is closed and its entries stay read-only (journal_entry_create / _reverse of 7200 refuse a
+ * date from the start). The double-entry screen is stage 4ד. Before 7200 (loadBooksMore = null) — everything as before.
  */
 export function Journal() {
   const ready = useJournalReadyState();
@@ -32,6 +38,7 @@ export function Journal() {
   const [writer, setWriter] = useState(false);
   const [adding, setAdding] = useState(false);
   const [undo, setUndo] = useState<JournalEntry | null>(null);
+  const [more, setMore] = useState<BooksMore | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -40,6 +47,8 @@ export function Journal() {
   }, [period]);
   useEffect(() => { if (ready) void load(); }, [ready, load]);
   useEffect(() => { if (ready) void loadWriter().then(setWriter); }, [ready]);
+  useEffect(() => { if (ready) void loadBooksMore().then(setMore); }, [ready]);
+  const closed = journalClosed(todayIL(), more?.startDate ?? null);
 
   const totals = useMemo(() => entriesTotals(list ?? []), [list]);
   const multi = locState.locations.filter((l) => l.active).length > 1;
@@ -56,9 +65,11 @@ export function Journal() {
       </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <PeriodPicker value={period} onChange={setPeriod} vatKind={profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'} />
-        {writer ? <Button variant="primary" onClick={() => setAdding(true)}>+ פקודה ידנית</Button>
+        {closed ? <span className="text-xs text-muted" role="note">{JOURNAL_BOOKS_CLOSED}</span>
+          : writer ? <Button variant="primary" onClick={() => setAdding(true)}>+ פקודה ידנית</Button>
           : <span className="text-xs text-muted">רק הבעלים (ורואה חשבון שצורף לעסק) רושמים פקודות.</span>}
       </div>
+      {closed && more && <Note>{`הספרים התחילו ב-${ddmmyyyy(more.startDate)}. הפקודות שנרשמו לפני כן נשארות כאן, לקריאה בלבד.`}</Note>}
       {error ? <LoadFailed message={error === LOAD_FAILED ? null : error} onRetry={() => void load()} /> : !list ? <div className="py-8 text-center"><Spinner /></div> : <>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Stat label="הכנסות מפקודות" value={ils(totals.income)} hint={vat ? `מע״מ עסקאות ${ils(totals.vatOut)}` : undefined} />
@@ -87,7 +98,7 @@ export function Journal() {
                     <p className="mt-1 text-sm">{e.explanation}</p>
                     {e.party && <p className="text-xs text-muted">{partyText(e.party)}</p>}
                     <p className="text-xs text-muted">{effectText(e)}</p>
-                    {writer && canReverse(e) && (
+                    {writer && !closed && canReverse(e) && (
                       <div className="mt-2"><Button size="sm" variant="ghost" onClick={() => setUndo(e)}>פקודה הפוכה</Button></div>
                     )}
                   </Card>
@@ -98,9 +109,9 @@ export function Journal() {
         )}
         <TableCard table={table} period={period} subtitle={`${period.label}`} empty="אין פקודות ידניות בתקופה הזו." />
       </>}
-      {adding && <NewEntryDialog vatRate={settings.vatRate} vatOn={vat} lockedUntil={access.lockedUntil} onClose={() => setAdding(false)}
+      {adding && !closed && <NewEntryDialog vatRate={settings.vatRate} vatOn={vat} lockedUntil={access.lockedUntil} onClose={() => setAdding(false)}
         onDone={(n) => { setAdding(false); say(`פקודה ${n} נרשמה`); void load(); }} />}
-      {undo && <ReverseDialog entry={undo} vatOn={vat} lockedUntil={access.lockedUntil} onClose={() => setUndo(null)}
+      {undo && !closed && <ReverseDialog entry={undo} vatOn={vat} lockedUntil={access.lockedUntil} onClose={() => setUndo(null)}
         onDone={(n) => { const was = undo.number; setUndo(null); say(`פקודה ${n} הופכת את פקודה ${was}`); void load(); }} />}
     </div>
   );
