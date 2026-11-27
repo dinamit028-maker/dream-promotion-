@@ -460,6 +460,64 @@ select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-00
   and pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '1310', (pg_temp.d('b71:K300')).link_no::text) = 0,
   'K: 300 → 305 → 400 on the 305 — the customer charged once and paid (0), the 300 closed');
 
+-- the money screens (the view receivables and everything that reads it): 300 → a 400 of part → the 305 made from the 300 — the
+-- customer owes once: the 300 0 (closed_by = the 305), the 305 its total less the 400
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+insert into out71 select 'fs before R', public.finance_summary(public.il_today() - 1, public.il_today());
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(1000), 'b71:R300', '{"customer_phone": "050-0000076", "customer_name": "רז לדוגמה"}'));
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 400, '[]', 'b71:R400',
+  jsonb_build_object('paid_document_id', (pg_temp.d('b71:R300')).id, 'customer_phone', '050-0000076', 'customer_name', 'רז לדוגמה',
+                     'before_discount', 500, 'after_discount', 500, 'total', 500, 'vat_amount', 0, 'vat_rate', 0),
+  '[{"method": 1, "m": "cash", "amount": 500}]'));
+insert into out71 select 'recv mid', (select to_jsonb(r) from public.receivables r where r.id = (pg_temp.d('b71:R300')).id);
+commit;
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(1000), 'b71:R305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:R300')).doc_number, 'customer_phone', '050-0000076', 'customer_name', 'רז לדוגמה')));
+insert into out71 select 'recv 300', (select to_jsonb(r) from public.receivables r where r.id = (pg_temp.d('b71:R300')).id);
+insert into out71 select 'recv 305', (select to_jsonb(r) from public.receivables r where r.id = (pg_temp.d('b71:R305')).id);
+insert into out71 select 'lines R', (select jsonb_build_object('open', coalesce(sum(open_amount), 0), 'n', count(*) filter (where open_amount > 0))
+                                       from public.receivable_lines where document_id in ((pg_temp.d('b71:R300')).id, (pg_temp.d('b71:R305')).id));
+insert into out71 select 'fs after R', public.finance_summary(public.il_today() - 1, public.il_today());
+select pg_temp.refused_with($$select public.payment_plan_create('00000000-0000-0000-0000-0000007100f9', (pg_temp.d('b71:R300')).id,
+  jsonb_build_array(jsonb_build_object('amount', 250, 'due', public.il_today() + 30), jsonb_build_object('amount', 250, 'due', public.il_today() + 60)))$$,
+  'invoice_from_300_closed', 'no plan on a closed 300');
+select pg_temp.refused_with($$select public.payment_plan_create('00000000-0000-0000-0000-0000007100fa', (pg_temp.d('b71:R305')).id,
+  jsonb_build_array(jsonb_build_object('amount', 590, 'due', public.il_today() + 30), jsonb_build_object('amount', 590, 'due', public.il_today() + 60)))$$,
+  'plan_sum', 'a plan on the 305 is its balance — less what was paid on the 300');
+insert into out71 select 'plan 305', public.payment_plan_create('00000000-0000-0000-0000-0000007100fb', (pg_temp.d('b71:R305')).id,
+  jsonb_build_array(jsonb_build_object('amount', 340, 'due', public.il_today() + 30), jsonb_build_object('amount', 340, 'due', public.il_today() + 60)));
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 400, '[]', 'b71:R400b',
+  jsonb_build_object('paid_document_id', (pg_temp.d('b71:R305')).id, 'before_discount', 680.01, 'after_discount', 680.01, 'total', 680.01, 'vat_amount', 0, 'vat_rate', 0),
+  '[{"method": 1, "m": "cash", "amount": 680.01}]'))$$, 'receipt_exceeds_balance: 680.00 left', 'a receipt on the 305 — never beyond what is left after the 300''s money');
+commit;
+-- the payment links (the server's call): refused on the closed 300; on the 305 — up to its balance
+insert into public.payment_accounts (business_id, provider, mode, sealed, verified_at) values ('00000000-0000-0000-0000-0000007100b1', 'mock', 'test', 'v1.test', now())
+  on conflict (business_id) do nothing;
+select pg_temp.refused_with($$select public.paylink_create('00000000-0000-0000-0000-0000007100b1', '00000000-0000-0000-0000-0000007100a1', 'document', (pg_temp.d('b71:R300')).id, 100, 7, 'https://x.example.test', 'link')$$,
+  'invoice_from_300_closed', 'no link on a closed 300');
+select pg_temp.refused_with($$select public.paylink_create('00000000-0000-0000-0000-0000007100b1', '00000000-0000-0000-0000-0000007100a1', 'document', (pg_temp.d('b71:R305')).id, 680.01, 7, 'https://x.example.test', 'link')$$,
+  'paylink_over_balance', 'a link on the 305 — up to its balance');
+select pg_temp.check((pg_temp.o('recv mid')->>'balance')::numeric = 680 and pg_temp.o('recv mid')->>'closed_by' is null, 'before the 305: the 300 owes 680');
+select pg_temp.check((pg_temp.o('recv 300')->>'balance')::numeric = 0 and pg_temp.o('recv 300')->>'closed_by' = (pg_temp.d('b71:R305')).id::text,
+  'after the 305: the 300 owes 0, closed by the 305');
+select pg_temp.check((pg_temp.o('recv 305')->>'paid')::numeric = 500 and (pg_temp.o('recv 305')->>'balance')::numeric = 680 and pg_temp.o('recv 305')->>'closed_by' is null,
+  'the 305: its total less what was paid on the 300');
+select pg_temp.check((pg_temp.o('lines R')->>'open')::numeric = 680 and (pg_temp.o('lines R')->>'n')::int = 1, 'receivable_lines (the reminders, overdue): owed once');
+select pg_temp.check((pg_temp.o('fs after R')#>>'{receivables,open}')::numeric - (pg_temp.o('fs before R')#>>'{receivables,open}')::numeric = 680
+  and (pg_temp.o('fs after R')#>>'{receivables,count}')::int - (pg_temp.o('fs before R')#>>'{receivables,count}')::int = 1,
+  'finance_summary: the 300 and its 305 owe 680, once');
+select pg_temp.check((pg_temp.o('plan 305')->>'plan') is not null or pg_temp.o('plan 305') is not null, 'a plan on the 305 for its 680');
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-0000076') = 680, 'the books agree: the customer owes 680');
+
 -- ---- every entry balances; the trial balance --------------------------------------------------------------------------------
 select pg_temp.check(not exists (select 1 from public.gl_transactions t where t.business_id::text like '00000000-0000-0000-0000-0000007100b%'
                                    and (select coalesce(sum(case side when 'D' then amount else -amount end), 0) from public.gl_lines l where l.transaction_id = t.id) <> 0),

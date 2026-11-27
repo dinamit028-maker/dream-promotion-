@@ -350,12 +350,13 @@ select pg_temp.check((select status from public.bank_deposits where id = '000000
   and exists (select 1 from public.document_cancellations where document_id = (pg_temp.d('q96:fail300')).id),
   'the deposit and its cancellation, the 300 and its cancellation — all kept');
 select pg_temp.check((select count(*) from public.gl_transactions where business_id = '00000000-0000-0000-0000-0000000696b1') = (select n from n_before), 'no entry was written while the posting failed');
-select pg_temp.check((select count(distinct (source_kind, source_id)) from public.gl_post_failures where business_id = '00000000-0000-0000-0000-0000000696b1' and error like '%qa96%') >= 6,
-  'every source that failed is recorded (the sale, the refund money, the deposit, its cancellation, the 300, its cancellation)');
+select pg_temp.check((select count(distinct (source_kind, source_id)) from public.gl_post_failures where business_id = '00000000-0000-0000-0000-0000000696b1') >= 6
+  and (select count(distinct (source_kind, source_id)) from public.gl_post_failures where business_id = '00000000-0000-0000-0000-0000000696b1' and error like '%qa96%') >= 4,
+  'every source that failed is recorded: the sale, the refund money, the deposit, the 300 with the error itself; the two cancellations waiting for what they cancel (gl_wait)');
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
-insert into out96 select 'unposted', jsonb_build_object('n', count(*), 'withError', count(*) filter (where error like '%qa96%')) from public.gl_unposted;
+insert into out96 select 'unposted', jsonb_build_object('n', count(*), 'withError', count(*) filter (where error like '%qa96%' or error like '%gl_wait%')) from public.gl_unposted;
 commit;
 select pg_temp.check((pg_temp.o('unposted')->>'n')::int >= 6 and (pg_temp.o('unposted')->>'n') = (pg_temp.o('unposted')->>'withError'), 'listed in gl_unposted, each with its error');
 drop trigger qa96_fail on public.gl_transactions;
@@ -366,7 +367,7 @@ select pg_temp.check((select (r->>'posted')::int >= 6 and (r->>'failed')::int = 
 select pg_temp.check((select (r->>'posted')::int = 0 from rp2), 'a second replay posts nothing — exactly once');
 select pg_temp.check((select count(*) from public.gl_unposted where business_id = '00000000-0000-0000-0000-0000000696b1') = 0, 'nothing left unposted');
 select pg_temp.check(pg_temp.sig((select t.id from public.gl_transactions t join public.payments p on p.id = t.source_id where t.source_kind = 'payment' and p.refund_id = '00000000-0000-0000-0000-0000000696f6'))
-  = '1100 C 59.00, ' || (select key from public.gl_accounts where business_id = '00000000-0000-0000-0000-0000000696b1' and role = 'customer:CASH') || ' D 59.00', 'the refund''s money, posted late: the customer / the cash');
+  = '0500009631 D 59.00, 1100 C 59.00', 'the refund''s money, posted late: the customer / the cash');
 select pg_temp.check(not exists (select 1 from public.gl_transactions t where t.business_id = '00000000-0000-0000-0000-0000000696b1'
                                    and (select coalesce(sum(case side when 'D' then amount else -amount end), 1) from public.gl_lines l where l.transaction_id = t.id) <> 0),
   'every entry still balances after the late postings');

@@ -60,9 +60,15 @@
 --   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  f71fd3d1e7542792560a198fb0a45384
 --   document_cancellations_check()   7000   625b00ea9a1d98e58f0f2b6f580655e8  07205c1ce140cd0bb23284215536966d
 --   documents_after_insert()         6800   59a0a64ba390722ae5681d1d5a69e2f0  7d944cd6ce946e499d28724ef43f59e5
---   documents_more_checks()          3200   1523ec252074219f805903d91252cda5  882730b7f043b6409e647bc0fadfd5cf
+--   documents_more_checks()          3200   1523ec252074219f805903d91252cda5  7b95a97bd98f2ab40bd64008f35f8d1c
+--   paylink_create(uuid, uuid, text, uuid, numeric, int, text, text, uuid)
+--                                    4300   e070b05711f04bf97a269483861cc012  63c21ea42d129b1af5b6c2f60cfd6532
+--   payment_plan_create(uuid, uuid, jsonb, text, boolean)
+--                                    4400   0b547d0854bef6f445efbb2fa1316a4a  dd583f61f6353f50f46353577dc6a5b9
+--   view receivables — md5(pg_get_viewdef('public.receivables'::regclass))
+--                                    3100   93c9e1b5c2b1b436955b2f2a881840cb  5b5fdc4d457bf4163ea63cc16421e81d
 -- Everything else is new (the md5 of each new function — in the db-agent's report, STATUS.md). Running 3200, 6800 or 7000 again
--- after this one brings back an old version of the four — then run this one again. The existing tables get four deferred triggers
+-- after this one brings back an old version of the four (4300 / 4400 — of the two; 3100 stops at the view) — then run this one again. The existing tables get four deferred triggers
 -- that only read them and one BEFORE INSERT check on documents (installments).
 -- No existing row changes: nothing here updates or removes a row of an existing table (the only rows written are new gl_books rows,
 -- one per business, and the one gl_defaults row). The word "delete" appears only in "before update or delete", the policies
@@ -1163,8 +1169,11 @@ $$;
 --                                   closed (the money goes on the 305)
 --   document_cancellations_check() of 20261127007000 — a 300 a 305 was made from is not cancelled
 --   documents_after_insert()       of 20261125006800 — a 305 made from a 300 moves no stock (the 300 did)
---   documents_more_checks()        of 20261005003200 — a VAT business's receipt (400) on a 300 is no longer refused (answer 18)
--- Running 3200, 6800 or 7000 again after this one brings back an old version — then run this one again.
+--   documents_more_checks()        of 20261005003200 — a VAT business's receipt (400) on a 300 is no longer refused (answer 18); a
+--                                   receipt on a 305 made from a 300 counts what was paid on the 300 (answer 19)
+-- Also: the view receivables of 20261004003100 (closed_by appended), paylink_create() of 4300 and payment_plan_create() of 4400.
+-- Running 3200, 4300, 4400, 6800 or 7000 again after this one brings back an old version — then run this one again. (3100 again
+-- stops at its receivables view: one column fewer than this one's — the view stays this one's.)
 -- ============================================================================================================================
 -- replaces documents_validate() of 20261127007000
 CREATE OR REPLACE FUNCTION public.documents_validate()
@@ -1622,11 +1631,217 @@ begin
     select coalesce(sum(c.total), 0) into credited from public.documents c
      where c.business_id = new.business_id and c.doc_type = 330 and c.base_doc_type = tgt.doc_type and c.base_doc_number = tgt.doc_number;
     select coalesce(sum(case p.direction when 'in' then p.amount else -p.amount end), 0) into paid from public.payments p where p.applies_to = tgt.id;
+    -- 7100 (answer 19): a 305 made from a 300 — what was paid on the 300 before it is paid on it too (the customer owes once)
+    paid := paid + coalesce((select sum(case p.direction when 'in' then p.amount else -p.amount end)
+                               from public.documents y join public.documents b on b.business_id = y.business_id and b.doc_type = 300 and b.doc_number = y.base_doc_number
+                               join public.payments p on p.applies_to = b.id
+                              where y.id = tgt.id and y.doc_type = 305 and y.base_doc_type = 300), 0);
     if new.total > tgt.total - credited - paid then
       raise exception 'receipt_exceeds_balance: % left to pay on this invoice', greatest(tgt.total - credited - paid, 0) using errcode = '23514';
     end if;
   end if;
   return new;
+end $function$;
+
+-- replaces the view receivables of 20261004003100 (the same columns, in the same order; closed_by appended) — answer 19: a 300 a
+-- tax invoice (305) was made from owes nothing any more (balance 0, closed_by = that 305); the 305 counts in its paid what was paid
+-- on the 300 (payments.applies_to = the 300: in +, out −), so the customer owes once. A 320 paying a 300 — as before. Everything
+-- that reads it (receivable_lines, finance_summary, the reminders, the links, the plans) follows.
+create or replace view public.receivables with (security_invoker = true) as
+select d.id, d.business_id, d.doc_type, d.doc_number, d.doc_date, d.due_date, d.customer_name, d.customer_phone, d.customer_email, d.lead_id,
+       d.total, d.share_token,
+       coalesce(cr.amount, 0)::numeric(14,2) as credited,
+       (coalesce(pa.amount, 0) + coalesce(pb.amount, 0))::numeric(14,2) as paid,
+       (case when cl.id is not null then 0 else d.total - coalesce(cr.amount, 0) - coalesce(pa.amount, 0) - coalesce(pb.amount, 0) end)::numeric(14,2) as balance,
+       x.document_id is not null as cancelled,
+       cl.id as closed_by
+  from public.documents d
+  left join lateral (select sum(c.total) as amount from public.documents c
+                      where c.business_id = d.business_id and c.doc_type = 330 and c.base_doc_type = d.doc_type and c.base_doc_number = d.doc_number) cr on true
+  left join lateral (select sum(case p.direction when 'in' then p.amount else -p.amount end) as amount from public.payments p
+                      where p.applies_to = d.id) pa on true
+  left join lateral (select f.id from public.documents f
+                      where d.doc_type = 300 and f.business_id = d.business_id and f.doc_type = 305 and f.base_doc_type = 300
+                        and f.base_doc_number = d.doc_number
+                      order by f.link_no limit 1) cl on true
+  left join lateral (select sum(case p.direction when 'in' then p.amount else -p.amount end) as amount
+                       from public.documents b join public.payments p on p.applies_to = b.id
+                      where d.doc_type = 305 and d.base_doc_type = 300 and b.business_id = d.business_id and b.doc_type = 300
+                        and b.doc_number = d.base_doc_number) pb on true
+  left join public.document_cancellations x on x.document_id = d.id
+ where d.doc_type in (300, 305) and (select public.my_access()) <> 'register';
+
+-- replaces paylink_create() of 20261010004300 — a 300 a 305 closed is refused; a 305 made from a 300 owes less what was paid on it
+CREATE OR REPLACE FUNCTION public.paylink_create(p_business uuid, p_user uuid, p_kind text, p_target uuid, p_amount numeric, p_days integer, p_origin text, p_via text DEFAULT 'link'::text, p_package uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  a public.payment_accounts; d public.documents; q public.quotes; ap public.appointments; sv public.booking_services;
+  r public.payment_requests; bal numeric; held numeric; amt numeric := round(coalesce(p_amount, 0), 2);
+  lbl text; cname text := ''; cphone text := ''; cemail text := ''; lead uuid; pkg_name text;
+begin
+  if p_business is null or p_kind not in ('document', 'quote', 'deposit') or p_target is null then
+    raise exception 'paylink_request: what is paid' using errcode = '22023'; end if;
+  if coalesce(p_via, '') not in ('whatsapp', 'email', 'link') then raise exception 'paylink_request: how it is sent' using errcode = '22023'; end if;
+  if p_days is null or p_days < 1 or p_days > 30 then raise exception 'paylink_days: 1 to 30 days' using errcode = '22023'; end if;
+  if coalesce(p_origin, '') !~ '^https?://[^/?#[:space:]]+$' then raise exception 'paylink_request: the address' using errcode = '22023'; end if;
+  if not public.business_is_active(p_business) then raise exception 'business_locked' using errcode = '42501'; end if;
+  -- the terminal: connected and verified; a live one only with the platform's switch
+  select * into a from public.payment_accounts where business_id = p_business;
+  if a.business_id is null then raise exception 'paylink_no_terminal: no payment provider is connected' using errcode = '55000'; end if;
+  if a.verified_at is null then raise exception 'paylink_not_verified: the terminal was not checked yet' using errcode = '55000'; end if;
+  if a.mode = 'live' and not public.payment_links_live() then raise exception 'paylink_live_closed' using errcode = '55000'; end if;
+
+  if p_kind = 'document' then
+    select * into d from public.documents where id = p_target and business_id = p_business for update;
+    if d.id is null then raise exception 'paylink_not_found' using errcode = '42501'; end if;
+    if d.doc_type not in (300, 305) then raise exception 'paylink_not_invoice: a link pays an open invoice' using errcode = '23514'; end if;
+    if exists (select 1 from public.document_cancellations x where x.document_id = d.id) then
+      raise exception 'paylink_not_invoice: the invoice was cancelled' using errcode = '23514'; end if;
+    -- 7100 (answer 19): a transaction invoice (300) a tax invoice (305) was made from is closed — the money goes on the 305; and a
+    -- 305 made from a 300 owes less what was paid on the 300 before it (as the view receivables)
+    if d.doc_type = 300 and exists (select 1 from public.documents f where f.business_id = d.business_id and f.doc_type = 305
+                                      and f.base_doc_type = 300 and f.base_doc_number = d.doc_number) then
+      raise exception 'paylink_not_invoice: invoice_from_300_closed — על חשבון העסקה הופקה חשבונית מס; התשלום — על החשבונית' using errcode = '23514'; end if;
+    select d.total - coalesce((select sum(c.total) from public.documents c where c.business_id = d.business_id and c.doc_type = 330
+                                 and c.base_doc_type = d.doc_type and c.base_doc_number = d.doc_number), 0)
+                   - coalesce((select sum(case p.direction when 'in' then p.amount else -p.amount end) from public.payments p where p.applies_to = d.id), 0)
+                   - coalesce((select sum(case p.direction when 'in' then p.amount else -p.amount end) from public.documents b join public.payments p on p.applies_to = b.id
+                                 where d.doc_type = 305 and d.base_doc_type = 300 and b.business_id = d.business_id and b.doc_type = 300
+                                   and b.doc_number = d.base_doc_number), 0)
+      into bal;
+    select coalesce(sum(x.amount), 0) into held from public.payment_requests x
+     where x.document_id = d.id and ((x.status in ('sent', 'failed') and x.expires_at > now())
+                                     or (x.status = 'paid' and x.receipt_status in ('pending', 'awaiting', 'blocked')));
+    lbl := case d.doc_type when 305 then 'חשבונית מס' else 'חשבונית עסקה' end || ' מס׳ ' || d.doc_number;
+    if p_package is not null then
+      select p.name into pkg_name from public.client_packages p where p.id = p_package and p.business_id = p_business and p.document_id = d.id;
+      if pkg_name is null then raise exception 'paylink_not_found: the package' using errcode = '42501'; end if;
+      lbl := left(pkg_name, 100) || ' (' || lbl || ')';
+    end if;
+    cname := d.customer_name; cphone := coalesce(d.customer_phone, ''); cemail := coalesce(d.customer_email, ''); lead := d.lead_id;
+  elsif p_kind = 'quote' then
+    if p_package is not null then raise exception 'paylink_request: a package is paid on its invoice' using errcode = '22023'; end if;
+    select * into q from public.quotes where id = p_target and business_id = p_business for update;
+    if q.id is null then raise exception 'paylink_not_found' using errcode = '42501'; end if;
+    if q.status <> 'accepted' then raise exception 'paylink_quote: a link pays an accepted quote' using errcode = '23514'; end if;
+    bal := q.total;
+    select coalesce(sum(x.amount), 0) into held from public.payment_requests x
+     where x.quote_id = q.id and ((x.status in ('sent', 'failed') and x.expires_at > now())
+                                  or (x.status = 'paid' and not x.is_test and x.receipt_status in ('pending', 'awaiting', 'blocked')));
+    lbl := 'הצעת מחיר מס׳ ' || q.quote_number;
+    cname := q.customer_name; cphone := q.customer_phone; cemail := q.customer_email; lead := q.lead_id;
+  else
+    if p_package is not null then raise exception 'paylink_request: a package is paid on its invoice' using errcode = '22023'; end if;
+    select * into ap from public.appointments where id = p_target and business_id = p_business for update;
+    if ap.id is null then raise exception 'paylink_not_found' using errcode = '42501'; end if;
+    if ap.status not in ('booked', 'confirmed') then raise exception 'paylink_appointment: the appointment is not open' using errcode = '23514'; end if;
+    if ap.end_at <= now() then raise exception 'paylink_appointment: the appointment is over' using errcode = '23514'; end if;
+    select * into sv from public.booking_services where id = ap.service_id and business_id = p_business;
+    if coalesce(sv.deposit, 0) <= 0 then raise exception 'paylink_no_deposit: the service asks no deposit' using errcode = '23514'; end if;
+    if exists (select 1 from public.payment_requests x where x.appointment_id = ap.id and x.kind = 'deposit' and x.status in ('sent', 'failed', 'paid')) then
+      raise exception 'paylink_deposit_exists: the appointment already has a deposit link' using errcode = '23505'; end if;
+    amt := sv.deposit; bal := sv.deposit; held := 0;
+    lbl := 'מקדמה לתור: ' || left(coalesce(nullif(btrim(ap.service_name), ''), sv.name), 80) || ' · '
+           || to_char(ap.start_at at time zone 'Asia/Jerusalem', 'DD/MM HH24:MI');
+    cname := ap.name; cphone := ap.phone; cemail := ap.email; lead := ap.lead_id;
+  end if;
+
+  if amt <= 0 then raise exception 'paylink_amount: more than zero' using errcode = '22023'; end if;
+  if amt > bal - held then
+    raise exception 'paylink_over_balance: % left to ask for', greatest(bal - held, 0) using errcode = '23514'; end if;
+  insert into public.payment_requests (business_id, user_id, kind, document_id, package_id, quote_id, appointment_id, lead_id, label,
+                                       customer_name, customer_phone, customer_email, amount, is_test, provider, expires_at, link_origin, sent_via)
+  values (p_business, p_user, p_kind, case when p_kind = 'document' then p_target end, case when p_kind = 'document' then p_package end,
+          case when p_kind = 'quote' then p_target end, case when p_kind = 'deposit' then p_target end, lead, lbl,
+          left(coalesce(cname, ''), 120), left(coalesce(cphone, ''), 30), left(coalesce(cemail, ''), 120), amt, a.mode = 'test', a.provider,
+          now() + make_interval(days => p_days), p_origin, p_via)
+  returning * into r;
+  perform public.finance_log(p_business, 'paylink.created', 'payment_requests', r.id::text,
+    jsonb_build_object('kind', r.kind, 'amount', r.amount, 'test', r.is_test, 'by', p_user, 'via', p_via));
+  return to_jsonb(r);
+end $function$;
+
+-- replaces payment_plan_create() of 20261010004400 — a 300 a 305 closed is refused; a 305 made from a 300 owes less what was paid on it
+CREATE OR REPLACE FUNCTION public.payment_plan_create(p_id uuid, p_document uuid, p_items jsonb, p_note text DEFAULT ''::text, p_replace boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  b uuid := public.finance_guard(); d public.documents; pl public.payment_plans; old_id uuid; bal numeric; it jsonb;
+  k int := 0; cnt int; amt numeric; dd date; prev date; first_d date; s numeric := 0; today date := public.il_today(); lbl text;
+begin
+  if not public.can_write() then raise exception 'not allowed' using errcode = '42501'; end if;
+  if not public.business_is_active(b) then raise exception 'business_locked' using errcode = '42501'; end if;
+  if p_id is null or p_document is null then raise exception 'plan_request: which invoice' using errcode = '22023'; end if;
+  select * into d from public.documents where id = p_document and business_id = b for update;
+  if d.id is null then raise exception 'plan_not_found' using errcode = '42501'; end if;
+  -- the same call again (its answer was lost): the plan it made
+  select * into pl from public.payment_plans where id = p_id;
+  if pl.id is not null then
+    if pl.business_id <> b or pl.document_id <> d.id then raise exception 'plan_request: another plan has this id' using errcode = '22023'; end if;
+    return jsonb_build_object('result', 'already', 'plan', pl.id);
+  end if;
+  if d.doc_type not in (300, 305) then raise exception 'plan_not_invoice: a plan splits an open invoice' using errcode = '23514'; end if;
+  if exists (select 1 from public.document_cancellations x where x.document_id = d.id) then
+    raise exception 'plan_not_invoice: the invoice was cancelled' using errcode = '23514'; end if;
+  -- 7100 (answer 19): a transaction invoice (300) a tax invoice (305) was made from is closed — the money goes on the 305; and a
+  -- 305 made from a 300 owes less what was paid on the 300 before it (as the view receivables)
+  if d.doc_type = 300 and exists (select 1 from public.documents f where f.business_id = d.business_id and f.doc_type = 305
+                                    and f.base_doc_type = 300 and f.base_doc_number = d.doc_number) then
+    raise exception 'plan_not_invoice: invoice_from_300_closed — על חשבון העסקה הופקה חשבונית מס; התשלום — על החשבונית' using errcode = '23514'; end if;
+  select d.total - coalesce((select sum(c.total) from public.documents c where c.business_id = d.business_id and c.doc_type = 330
+                               and c.base_doc_type = d.doc_type and c.base_doc_number = d.doc_number), 0)
+                 - coalesce((select sum(case p.direction when 'in' then p.amount else -p.amount end) from public.payments p where p.applies_to = d.id), 0)
+                 - coalesce((select sum(case p.direction when 'in' then p.amount else -p.amount end) from public.documents b join public.payments p on p.applies_to = b.id
+                                 where d.doc_type = 305 and d.base_doc_type = 300 and b.business_id = d.business_id and b.doc_type = 300
+                                   and b.doc_number = d.base_doc_number), 0)
+    into bal;
+  if bal <= 0 then raise exception 'plan_paid: nothing is owed on this invoice' using errcode = '23514'; end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' then raise exception 'plan_items: the payments' using errcode = '22023'; end if;
+  cnt := jsonb_array_length(p_items);
+  if cnt < 2 or cnt > 36 then raise exception 'plan_count: 2 to 36 payments' using errcode = '22023'; end if;
+  for it in select e from jsonb_array_elements(p_items) e loop
+    k := k + 1;
+    begin
+      amt := (it->>'amount')::numeric; dd := (it->>'due')::date;
+    exception when others then
+      raise exception 'plan_items: payment %', k using errcode = '22023';
+    end;
+    if amt is null or dd is null then raise exception 'plan_items: payment %', k using errcode = '22023'; end if;
+    if amt <= 0 or amt <> round(amt, 2) then raise exception 'plan_amount: payment % — more than zero, in agorot', k using errcode = '22023'; end if;
+    if dd < today then raise exception 'plan_date: payment % is in the past', k using errcode = '22023'; end if;
+    if dd > today + 1830 then raise exception 'plan_date: payment % is more than 5 years ahead', k using errcode = '22023'; end if;
+    if prev is not null and dd <= prev then raise exception 'plan_date: payment % is not after the one before it', k using errcode = '22023'; end if;
+    if first_d is null then first_d := dd; end if;
+    prev := dd; s := s + amt;
+  end loop;
+  if s <> bal then raise exception 'plan_sum: the payments add up to %, the balance is %', s, bal using errcode = '23514'; end if;
+  select x.id into old_id from public.payment_plans x where x.document_id = d.id and x.status = 'active' for update;
+  if old_id is not null then
+    if not coalesce(p_replace, false) then raise exception 'plan_exists: the invoice already has a plan' using errcode = '23505'; end if;
+    update public.payment_plans set status = 'cancelled', cancelled_at = now(), cancelled_by = auth.uid(), cancel_reason = 'הוחלפה בפריסה חדשה'
+     where id = old_id;
+    perform public.finance_log(b, 'plan.cancelled', 'documents', d.id::text, jsonb_build_object('plan', old_id, 'reason', 'replaced'));
+  end if;
+  insert into public.payment_plans (id, business_id, user_id, document_id, lead_id, total, payments, note)
+  values (p_id, b, auth.uid(), d.id, d.lead_id, bal, cnt, left(btrim(coalesce(p_note, '')), 300))
+  returning * into pl;
+  insert into public.payment_plan_items (plan_id, business_id, n, due_date, amount)
+  select pl.id, b, x.n::int, (x.e->>'due')::date, (x.e->>'amount')::numeric from jsonb_array_elements(p_items) with ordinality as x(e, n);
+  lbl := case d.doc_type when 305 then 'חשבונית מס' else 'חשבונית עסקה' end || ' מס׳ ' || d.doc_number;
+  perform public.finance_log(b, 'plan.created', 'documents', d.id::text,
+    jsonb_build_object('plan', pl.id, 'total', bal, 'payments', cnt, 'first', first_d, 'last', prev, 'replaced', old_id));
+  if d.lead_id is not null and auth.uid() is not null then
+    insert into public.lead_activities (user_id, business_id, lead_id, kind, body)
+    values (auth.uid(), b, d.lead_id, 'note', format('פריסה לתשלומים: %s · %s תשלומים · ₪%s', lbl, cnt, trim_scale(bal)));
+  end if;
+  return jsonb_build_object('result', 'ok', 'plan', pl.id);
 end $function$;
 
 revoke execute on function public.documents_validate(), public.document_cancellations_check(), public.documents_after_insert(),
@@ -1688,8 +1903,10 @@ grant execute on function public.gl_books_active(uuid, date) to authenticated, s
 
 -- ============================================================================================================================
 -- Rollback (by hand, if ever needed):
---   * the four functions of section 9a: run again their old versions (documents_validate() and document_cancellations_check() of
---     20261127007000, documents_after_insert() of 20261125006800, documents_more_checks() of 20261005003200) — only while no 305 was
+--   * the functions of section 9a: run again their old versions (documents_validate() and document_cancellations_check() of
+--     20261127007000, documents_after_insert() of 20261125006800, documents_more_checks() of 20261005003200, paylink_create() of
+--     20261010004300, payment_plan_create() of 20261010004400; the view receivables stays as
+--     it is: 3100's definition has one column fewer, which create or replace refuses — and so a rerun of 3100 stops there) — only while no 305 was
 --     made from a 300 (select count(*) from documents where doc_type = 305 and base_doc_type = 300 = 0); else keep them;
 --   * stop the posting first (the sources work as before without it):
 --       drop trigger zz_gl_post on documents; drop trigger zz_gl_post on payments; drop trigger zz_gl_post on document_cancellations;
