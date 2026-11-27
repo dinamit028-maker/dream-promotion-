@@ -4,6 +4,7 @@ import { categoryLabel, SUPPLIER_DOC_TYPES, vatDeductible, type Expense } from '
 import { LEDGER_SOURCE_HE, payLabel, type LedgerRow } from './payments';
 import { STATUS_HE, byLines, type Receivable } from './receivables';
 import type { Line } from './plans';
+import { csvCell } from '@/lib/csv-safe';
 
 /**
  * Report periods and the accountant's files (CSV, UTF-8 with BOM so Excel shows Hebrew). The totals themselves come
@@ -30,17 +31,8 @@ export function previousPeriod(kind: PeriodKind, ref: string) {
   return periodOf(kind, d.toISOString().slice(0, 10));
 }
 
-/**
- * 2.123 — a cell a spreadsheet would run as a formula (CSV injection: text that starts with = + - @, a tab or a CR — a customer's
- * name from the online store, a note) gets a leading apostrophe, so Excel / Sheets show it as text. Only text: a number (a JS number,
- * or a plain decimal as our money helpers write it — "-90.00", "1180.10") stays a number, so totals still add up.
- */
-const NUMERIC_CELL = /^-?\d+(\.\d+)?$/;
-export const csvSafe = (v: unknown): string => {
-  const t = String(v ?? '');
-  return typeof v !== 'number' && !NUMERIC_CELL.test(t) && /^[=+\-@\t\r]/.test(t) ? `'${t}` : t;
-};
-const esc = (v: unknown) => `"${csvSafe(v).replace(/"/g, '""')}"`;
+export { csvSafe } from '@/lib/csv-safe';
+const esc = csvCell;
 /** a CSV file as Excel opens it in Hebrew (UTF-8 with BOM) — every report file of the module is made by it */
 export const csv = (head: string[], rows: unknown[][]) => '﻿' + [head.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\r\n');
 const money = (n: number) => n.toFixed(2);

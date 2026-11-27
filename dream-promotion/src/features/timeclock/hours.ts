@@ -1,4 +1,5 @@
 import { israelParts } from '@/lib/il-time';
+import { csvCell } from '@/lib/csv-safe';
 
 /**
  * Time clock math — pure, shared by the owner's report and the employee page (tests/timeclock.test.ts).
@@ -62,7 +63,7 @@ export function totals(entries: Entry[], employees: Employee[], fromDay: string,
 /** CSV for the accountant (UTF-8 with BOM so Excel shows Hebrew) */
 export function reportCsv(entries: Entry[], employees: Employee[], fromDay: string, toDay: string) {
   const name = new Map(employees.map((e) => [e.id, e.name]));
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const esc = csvCell;   // 2.123: a formula-looking text cell gets an apostrophe (lib/csv-safe.ts)
   const rows = entries
     .filter((e) => e.clockOut && dayOf(e.clockIn) >= fromDay && dayOf(e.clockIn) <= toDay)
     .sort((a, b) => (name.get(a.employeeId) ?? '').localeCompare(name.get(b.employeeId) ?? '') || a.clockIn.localeCompare(b.clockIn))
