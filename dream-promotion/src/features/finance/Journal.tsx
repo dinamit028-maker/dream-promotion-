@@ -72,7 +72,7 @@ export function Journal() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <PeriodPicker value={period} onChange={setPeriod} vatKind={profile.vatPeriod === 'monthly' ? 'month' : 'bimonth'} />
         {closed ? <span className="flex flex-wrap items-center gap-2"><span className="text-xs text-muted" role="note">{JOURNAL_BOOKS_CLOSED}</span>
-            {more?.owner && (booksShown
+            {more?.owner && area.asked && (booksShown || area.state == null
               ? <Button size="sm" variant="ghost" onClick={() => go('books', { view: 'manual' })}>לפקודה כפולה</Button>
               : <Button size="sm" variant="ghost" onClick={() => go('settings')}>להפעלת הנהלת חשבונות (הגדרות)</Button>)}</span>
           : writer ? <Button variant="primary" onClick={() => setAdding(true)}>+ פקודה ידנית</Button>

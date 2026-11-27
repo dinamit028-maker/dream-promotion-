@@ -16,6 +16,7 @@ done
 echo "migrations: $(ls supabase/migrations/*.sql | wc -l) applied"
 # every check file runs (one failure does not hide the next); the run fails if any of them failed
 failed=0
+rm -f /tmp/dp-books-real-db.json  # the real-DB check must never read an older run's dump
 for f in tests/sql/*.check.sql; do
   if as_pg env PGOPTIONS="$PGOPTIONS" "${PSQL[@]}" -o /dev/null -d "$DB" -f "$f"; then echo "ok: $f"; else echo "FAILED: $f"; failed=1; fi
 done
