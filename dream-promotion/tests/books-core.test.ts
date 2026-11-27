@@ -11,7 +11,9 @@ import { FIRST_DUE_BAD, INSTALLMENTS_MISSING, addDaysISO, installmentsErrors, is
 import { composeDocument, composeReceipt, composeRefundReceipt, docInvariants, paymentErrors } from '../src/features/finance/compose';
 import { financeError } from '../src/features/finance/rows';
 import { D120, cardKindField, type Doc } from '../src/features/documents/openformat';
-import { latestStart, nextMonth, showBooks, startMonthProblem, startMoveExplain, toBooksState } from '../src/features/finance/books';
+import { latestStart, nextMonth, replayLeft, replayMessage, showBooks, startMonthProblem, startMoveExplain, suspenseOf, toBooksState } from '../src/features/finance/books';
+import { replayPending } from '../src/lib/server/books';
+import { TAX_FROM_300_LINK, TAX_FROM_300_NOT_VAT, TAX_FROM_300_RATE, composeTaxFrom300, taxFrom300Extra, taxFrom300Key } from '../src/features/finance/tax-from-300';
 
 const card = (o: Partial<PaymentEntry> = {}): PaymentEntry => ({ method: 'card', amount: 600, date: '2026-11-25', cardKind: 2, ...o });
 
@@ -145,4 +147,76 @@ test('moving the start: the 1st of a month, from 2000, up to next month (Israel 
   const back = startMoveExplain('2026-06-01', '2026-11-27');
   assert.ok(back[0].includes('01/06/2026') && /נרשם עכשיו/.test(back[1]) && /אי אפשר להזיז/.test(back[2]));
   assert.match(startMoveExplain('2026-12-01', '2026-11-27')[1], /לא נרשם כלום/);
+});
+
+// ---- review of 2.121 (the brain, 27.11.2026): what did not post — the night's timer and "לרשום עכשיו"; the suspense account --------
+test('the night: replayPending calls gl_replay_pending with a limit, a few times while there is time; an old database — nothing', async () => {
+  const calls: unknown[] = [];
+  let left = 450;
+  const db = { rpc: async (fn: string, a: { p_limit: number }) => { calls.push([fn, a]); const n = Math.min(a.p_limit, left); left -= n; return { data: { posted: n, failed: 0, left }, error: null }; } };
+  const r = await replayPending(db as never, Date.now() + 10_000, { limit: 200 });
+  assert.deepEqual(r, { ready: true, posted: 450, failed: 0, left: 0, calls: 3 });
+  assert.deepEqual(calls[0], ['gl_replay_pending', { p_limit: 200 }]);
+  // at most maxCalls; a call that posted nothing stops (what is left fails again — tomorrow)
+  left = 10_000;
+  assert.equal((await replayPending(db as never, Date.now() + 10_000, { limit: 100, maxCalls: 2 })).calls, 2);
+  const stuck = { rpc: async () => ({ data: { posted: 0, failed: 3, left: 3 }, error: null }) };
+  assert.deepEqual(await replayPending(stuck as never, Date.now() + 10_000), { ready: true, posted: 0, failed: 3, left: 3, calls: 1 });
+  // no time: no call
+  assert.equal((await replayPending(db as never, Date.now() - 1)).calls, 0);
+  // before 7100 (or before the function): silently nothing
+  const old = { rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.gl_replay_pending' } }) };
+  assert.deepEqual(await replayPending(old as never, Date.now() + 10_000), { ready: false, posted: 0, failed: 0, left: null, calls: 1 });
+  // any other error: logged by its code only, no message (it may name a document)
+  const logged: unknown[][] = []; const orig = console.error; console.error = (...a: unknown[]) => { logged.push(a); };
+  try { await replayPending({ rpc: async () => ({ data: null, error: { code: '57014', message: 'canceling statement — 305 1234 לקוחה' } }) } as never, Date.now() + 10_000); }
+  finally { console.error = orig; }
+  assert.deepEqual(logged, [['[cron/books] replay', '57014']]);
+});
+
+test('the card: the suspense balance (9100) from the trial balance; gl_replay\'s answer and what the owner reads', () => {
+  assert.equal(suspenseOf([{ key: '1100', closing: 50 }, { key: '9100', closing: 12.3 }, { key: '9100', closing: 0.1 }]), 12.4);
+  assert.equal(suspenseOf([{ key: '1100', closing: 50 }]), 0);
+  assert.equal(suspenseOf(null), null);
+  assert.deepEqual(replayLeft({ posted: 3, failed: 1, left: 7 }), { posted: 3, failed: 1, left: 7 });
+  assert.deepEqual(replayLeft({ business: 'x', from: '2026-12-01', posted: 2, failed: 0 }), { posted: 2, failed: 0, left: null }, 'the first gl_replay — no "left"');
+  assert.deepEqual(replayLeft('x'), { posted: 0, failed: 0, left: null });
+  assert.equal(replayMessage({ posted: 1, failed: 0, left: 0 }), 'נרשמה פקודה אחת.');
+  assert.equal(replayMessage({ posted: 300, failed: 0, left: 120 }), 'נרשמו 300 פקודות. עוד 120 יירשמו הלילה, לבד.');
+  assert.equal(replayMessage({ posted: 0, failed: 2, left: 2 }), 'לא נרשם דבר חדש. עוד 2 יירשמו הלילה, לבד. 2 לא נרשמו גם הפעם — נשארים ב"ממתינים לרישום".');
+});
+
+// ---- answer 19: a tax invoice (305) from a transaction invoice (300) ------------------------------------------------------------
+test('answer 19: the 305 of a 300 — its lines and amounts as they are, today, linked (base or paid — the database\'s contract)', () => {
+  const t300 = { docType: 300, docNumber: 12, linkNo: 40, issuedAt: '2026-11-20T08:00:00Z', docDate: '2026-11-20', customerName: 'לקוחה דמו', customerPhone: '050-0000001',
+    customerDealer: '000000109', customerStreet: 'רחוב דמו 1', customerCity: 'עיר דמו',
+    beforeDiscount: 200, discount: 20, afterDiscount: 180, vatAmount: 32.4, total: 212.4, issuedBy: '',
+    lines: [{ name: 'קרם דמו', qty: 2, unitPriceExVat: 100, discountExVat: 0, totalExVat: 200, vatRate: 18, kind: 2 as const, itemId: 'item-1', variantId: 'v-1' }], payments: [] } as Doc;
+  assert.equal(TAX_FROM_300_LINK, null, 'until db-agent gives the link, the screens offer nothing');
+  const base = composeTaxFrom300(t300, { entity: 'licensed_dealer', vatRate: 18, docDate: '2026-11-27', link: 'base' });
+  assert.ok(base.ok);
+  if (!base.ok) return;
+  const d = base.doc;
+  assert.deepEqual([d.docType, d.docDate, d.customerName, d.customerDealer, d.beforeDiscount, d.discount, d.afterDiscount, d.vatAmount, d.total, d.baseDocType, d.baseDocNumber],
+    [305, '2026-11-27', 'לקוחה דמו', '000000109', 200, 20, 180, 32.4, 212.4, 300, 12]);
+  assert.deepEqual(d.lines, [{ name: 'קרם דמו', qty: 2, unitPriceExVat: 100, discountExVat: 0, totalExVat: 200, vatRate: 18, kind: 2 }], 'no item — the 300 moved the stock');
+  assert.deepEqual(d.payments, []);
+  assert.match(d.notes ?? '', /על פי חשבונית עסקה מס׳ 12/);
+  assert.deepEqual(docInvariants(d, 18), []);
+  const paid = composeTaxFrom300(t300, { entity: 'company', vatRate: 18, docDate: '2026-11-27', link: 'paid' });
+  assert.ok(paid.ok && paid.doc.baseDocType == null && paid.doc.baseDocNumber == null);
+  assert.deepEqual(taxFrom300Extra('paid', 'id-300'), { paidDocumentId: 'id-300' });
+  assert.deepEqual(taxFrom300Extra('base', 'id-300'), {});
+  assert.equal(taxFrom300Key('id-300'), 'tax300:id-300');
+  // refused: an exempt dealer, another VAT rate today (a question to the accountant), not a 300, cancelled
+  const no = (o: Partial<Parameters<typeof composeTaxFrom300>[1]>, doc: Doc = t300) => {
+    const r = composeTaxFrom300(doc, { entity: 'licensed_dealer', vatRate: 18, docDate: '2026-11-27', link: 'base', ...o });
+    return r.ok ? [] : r.errors;
+  };
+  assert.ok(no({ entity: 'exempt_dealer' }).includes(TAX_FROM_300_NOT_VAT));
+  assert.ok(no({ vatRate: 17 }).includes(TAX_FROM_300_RATE));
+  assert.ok(no({}, { ...t300, docType: 305 }).length > 0);
+  assert.ok(no({ cancelled: true }).length > 0);
+  // the 300 itself is not changed
+  assert.equal(t300.lines[0].itemId, 'item-1');
 });

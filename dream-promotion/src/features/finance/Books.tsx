@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Button, Card, Field, Input } from '@/components/ui/primitives';
-import { Note, Pill, ddmmyyyy, todayIL } from './ui';
-import { loadBooks, moveBooksStart } from './books-data';
-import { latestStart, monthOf, firstOf, showBooks, startMonthProblem, startMoveExplain, type BooksState } from './books';
+import { Note, Pill, ddmmyyyy, ils, todayIL } from './ui';
+import { loadBooks, moveBooksStart, replayNow } from './books-data';
+import { latestStart, monthOf, firstOf, replayMessage, showBooks, startMonthProblem, startMoveExplain, type BooksState } from './books';
 
 /**
  * 2.121 — "ספרים" in the money settings (stage 4ב, migration 20261128007100; answers 13 / 14 of stage 4): read only — since when
@@ -12,23 +12,24 @@ import { latestStart, monthOf, firstOf, showBooks, startMonthProblem, startMoveE
  * The one action: while nothing was posted (canMoveStart), the owner may move the start to the 1st of another month, confirmed in
  * the page. The opening balances' form, the ledgers and the reports are stage 4ד.
  */
-export function BooksSettings({ say, fail }: { say: (m: string) => void; fail: (m: string) => void }) {
+export function BooksSettings({ say, fail, business }: { say: (m: string) => void; fail: (m: string) => void; business: string | null }) {
   const [state, setState] = useState<BooksState | null>(null);
   const [unposted, setUnposted] = useState<number | null>(null);
+  const [suspense, setSuspense] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [month, setMonth] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   async function reload() {
     const r = await loadBooks();
-    if (r.ok && r.ready) { setState(r.state); setUnposted(r.unposted); setError(null); }
+    if (r.ok && r.ready) { setState(r.state); setUnposted(r.unposted); setSuspense(r.suspense); setError(null); }
     else if (!r.ok) setError(r.error);
   }
   useEffect(() => {
     let alive = true;
     void loadBooks().then((r) => {
       if (!alive) return;
-      if (r.ok && r.ready) { setState(r.state); setUnposted(r.unposted); }
+      if (r.ok && r.ready) { setState(r.state); setUnposted(r.unposted); setSuspense(r.suspense); }
       else if (!r.ok) setError(r.error);
     });
     return () => { alive = false; };
@@ -51,6 +52,17 @@ export function BooksSettings({ say, fail }: { say: (m: string) => void; fail: (
       : `תחילת הספרים נשמרה: ${ddmmyyyy(day)}.${r.posted === 1 ? ' נרשמה פקודה אחת.' : r.posted ? ` נרשמו ${r.posted} פקודות.` : ''}`);
   }
 
+  // what did not post, now (the owner): a few batches here, the rest by the night's timer (replayPending)
+  async function doReplay() {
+    if (!business) return;
+    setBusy(true);
+    const r = await replayNow(business);
+    setBusy(false);
+    if (!r.ok) { fail(r.error); return; }
+    await reload();
+    say(replayMessage(r));
+  }
+
   return (
     <Card className="p-4"><section aria-label="ספרים">
       <p className="mb-1 font-bold">ספרים (הנהלת חשבונות כפולה)</p>
@@ -59,7 +71,13 @@ export function BooksSettings({ say, fail }: { say: (m: string) => void; fail: (
           {state.started ? <Pill tone="ok">פעילים</Pill> : <span className="text-xs text-muted">(יתחילו בתאריך הזה)</span>}</li>
         <li>יתרות פתיחה: {state.openingEntered ? <Pill tone="ok">נרשמו</Pill> : <Pill tone="warn">עוד לא נרשמו</Pill>}</li>
         <li>פקודות שנרשמו: <strong className="tabular-nums">{state.transactions}</strong></li>
-        {unposted != null && <li>ממתינים לרישום: <strong className="tabular-nums">{unposted}</strong>{unposted > 0 ? ' — לא נרשמו בספרים (הסיבה נשמרת לבדיקה)' : ''}</li>}
+        {unposted != null && (
+          <li className="flex flex-wrap items-center gap-2"><span>ממתינים לרישום: <strong className="tabular-nums">{unposted}</strong>{unposted > 0 ? ' — לא נרשמו בספרים (הסיבה נשמרת; ננסה שוב כל לילה)' : ''}</span>
+            {unposted > 0 && business && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void doReplay()}>{busy ? 'רושם…' : 'לרשום עכשיו'}</Button>}</li>
+        )}
+        {suspense != null && suspense !== 0 && (
+          <li>חשבון מעבר — לבירור (9100): <strong dir="ltr" className="tabular-nums">{ils(suspense)}</strong> — סכומים שלא נמצא להם חשבון; לבירור עם רואה החשבון.</li>
+        )}
       </ul>
       <p className="mb-2 text-xs text-muted">כל מסמך, תשלום והפקדה מתאריך ההתחלה נרשמים בספרים לבד (פקודה מאוזנת לכל אחד). מה שהופק לפני כן — לא. יתרות הפתיחה, הכרטסות והדוחות — בשלב הבא.</p>
 

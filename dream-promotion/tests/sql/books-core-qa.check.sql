@@ -123,15 +123,16 @@ set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 400, pg_temp.svc(1180), 'q96:400a', jsonb_build_object('paid_document_id', (pg_temp.d('q96:300a')).id), null, 18, '0500009611'));
 reset role;
+set constraints all immediate;
 alter table public.documents enable trigger d_documents_checks;
 commit;
 begin;
 set local role authenticated;
 select pg_temp.as_user('00000000-0000-0000-0000-0000000696a1');
--- Q2: a 300 of 590, two 320 receipts pay it: the first the whole, the second — nothing is left to close (never 1310 below 0)
+-- Q2: a 300 of 590 paid by two 320 receipts in turn (354, then the 236 left): each closes what it pays of 1310 — and the sum is 0
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 300, pg_temp.svc(500), 'q96:300b', '{}', null, 18, '0500009612'));
-select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 320, pg_temp.svc(500), 'q96:320b1', jsonb_build_object('paid_document_id', (pg_temp.d('q96:300b')).id), null, 18, '0500009612'));
-select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 320, pg_temp.svc(100), 'q96:320b2', jsonb_build_object('paid_document_id', (pg_temp.d('q96:300b')).id), null, 18, '0500009612'));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 320, pg_temp.svc(300), 'q96:320b1', jsonb_build_object('paid_document_id', (pg_temp.d('q96:300b')).id), null, 18, '0500009612'));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 320, pg_temp.svc(200), 'q96:320b2', jsonb_build_object('paid_document_id', (pg_temp.d('q96:300b')).id), null, 18, '0500009612'));
 -- Q3: a paylink receipt — a 400 paying a 305 by card, with no card kind (the database fills 1)
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 305, pg_temp.svc(100), 'q96:305c', '{}', null, 18, '0500009613'));
 select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000000696a1', 400, pg_temp.svc(118), 'paylink:00000000-0000-0000-0000-0000000696d1',
@@ -171,13 +172,14 @@ commit;
 select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:300a')) = '0500009611 D 1180.00, 1310 C 1180.00', 'Q1: the 300 — the customer / 1310');
 select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:400a')) = '0500009611 C 1180.00, 1100 D 1180.00',
   'Q1 (answer 18): a licensed dealer''s 400 on a 300 — the money against the customer only; no income, no VAT, 1310 not touched');
-select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '0500009611') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '1310') = -1180 - 590 + 590 + 0,
-  'Q1: the customer at 0; 1310 still holds the open 300 (1180) until the tax invoice is issued (and Q2''s 590 closed)');
+select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '0500009611') = 0 and pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '1310') = -1180,
+  'Q1: the customer at 0; 1310 still holds the open 300 (1180) until the tax invoice is issued (Q2''s 590 was closed)');
 -- Q2
-select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:320b1')) = '0500009612 C 590.00, 0500009612 C 590.00, 0500009612 D 590.00, 1100 D 590.00, 1310 D 590.00, 2200 C 90.00, 4100 C 500.00',
-  'Q2: the first 320 on the 300 — income + VAT, the money, and 1310 closed by the whole 590');
-select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:320b2')) = '0500009612 C 118.00, 0500009612 D 118.00, 1100 D 118.00, 2200 C 18.00, 4100 C 100.00',
-  'Q2: the second 320 on the same 300 — nothing left to close: no 1310 line, never below 0');
+select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:320b1')) = '0500009612 C 354.00, 0500009612 C 354.00, 0500009612 D 354.00, 1100 D 354.00, 1310 D 354.00, 2200 C 54.00, 4100 C 300.00',
+  'Q2: the first 320 on the 300 — income + VAT, the money, and 1310 closed by 354');
+select pg_temp.check(pg_temp.sig(pg_temp.txd('q96:320b2')) = '0500009612 C 236.00, 0500009612 C 236.00, 0500009612 D 236.00, 1100 D 236.00, 1310 D 236.00, 2200 C 36.00, 4100 C 200.00'
+  and pg_temp.bal('00000000-0000-0000-0000-0000000696b1', '0500009612') = 0,
+  'Q2: the second closes the 236 that was left — the customer and (Q2''s part of) 1310 at 0');
 -- Q3
 select pg_temp.check(pg_temp.sig(pg_temp.txd('paylink:00000000-0000-0000-0000-0000000696d1')) = '0500009613 C 118.00, 1250 D 118.00'
   and (select payments->0->>'cardKind' from public.documents where idempotency_key = 'paylink:00000000-0000-0000-0000-0000000696d1') = '1',

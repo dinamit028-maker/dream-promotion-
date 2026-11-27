@@ -238,15 +238,21 @@ export const Z900 = (rec: number, b: Business, id: string, total: number) =>
   'Z900' + N(rec, 9) + N(b.dealerNumber, 9) + N(id, 15) + X(SYSTEM_CONST, 8) + N(total, 15) + X('', 50); // 110
 
 /**
- * field 1225 "מפתח הלקוח אצל המוכר" X(15), as written — the same 15 characters are 1403 of the customer's B110. 2.121: the key is
- * the customer's account key in the books (glCustomerKey — public.gl_customer_key of migration 20261128007100, customer-key.ts):
- * the phone, else the name, else 'CASH', cut to 15 characters — as before — and a customer whose key looks like a system account's
- * (four digits, or BANK — the deposit's key, DEPOSIT_KEY) gets "C-" in front, so it is never merged with that account.
+ * field 1225 "מפתח הלקוח אצל המוכר" X(15), as written — the same 15 characters are 1403 of the customer's B110.
+ * 2.121 (stage 4ב; the plan's note 20 — the brain's decision, 27.11.2026: a file already given is never written differently):
+ *   * a document dated on / after the business's books start (booksStart — gl_books_state().startDate, migration 20261128007100):
+ *     the customer's account key in the books (glCustomerKey = public.gl_customer_key, customer-key.ts — cleaned as the file writes
+ *     text, cut to 15, "C-" when it looks like a system account's key: four digits, or BANK — the deposit's DEPOSIT_KEY);
+ *   * any other document (dated before the start; no books start — a database before 7100): exactly as before 2.121 —
+ *     the phone, else the name, else 'CASH' (legacyCustomerKey).
+ * A customer with documents on both sides of the start may so have two keys in one file — each one is its own B110 (accountsOf).
  */
-export const customerKeyField = (d: Pick<Doc, 'customerKey' | 'customerPhone' | 'customerName'> & { docType?: number }) =>
-  X(d.docType === 420 ? DEPOSIT_KEY : d.customerKey ?? glCustomerKey(d.customerPhone, d.customerName), 15);
+export const legacyCustomerKey = (d: Pick<Doc, 'customerPhone' | 'customerName'>) => d.customerPhone || d.customerName || 'CASH';
+export const customerKeyField = (d: Pick<Doc, 'customerKey' | 'customerPhone' | 'customerName'> & { docType?: number; docDate?: string }, booksStart?: string | null) =>
+  X(d.docType === 420 ? DEPOSIT_KEY : d.customerKey
+    ?? (booksStart && d.docDate && d.docDate >= booksStart ? glCustomerKey(d.customerPhone, d.customerName) : legacyCustomerKey(d)), 15);
 
-export function C100(rec: number, b: Business, d: Doc, operator: string = d.issuedBy ?? '', branch = '') {
+export function C100(rec: number, b: Business, d: Doc, operator: string = d.issuedBy ?? '', branch = '', booksStart: string | null = null) {
   const t = ilTime(d.issuedAt);
   const wA = ag(withheldOf(d));                                       // clarification 4: a receipt's amounts without the withholding
   const less = (v: number) => (ag(v) - wA) / 100;
@@ -264,7 +270,7 @@ export function C100(rec: number, b: Business, d: Doc, operator: string = d.issu
     + AMT(0) + X('', 3)                                               // 1217, 1218 (export only)
     + AMT(sign(less(d.beforeDiscount))) + AMT(-Math.abs(d.discount)) + AMT(sign(less(d.afterDiscount))) // 1219, 1220 (negative), 1221
     + AMT(sign(d.vatAmount)) + AMT(sign(fileTotal(d))) + AMT(wA / 100, 9) // 1222, 1223, 1224 withholding (positive — clarification 4)
-    + customerKeyField(d)                                            // 1225 customer key (= 1403 of its B110)
+    + customerKeyField(d, booksStart)                                // 1225 customer key (= 1403 of its B110; 2.121 — booksStart)
     + X('', 10)                                                       // 1226 matching field
     + X(d.cancelled ? '1' : '', 1)                                    // 1228 cancelled: a 300 / 400 cancelled after issue (a tax invoice gets a credit invoice instead)
     + N(yyyymmdd(d.docDate), 8)                                       // 1230 document date
@@ -366,10 +372,10 @@ export interface Account { key: string; name: string; street: string; city: stri
   bank?: boolean;
   /** 2.120: field 1421 — the branch of the account's first document in the file (BranchInfo; empty unless 1034 = 1) */
   branch?: string }
-export function accountsOf(docs: Doc[], branches?: BranchInfo | null): Account[] {
+export function accountsOf(docs: Doc[], branches?: BranchInfo | null, booksStart: string | null = null): Account[] {
   const m = new Map<string, Account>();
   for (const d of docs) {
-    const key = customerKeyField(d);
+    const key = customerKeyField(d, booksStart);
     let a = m.get(key);
     if (!a) m.set(key, (a = { key, name: isDeposit(d) ? DEPOSIT_NAME : d.customerName || 'לקוח מזדמן', street: '', city: '', debitA: 0, creditA: 0,
       ...(isDeposit(d) ? { bank: true } : {}), ...(branches?.perLocation ? { branch: branchOf(branches, d.locationId) } : {}) }));
@@ -395,7 +401,10 @@ export const B110 = (rec: number, b: Business, a: Account) =>
 /** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf).
  *  o.branches (2.120): the business numbers per location — 1034 = 1 and the branch fields; none / not per location — as before */
 export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string>;
-  branches?: BranchInfo | null }) {
+  branches?: BranchInfo | null;
+  /** 2.121: the business's books start (gl_books_state().startDate) — documents from it on get the books' customer key (1225);
+   *  none (a database before 7100) — every key exactly as before */
+  booksStart?: string | null }) {
   const id = o.id ?? exportId();
   const t = ilTime(o.startedAt);
   const dir = `OPENFRMT\\${N(b.dealerNumber, 9).slice(0, 8)}.${t.date.slice(2, 4)}\\${t.date.slice(4, 8)}${t.time}`;
@@ -405,10 +414,10 @@ export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: {
   const inFile = docs.filter((x) => x.docDate >= o.from && x.docDate <= o.to).sort((a, z) => a.docType - z.docType || a.docNumber - z.docNumber);
   const br = o.branches?.perLocation ? o.branches : null;
   const byKey = new Map(docs.map((x) => [`${x.docType}:${x.docNumber}`, x] as const));
-  for (const a of accountsOf(inFile, br)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }   // the accounts first, then the documents
+  for (const a of accountsOf(inFile, br, o.booksStart ?? null)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }   // the accounts first, then the documents
   for (const d of inFile) {
     const branch = branchOf(br, d.locationId), baseBranch = baseBranchOf(br, d, byKey);
-    recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes), branch)); counts.C100++;
+    recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes), branch, o.booksStart ?? null)); counts.C100++;
     if (!NO_D110.has(d.docType)) d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1, branch, baseBranch)); counts.D110++; });
     filePayments(d).forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1, branch)); counts.D120++; });
   }

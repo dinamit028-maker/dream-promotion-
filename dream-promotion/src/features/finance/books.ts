@@ -61,3 +61,26 @@ export const startMoveExplain = (day: string, today: string): string[] => [
   'אחרי שנרשמה הפקודה הראשונה אי אפשר להזיז את התאריך יותר.',
   'יתרות הפתיחה (לפי רואה החשבון) נרשמות בתאריך ההתחלה — הטופס יגיע בשלב הבא.',
 ];
+
+/** the trial balance's last date for "now" (entries are dated up to today; a far date keeps a late one in) */
+export const SUSPENSE_TO = '2999-12-31';
+/** gl_trial_balance rows → the balance of the suspense account (key 9100, debit positive); null when the rows are not rows */
+export function suspenseOf(rows: unknown): number | null {
+  if (!Array.isArray(rows)) return null;
+  let a = 0;
+  for (const r of rows as Record<string, unknown>[]) if (r?.key === '9100') a += Math.round(Number(r.closing) * 100) || 0;
+  return a / 100;
+}
+const cnt = (v: unknown) => (Number.isSafeInteger(Number(v)) && Number(v) >= 0 ? Number(v) : 0);
+/** gl_replay's answer → what it posted, what failed, what is left (null — the database did not say: it posted all it could) */
+export function replayLeft(v: unknown): { posted: number; failed: number; left: number | null } {
+  const r = (v ?? {}) as Record<string, unknown>;
+  return { posted: cnt(r.posted), failed: cnt(r.failed), left: r.left == null ? null : cnt(r.left) };
+}
+/** what the owner reads after "לרשום עכשיו" */
+export function replayMessage(r: { posted: number; failed: number; left: number | null }): string {
+  const done = r.posted === 1 ? 'נרשמה פקודה אחת.' : r.posted ? `נרשמו ${r.posted} פקודות.` : 'לא נרשם דבר חדש.';
+  const rest = r.left ? ` עוד ${r.left} יירשמו הלילה, לבד.` : '';
+  const bad = r.failed ? ` ${r.failed} לא נרשמו גם הפעם — נשארים ב"ממתינים לרישום".` : '';
+  return done + rest + bad;
+}

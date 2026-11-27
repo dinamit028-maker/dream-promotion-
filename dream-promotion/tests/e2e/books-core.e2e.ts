@@ -240,6 +240,32 @@ async function main() {
     });
   }
 
+  await step('what did not post: "לרשום עכשיו" posts a few batches, the rest tonight; the suspense balance shown', async () => {
+    fake = fresh();
+    fake.booksPending = 350;
+    fake.booksSuspense = 42.5;
+    const { ctx, page } = await open('/finance/settings', 'desktop');
+    try {
+      await settingsReady(page);
+      const c = card(page);
+      await c.waitFor({ timeout: 60_000 });
+      await c.getByText(/ממתינים לרישום:\s*350/).first().waitFor();
+      await c.getByText(/חשבון מעבר — לבירור \(9100\)/).first().waitFor();
+      await c.getByText(/42\.50?/).first().waitFor();
+      await c.scrollIntoViewIfNeeded();
+      await shot(page, 'd5-books-pending.png');
+      await axe(page, 'desktop books pending');
+      await c.getByRole('button', { name: 'לרשום עכשיו' }).click();
+      await page.getByText('נרשמו 300 פקודות. עוד 50 יירשמו הלילה, לבד.').waitFor();
+      await c.getByText(/ממתינים לרישום:\s*50/).first().waitFor();
+      assert.equal(fake.booksPending, 50);
+      await c.getByRole('button', { name: 'לרשום עכשיו' }).click();
+      await page.getByText('נרשמו 50 פקודות.').waitFor();
+      await c.getByText(/ממתינים לרישום:\s*0/).first().waitFor();
+      assert.equal(await c.getByRole('button', { name: 'לרשום עכשיו' }).count(), 0, 'nothing left — no button');
+    } finally { await ctx.close(); }
+  });
+
   await step('a member who is not the owner: no books card', async () => {
     fake = fresh();
     fake.owner = false;

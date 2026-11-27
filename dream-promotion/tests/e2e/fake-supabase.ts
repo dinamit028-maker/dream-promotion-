@@ -133,6 +133,10 @@ export class FakeSupabase {
   /** 2.121: the entries written (gl_books.last_tx_no — the fake posts nothing by itself; a start moved back posts the documents since) */
   booksTx = 0;
   booksOpening = false;
+  /** 2.121: sources that did not post (the view gl_unposted lists this many) — gl_replay posts them, p_limit at a time */
+  booksPending = 0;
+  /** 2.121: the suspense account's balance (9100, in the trial balance) */
+  booksSuspense = 0;
   /** 2.120: when the business switched to numbering per location (document_numbering.per_location_since); null — one series */
   numberingSince: string | null = null;
   /** 2.120: a location's series of a document type: "location:type" → its last running number (document_series) */
@@ -1768,8 +1772,17 @@ export class FakeSupabase {
     const state = () => ({ startDate: this.booksStartDate(), started: this.today() >= this.booksStartDate(), transactions: this.booksTx,
       openingEntered: this.booksOpening, canMoveStart: this.booksTx === 0, owner });
     if (fn === 'gl_books_state') return { status: 200, body: state() };
-    if (fn === 'gl_trial_balance') return { status: 200, body: [] };
+    if (fn === 'gl_trial_balance') {
+      return { status: 200, body: this.booksSuspense ? [{ account_id: 'acc-9100', key: '9100', name: 'חשבון מעבר — לבירור', kind: 'asset', tb_code: '9100', tb_name: 'חשבון מעבר',
+        parent_key: null, opening: 0, debit: Math.max(this.booksSuspense, 0), credit: Math.max(-this.booksSuspense, 0), closing: this.booksSuspense }] : [] };
+    }
     if (!owner) return refuse('42501', 'not allowed');
+    if (fn === 'gl_replay') {
+      if (args.p_business !== this.opts.businessId) return refuse('42501', 'not allowed');
+      const n = args.p_limit == null ? this.booksPending : Math.min(Number(args.p_limit), this.booksPending);
+      this.booksPending -= n; this.booksTx += n;
+      return { status: 200, body: { business: args.p_business, from: this.booksStartDate(), posted: n, failed: 0, left: this.booksPending } };
+    }
     if (fn !== 'gl_books_start_set') return refuse('0A000', `${fn}: not in the fake (stage 4ד)`);
     const day = String(args.p_start ?? '');
     const [y, m] = this.today().split('-').map(Number);
@@ -2628,11 +2641,12 @@ export class FakeSupabase {
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for table ${table}` });
       if (table === 'document_allocation_status') this.tables.document_allocation_status = this.allocationStatus();
     }
-    // 2.121 (7100): the view of what did not post — none before the migration; the fake posts or skips, so it is empty
+    // 2.121 (7100): the view of what did not post — none before the migration; after it, booksPending rows (gl_replay posts them)
     if (table === 'gl_unposted') {
       if (!this.booksCore) return json(404, { code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` });
       if (method !== 'GET' && method !== 'HEAD') return json(403, { code: '42501', message: `permission denied for view ${table}` });
-      this.tables.gl_unposted = [];
+      this.tables.gl_unposted = Array.from({ length: this.booksPending }, (_, i) => ({ business_id: this.opts.businessId, source_kind: 'document', source_id: `pending-${i}`,
+        source_date: this.booksStartDate(), label: `מסמך ${i + 1}`, error: '23514 demo' }));
     }
     if (table === 'receivable_lines') this.tables.receivable_lines = this.receivableLines();
     if (table === 'client_package_status') this.tables.client_package_status = this.packageStatus();

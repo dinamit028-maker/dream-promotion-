@@ -183,7 +183,7 @@ export function FinanceSettings() {
       {/* 2.120 (migration 7000): numbering per location — the owner, with more than one active location, after the migration only */}
       <NumberingSettings say={say} fail={fail} />
       {/* 2.121 (migration 7100): the books — read only, the owner, after the migration only (the start may move while nothing posted) */}
-      <BooksSettings say={say} fail={fail} />
+      <BooksSettings say={say} fail={fail} business={access.business} />
 
       <Card className="p-4"><PaylinkSettings userId={userId} /></Card>
       <Card className="p-4"><ReminderSettingsCard userId={userId} businessId={access.business} /></Card>

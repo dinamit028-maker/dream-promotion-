@@ -10,8 +10,9 @@
 --   * §4.7 (p. 16) B110 "חשבון בהנהלת חשבונות": 1403 the key X(15) ("חד חד ערכי"), 1404 name, 1405 / 1406 the trial-balance code and
 --     its description, 1407–1412 the customer's / supplier's address, 1413 the parent account, 1417 the 6111 code, 1419 the dealer
 --     number of the supplier / customer ("חובה אם … 1013 = 2"), 1421 the branch.
---   * clarification 12 (p. 22): 1362 the date of the entry, 1363 the day it enters the books (the example: a card deal in 6
---     installments — a line per installment, each with its own value date, the customer credited once), 1375 the day it was entered.
+--   * clarification 12 (p. 22): 1362 the date of the entry, 1363 the day it enters the books, 1375 the day it was entered.
+--     A card in installments as a line per installment, each with its own value date, is the owner's answer 8 (26.11.2026) — ours,
+--     not a rule of the instructions.
 --   * §2.4יא (p. 6): debit and credit movements are positive; §2.4יב / clarification 1: a document's meaning is its type, not its sign.
 -- What it does:
 --   1. gl_accounts (the chart, per business — B110), gl_transactions (an entry — 1353, 1356–1363, 1375, 1376) and gl_lines (its lines —
@@ -47,12 +48,22 @@
 --      ("firstDue": YYYY-MM-DD, from the payment's day to a year after it; none = the payment's day) — checked by a new trigger
 --      (d_documents_installments); nothing else about a document changes.
 --   6. gl_opening_balances(lines) — the owner, once: the opening balances the accountant gives, dated the start date, balanced
---      against 3100. gl_replay(business, from) — the sources since a date, in time order, posted if they were not (idempotent).
+--      against 3100. gl_replay(business, from, limit) — what did not post, in time order, in batches (idempotent);
+--      gl_replay_pending(limit) — the server's timer, every business.
 --      gl_unposted (view) — what should have posted and did not (with the last error). gl_books_state(), gl_trial_balance(from, to).
--- Replaces NOTHING (no function of an earlier migration is changed). New tables, types, functions, triggers and policies only; the
--- existing tables get four deferred triggers that only read them and one BEFORE INSERT check on documents (installments).
--- md5 of prosrc after running (select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure): in the
--- report of the db-agent (STATUS.md), for the live check after the run.
+--   7. The owner's answers 18 and 19 (27.11.2026): a VAT business's receipt (400) on a transaction invoice (300) is allowed (the money
+--      against the customer; 1310 stays open); a tax invoice (305) is made FROM a 300 (base_doc_type 300 — fields 1256 / 1257) and
+--      closes it once (1310 / the customer) — so 300 → 400 → 305 leaves the customer and 1310 at 0. Section 9a.
+-- Replaces (same signatures) — md5 of prosrc. BEFORE running, compare the old one with the live database; AFTER, the new one:
+--   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure
+--   function                         of     old                               new
+--   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  e41ad8ee7370ff09bee4536c5c514188
+--   document_cancellations_check()   7000   625b00ea9a1d98e58f0f2b6f580655e8  07205c1ce140cd0bb23284215536966d
+--   documents_after_insert()         6800   59a0a64ba390722ae5681d1d5a69e2f0  7d944cd6ce946e499d28724ef43f59e5
+--   documents_more_checks()          3200   1523ec252074219f805903d91252cda5  882730b7f043b6409e647bc0fadfd5cf
+-- Everything else is new (the md5 of each new function — in the db-agent's report, STATUS.md). Running 3200, 6800 or 7000 again
+-- after this one brings back an old version of the four — then run this one again. The existing tables get four deferred triggers
+-- that only read them and one BEFORE INSERT check on documents (installments).
 -- No existing row changes: nothing here updates or removes a row of an existing table (the only rows written are new gl_books rows,
 -- one per business, and the one gl_defaults row). The word "delete" appears only in "before update or delete", the policies
 -- "_viewer_delete" and the rollback notes — run it in the SQL Editor (the MCP stops on it).
@@ -244,7 +255,7 @@ begin
   foreach t in array array['gl_books', 'gl_accounts', 'gl_transactions', 'gl_lines', 'gl_post_failures'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from anon', t);
-    execute format('revoke insert, update, delete, truncate on public.%I from public, authenticated', t);
+    execute format('revoke insert, update, delete, truncate on public.%I from public, authenticated, service_role', t);
     execute format('grant select on public.%I to authenticated', t);
     if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = t || '_business_gate') then
       execute format('create policy %I on public.%I as restrictive for all to authenticated using (%s) with check (%s)', t || '_business_gate', t, gate, gate);
@@ -280,7 +291,7 @@ begin
   end loop;
   -- the server's only: RLS on, no policy, no grant
   alter table public.gl_defaults enable row level security;
-  revoke all on public.gl_defaults from public, anon, authenticated;
+  revoke all on public.gl_defaults from public, anon, authenticated, service_role;
 end $$;
 
 -- ============================================================================================================================
@@ -588,7 +599,8 @@ end $$;
 
 -- the money of a document's own payments (its JSON — the rows documents_after_insert writes to payments, one by one, with the
 -- same method), on p_side: each on its account; a cheque on its due date, matched by its number; a card in installments — a line
--- per installment, a month apart (the first carries the agorot left over). Returns the lines and their sum.
+-- per installment, each with its own value date, a month apart (the owner's answer 8, 26.11.2026 — ours, not the instructions';
+-- the first carries the agorot left over). Returns the lines and their sum.
 create or replace function public.gl_money_lines(p_doc public.documents, p_side text, out lines public.gl_line_in[], out total numeric)
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare p jsonb; m text; amt numeric; pd date; loc uuid := coalesce(p_doc.location_id, p_doc.business_id); n int; ag bigint; each bigint; i int; fd date;
@@ -617,30 +629,44 @@ begin
   end loop;
 end $$;
 
--- a document (the plan, section 3; answers 2 and 4):
+-- whether a document charges VAT: the dealer it was issued as (documents.issuer — issuer_snapshot), else the business as it is now
+create or replace function public.gl_doc_vat(d public.documents) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select public.entity_charges_vat(coalesce(d.issuer->>'entityType',
+           (select public.entity_of(rs.entity_type, rs.business_type) from public.register_settings rs where rs.business_id = d.business_id),
+           'licensed_dealer'))
+$$;
+
+-- a document (the plan, section 3; answers 2, 4, 18, 19):
 --   300 — the customer (debit) / open transaction invoices 1310 (credit), its total
---   305 — the customer / income (after the discount) + VAT output 2200
+--   305 — the customer / income (after the discount) + VAT output 2200; made from a 300 (answer 19 — base_doc 300) — also
+--         1310 / the customer, what it closes of the 300
 --   320 — the customer / income + VAT, and the money / the customer; paying a 300 — also 1310 / the customer, what it closes of it
 --   330 — income + VAT (debit) / the customer of the credited invoice
---   400 — the money (+ tax withheld 1350) / the customer (of the paid invoice, if it pays one); an exempt dealer (answer 2, cash
---         basis) — also its income 4200: from 1310 for what it closes of a 300, from the customer for the rest
+--   400 — the money (+ tax withheld 1350) / the customer (of the paid invoice, if it pays one; a licensed dealer's 400 on a 300 —
+--         answer 18: only that, 1310 stays open until the tax invoice); an exempt dealer (answer 2, cash basis) — also its income
+--         4200: from 1310 for what it closes of a 300, from the customer for the rest
 --   400 below zero (an exempt dealer's refund receipt) — the mirror: 4200 / the customer, and the money back: the customer / the
 --         money (a register refund's money is its own payment row — posted on its own, below)
+-- What a document closes of a 300 = the 300 less what the closers before it closed (a 320 paying it, a 305 made from it, an exempt
+-- dealer's 400 paying it), never below 0, never more than this document — and ONLY when the 300 itself was posted: a 300 of before
+-- the books' start is not in the books (its balance is in the opening balances), so nothing of it is closed here; a 300 of the
+-- books' time that is not posted yet (it failed) → this one waits (gl_wait — recorded, posted again after it, gl_replay).
 -- the customer's lines are matched (1371) by the document they belong to (its link number): an invoice, what paid it and its credits
 create or replace function public.gl_lines_document(p_doc uuid) returns public.gl_line_in[]
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare d public.documents; paid public.documents; base public.documents; vat boolean; refund_receipt boolean; own_money boolean;
-  cust uuid; m_own text; m_cust text; r public.gl_line_in[] := '{}'; mon record; clear numeric := 0; open_amt numeric; t numeric;
+declare d public.documents; paid public.documents; base public.documents; t300 public.documents; vat boolean; refund_receipt boolean;
+  own_money boolean; cust uuid; m_own text; m_cust text; m_300 text; r public.gl_line_in[] := '{}'; mon record; clear numeric := 0;
+  open_amt numeric; t numeric; start date;
 begin
   select * into d from public.documents where id = p_doc;
   if d.id is null or d.doc_type not in (300, 305, 320, 330, 400) then return r; end if;
-  vat := public.entity_charges_vat(coalesce(d.issuer->>'entityType',
-           (select public.entity_of(rs.entity_type, rs.business_type) from public.register_settings rs where rs.business_id = d.business_id)));
+  vat := public.gl_doc_vat(d);
   refund_receipt := d.doc_type = 400 and d.total < 0;
   own_money := d.doc_type in (320, 400) and not (refund_receipt and d.refund_id is not null);
   m_own := d.link_no::text;
   if d.paid_document_id is not null then select * into paid from public.documents where id = d.paid_document_id; end if;
-  if (d.doc_type = 330 or refund_receipt) and d.base_doc_number is not null then
+  if (d.doc_type = 330 or refund_receipt or (d.doc_type = 305 and d.base_doc_type = 300)) and d.base_doc_number is not null then
     select * into base from public.documents where business_id = d.business_id and doc_type = d.base_doc_type and doc_number = d.base_doc_number;
   end if;
   if paid.id is not null then cust := public.gl_customer_of(paid); m_cust := paid.link_no::text;
@@ -648,14 +674,23 @@ begin
   else cust := public.gl_customer_of(d); m_cust := m_own; end if;
   t := d.total;
 
-  -- what a receipt closes of the transaction invoice (300) it pays: the 300 less the receipts on it before this one that closed
-  -- it too (a 320; an exempt dealer's 400), never below 0 and never more than this receipt
-  if paid.id is not null and paid.doc_type = 300 and (d.doc_type = 320 or (d.doc_type = 400 and not vat)) then
-    select paid.total - coalesce(sum(x.total), 0) into open_amt from public.documents x
-     where x.business_id = d.business_id and x.paid_document_id = paid.id and x.link_no < d.link_no
-       and (x.doc_type = 320 or (x.doc_type = 400 and not public.entity_charges_vat(coalesce(x.issuer->>'entityType', 'licensed_dealer'))))
-       and not exists (select 1 from public.document_cancellations c where c.document_id = x.id);
-    clear := least(t, greatest(coalesce(open_amt, 0), 0));
+  -- the 300 this document closes (a 320 paying it, an exempt dealer's 400 paying it, a 305 made from it)
+  if paid.id is not null and paid.doc_type = 300 and (d.doc_type = 320 or (d.doc_type = 400 and not vat)) then t300 := paid;
+  elsif d.doc_type = 305 and base.id is not null and base.doc_type = 300 then t300 := base; end if;
+  if t300.id is not null then
+    m_300 := t300.link_no::text;
+    if exists (select 1 from public.gl_transactions x where x.idempotency_key = 'document:' || t300.id) then
+      select t300.total - coalesce(sum(x.total), 0) into open_amt from public.documents x
+       where x.business_id = d.business_id and x.link_no < d.link_no
+         and ((x.paid_document_id = t300.id and (x.doc_type = 320 or (x.doc_type = 400 and not public.gl_doc_vat(x))))
+              or (x.doc_type = 305 and x.base_doc_type = 300 and x.base_doc_number = t300.doc_number))
+         and not exists (select 1 from public.document_cancellations c where c.document_id = x.id);
+      clear := least(t, greatest(coalesce(open_amt, 0), 0));
+    else
+      select b.start_date into start from public.gl_books b where b.business_id = d.business_id;
+      if start is not null and t300.doc_date >= start then
+        raise exception 'gl_wait: the transaction invoice % is not posted yet', t300.doc_number using errcode = '55000'; end if;
+    end if;
   end if;
 
   if d.doc_type = 300 then
@@ -663,7 +698,9 @@ begin
   elsif d.doc_type = 305 then
     r := public.gl_ln(cust, 'D', t, d.doc_date, m_own)
       || public.gl_income_lines(d.business_id, 'C', d.after_discount, d.lines, vat, d.doc_date, m_own)
-      || public.gl_ln(public.gl_account(d.business_id, 'vat_output'), 'C', d.vat_amount, d.doc_date, m_own);
+      || public.gl_ln(public.gl_account(d.business_id, 'vat_output'), 'C', d.vat_amount, d.doc_date, m_own)
+      || public.gl_ln(public.gl_account(d.business_id, 'open_tx_invoices'), 'D', clear, d.doc_date, m_300)
+      || public.gl_ln(cust, 'C', clear, d.doc_date, m_300);
   elsif d.doc_type = 330 then
     r := public.gl_income_lines(d.business_id, 'D', d.after_discount, d.lines, vat, d.doc_date, m_cust)
       || public.gl_ln(public.gl_account(d.business_id, 'vat_output'), 'D', d.vat_amount, d.doc_date, m_cust)
@@ -789,7 +826,7 @@ create or replace function public.gl_post(p_source text, p_id uuid) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare src record; bk public.gl_books; k text := p_source || ':' || p_id; tx uuid; r public.gl_line_in[] := '{}'; dsum numeric; csum numeric;
   d public.documents; x public.bank_deposits; p public.payments; dt date; loc uuid; usr uuid; rev uuid; det text := '';
-  r1t int; r1n text; r2t int; r2n text; dep_doc public.documents; c record;
+  r1t int; r1n text; r2t int; r2n text; dep_doc public.documents; c record; lt text := current_setting('lock_timeout');
 begin
   if p_source not in ('document', 'cancellation', 'payment', 'deposit', 'deposit_cancel') then
     raise exception 'gl_source_unknown: %', p_source using errcode = '22023'; end if;
@@ -797,8 +834,12 @@ begin
   if src.business_id is null then return null; end if;
   bk := public.gl_books_ensure(src.business_id);
   if src.source_date < bk.start_date then return null; end if;          -- before the books start: nothing posts
-  -- one writer of a business's books at a time (the entry number, the accounts it opens) — taken first, held to commit
+  -- one writer of a business's books at a time (the entry number, the accounts it opens) — taken first, held to commit. Never
+  -- waited for long: after 2 seconds the posting stops (55P03 — recorded by gl_post_safe; the source is posted again later), so a
+  -- sale's commit is never held behind the books
+  perform set_config('lock_timeout', '2s', true);
   select * into bk from public.gl_books where business_id = src.business_id for update;
+  perform set_config('lock_timeout', lt, true);
   select id into tx from public.gl_transactions where idempotency_key = k;
   if tx is not null then return tx; end if;
   if bk.chart_version < 1 then perform public.gl_chart_ensure(src.business_id); end if;
@@ -822,8 +863,10 @@ begin
     if rev is not null then
       select coalesce(array_agg(row(l.account_id, case l.side when 'D' then 'C' else 'D' end, l.amount, dt, l.match1, l.match2)::public.gl_line_in order by l.line_no), '{}')
         into r from public.gl_lines l where l.transaction_id = rev;
+    elsif d.doc_date >= bk.start_date then                                -- of the books' time, not posted yet (it failed): wait for it
+      raise exception 'gl_wait: the cancelled document % is not posted yet', d.doc_number using errcode = '55000';
     else
-      r := public.gl_swap(public.gl_lines_document(p_id), dt);            -- a document of before the books: its effect, reversed
+      return null;          -- a document of before the books' start was never posted: its cancellation reverses nothing here
     end if;
     loc := coalesce(d.location_id, d.business_id); usr := c.user_id;
     r1t := d.doc_type; r1n := public.gl_doc_ref(d.doc_number);
@@ -850,8 +893,10 @@ begin
     if rev is not null then
       select coalesce(array_agg(row(l.account_id, case l.side when 'D' then 'C' else 'D' end, l.amount, dt, l.match1, l.match2)::public.gl_line_in order by l.line_no), '{}')
         into r from public.gl_lines l where l.transaction_id = rev;
+    elsif x.deposited_on >= bk.start_date then
+      raise exception 'gl_wait: the cancelled deposit % is not posted yet', x.number using errcode = '55000';
     else
-      r := public.gl_swap(public.gl_lines_deposit(p_id), dt);
+      return null;          -- a deposit of before the books' start was never posted: nothing to reverse
     end if;
     loc := x.location_id; usr := x.cancelled_by;
     select * into dep_doc from public.documents where deposit_id = x.id;
@@ -882,15 +927,20 @@ end $$;
 -- the trigger's call: a failure never blocks the source — it is recorded, and the source stays in gl_unposted
 create or replace function public.gl_post_safe(p_source text, p_id uuid) returns uuid
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare b uuid;
+declare b uuid; e text;
 begin
   return public.gl_post(p_source, p_id);
 exception when others then
+  e := left(sqlstate || ' ' || sqlerrm, 600);
   begin
     b := (public.gl_source_of(p_source, p_id)).business_id;
     if b is not null then
       perform public.gl_books_ensure(b);
-      insert into public.gl_post_failures (business_id, source_kind, source_id, error) values (b, p_source, p_id, left(sqlstate || ' ' || sqlerrm, 600));
+      -- one row per source, error and day (a source the cron retries every few minutes does not fill the table)
+      insert into public.gl_post_failures (business_id, source_kind, source_id, error)
+      select b, p_source, p_id, e
+       where not exists (select 1 from public.gl_post_failures f where f.source_kind = p_source and f.source_id = p_id and f.error = e
+                            and (f.at at time zone 'Asia/Jerusalem')::date = public.il_today());
     end if;
   exception when others then null;
   end;
@@ -927,10 +977,12 @@ end $$;
 -- ============================================================================================================================
 -- 8. the owner: the start date, the opening balances; the server / the owner: replay
 -- ============================================================================================================================
--- every source of a business since a date (and the books' start), in time order, posted if it was not (idempotent)
-create or replace function public.gl_replay(p_business uuid, p_from date default null) returns jsonb
+-- the sources of a business that should have posted and did not (gl_unposted), in time order, since a date — at most p_limit
+-- in one call (a browser request never runs long: call again while "left" > 0); idempotent. The owner (the current business) or
+-- the server (no user — any business).
+create or replace function public.gl_replay(p_business uuid, p_from date default null, p_limit int default 200) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare bk public.gl_books; f date; s record; before_n bigint; failed int := 0; tx uuid;
+declare s record; posted int := 0; failed int := 0; tx uuid; n int := least(greatest(coalesce(p_limit, 200), 1), 1000);
 begin
   if auth.uid() is not null then
     if p_business is distinct from public.finance_guard() or not public.journal_writer() or not public.can_write() then
@@ -939,49 +991,44 @@ begin
   if p_business is null or not exists (select 1 from public.businesses where id = p_business) then
     raise exception 'gl_business: a business' using errcode = '22023'; end if;
   perform public.gl_books_ensure(p_business);
-  select * into bk from public.gl_books where business_id = p_business for update;
-  f := greatest(coalesce(p_from, bk.start_date), bk.start_date);
-  select count(*) into before_n from public.gl_transactions where business_id = p_business;
-  for s in
-    select * from (
-      select 'document'::text as k, d.id, d.doc_date as dt, d.issued_at as ts, 1 as o, d.link_no as seq from public.documents d
-       where d.business_id = p_business and d.doc_type in (300, 305, 320, 330, 400) and d.doc_date >= f
-      union all
-      select 'payment', p.id, p.paid_on, p.created_at, 2, 0::bigint from public.payments p
-       where p.business_id = p_business and p.paid_on >= f
-         and (p.source in ('refund', 'credit') or (p.source = 'reversal' and p.expense_id is null and p.document_id is not null))
-      union all
-      select 'deposit', x.id, x.deposited_on, x.created_at, 3, x.number::bigint from public.bank_deposits x where x.business_id = p_business and x.deposited_on >= f
-      union all
-      select 'cancellation', c.document_id, (c.created_at at time zone 'Asia/Jerusalem')::date, c.created_at, 4, d.link_no
-        from public.document_cancellations c join public.documents d on d.id = c.document_id
-       where c.business_id = p_business and d.doc_type in (300, 305, 320, 330, 400) and (c.created_at at time zone 'Asia/Jerusalem')::date >= f
-      union all
-      select 'deposit_cancel', x.id, (x.cancelled_at at time zone 'Asia/Jerusalem')::date, x.cancelled_at, 5, x.number::bigint from public.bank_deposits x
-       where x.business_id = p_business and x.status = 'cancelled' and (x.cancelled_at at time zone 'Asia/Jerusalem')::date >= f
-    ) q
-    where not exists (select 1 from public.gl_transactions t where t.idempotency_key = q.k || ':' || q.id)
-    order by q.dt, q.ts, q.o, q.seq, q.id
-  loop
-    tx := public.gl_post_safe(s.k, s.id);
-    if tx is null and exists (select 1 from public.gl_post_failures pf where pf.source_kind = s.k and pf.source_id = s.id and pf.at >= now()) then
-      failed := failed + 1; end if;
+  for s in select u.source_kind, u.source_id from public.gl_unposted u
+            where u.business_id = p_business and (p_from is null or u.source_date >= p_from)
+            order by u.source_date, u.source_at, u.ord, u.seq, u.source_id limit n loop
+    tx := public.gl_post_safe(s.source_kind, s.source_id);
+    if tx is null then failed := failed + 1; else posted := posted + 1; end if;
   end loop;
-  return jsonb_build_object('business', p_business, 'from', f,
-    'posted', (select count(*) from public.gl_transactions where business_id = p_business) - before_n, 'failed', failed);
+  return jsonb_build_object('business', p_business, 'posted', posted, 'failed', failed,
+    'left', (select count(*) from public.gl_unposted u where u.business_id = p_business and (p_from is null or u.source_date >= p_from)));
+end $$;
+
+-- the server's timer: what did not post, of every business, oldest first, at most p_limit in one call (service role only)
+create or replace function public.gl_replay_pending(p_limit int default 200) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare s record; posted int := 0; failed int := 0; tx uuid; n int := least(greatest(coalesce(p_limit, 200), 1), 1000);
+begin
+  if auth.uid() is not null then raise exception 'not allowed' using errcode = '42501'; end if;
+  for s in select u.source_kind, u.source_id from public.gl_unposted u
+            order by u.source_date, u.source_at, u.ord, u.seq, u.source_id limit n loop
+    tx := public.gl_post_safe(s.source_kind, s.source_id);
+    if tx is null then failed := failed + 1; else posted := posted + 1; end if;
+  end loop;
+  return jsonb_build_object('posted', posted, 'failed', failed, 'left', (select count(*) from public.gl_unposted));
 end $$;
 
 -- the owner moves the start of the books to the 1st of a month (answer 13 — a business switching mid-year; the demo) while nothing
--- was posted yet; then every source since then posts, in time order
+-- was posted yet. It posts nothing itself: the sources since then are "unposted" — the screen calls gl_replay in batches, and the
+-- server's timer (gl_replay_pending) posts what is left
 create or replace function public.gl_books_start_set(p_start date) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare b uuid := public.finance_guard(); bk public.gl_books; lock_end date; res jsonb;
+declare b uuid := public.finance_guard(); bk public.gl_books; lock_end date;
 begin
   if not public.can_write() or not public.journal_writer() then raise exception 'not allowed' using errcode = '42501'; end if;
   if p_start is null or extract(day from p_start) <> 1 or p_start > (date_trunc('month', public.il_today()) + interval '1 month')::date
      or p_start < date '2000-01-01' then
     raise exception 'books_start_date: תחילת הספרים — ה-1 בחודש, עד החודש הבא' using errcode = '22023'; end if;
   perform public.gl_books_ensure(b);
+  -- the locks in the order a document's issue takes them (finance_log's, then the books' at commit) — never the other way round
+  perform pg_advisory_xact_lock(hashtextextended('finance_audit:' || b::text, 0));
   select * into bk from public.gl_books where business_id = b for update;
   if exists (select 1 from public.gl_transactions t where t.business_id = b) then
     raise exception 'books_started: כבר נרשמו פקודות בספרים — אי אפשר להזיז את תאריך ההתחלה' using errcode = '23514'; end if;
@@ -990,8 +1037,7 @@ begin
     raise exception 'period_locked: the books are closed until %', lock_end using errcode = '23514'; end if;
   update public.gl_books set start_date = p_start, updated_at = now() where business_id = b;
   perform public.finance_log(b, 'books.start', 'gl_books', b::text, jsonb_build_object('from', bk.start_date, 'to', p_start));
-  res := public.gl_replay(b, p_start);
-  return jsonb_build_object('startDate', p_start) || res;
+  return jsonb_build_object('startDate', p_start, 'pending', (select count(*) from public.gl_unposted u where u.business_id = b));
 end $$;
 
 -- the opening balances (answer 14 — the owner, from the accountant), once: [{ "account": "<key>", "side": "D" | "C", "amount": n },
@@ -1005,6 +1051,7 @@ begin
   if jsonb_typeof(p_lines) is distinct from 'array' or jsonb_array_length(p_lines) = 0 or jsonb_array_length(p_lines) > 2000 then
     raise exception 'opening_lines: רשימת יתרות (1 עד 2000 שורות)' using errcode = '22023'; end if;
   perform public.gl_chart_ensure(b);
+  perform pg_advisory_xact_lock(hashtextextended('finance_audit:' || b::text, 0));   -- finance_log's lock first, as a document's issue
   select * into bk from public.gl_books where business_id = b for update;
   if bk.opening_tx is not null or exists (select 1 from public.gl_transactions where idempotency_key = 'opening:' || b) then
     raise exception 'opening_done: יתרות הפתיחה כבר נרשמו (תיקון — בפקודה)' using errcode = '23514'; end if;
@@ -1048,25 +1095,31 @@ end $$;
 -- what should have posted and did not: a source of the books' time, with no entry (and its last error)
 create or replace view public.gl_unposted with (security_invoker = true) as
 select s.business_id, s.source_kind, s.source_id, s.source_date, s.label,
-       (select f.error from public.gl_post_failures f where f.source_kind = s.source_kind and f.source_id = s.source_id order by f.at desc limit 1) as error
+       (select f.error from public.gl_post_failures f where f.source_kind = s.source_kind and f.source_id = s.source_id order by f.at desc limit 1) as error,
+       s.source_at, s.ord, s.seq
   from (
     select d.business_id, 'document'::text as source_kind, d.id as source_id, d.doc_date as source_date,
-           public.gl_doc_name(d.doc_type) || ' ' || public.gl_doc_ref(d.doc_number) as label
+           public.gl_doc_name(d.doc_type) || ' ' || public.gl_doc_ref(d.doc_number) as label, d.doc_date as base_date,
+           d.issued_at as source_at, 1 as ord, d.link_no as seq
       from public.documents d where d.doc_type in (300, 305, 320, 330, 400)
     union all
+    -- a cancellation / a deposit's cancellation: only of what is of the books' time (one of before the start reverses nothing)
     select c.business_id, 'cancellation', c.document_id, (c.created_at at time zone 'Asia/Jerusalem')::date,
-           'ביטול ' || public.gl_doc_name(d.doc_type) || ' ' || public.gl_doc_ref(d.doc_number)
+           'ביטול ' || public.gl_doc_name(d.doc_type) || ' ' || public.gl_doc_ref(d.doc_number), d.doc_date, c.created_at, 4, d.link_no
       from public.document_cancellations c join public.documents d on d.id = c.document_id where d.doc_type in (300, 305, 320, 330, 400)
     union all
-    select p.business_id, 'payment', p.id, p.paid_on, case p.source when 'refund' then 'החזר כספי בקופה' when 'credit' then 'החזר כספי על זיכוי' else 'החזרת תשלום' end
+    select p.business_id, 'payment', p.id, p.paid_on, case p.source when 'refund' then 'החזר כספי בקופה' when 'credit' then 'החזר כספי על זיכוי' else 'החזרת תשלום' end,
+           p.paid_on, p.created_at, 2, 0::bigint
       from public.payments p where p.source in ('refund', 'credit') or (p.source = 'reversal' and p.expense_id is null and p.document_id is not null)
     union all
-    select x.business_id, 'deposit', x.id, x.deposited_on, 'הפקדה ' || x.number from public.bank_deposits x
+    select x.business_id, 'deposit', x.id, x.deposited_on, 'הפקדה ' || x.number, x.deposited_on, x.created_at, 3, x.number::bigint
+      from public.bank_deposits x
     union all
-    select x.business_id, 'deposit_cancel', x.id, (x.cancelled_at at time zone 'Asia/Jerusalem')::date, 'ביטול הפקדה ' || x.number
+    select x.business_id, 'deposit_cancel', x.id, (x.cancelled_at at time zone 'Asia/Jerusalem')::date, 'ביטול הפקדה ' || x.number,
+           x.deposited_on, x.cancelled_at, 5, x.number::bigint
       from public.bank_deposits x where x.status = 'cancelled'
   ) s
-  join public.gl_books b on b.business_id = s.business_id and s.source_date >= b.start_date
+  join public.gl_books b on b.business_id = s.business_id and s.source_date >= b.start_date and s.base_date >= b.start_date
  where not exists (select 1 from public.gl_transactions t where t.idempotency_key = s.source_kind || ':' || s.source_id);
 revoke all on public.gl_unposted from anon, public;
 grant select on public.gl_unposted to authenticated;
@@ -1101,6 +1154,481 @@ language sql stable security invoker set search_path = public, pg_temp as $$
    group by a.id, a.key, a.name, a.kind, a.tb_code, a.tb_name, a.parent_key
    order by a.key
 $$;
+
+-- ============================================================================================================================
+-- 9a. the owner's answers 18 and 19 (27.11.2026) in the documents' checks — replaces four functions (same signatures):
+--   documents_validate()           of 20261127007000 — a 305 may be made from a 300 (base_doc_type 300 + its number — fields
+--                                   1256 / 1257, clarification 6: "a document based on another document"): of this business, the
+--                                   300 not cancelled, not closed yet by a 305 / a 320; and a 320 no longer pays a 300 a 305 closed
+--   document_cancellations_check() of 20261127007000 — a 300 a 305 was made from is not cancelled
+--   documents_after_insert()       of 20261125006800 — a 305 made from a 300 moves no stock (the 300 did)
+--   documents_more_checks()        of 20261005003200 — a VAT business's receipt (400) on a 300 is no longer refused (answer 18)
+-- Running 3200, 6800 or 7000 again after this one brings back an old version — then run this one again.
+-- ============================================================================================================================
+-- replaces documents_validate() of 20261127007000
+CREATE OR REPLACE FUNCTION public.documents_validate()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  rs record; ent text; n int; bad int; s numeric; lock_end date; base record; done numeric; tgt record; mirror boolean := false;
+  refund_receipt boolean; rf record; cashier boolean := public.my_access() = 'register'; dep record; dcash numeric; dchq numeric;
+begin
+  if new.business_id is null then raise exception 'a document must belong to a business' using errcode = '23502'; end if;
+  select * into rs from public.register_settings where business_id = new.business_id;
+  if not found or coalesce(rs.dealer_number, '') !~ '^[0-9]{9}$' then
+    raise exception 'business_details_missing: a document needs the business''s dealer number (9 digits)' using errcode = '23514';
+  end if;
+  ent := public.entity_of(rs.entity_type, rs.business_type);
+  -- 7000 (the accountant, answer 18): a bank deposit is a document of the books — 420 "הפקדת בנק" (1.31, appendix 1), its lines
+  -- the cash and each cheque (D120 "פרטי קבלה / הפקדה"). Issued only by bank_deposit_create, in the same transaction as the deposit
+  -- (dp.deposit_doc = its id), a mirror of it: no customer, no lines, no VAT, the total = the deposit's.
+  if new.deposit_id is not null and new.doc_type <> 420 then
+    raise exception 'deposit_document_only: רק מסמך הפקדה (420) שייך להפקדה' using errcode = '23514'; end if;
+  if new.doc_type = 420 then
+    if new.deposit_id is null or coalesce(current_setting('dp.deposit_doc', true), '') <> new.deposit_id::text then
+      raise exception 'deposit_document_only: מסמך הפקדה (420) מופק רק יחד עם ההפקדה (bank_deposit_create)' using errcode = '42501'; end if;
+    select * into dep from public.bank_deposits x where x.id = new.deposit_id and x.business_id = new.business_id;
+    if dep.id is null or dep.status <> 'active' then
+      raise exception 'deposit_document_only: ההפקדה לא נמצאה בעסק הזה' using errcode = '42501'; end if;
+    if coalesce(new.location_id, new.business_id) <> dep.location_id then
+      raise exception 'deposit_document_location: מסמך ההפקדה הוא של הסניף של ההפקדה' using errcode = '23514'; end if;
+    if new.sale_id is not null or new.lead_id is not null or new.refund_id is not null or new.paid_document_id is not null
+       or new.quote_id is not null or new.draft_id is not null or new.base_doc_type is not null or new.base_doc_number is not null then
+      raise exception 'deposit_document_alone: מסמך הפקדה לא שייך ללקוח, למכירה או למסמך אחר' using errcode = '23514'; end if;
+    if new.before_discount <> dep.cash + dep.cheques or new.discount <> 0 or new.after_discount <> new.before_discount
+       or new.vat_amount <> 0 or new.total <> new.before_discount or new.vat_rate <> 0 then
+      raise exception 'totals: a deposit document is the deposit''s total, with no discount and no VAT' using errcode = '23514'; end if;
+    if jsonb_typeof(new.lines) is distinct from 'array' or jsonb_array_length(new.lines) <> 0 then
+      raise exception 'lines: a deposit document has no lines — its cash and cheques are its payments' using errcode = '23514'; end if;
+    if jsonb_typeof(new.payments) is distinct from 'array' or jsonb_array_length(new.payments) = 0 then
+      raise exception 'payments: a deposit document lists its cash and cheques' using errcode = '23514'; end if;
+    select coalesce(sum((p->>'amount')::numeric) filter (where p->>'method' = '1'), 0),
+           coalesce(sum((p->>'amount')::numeric) filter (where p->>'method' = '2'), 0),
+           count(*) filter (where coalesce(p->>'method', '') not in ('1', '2') or coalesce((p->>'amount')::numeric, 0) <= 0
+                              or (p ? 'date' and coalesce(p->>'date', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+      into dcash, dchq, bad from jsonb_array_elements(new.payments) p;
+    if bad > 0 or dcash <> dep.cash or dchq <> dep.cheques then
+      raise exception 'payments: a deposit document lists the deposit''s cash (1) and cheques (2), each above zero' using errcode = '23514'; end if;
+    new.customer_name := ''; new.customer_phone := ''; new.customer_dealer := ''; new.customer_street := ''; new.customer_city := '';
+    new.customer_email := '';
+    if new.doc_date is null then new.doc_date := public.il_today(); end if;
+    lock_end := public.finance_locked_until(new.business_id);
+    if lock_end is not null and new.doc_date <= lock_end then
+      raise exception 'period_locked: the books are closed until %', lock_end using errcode = '23514'; end if;
+    new.due_date := null;
+    new.source := 'deposit';
+    new.issuer := public.issuer_snapshot(new.business_id);
+    return new;
+  end if;
+  if not (new.doc_type = any (public.entity_doc_types(ent))) then
+    raise exception 'doc_type_not_allowed: % does not issue document type %', ent, new.doc_type using errcode = '23514';
+  end if;
+  -- a cashier issues the sale's own document, nothing more
+  if public.my_access() = 'register' and (new.paid_document_id is not null or new.quote_id is not null or new.draft_id is not null) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  -- references stay inside the business
+  if new.sale_id is not null and not exists (select 1 from public.sales x where x.id = new.sale_id and x.business_id = new.business_id) then
+    raise exception 'the sale belongs to another business' using errcode = '42501'; end if;
+  if new.lead_id is not null and not exists (select 1 from public.leads x where x.id = new.lead_id and x.business_id = new.business_id) then
+    raise exception 'the customer belongs to another business' using errcode = '42501'; end if;
+  if new.refund_id is not null and not exists (select 1 from public.sale_refunds x where x.id = new.refund_id and x.business_id = new.business_id) then
+    raise exception 'the refund belongs to another business' using errcode = '42501'; end if;
+  if new.quote_id is not null and not exists (select 1 from public.quotes x where x.id = new.quote_id and x.business_id = new.business_id
+                                                and x.status in ('draft', 'sent', 'accepted')) then
+    raise exception 'the quote was not found in this business (or was already used)' using errcode = '23514'; end if;
+  if new.draft_id is not null and not exists (select 1 from public.document_drafts x where x.id = new.draft_id and x.business_id = new.business_id
+                                                and x.status = 'open' and x.doc_type = new.doc_type) then
+    raise exception 'the draft was not found in this business (or was already issued)' using errcode = '23514'; end if;
+
+  -- 2.118 (the accountant, answer 15): an exempt dealer refunds with a receipt of a negative total, pointing to the receipt it
+  -- refunds — never more than that receipt less the refund receipts already on it (in a lock)
+  refund_receipt := new.doc_type = 400 and new.total < 0;
+  -- a retry of a refund receipt already issued (the same key — a double tap, a lost answer, a second tab): no check of it here;
+  -- the insert reaches the unique key (documents_idempotency_uq, 23505) and the app reads back the receipt it issued
+  if refund_receipt and new.idempotency_key is not null
+     and exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key) then
+    new.doc_date := coalesce(new.doc_date, public.il_today());
+    return new;
+  end if;
+  if refund_receipt then
+    if ent is distinct from 'exempt_dealer' then
+      raise exception 'refund_receipt_not_exempt: קבלה במינוס (החזר כספי) — רק לעוסק פטור. עוסק מורשה וחברה מפיקים חשבונית מס זיכוי (330)'
+        using errcode = '23514'; end if;
+    if new.paid_document_id is not null or new.quote_id is not null or new.draft_id is not null then
+      raise exception 'refund_receipt_alone: קבלה במינוס לא משלמת חשבונית ולא מופקת מהצעה או מטיוטה' using errcode = '23514'; end if;
+    if new.base_doc_type is distinct from 400 or new.base_doc_number is null then
+      raise exception 'refund_receipt_base: קבלה במינוס מציינת את הקבלה שעליה ההחזר (base_doc_type 400 ומספר הקבלה)' using errcode = '23514'; end if;
+    -- a cashier (who reads no money): only the refund of a sale — its refund (refund_id), or the sale itself (sale_id) — never
+    -- products back without the refund, and no message that tells a receipt's amounts or state (cashier_refund)
+    if cashier then
+      if new.refund_id is null and new.sale_id is null then
+        raise exception 'cashier_refund: קופאי/ת מחזיר/ה כסף רק על מכירה (החזר מהקופה)' using errcode = '42501'; end if;
+      if new.refund_id is null and exists (select 1 from jsonb_array_elements(case when jsonb_typeof(new.lines) = 'array' then new.lines else '[]'::jsonb end) e
+                                            where (e->>'restock') = 'true') then
+        raise exception 'cashier_refund: החזרת מוצרים למלאי — רק בהחזר מהקופה' using errcode = '42501'; end if;
+    end if;
+    select id, total, sale_id into base from public.documents
+     where business_id = new.business_id and doc_type = 400 and doc_number = new.base_doc_number for update;
+    if cashier and (not found or base.sale_id is null
+                    or base.sale_id is distinct from coalesce(new.sale_id, (select x.sale_id from public.sale_refunds x where x.id = new.refund_id))) then
+      raise exception 'cashier_refund: הקבלה הזו לא שייכת למכירה של ההחזר' using errcode = '42501'; end if;
+    if not found or base.total <= 0 then
+      raise exception 'refund_receipt_base: הקבלה שעליה ההחזר לא נמצאה בעסק הזה' using errcode = '23514'; end if;
+    if exists (select 1 from public.document_cancellations c where c.document_id = base.id) then
+      if cashier then raise exception 'cashier_refund: אי אפשר להפיק את ההחזר הזה מהקופה' using errcode = '42501'; end if;
+      raise exception 'refund_receipt_base: הקבלה שעליה ההחזר בוטלה' using errcode = '23514'; end if;
+    -- a refund receipt of a sale without its refund (sale_refunds) is the cancelled sale's — cancelling it at the register is
+    -- the only way to refund a sale without recording the refund; on the sale's own receipt
+    if new.sale_id is not null then
+      if base.sale_id is distinct from new.sale_id then
+        if cashier then raise exception 'cashier_refund: הקבלה הזו לא שייכת למכירה של ההחזר' using errcode = '42501'; end if;
+        raise exception 'refund_receipt_sale: הקבלה שעליה ההחזר לא שייכת למכירה הזו' using errcode = '23514'; end if;
+      if new.refund_id is null and not exists (select 1 from public.sales x where x.id = new.sale_id and x.status = 'cancelled') then
+        raise exception 'refund_receipt_sale: החזר על מכירה שלא בוטלה — רושמים "החזר כספי" בקופה (ההחזר מפיק את הקבלה במינוס)'
+          using errcode = '23514'; end if;
+    end if;
+    -- what already went back on this receipt: its refund receipts, and the refunds of its sale (sale_refunds) that have no refund
+    -- receipt of their own (yet) — this one's own refund aside. The sale is locked too, as sale_refunds_check locks it: a refund at
+    -- the register and a refund receipt of the same sale never pass at once.
+    if base.sale_id is not null then perform 1 from public.sales x where x.id = base.sale_id for update; end if;
+    select coalesce(sum(-c.total), 0) into done from public.documents c
+     where c.business_id = new.business_id and c.doc_type = 400 and c.total < 0 and c.base_doc_type = 400 and c.base_doc_number = new.base_doc_number;
+    if base.sale_id is not null then
+      done := done + coalesce((select sum(x.amount) from public.sale_refunds x
+                                where x.sale_id = base.sale_id and x.id is distinct from new.refund_id
+                                  and not exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = x.id)), 0);
+    end if;
+    if done - new.total > base.total then
+      if cashier then raise exception 'refund_receipt_over: ההחזר גדול ממה שנשאר להחזיר על הקבלה' using errcode = '23514'; end if;
+      raise exception 'refund_receipt_over: על הקבלה נשארו להחזר % ש״ח', base.total - done using errcode = '23514'; end if;
+    -- the register's / an order's refund: the same money, of the same sale
+    if new.refund_id is not null then
+      select id, sale_id, amount into rf from public.sale_refunds where id = new.refund_id;
+      -- one refund, one refund receipt, whatever its key (a retry with the same key never gets here — above)
+      if exists (select 1 from public.documents c where c.business_id = new.business_id and c.refund_id = new.refund_id) then
+        raise exception 'refund_receipt_refund: להחזר הזה כבר הופקה קבלה במינוס' using errcode = '23514'; end if;
+      if rf.amount is distinct from -new.total then
+        if cashier then raise exception 'refund_receipt_refund: סכום הקבלה במינוס שונה מסכום ההחזר' using errcode = '23514'; end if;
+        raise exception 'refund_receipt_refund: סכום הקבלה במינוס (%) שונה מסכום ההחזר (%)', new.total, rf.amount using errcode = '23514'; end if;
+      if base.sale_id is distinct from rf.sale_id or (new.sale_id is not null and new.sale_id is distinct from rf.sale_id) then
+        raise exception 'refund_receipt_refund: ההחזר שייך למכירה אחרת מהקבלה' using errcode = '23514'; end if;
+    end if;
+  -- a credit invoice: points to a tax invoice of this business, never beyond what is left to credit (in a lock)
+  elsif new.doc_type = 330 then
+    if new.base_doc_type is null or new.base_doc_type not in (305, 320) or new.base_doc_number is null then
+      raise exception 'a credit invoice points to a tax invoice (305 / 320)' using errcode = '23514'; end if;
+    select id, total, before_discount, discount, after_discount, vat_amount into base from public.documents
+     where business_id = new.business_id and doc_type = new.base_doc_type and doc_number = new.base_doc_number for update;
+    if not found then raise exception 'the credited invoice was not found in this business' using errcode = '23514'; end if;
+    select coalesce(sum(c.total), 0) into done from public.documents c
+     where c.business_id = new.business_id and c.doc_type = 330 and c.base_doc_type = new.base_doc_type and c.base_doc_number = new.base_doc_number;
+    if done + new.total > base.total then
+      raise exception 'credit_exceeds_original: % left to credit', base.total - done using errcode = '23514'; end if;
+    -- a full mirror of an invoice issued before these checks existed is accepted as it is
+    mirror := new.total = base.total and new.before_discount = base.before_discount and new.discount = base.discount
+              and new.after_discount = base.after_discount and new.vat_amount = base.vat_amount;
+  elsif new.base_doc_type is not null or new.base_doc_number is not null then
+    -- 2.95 (T10): a document made from an order or a delivery note names it (fields 1256/1257) — d_documents_goods checks which
+    if new.base_doc_number is null or not ((new.doc_type = 200 and new.base_doc_type = 100) or (new.doc_type = 210 and new.base_doc_type = 200)
+                                            or (new.doc_type in (300, 305, 320) and new.base_doc_type in (100, 200))
+                                            or (new.doc_type = 305 and new.base_doc_type = 300)) then
+      raise exception 'only a credit invoice points to a base document (or a document made from an order or a delivery note)' using errcode = '23514';
+    end if;
+    -- 7100 (the owner, answer 19, 27.11.2026): a tax invoice (305) made from a transaction invoice (300) of this business closes
+    -- it — once: the 300 not cancelled, not closed yet by another 305 or by a 320 that pays it (in a lock on the 300). A retry of
+    -- a 305 already issued (the same key) is not checked here: the insert reaches the unique key, as every retry
+    if new.doc_type = 305 and new.base_doc_type = 300
+       and not (new.idempotency_key is not null and exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key)) then
+      select id, doc_number into tgt from public.documents where business_id = new.business_id and doc_type = 300 and doc_number = new.base_doc_number for update;
+      if tgt.id is null then raise exception 'invoice_from_300: חשבון העסקה לא נמצא בעסק הזה' using errcode = '23514'; end if;
+      if exists (select 1 from public.document_cancellations x where x.document_id = tgt.id) then
+        raise exception 'invoice_from_300: חשבון העסקה בוטל' using errcode = '23514'; end if;
+      if exists (select 1 from public.documents x where x.business_id = new.business_id and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)
+                   and ((x.doc_type = 305 and x.base_doc_type = 300 and x.base_doc_number = tgt.doc_number) or (x.doc_type = 320 and x.paid_document_id = tgt.id))) then
+        raise exception 'invoice_from_300_closed: על חשבון העסקה הזה כבר הופקה חשבונית מס' using errcode = '23514'; end if;
+    end if;
+  end if;
+
+  -- totals, to the agora
+  if not mirror then
+    if refund_receipt then
+      -- a refund receipt: no discount and no VAT — before = after = the total, below zero
+      if new.discount <> 0 or new.vat_amount <> 0 or new.before_discount >= 0 then
+        raise exception 'totals: a refund receipt has no discount and no VAT, and its amounts are below zero' using errcode = '23514'; end if;
+    elsif new.before_discount < 0 or new.discount < 0 or new.vat_amount < 0 or new.total <= 0 then
+      raise exception 'totals: amounts are positive and the total is above zero' using errcode = '23514'; end if;
+    if new.after_discount <> new.before_discount - new.discount then
+      raise exception 'totals: after discount must equal before discount minus the discount' using errcode = '23514'; end if;
+    if new.total <> new.after_discount + new.vat_amount then
+      raise exception 'totals: the total must equal the amount before VAT plus the VAT' using errcode = '23514'; end if;
+    if new.vat_rate < 0 or new.vat_rate > 30 then raise exception 'totals: VAT rate out of range' using errcode = '23514'; end if;
+    if not public.entity_charges_vat(ent) or new.doc_type = 400 then
+      if new.vat_amount <> 0 then raise exception 'totals: this document carries no VAT' using errcode = '23514'; end if;
+    elsif abs(new.vat_amount - round(new.after_discount * new.vat_rate / 100, 2)) > 0.01 then
+      raise exception 'totals: the VAT does not match the rate' using errcode = '23514';
+    end if;
+    if jsonb_typeof(new.lines) is distinct from 'array' then raise exception 'lines: a list is expected' using errcode = '23514'; end if;
+    n := jsonb_array_length(new.lines);
+    if n = 0 and new.doc_type <> 400 then raise exception 'lines: a document needs at least one line' using errcode = '23514'; end if;
+    if n > 0 then
+      select coalesce(sum((e->>'totalExVat')::numeric), 0), count(*) filter (where coalesce(e->>'name', '') = '' or e->>'totalExVat' is null)
+        into s, bad from jsonb_array_elements(new.lines) e;
+      if bad > 0 then raise exception 'lines: every line needs a name and a total' using errcode = '23514'; end if;
+      if s <> new.before_discount then
+        raise exception 'lines: the lines add up to % but the document says %', s, new.before_discount using errcode = '23514'; end if;
+    end if;
+  end if;
+
+  -- payments: a receipt (320 / 400) lists how it was paid, exactly the total; other documents list none
+  if jsonb_typeof(new.payments) is distinct from 'array' then raise exception 'payments: a list is expected' using errcode = '23514'; end if;
+  if new.doc_type in (320, 400) then
+    if jsonb_array_length(new.payments) = 0 then raise exception 'payments: a receipt says how it was paid' using errcode = '23514'; end if;
+    if refund_receipt then
+      -- the money that went back: each payment below zero, never tax withheld at source
+      select coalesce(sum((p->>'amount')::numeric), 0),
+             count(*) filter (where coalesce((p->>'amount')::numeric, 0) >= 0 or coalesce(p->>'method', '') !~ '^[1-9]$'
+                                or p->>'m' = 'withholding' or p ? 'pct'
+                                or (p ? 'date' and coalesce(p->>'date', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+        into s, bad from jsonb_array_elements(new.payments) p;
+      if bad > 0 then
+        raise exception 'refund_receipt_payments: בקבלה במינוס כל תשלום הוא החזר — סכום מתחת לאפס, אמצעי תשלום 1–9, בלי ניכוי במקור'
+          using errcode = '23514'; end if;
+    else
+      select coalesce(sum((p->>'amount')::numeric), 0),
+             count(*) filter (where coalesce((p->>'amount')::numeric, 0) <= 0 or coalesce(p->>'method', '') !~ '^[1-9]$'
+                                or (p ? 'date' and coalesce(p->>'date', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'))
+        into s, bad from jsonb_array_elements(new.payments) p;
+      if bad > 0 then raise exception 'payments: each payment needs a method (1–9), an amount above zero and a valid date' using errcode = '23514'; end if;
+    end if;
+    if abs(s - new.total) > 0.01 then raise exception 'payments: % paid but the document says %', s, new.total using errcode = '23514'; end if;
+    -- 2.118 (the accountant, answer 13): a card payment names its credit transaction kind (field 1315): 1 regular, 2 installments,
+    -- 3 credit, 4 deferred charge, 5 other — asked when the document is issued; no other payment carries one
+    -- a document the register or a server path makes (a sale's: sale_id — the register, its re-issue from "הכנסות", an online
+    -- order; a payment link's receipt: paylink:<id>) whose card payment names no kind — an app still open on the code before
+    -- 2.118 — gets 1 (regular); a kind that is there is checked as any. Everything else (composed by hand) must name it.
+    if (new.sale_id is not null or coalesce(new.idempotency_key, '') like 'paylink:%')
+       and exists (select 1 from jsonb_array_elements(new.payments) p where p->>'method' = '3' and not (p ? 'cardKind')) then
+      select jsonb_agg(case when p->>'method' = '3' and not (p ? 'cardKind') then p || '{"cardKind": 1}'::jsonb else p end order by o)
+        into new.payments from jsonb_array_elements(new.payments) with ordinality x(p, o);
+    end if;
+    if exists (select 1 from jsonb_array_elements(new.payments) p
+                where p->>'method' = '3' and (jsonb_typeof(p->'cardKind') is distinct from 'number' or coalesce(p->>'cardKind', '') !~ '^[1-5]$')) then
+      raise exception 'card_kind_missing: בתשלום בכרטיס אשראי בוחרים את סוג העסקה — רגיל, תשלומים, קרדיט, חיוב נדחה או אחר (cardKind 1–5)'
+        using errcode = '23514'; end if;
+    if exists (select 1 from jsonb_array_elements(new.payments) p where p->>'method' is distinct from '3' and p ? 'cardKind') then
+      raise exception 'card_kind_not_card: סוג עסקת אשראי (cardKind) — רק בתשלום בכרטיס אשראי' using errcode = '23514'; end if;
+  elsif jsonb_array_length(new.payments) > 0 then
+    raise exception 'payments: only a receipt (320 / 400) lists payments' using errcode = '23514';
+  end if;
+
+  -- a receipt paying an invoice of this business: 400 pays a 305 / 300, a 320 pays a 300 (in a lock)
+  if new.paid_document_id is not null then
+    select id, doc_type, business_id into tgt from public.documents where id = new.paid_document_id for update;
+    if not found or tgt.business_id is distinct from new.business_id then
+      raise exception 'the paid document was not found in this business' using errcode = '42501'; end if;
+    if not ((new.doc_type = 400 and tgt.doc_type in (300, 305)) or (new.doc_type = 320 and tgt.doc_type = 300)) then
+      raise exception 'a receipt (400) pays a 305 / 300; a tax invoice-receipt (320) pays a 300' using errcode = '23514'; end if;
+    if exists (select 1 from public.document_cancellations x where x.document_id = tgt.id) then
+      raise exception 'the paid document was cancelled' using errcode = '23514'; end if;
+    -- 7100 (answer 19): a 300 that a tax invoice (305) was made from is closed — no 320 on it any more
+    if new.doc_type = 320 and tgt.doc_type = 300
+       and not (new.idempotency_key is not null and exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key))
+       and exists (select 1 from public.documents x where x.business_id = new.business_id and x.doc_type = 305 and x.base_doc_type = 300
+                     and x.base_doc_number = (select y.doc_number from public.documents y where y.id = tgt.id)
+                     and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)) then
+      raise exception 'invoice_from_300_closed: על חשבון העסקה הזה כבר הופקה חשבונית מס' using errcode = '23514'; end if;
+  end if;
+
+  -- dates: the day it is issued (2.118 — d_documents_issue_day refuses any other); no date sent = today; never ahead of today
+  -- (a client clock a little ahead is brought back), never in closed books
+  if new.doc_date is null then new.doc_date := public.il_today(); end if;
+  if new.doc_date > public.il_today() + 1 then raise exception 'a document can not be dated in the future' using errcode = '23514'; end if;
+  if new.doc_date > public.il_today() then new.doc_date := public.il_today(); end if;
+  lock_end := public.finance_locked_until(new.business_id);
+  if lock_end is not null and new.doc_date <= lock_end then
+    raise exception 'period_locked: the books are closed until %', lock_end using errcode = '23514'; end if;
+  if new.doc_type in (300, 305) then
+    if new.due_date is not null and new.due_date < new.doc_date then raise exception 'the due date is before the document date' using errcode = '23514'; end if;
+  else
+    new.due_date := null;
+  end if;
+
+  new.source := coalesce(new.source, case when new.refund_id is not null or refund_receipt then 'refund' when new.sale_id is not null then 'pos'
+                                          when new.paid_document_id is not null then 'receipt'
+                                          when new.quote_id is not null then 'quote' when new.doc_type = 330 then 'credit' else 'direct' end);
+  new.issuer := public.issuer_snapshot(new.business_id);   -- whatever the client sent: the business as it is now
+  return new;
+end $function$;
+
+-- replaces document_cancellations_check() of 20261127007000
+CREATE OR REPLACE FUNCTION public.document_cancellations_check()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare d record; lock_end date;
+begin
+  select id, business_id, doc_type, doc_number, doc_date, base_doc_number, deposit_id into d from public.documents where id = new.document_id for update;
+  if not found or d.business_id is distinct from new.business_id then
+    raise exception 'the document was not found in this business' using errcode = '42501'; end if;
+  -- 7000: a deposit document (420) is cancelled with its deposit — only by bank_deposit_cancel, in the same transaction
+  if d.doc_type = 420 and (coalesce(current_setting('dp.deposit_doc', true), '') <> coalesce(d.deposit_id::text, '-')
+                           or not exists (select 1 from public.bank_deposits x where x.id = d.deposit_id and x.status = 'cancelled')) then
+    raise exception 'cancel_deposit_document: מסמך הפקדה מבוטל רק יחד עם ההפקדה (ביטול הפקדה)' using errcode = '23514'; end if;
+  if d.doc_type = 400 then
+    raise exception 'cancel_receipt_not_allowed: קבלה לא מבטלים בסימון "בוטל". מחזירים כסף בקבלה במינוס (עוסק פטור) או בחשבונית זיכוי'
+      using errcode = '23514'; end if;
+  if d.doc_type not in (300, 100, 200, 210, 420) then
+    raise exception 'cancel_not_allowed: a tax invoice is corrected by a credit invoice (330)' using errcode = '23514'; end if;
+  lock_end := public.finance_locked_until(d.business_id);
+  if lock_end is not null and d.doc_date <= lock_end then
+    raise exception 'period_locked: the books are closed until %', lock_end using errcode = '23514'; end if;
+  if d.doc_type = 300 and exists (select 1 from public.documents p where p.paid_document_id = d.id
+                                    and not exists (select 1 from public.document_cancellations c where c.document_id = p.id)) then
+    raise exception 'a paid transaction invoice is not cancelled (cancel its receipt first)' using errcode = '23514'; end if;
+  -- 7100 (answer 19): a 300 that a tax invoice (305) was made from stays (the invoice is corrected by a credit, 330)
+  if d.doc_type = 300 and exists (select 1 from public.documents x where x.business_id = d.business_id and x.doc_type = 305
+                                    and x.base_doc_type = 300 and x.base_doc_number = d.doc_number) then
+    raise exception 'cancel_has_followers: a tax invoice was made from this transaction invoice' using errcode = '23514'; end if;
+  -- 2.95 (T10): an order / a delivery note a document was made from stays (cancel that one first, if it may be)
+  if d.doc_type in (100, 200) and exists (select 1 from public.documents x
+                                            where x.business_id = d.business_id and x.base_doc_type = d.doc_type and x.base_doc_number = d.doc_number
+                                              and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)) then
+    raise exception 'cancel_has_followers: a document was made from it — cancel that one first' using errcode = '23514'; end if;
+  -- a return note stays once its delivery note was invoiced (the invoice counted what came back)
+  if d.doc_type = 210 and exists (select 1 from public.documents x
+                                    where x.business_id = d.business_id and x.base_doc_type = 200 and x.base_doc_number = d.base_doc_number
+                                      and x.doc_type in (300, 305, 320)
+                                      and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)) then
+    raise exception 'cancel_has_followers: its delivery note was invoiced' using errcode = '23514'; end if;
+  new.created_at := now();
+  return new;
+end $function$;
+
+-- replaces documents_after_insert() of 20261125006800
+CREATE OR REPLACE FUNCTION public.documents_after_insert()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare p jsonb; m text; l record; rest jsonb; refund_receipt boolean := new.doc_type = 400 and new.total < 0;
+begin
+  -- 1. the ledger: one row per payment of a receipt (2.94: tax withheld at source stays "withholding", with its percent)
+  if new.doc_type in (320, 400) and not (refund_receipt and new.refund_id is not null) then
+    for p in select value from jsonb_array_elements(new.payments) loop
+      m := coalesce(nullif(p->>'m', ''), case p->>'method' when '1' then 'cash' when '2' then 'cheque' when '3' then 'card' when '4' then 'transfer' else 'other' end);
+      if m not in ('cash', 'card', 'transfer', 'bit', 'cheque', 'other', 'withholding') then m := 'other'; end if;
+      insert into public.payments (business_id, user_id, direction, amount, method, paid_on, source, document_id, applies_to, sale_id, lead_id, reference)
+      values (new.business_id, new.user_id, case when refund_receipt then 'out' else 'in' end, abs((p->>'amount')::numeric), m,
+              coalesce(nullif(p->>'date', '')::date, new.doc_date), 'document',
+              new.id, new.paid_document_id, new.sale_id, new.lead_id,
+              case when m = 'withholding' then jsonb_strip_nulls(jsonb_build_object('pct', public.withholding_pct(p)))
+                   when jsonb_typeof(p->'cheque') = 'object' then p->'cheque' else '{}'::jsonb end);
+    end loop;
+  end if;
+  -- 2. the draft it came from is now issued; the quote it came from is converted
+  if new.draft_id is not null then
+    update public.document_drafts set status = 'finalized', document_id = new.id where id = new.draft_id and business_id = new.business_id;
+  end if;
+  if new.quote_id is not null then
+    update public.quotes set status = 'converted', converted_document_id = new.id
+     where id = new.quote_id and business_id = new.business_id and status in ('draft', 'sent', 'accepted');
+  end if;
+  -- 3. stock: products sold on a direct document go out on the document that makes the sale — a 300 / 305, or a
+  --    320 / 400 that stands alone — and never again on the receipt that pays it (whole or in parts, exempt or not).
+  --    Cancelling that document brings them back (document_cancellations_after). The register's sales move stock on
+  --    their own. A direct credit invoice — and (2.118) a direct refund receipt — brings back the lines marked "restock".
+  --    A line's variant moves with it (3300).
+  if new.sale_id is null and new.refund_id is null then
+    if new.doc_type = 200 then
+      -- 2.95 (T10): a delivery note takes the goods out — the invoice made from it takes nothing again
+      for l in select * from public.stock_lines_v(new.lines) loop
+        perform public.stock_move_ref_at(new.business_id, coalesce(new.location_id, new.business_id), l.item_id, l.variant_id, -l.qty, 'sale', format('%s-%s', new.doc_type, new.doc_number), new.id, null);
+      end loop;
+    elsif new.doc_type = 210 then
+      -- a return note brings back what came back, where it went out from (its delivery note's location)
+      for l in select * from public.stock_lines_v(new.lines) loop
+        perform public.stock_move_ref_at(new.business_id, coalesce(new.location_id, new.business_id), l.item_id, l.variant_id, l.qty, 'refund', format('%s-%s', new.doc_type, new.doc_number), new.id, null);
+      end loop;
+    elsif new.doc_type in (300, 305, 320, 400) and not refund_receipt and new.paid_document_id is null and new.base_doc_type is distinct from 200
+          and new.base_doc_type is distinct from 300 then   -- 7100 (answer 19): a 305 made from a 300 — the 300 took the goods out
+      for l in select * from public.stock_lines_v(new.lines) loop
+        perform public.stock_move_ref_at(new.business_id, coalesce(new.location_id, new.business_id), l.item_id, l.variant_id, -l.qty, 'sale', format('%s-%s', new.doc_type, new.doc_number), new.id, null);
+      end loop;
+    elsif new.doc_type = 330 or refund_receipt then
+      select coalesce(jsonb_agg(e), '[]'::jsonb) into rest from jsonb_array_elements(new.lines) e where (e->>'restock') = 'true';
+      for l in select * from public.stock_lines_v(rest) loop
+        perform public.stock_move_ref_at(new.business_id, coalesce(new.location_id, new.business_id), l.item_id, l.variant_id, case when refund_receipt then abs(l.qty) else l.qty end, 'refund', format('%s-%s', new.doc_type, new.doc_number), new.id, null);
+      end loop;
+    end if;
+  end if;
+  -- 4. the audit log
+  perform public.finance_log(new.business_id, 'document.issued', 'documents', new.id::text,
+    jsonb_build_object('type', new.doc_type, 'number', new.doc_number, 'total', new.total, 'date', new.doc_date, 'source', new.source));
+  return null;
+end $function$;
+
+-- replaces documents_more_checks() of 20261005003200
+CREATE OR REPLACE FUNCTION public.documents_more_checks()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare bad int; tgt record; ent text; credited numeric; paid numeric;
+begin
+  -- 7. lines: an object each; a name (text); amounts, quantity, rate and kind are numbers
+  select count(*) into bad from jsonb_array_elements(new.lines) e
+   where jsonb_typeof(e) <> 'object'
+      or jsonb_typeof(e->'name') is distinct from 'string' or length(e->>'name') > 300
+      or (e ? 'qty' and jsonb_typeof(e->'qty') <> 'number')
+      or (e ? 'unitPriceExVat' and jsonb_typeof(e->'unitPriceExVat') <> 'number')
+      or (e ? 'discountExVat' and jsonb_typeof(e->'discountExVat') <> 'number')
+      or (e ? 'totalExVat' and jsonb_typeof(e->'totalExVat') <> 'number')
+      or (e ? 'vatRate' and jsonb_typeof(e->'vatRate') <> 'number')
+      or (e ? 'kind' and jsonb_typeof(e->'kind') <> 'number')
+      or (e ? 'restock' and jsonb_typeof(e->'restock') <> 'boolean');
+  if bad > 0 then raise exception 'lines: names are text; quantities, prices, totals and rates are numbers' using errcode = '23514'; end if;
+  -- 7. payments: an object each; method and amount are numbers, the date a date; a cheque's fields are digits
+  select count(*) into bad from jsonb_array_elements(new.payments) p
+   where jsonb_typeof(p) <> 'object'
+      or jsonb_typeof(p->'method') is distinct from 'number' or jsonb_typeof(p->'amount') is distinct from 'number'
+      or (p ? 'date' and coalesce(p->>'date', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      or (p ? 'm' and coalesce(p->>'m', '') !~ '^[a-z]{1,20}$')
+      or (p ? 'cheque' and (jsonb_typeof(p->'cheque') <> 'object'
+            or coalesce(p->'cheque'->>'number', '') !~ '^[0-9]{1,10}$'
+            or coalesce(p->'cheque'->>'bank', '') !~ '^[0-9]{0,3}$'
+            or coalesce(p->'cheque'->>'branch', '') !~ '^[0-9]{0,5}$'
+            or coalesce(p->'cheque'->>'account', '') !~ '^[0-9]{0,15}$'
+            or coalesce(p->'cheque'->>'dueDate', '') !~ '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$'));
+  if bad > 0 then raise exception 'payments: method and amount are numbers, dates are dates, a cheque''s details are digits' using errcode = '23514'; end if;
+
+  -- 6. a receipt paying an invoice: never beyond its balance; a 400 pays a 300 only without VAT
+  if new.paid_document_id is not null then
+    select id, doc_type, doc_number, total, business_id into tgt from public.documents where id = new.paid_document_id for update;
+    if not found or tgt.business_id is distinct from new.business_id then
+      raise exception 'the paid document was not found in this business' using errcode = '42501'; end if;
+    select public.entity_of(s.entity_type, s.business_type) into ent from public.register_settings s where s.business_id = new.business_id;
+    -- 7100 (the owner, answer 18, 27.11.2026): a receipt (400) on a transaction invoice (300) is allowed to a VAT business too —
+    -- the money against the customer; the tax invoice made from the 300 (305, answer 19) closes it
+    select coalesce(sum(c.total), 0) into credited from public.documents c
+     where c.business_id = new.business_id and c.doc_type = 330 and c.base_doc_type = tgt.doc_type and c.base_doc_number = tgt.doc_number;
+    select coalesce(sum(case p.direction when 'in' then p.amount else -p.amount end), 0) into paid from public.payments p where p.applies_to = tgt.id;
+    if new.total > tgt.total - credited - paid then
+      raise exception 'receipt_exceeds_balance: % left to pay on this invoice', greatest(tgt.total - credited - paid, 0) using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end $function$;
+
+revoke execute on function public.documents_validate(), public.document_cancellations_check(), public.documents_after_insert(),
+  public.documents_more_checks() from public, anon, authenticated;
 
 -- ============================================================================================================================
 -- 10. the triggers on the sources — last (they take a short lock on documents, payments, document_cancellations, bank_deposits)
@@ -1142,18 +1670,25 @@ revoke execute on function public.gl_check_balanced(), public.gl_books_ensure(uu
   public.gl_post(text, uuid), public.gl_post_safe(text, uuid), public.gl_on_document(), public.gl_on_cancellation(), public.gl_on_payment(),
   public.gl_on_deposit() from public, anon, authenticated;
 grant execute on function public.gl_post(text, uuid), public.gl_lines_document(uuid) to service_role;
-revoke execute on function public.gl_replay(uuid, date), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
-  public.gl_trial_balance(date, date), public.gl_chart_default(uuid) from public, anon;
-grant execute on function public.gl_replay(uuid, date), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
+revoke execute on function public.gl_replay(uuid, date, int), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
+  public.gl_trial_balance(date, date), public.gl_chart_default(uuid), public.gl_replay_pending(int), public.gl_doc_vat(public.documents) from public, anon;
+grant execute on function public.gl_replay(uuid, date, int), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
   public.gl_trial_balance(date, date) to authenticated, service_role;
+revoke execute on function public.gl_replay_pending(int), public.gl_doc_vat(public.documents) from authenticated;
+grant execute on function public.gl_replay_pending(int) to service_role;
 grant execute on function public.gl_customer_key(text, text), public.gl_key_reserved(text), public.gl_doc_ref(bigint), public.gl_doc_name(int)
   to authenticated, service_role;
--- the triggers' WHEN runs as whoever writes the source (a cashier's sale, the server, a function of any role) — it must never be
--- refused, or the sale would be: open to every role (a yes / no on a business's start date, nothing else)
-grant execute on function public.gl_books_active(uuid, date) to public;
+-- the triggers' WHEN runs as whoever writes the source: a signed-in member (a cashier's sale too), the server (service role — the
+-- storefront, the payment links, the timers), or a definer function (its owner). No anon path writes documents, payments,
+-- cancellations or deposits (documents_insert: user_id = auth.uid(); the others have no anon grant). A yes / no on a start date.
+revoke execute on function public.gl_books_active(uuid, date) from public, anon;
+grant execute on function public.gl_books_active(uuid, date) to authenticated, service_role;
 
 -- ============================================================================================================================
--- Rollback (by hand, if ever needed — nothing of an earlier migration was changed, so nothing comes back):
+-- Rollback (by hand, if ever needed):
+--   * the four functions of section 9a: run again their old versions (documents_validate() and document_cancellations_check() of
+--     20261127007000, documents_after_insert() of 20261125006800, documents_more_checks() of 20261005003200) — only while no 305 was
+--     made from a 300 (select count(*) from documents where doc_type = 305 and base_doc_type = 300 = 0); else keep them;
 --   * stop the posting first (the sources work as before without it):
 --       drop trigger zz_gl_post on documents; drop trigger zz_gl_post on payments; drop trigger zz_gl_post on document_cancellations;
 --       drop trigger zz_gl_post on bank_deposits; drop trigger zz_gl_post_cancel on bank_deposits;
@@ -1161,7 +1696,7 @@ grant execute on function public.gl_books_active(uuid, date) to public;
 --   * only while nothing was posted (select count(*) from gl_transactions = 0) — else the entries are the books: keep them, fix forward:
 --       drop view gl_unposted;
 --       drop function gl_trial_balance(date, date), gl_books_state(), gl_opening_balances(jsonb), gl_books_start_set(date),
---         gl_replay(uuid, date), gl_books_active(uuid, date), gl_on_deposit(), gl_on_payment(), gl_on_cancellation(), gl_on_document(), gl_post_safe(text, uuid),
+--         gl_replay(uuid, date, int), gl_replay_pending(int), gl_doc_vat(documents), gl_books_active(uuid, date), gl_on_deposit(), gl_on_payment(), gl_on_cancellation(), gl_on_document(), gl_post_safe(text, uuid),
 --         gl_post(text, uuid), gl_source_of(text, uuid), gl_lines_deposit(uuid), gl_lines_payment(uuid), gl_lines_document(uuid),
 --         gl_money_lines(documents, text), gl_income_lines(uuid, text, numeric, jsonb, boolean, date, text), documents_installments(),
 --         gl_money_account(uuid, text, uuid), gl_customer_of(documents), gl_customer_account(uuid, text, text, text, uuid, text, text),
