@@ -48,8 +48,9 @@
 --      ("firstDue": YYYY-MM-DD, from the payment's day to a year after it; none = the payment's day) — checked by a new trigger
 --      (d_documents_installments); nothing else about a document changes.
 --   6. gl_opening_balances(lines) — the owner, once: the opening balances the accountant gives, dated the start date, balanced
---      against 3100. gl_replay(business, from, limit) — what did not post, in time order, in batches (idempotent);
---      gl_replay_pending(limit) — the server's timer, every business.
+--      against 3100. gl_replay(business, from, limit, retry) — what did not post, in time order, in batches (idempotent; what
+--      already failed today for a lasting reason is skipped unless retry); gl_replay_pending(limit, per_business) — the server's
+--      timer, every business, a fair share each.
 --      gl_unposted (view) — what should have posted and did not (with the last error). gl_books_state(), gl_trial_balance(from, to).
 --   7. The owner's answers 18 and 19 (27.11.2026): a VAT business's receipt (400) on a transaction invoice (300) is allowed (the money
 --      against the customer; 1310 stays open); a tax invoice (305) is made FROM a 300 (base_doc_type 300 — fields 1256 / 1257) and
@@ -57,7 +58,7 @@
 -- Replaces (same signatures) — md5 of prosrc. BEFORE running, compare the old one with the live database; AFTER, the new one:
 --   select md5(replace(prosrc, E'\r', '')) from pg_proc where oid = '<function>'::regprocedure
 --   function                         of     old                               new
---   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  f71fd3d1e7542792560a198fb0a45384
+--   documents_validate()             7000   3e87d64ca55746aa6d1370386c5687f4  59c294527b4564b745eefff20c4d2d5b
 --   document_cancellations_check()   7000   625b00ea9a1d98e58f0f2b6f580655e8  07205c1ce140cd0bb23284215536966d
 --   documents_after_insert()         6800   59a0a64ba390722ae5681d1d5a69e2f0  7d944cd6ce946e499d28724ef43f59e5
 --   documents_more_checks()          3200   1523ec252074219f805903d91252cda5  7b95a97bd98f2ab40bd64008f35f8d1c
@@ -65,7 +66,8 @@
 --                                    4300   e070b05711f04bf97a269483861cc012  63c21ea42d129b1af5b6c2f60cfd6532
 --   payment_plan_create(uuid, uuid, jsonb, text, boolean)
 --                                    4400   0b547d0854bef6f445efbb2fa1316a4a  dd583f61f6353f50f46353577dc6a5b9
---   view receivables — md5(pg_get_viewdef('public.receivables'::regclass))
+--   view receivables — md5(pg_get_viewdef('public.receivables'::regclass)) — the text pg_get_viewdef prints may differ between
+--   Postgres versions (local 16 here): if the old one differs live, compare the definition itself, not only its md5
 --                                    3100   93c9e1b5c2b1b436955b2f2a881840cb  5b5fdc4d457bf4163ea63cc16421e81d
 -- Everything else is new (the md5 of each new function — in the db-agent's report, STATUS.md). Running 3200, 6800 or 7000 again
 -- after this one brings back an old version of the four (4300 / 4400 — of the two; 3100 stops at the view) — then run this one again. The existing tables get four deferred triggers
@@ -73,8 +75,9 @@
 -- No existing row changes: nothing here updates or removes a row of an existing table (the only rows written are new gl_books rows,
 -- one per business, and the one gl_defaults row). The word "delete" appears only in "before update or delete", the policies
 -- "_viewer_delete" and the rollback notes — run it in the SQL Editor (the MCP stops on it).
--- Runs after 4600 (locations), 5000 (deposits), 5100 (manual journal — journal_writer), 6800 (stage 1 — cardKind) and 7000 (stage 3
--- — the deposit document, document_numbering) — it stops at the top without them, changing nothing.
+-- Runs after 4300 (payment links), 4400 (payment plans), 4600 (locations), 5000 (deposits), 5100 (manual journal — journal_writer),
+-- 6800 (stage 1 — cardKind) and 7000 (stage 3 — the deposit document, document_numbering) — it stops at the top without them,
+-- changing nothing.
 -- Deploy order: THE CODE FIRST, then this migration (as STATUS.md says): the code of 2.121 writes field 1225 with the same key as
 -- gl_customer_key (customer-key.ts) and sends a card's installments; posting starts on the start date.
 
@@ -95,6 +98,12 @@ begin
   end if;
   if to_regclass('public.bank_deposits') is null or to_regclass('public.bank_deposit_cheques') is null then
     raise exception 'migration 20261128007100 runs after 20261011005000 (deposits) — run it first; nothing was changed';
+  end if;
+  if to_regclass('public.payment_requests') is null or to_regprocedure('public.paylink_create(uuid, uuid, text, uuid, numeric, int, text, text, uuid)') is null then
+    raise exception 'migration 20261128007100 runs after 20261010004300 (payment links) — run it first; nothing was changed';
+  end if;
+  if to_regprocedure('public.payment_plan_create(uuid, uuid, jsonb, text, boolean)') is null then
+    raise exception 'migration 20261128007100 runs after 20261010004400 (payment plans) — run it first; nothing was changed';
   end if;
   if to_regprocedure('public.journal_writer()') is null then
     raise exception 'migration 20261128007100 runs after 20261011005100 (manual journal entries) — run it first; nothing was changed';
@@ -983,12 +992,21 @@ end $$;
 -- ============================================================================================================================
 -- 8. the owner: the start date, the opening balances; the server / the owner: replay
 -- ============================================================================================================================
+-- whether a source already failed today for a reason that will not pass by itself (not a lock wait, a deadlock, a serialization
+-- retry or gl_wait — those are tried again at once): such a source is left for tomorrow (or p_retry), so it never starves the rest
+create or replace function public.gl_failed_today(p_kind text, p_id uuid) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (select 1 from public.gl_post_failures f
+                  where f.source_kind = p_kind and f.source_id = p_id and (f.at at time zone 'Asia/Jerusalem')::date = public.il_today()
+                    and f.error !~ '^(55P03|40P01|40001|55000 gl_wait)')
+$$;
+
 -- the sources of a business that should have posted and did not (gl_unposted), in time order, since a date — at most p_limit
--- in one call (a browser request never runs long: call again while "left" > 0); idempotent. The owner (the current business) or
--- the server (no user — any business).
-create or replace function public.gl_replay(p_business uuid, p_from date default null, p_limit int default 200) returns jsonb
+-- in one call (a browser request never runs long: call again while "left" > 0); idempotent. What already failed today for a lasting
+-- reason is skipped (counted in "skipped"), unless p_retry. The owner (the current business) or the server (no user — any business).
+create or replace function public.gl_replay(p_business uuid, p_from date default null, p_limit int default 200, p_retry boolean default false) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare s record; posted int := 0; failed int := 0; tx uuid; n int := least(greatest(coalesce(p_limit, 200), 1), 1000);
+declare s record; posted int := 0; failed int := 0; tx uuid; n int := least(greatest(coalesce(p_limit, 200), 1), 1000); skipped int;
 begin
   if auth.uid() is not null then
     if p_business is distinct from public.finance_guard() or not public.journal_writer() or not public.can_write() then
@@ -997,28 +1015,39 @@ begin
   if p_business is null or not exists (select 1 from public.businesses where id = p_business) then
     raise exception 'gl_business: a business' using errcode = '22023'; end if;
   perform public.gl_books_ensure(p_business);
+  select count(*) into skipped from public.gl_unposted u
+   where u.business_id = p_business and (p_from is null or u.source_date >= p_from) and not coalesce(p_retry, false)
+     and public.gl_failed_today(u.source_kind, u.source_id);
   for s in select u.source_kind, u.source_id from public.gl_unposted u
             where u.business_id = p_business and (p_from is null or u.source_date >= p_from)
+              and (coalesce(p_retry, false) or not public.gl_failed_today(u.source_kind, u.source_id))
             order by u.source_date, u.source_at, u.ord, u.seq, u.source_id limit n loop
     tx := public.gl_post_safe(s.source_kind, s.source_id);
     if tx is null then failed := failed + 1; else posted := posted + 1; end if;
   end loop;
-  return jsonb_build_object('business', p_business, 'posted', posted, 'failed', failed,
+  return jsonb_build_object('business', p_business, 'posted', posted, 'failed', failed, 'skipped', skipped,
     'left', (select count(*) from public.gl_unposted u where u.business_id = p_business and (p_from is null or u.source_date >= p_from)));
 end $$;
 
--- the server's timer: what did not post, of every business, oldest first, at most p_limit in one call (service role only)
-create or replace function public.gl_replay_pending(p_limit int default 200) returns jsonb
+-- the server's timer: what did not post, of every business, oldest first — at most p_limit in one call and at most p_per_business
+-- of one business (no business's backlog starves the others); what failed today for a lasting reason — skipped (service role only)
+create or replace function public.gl_replay_pending(p_limit int default 200, p_per_business int default 50) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
-declare s record; posted int := 0; failed int := 0; tx uuid; n int := least(greatest(coalesce(p_limit, 200), 1), 1000);
+declare s record; posted int := 0; failed int := 0; tx uuid; skipped int;
+  n int := least(greatest(coalesce(p_limit, 200), 1), 1000); per int := least(greatest(coalesce(p_per_business, 50), 1), 1000);
 begin
   if auth.uid() is not null then raise exception 'not allowed' using errcode = '42501'; end if;
-  for s in select u.source_kind, u.source_id from public.gl_unposted u
-            order by u.source_date, u.source_at, u.ord, u.seq, u.source_id limit n loop
+  select count(*) into skipped from public.gl_unposted u where public.gl_failed_today(u.source_kind, u.source_id);
+  for s in select q.source_kind, q.source_id from (
+             select u.source_kind, u.source_id, u.source_date, u.source_at, u.ord, u.seq,
+                    row_number() over (partition by u.business_id order by u.source_date, u.source_at, u.ord, u.seq, u.source_id) as k
+               from public.gl_unposted u where not public.gl_failed_today(u.source_kind, u.source_id)) q
+            where q.k <= per
+            order by q.k, q.source_date, q.source_at, q.ord, q.seq, q.source_id limit n loop
     tx := public.gl_post_safe(s.source_kind, s.source_id);
     if tx is null then failed := failed + 1; else posted := posted + 1; end if;
   end loop;
-  return jsonb_build_object('posted', posted, 'failed', failed, 'left', (select count(*) from public.gl_unposted));
+  return jsonb_build_object('posted', posted, 'failed', failed, 'skipped', skipped, 'left', (select count(*) from public.gl_unposted));
 end $$;
 
 -- the owner moves the start of the books to the 1st of a month (answer 13 — a business switching mid-year; the demo) while nothing
@@ -1165,8 +1194,8 @@ $$;
 -- 9a. the owner's answers 18 and 19 (27.11.2026) in the documents' checks — replaces four functions (same signatures):
 --   documents_validate()           of 20261127007000 — a 305 may be made from a 300 (base_doc_type 300 + its number — fields
 --                                   1256 / 1257, clarification 6: "a document based on another document"): of this business, the
---                                   300 not cancelled, not closed yet by a 305 / a 320; and no receipt (320 / 400) pays a 300 a 305
---                                   closed (the money goes on the 305)
+--                                   300 not cancelled, not closed yet by a 305 / a 320, the same amounts, no payment link of it open;
+--                                   and no receipt (320 / 400) pays a 300 a 305 closed (the money goes on the 305)
 --   document_cancellations_check() of 20261127007000 — a 300 a 305 was made from is not cancelled
 --   documents_after_insert()       of 20261125006800 — a 305 made from a 300 moves no stock (the 300 did)
 --   documents_more_checks()        of 20261005003200 — a VAT business's receipt (400) on a 300 is no longer refused (answer 18); a
@@ -1353,8 +1382,18 @@ begin
     -- a 305 already issued (the same key) is not checked here: the insert reaches the unique key, as every retry
     if new.doc_type = 305 and new.base_doc_type = 300
        and not (new.idempotency_key is not null and exists (select 1 from public.documents c where c.business_id = new.business_id and c.idempotency_key = new.idempotency_key)) then
-      select id, doc_number into tgt from public.documents where business_id = new.business_id and doc_type = 300 and doc_number = new.base_doc_number for update;
+      select id, doc_number, total, before_discount, vat_amount into tgt from public.documents
+       where business_id = new.business_id and doc_type = 300 and doc_number = new.base_doc_number for update;
       if tgt.id is null then raise exception 'invoice_from_300: חשבון העסקה לא נמצא בעסק הזה' using errcode = '23514'; end if;
+      -- the tax invoice of the transaction is the transaction: the same amounts, to the agora
+      if new.total <> tgt.total or new.before_discount <> tgt.before_discount or new.vat_amount <> tgt.vat_amount then
+        raise exception 'invoice_from_300_amounts: חשבונית המס מחשבון עסקה — באותם סכומים (לפני הנחה, מע״מ וסה״כ) כמו חשבון העסקה' using errcode = '23514'; end if;
+      -- a payment link of the 300 still open (sent / failed and not expired, or paid with its receipt still to come): the customer's
+      -- money would land on a closed 300 — cancel the link (or wait for its receipt) first
+      if exists (select 1 from public.payment_requests x where x.document_id = tgt.id
+                   and ((x.status in ('sent', 'failed') and x.expires_at > now())
+                        or (x.status = 'paid' and x.receipt_status in ('pending', 'awaiting', 'blocked')))) then
+        raise exception 'invoice_from_300_paylink_open: לחשבון העסקה יש לינק לתשלום פתוח — מבטלים אותו (או מחכים לקבלה שלו) לפני חשבונית המס' using errcode = '23514'; end if;
       if exists (select 1 from public.document_cancellations x where x.document_id = tgt.id) then
         raise exception 'invoice_from_300: חשבון העסקה בוטל' using errcode = '23514'; end if;
       if exists (select 1 from public.documents x where x.business_id = new.business_id and not exists (select 1 from public.document_cancellations c where c.document_id = x.id)
@@ -1887,12 +1926,13 @@ revoke execute on function public.gl_check_balanced(), public.gl_books_ensure(uu
   public.gl_post(text, uuid), public.gl_post_safe(text, uuid), public.gl_on_document(), public.gl_on_cancellation(), public.gl_on_payment(),
   public.gl_on_deposit() from public, anon, authenticated;
 grant execute on function public.gl_post(text, uuid), public.gl_lines_document(uuid) to service_role;
-revoke execute on function public.gl_replay(uuid, date, int), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
-  public.gl_trial_balance(date, date), public.gl_chart_default(uuid), public.gl_replay_pending(int), public.gl_doc_vat(public.documents) from public, anon;
-grant execute on function public.gl_replay(uuid, date, int), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
+revoke execute on function public.gl_replay(uuid, date, int, boolean), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
+  public.gl_trial_balance(date, date), public.gl_chart_default(uuid), public.gl_replay_pending(int, int), public.gl_doc_vat(public.documents) from public, anon;
+grant execute on function public.gl_replay(uuid, date, int, boolean), public.gl_books_start_set(date), public.gl_opening_balances(jsonb), public.gl_books_state(),
   public.gl_trial_balance(date, date) to authenticated, service_role;
-revoke execute on function public.gl_replay_pending(int), public.gl_doc_vat(public.documents) from authenticated;
-grant execute on function public.gl_replay_pending(int) to service_role;
+revoke execute on function public.gl_replay_pending(int, int), public.gl_doc_vat(public.documents) from authenticated;
+revoke execute on function public.gl_failed_today(text, uuid) from public, anon, authenticated;
+grant execute on function public.gl_replay_pending(int, int) to service_role;
 grant execute on function public.gl_customer_key(text, text), public.gl_key_reserved(text), public.gl_doc_ref(bigint), public.gl_doc_name(int)
   to authenticated, service_role;
 -- the triggers' WHEN runs as whoever writes the source: a signed-in member (a cashier's sale too), the server (service role — the
@@ -1915,7 +1955,7 @@ grant execute on function public.gl_books_active(uuid, date) to authenticated, s
 --   * only while nothing was posted (select count(*) from gl_transactions = 0) — else the entries are the books: keep them, fix forward:
 --       drop view gl_unposted;
 --       drop function gl_trial_balance(date, date), gl_books_state(), gl_opening_balances(jsonb), gl_books_start_set(date),
---         gl_replay(uuid, date, int), gl_replay_pending(int), gl_doc_vat(documents), gl_books_active(uuid, date), gl_on_deposit(), gl_on_payment(), gl_on_cancellation(), gl_on_document(), gl_post_safe(text, uuid),
+--         gl_replay(uuid, date, int, boolean), gl_replay_pending(int, int), gl_failed_today(text, uuid), gl_doc_vat(documents), gl_books_active(uuid, date), gl_on_deposit(), gl_on_payment(), gl_on_cancellation(), gl_on_document(), gl_post_safe(text, uuid),
 --         gl_post(text, uuid), gl_source_of(text, uuid), gl_lines_deposit(uuid), gl_lines_payment(uuid), gl_lines_document(uuid),
 --         gl_money_lines(documents, text), gl_income_lines(uuid, text, numeric, jsonb, boolean, date, text), documents_installments(),
 --         gl_money_account(uuid, text, uuid), gl_customer_of(documents), gl_customer_account(uuid, text, text, text, uuid, text, text),

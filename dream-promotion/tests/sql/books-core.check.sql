@@ -157,7 +157,7 @@ select pg_temp.check(not has_function_privilege('authenticated', 'public.gl_post
   and not has_table_privilege('service_role', 'public.gl_lines', 'insert') and not has_table_privilege('service_role', 'public.gl_transactions', 'update')
   and not has_table_privilege('service_role', 'public.gl_accounts', 'delete') and not has_table_privilege('service_role', 'public.gl_books', 'truncate')
   and has_table_privilege('service_role', 'public.gl_lines', 'select')
-  and has_function_privilege('service_role', 'public.gl_replay_pending(int)', 'execute') and not has_function_privilege('authenticated', 'public.gl_replay_pending(int)', 'execute')
+  and has_function_privilege('service_role', 'public.gl_replay_pending(int, int)', 'execute') and not has_function_privilege('authenticated', 'public.gl_replay_pending(int, int)', 'execute')
   and not has_function_privilege('anon', 'public.gl_books_active(uuid, date)', 'execute') and has_function_privilege('authenticated', 'public.gl_books_active(uuid, date)', 'execute'),
   'who may call what: posting only by the database, the tables read-only to the browser');
 
@@ -446,7 +446,7 @@ select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-00
   jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:F')).doc_number)))$$, 'invoice_from_300', 'not from a cancelled 300');
 select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(50), 'b71:X305',
   jsonb_build_object('base_doc_type', 300, 'base_doc_number', 999999)))$$, 'invoice_from_300', 'only a 300 of this business');
-select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(50), 'b71:C305',
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(500), 'b71:C305',
   jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:C300')).doc_number)))$$, 'invoice_from_300_closed', 'not from a 300 a 320 paid');
 commit;
 select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:J400')).id) = 'BANK D 1180.00, 050-0000073 C 1180.00', 'J: the licensed 400 on the 300 — the money / the customer');
@@ -518,6 +518,40 @@ select pg_temp.check((pg_temp.o('fs after R')#>>'{receivables,open}')::numeric -
 select pg_temp.check((pg_temp.o('plan 305')->>'plan') is not null or pg_temp.o('plan 305') is not null, 'a plan on the 305 for its 680');
 select pg_temp.check(pg_temp.bal('00000000-0000-0000-0000-0000007100b1', '050-0000076') = 680, 'the books agree: the customer owes 680');
 
+-- a 305 from a 300 — the same amounts; never while a payment link of the 300 is open
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 300, pg_temp.svc(200), 'b71:P300', '{"customer_phone": "050-0000077"}'));
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(199), 'b71:P305x',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:P300')).doc_number)))$$, 'invoice_from_300_amounts', 'the same amounts as the 300');
+commit;
+insert into out71 select 'link P', public.paylink_create('00000000-0000-0000-0000-0000007100b1', '00000000-0000-0000-0000-0000007100a1', 'document', (pg_temp.d('b71:P300')).id, 100, 7, 'https://x.example.test', 'link');
+begin;
+set local role authenticated;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.refused_with($$select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(200), 'b71:P305',
+  jsonb_build_object('base_doc_type', 300, 'base_doc_number', (pg_temp.d('b71:P300')).doc_number)))$$, 'invoice_from_300_paylink_open', 'not while a link of the 300 is open');
+commit;
+select pg_temp.check(pg_temp.d('b71:P305') is null or (pg_temp.d('b71:P305')).id is null, 'no 305 was issued');
+
+-- the timer's fair share: two businesses with something pending (their posting held back here), one call of 2, one each at most
+begin;
+alter table public.documents disable trigger zz_gl_post;
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a1');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(1), 'b71:fair:L1'));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(1), 'b71:fair:L2'));
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a1', 305, pg_temp.svc(1), 'b71:fair:L3'));
+select pg_temp.as_user('00000000-0000-0000-0000-0000007100a4');
+select pg_temp.issue(pg_temp.doc('00000000-0000-0000-0000-0000007100a4', 400, pg_temp.svc(1), 'b71:fair:E1', '{}', null, 0));
+alter table public.documents enable trigger zz_gl_post;
+commit;
+insert into out71 select 'fair', public.gl_replay_pending(2, 1);
+select pg_temp.check((pg_temp.o('fair')->>'posted')::int = 2 and (pg_temp.txd('b71:fair:L1')).id is not null and (pg_temp.txd('b71:fair:E1')).id is not null
+  and (pg_temp.txd('b71:fair:L2')).id is null, 'one per business in a batch: neither business''s backlog starves the other');
+select public.gl_replay_pending(1000);
+select pg_temp.check((pg_temp.txd('b71:fair:L3')).id is not null, 'and the next batch takes the rest');
+
 -- ---- every entry balances; the trial balance --------------------------------------------------------------------------------
 select pg_temp.check(not exists (select 1 from public.gl_transactions t where t.business_id::text like '00000000-0000-0000-0000-0000007100b%'
                                    and (select coalesce(sum(case side when 'D' then amount else -amount end), 0) from public.gl_lines l where l.transaction_id = t.id) <> 0),
@@ -557,7 +591,13 @@ select public.gl_post_safe('document', (pg_temp.d('b71:W305')).id);
 select pg_temp.check((pg_temp.txd('b71:W305')).id is null and (select count(*) from public.gl_post_failures where source_id = (pg_temp.d('b71:W305')).id) = 1
   and (select error like '55000 gl_wait%' from public.gl_unposted where source_id = (pg_temp.d('b71:W305')).id),
   'a 305 whose 300 did not post waits — one failure row for the day, however often tried');
-select public.gl_replay('00000000-0000-0000-0000-0000007100b1', null);   -- the server (no user)
+-- the timer skips what failed today for a lasting reason (the 23505 above) — it never starves the rest; the 305 that waits is tried
+insert into out71 select 'pending skip', public.gl_replay_pending(1000);
+select pg_temp.check((pg_temp.o('pending skip')->>'skipped')::int >= 1 and (pg_temp.txd('b71:I')).id is null and (pg_temp.txd('b71:W300')).id is null,
+  'the timer skips the sources that failed today for a lasting reason');
+insert into out71 select 'replay skip', public.gl_replay('00000000-0000-0000-0000-0000007100b1', null);
+select pg_temp.check((pg_temp.o('replay skip')->>'skipped')::int = 2 and (pg_temp.o('replay skip')->>'posted')::int = 0, 'so does gl_replay, without retry');
+select public.gl_replay('00000000-0000-0000-0000-0000007100b1', null, 200, true);   -- the server (no user), retry
 select pg_temp.check(pg_temp.lines((pg_temp.txd('b71:W305')).id) = '050-0000074 D 23.60, 4100 C 20.00, 2200 C 3.60, 1310 D 23.60, 050-0000074 C 23.60'
   and (pg_temp.txd('b71:W305')).number > (pg_temp.txd('b71:W300')).number, 'the replay: the 300 first, then the 305 closes it');
 select pg_temp.check((pg_temp.txd('b71:I')).id is not null and not exists (select 1 from public.gl_unposted where business_id = '00000000-0000-0000-0000-0000007100b1'),
