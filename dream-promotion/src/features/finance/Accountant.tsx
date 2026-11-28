@@ -6,7 +6,7 @@ import { Button, Card, Field, Input } from '@/components/ui/primitives';
 import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
-import { loadBooksStart } from './books-data';
+import { BOOKS_START_MISSING, loadBooksStart } from './books-data';
 import { OPEN_FORMAT_PART, buildOpenFormat, docTypeReport, splitAtBooks, toIso88598 } from '@/features/documents/openformat';
 import { loadBranchInfo } from './numbering-data';
 import { BOOKS_READ_FAILED, loadBooksForFile } from './openformat-books-data';
@@ -126,21 +126,31 @@ export function Accountant() {
       // the Tax Authority's part (INI / BKMVDATA and its two printouts): the whole business only — a location picked at the top or a
       // member limited to locations would make a file with holes in the numbering (export-scope.ts); the rest of the package as before
       let booksRefused: ExportScope | null = null;
-      // 2.124: a period of the books makes its file even with no document (only expenses / manual entries — their B100 and B110)
-      if (business.ready && scope.ok) {
+      // 2.124: a period of the books makes its file even with no document (only expenses / manual entries — their B100 and B110).
+      // So the books' start is read first (gl_books_state — not of the locations' scope): whether this period has a Tax Authority
+      // part at all (documents, or a part of the books). A failure to read it, or the branches, is the package without that part,
+      // and why — never the whole package failing (and a period with no documents before the books stays as before: nothing)
+      const hebrew = (e: unknown, other: string) => (e instanceof Error && /[\u05d0-\u05ea]/.test(e.message) ? e.message : other);
+      let booksStart: string | null = null;
+      let taxPart = docs.length > 0;
+      if (business.ready) {
+        // 2.121 (migration 7100): the books' start — documents from it on carry the books' customer key in 1225; before 7100 — none
+        try {
+          booksStart = await loadBooksStart();
+          taxPart ||= splitAtBooks(period.from, period.to, booksStart).some((p) => p.books);
+        } catch (e) { if (scope.ok) booksRefused = { ok: false, message: hebrew(e, BOOKS_START_MISSING) }; taxPart = true; }
+      }
+      if (business.ready && scope.ok && taxPart && !booksRefused) {
         const startedAt = new Date().toISOString();
         // 2.120 (migration 7000): a business that numbers per location — 1034 = 1 and each document's branch code; else as before
-        let branches: Awaited<ReturnType<typeof loadBranchInfo>>;
-        try { branches = await loadBranchInfo(marked, access.business); } catch (e) { setBusy(null); fail(e instanceof Error ? e.message : financeError(e)); return; }
-        // 2.121 (migration 7100): the books' start — documents from it on carry the books' customer key in 1225; before 7100 — none
-        let booksStart: string | null;
-        try { booksStart = await loadBooksStart(); } catch (e) { setBusy(null); fail(e instanceof Error ? e.message : financeError(e)); return; }
+        let branches: Awaited<ReturnType<typeof loadBranchInfo>> = null;
+        try { branches = await loadBranchInfo(marked, access.business); } catch (e) { booksRefused = { ok: false, message: hebrew(e, BOOKS_READ_FAILED) }; }
         // 2.124 (stage 4ה): a period of the double-entry books — B100 + B110 from the books, 1013 = 2. Across the books' start — the
         // accountant's answer 21 (28.11.2026): two separate files, each in a folder named by its range (splitAtBooks): up to the day
         // before the start (single-entry, as before) and from the start (the books). Books that cannot be read whole — the package
         // without the Tax Authority's part, and why (as a location picked at the top): the rest is still the accountant's
         // a single-entry part with no document of its own — no file, as before (nothing to write)
-        const parts = splitAtBooks(period.from, period.to, booksStart).filter((p) => p.books || marked.some((d) => d.docDate >= p.from && d.docDate <= p.to));
+        const parts = booksRefused ? [] : splitAtBooks(period.from, period.to, booksStart).filter((p) => p.books || marked.some((d) => d.docDate >= p.from && d.docDate <= p.to));
         const made: { from: string; to: string; books: Awaited<ReturnType<typeof loadBooksForFile>> }[] = [];
         for (const p of parts) {
           try { made.push({ from: p.from, to: p.to, books: p.books ? await loadBooksForFile(p.from, p.to, booksStart, marked) : null }); }
@@ -179,7 +189,9 @@ export function Accountant() {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${root}.zip`; a.click();
       void logEvent('export.package', 'accountant', '', { from: period.from, to: period.to, documents: docs.length, expenses: expenses.length, files });
       say(`החבילה ירדה: ${docs.length} מסמכים, ${expenses.length} הוצאות${files ? `, ${files} קבצים` : ''}`);
-      if (!scope.ok && business.ready && docs.length) setScopeNote(scope);   // the package without the Tax Authority's part — and why
+      // the package without the Tax Authority's part — and why: a location picked / a member limited (scope), or the books / branches /
+      // start not read whole (booksRefused) — for a period that has such a part (documents, or the books — 2.124)
+      if (!scope.ok && business.ready && taxPart) setScopeNote(scope);
       else if (booksRefused) setScopeNote(booksRefused);
     } catch (e) { fail(financeError(e)); }
     setBusy(null);

@@ -531,6 +531,23 @@ async function main() {
       }
     });
 
+    await step('the accountant\'s package when the books\' start cannot be read (a passing failure, 2.124 review): the package without the Tax Authority\'s file, and why', async () => {
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+      const url = 'http://sb.test/rest/v1/rpc/gl_books_state';
+      await page.route(url, (route: any) => route.request().method() === 'OPTIONS' ? route.fulfill({ status: 204, headers: cors })
+        : route.fulfill({ status: 503, contentType: 'application/json', headers: cors, body: JSON.stringify({ code: '57014', message: 'canceling statement due to statement timeout' }) }));
+      try {
+        const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
+        const names = Object.keys((await JSZip.loadAsync(readFileSync(await download.path()))).files);
+        assert.ok(names.some((n) => n.endsWith('מסמכים.csv')) && names.some((n) => n.endsWith('חותמת-יומן.txt')), 'the rest of the package is there');
+        assert.ok(!names.some((n) => n.endsWith('INI.TXT') || n.endsWith('BKMVDATA.zip')), `no Tax Authority file (${names.join(', ')})`);
+        await page.getByText(/החבילה ירדה: \d+ מסמכים/).waitFor();
+        await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();
+        await page.getByText(/לא הצלחנו לקרוא את תאריך תחילת הספרים/).waitFor();
+        assert.equal(await page.getByText(/statement timeout|57014/).count(), 0, 'never the database\'s English');
+      } finally { await page.unroute(url); }
+    });
+
     await step('settings: the allocation thresholds say they are not verified', async () => {
       await menuTo(page, 'הגדרות כספים');
       await page.getByText('לא אומת מול פרסום רשמי').first().waitFor();

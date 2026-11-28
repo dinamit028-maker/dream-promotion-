@@ -1,27 +1,19 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import JSZip from 'jszip';
 import { supabase } from '@/lib/supabase/client';
-import { Button, Card, Chip, Field, Input } from '@/components/ui/primitives';
+import { Button, Card, Chip } from '@/components/ui/primitives';
 import { Modal, Spinner } from '@/components/ui/feedback';
 import { formatIL, israelParts } from '@/lib/il-time';
 import { ils } from '@/features/register/money';
-import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, type SoftwareInfo } from './openformat';
-import { loadDocCodes } from './doc-codes';
-import { loadBranchInfo } from '@/features/finance/numbering-data';
-import { BOOKS_START_MISSING, loadBooksStart } from '@/features/finance/books-data';
-import { BOOKS_READ_FAILED, loadBooksForFile } from '@/features/finance/openformat-books-data';
-import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './export-scope';
-import { ScopeNote } from './ScopeNote';
-import { multiLocation } from '@/features/locations/locations';
-import { useLocations } from '@/features/locations/store';
+import { buildOpenFormat, docTypeReport, type Business, type Doc, type SoftwareInfo } from './openformat';
 import { DEPOSIT_LINE, DOC_LABEL, RECEIVED_LINE, baseDocLine, creditFor, docPayLabel, creditedTotals, isDepositDoc, isRefundReceipt, issuerFor, issuerLocationLine, toDoc, totalLabel, type DocRow, docNumberLabel } from './documents';
 import { issuerIdLine } from '@/features/finance/rules';
 import { issueDocumentRow } from '@/features/finance/api';
 import { deliveryState, keepOriginal, recordDelivery, staffPdf, stateAllocationLine } from './deliver';
 import { AWAITING_STAFF, type DeliveryState } from '@/features/finance/delivery';
 
-/** Legal documents: list, view & print (original / true copy), credit invoice, and the "ממשק פתוח" export. */
+/** Legal documents: list, view & print (original / true copy), credit invoice. The "ממשק פתוח" export is the accountant's package only
+ *  (Accountant.tsx, since 2.52.1 — the screen links to it); 2.124 removed the unmounted export view that was left here. */
 export { toDoc, type DocRow } from './documents';
 export const docInsertRow = (userId: string, d: Omit<Doc, 'docNumber' | 'linkNo' | 'issuedAt'>, extra: { saleId?: string | null; leadId?: string | null; vatRate: number }) => ({
   user_id: userId, doc_type: d.docType, doc_number: 0, doc_date: d.docDate, customer_name: d.customerName, customer_phone: d.customerPhone ?? '',
@@ -178,82 +170,6 @@ export function DocumentsTab({ userId, business, licensed, onError }: { userId: 
         </>}
       </Modal>
     </>
-  );
-}
-
-function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Business }) {
-  const y = israelParts(Date.now()).date.slice(0, 4);
-  const [from, setFrom] = useState(`${y}-01-01`);
-  const [to, setTo] = useState(israelParts(Date.now()).date);
-  const [result, setResult] = useState<ReturnType<typeof buildOpenFormat> & { startedAt: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  // 2.118: the file and its printouts are the whole business's — only when every location is seen (export-scope.ts)
-  const [scope, setScope] = useState<ExportScope | null>(null);
-  useEffect(() => { let alive = true; void loadExportScope().then((s) => { if (alive) setScope(s); }); return () => { alive = false; }; }, []);
-  // 2.124: why the file from the books was not made (a period across the books' start, books not whole) — until the next try
-  const [booksNote, setBooksNote] = useState<string | null>(null);
-  async function run() {
-    setBusy(true); setBooksNote(null);
-    // the documents here were read when the screen opened: the scope then (scope) and now must both be "every location", and no hole
-    let now = bothScopes(scope ?? await loadExportScope(), await loadExportScope());
-    if (now.ok) now = await confirmNoGaps(docs.filter((d) => d.docDate >= from && d.docDate <= to), (t) => DOC_LABEL[t] ?? `מסמך ${t}`, multiLocation(useLocations.getState().state));
-    setScope(now);
-    if (!now.ok) { setResult(null); setBusy(false); return; }
-    const codes = await loadDocCodes();   // field 1233 (2.117) — none before migration 20261122006700
-    // 2.120 (migration 7000): a business that numbers per location — 1034 = 1 and each document's branch code; else as before
-    let branches: Awaited<ReturnType<typeof loadBranchInfo>>;
-    try {
-      // the business's id from the locations' state — loaded now if the app has not loaded it yet (null would drop the branch fields)
-      const bid = useLocations.getState().state.businessId ?? (await useLocations.getState().load()).businessId;
-      branches = await loadBranchInfo(docs.filter((d) => d.docDate >= from && d.docDate <= to), bid);
-    }
-    catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : 'לא הצלחנו לקרוא את מספור הסניפים — נסו שוב.' }); setResult(null); setBusy(false); return; }
-    // 2.121 (migration 7100): the books' start — documents from it on carry the books' customer key in 1225; before 7100 — none
-    let booksStart: string | null;
-    try { booksStart = await loadBooksStart(); }
-    catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : BOOKS_START_MISSING }); setResult(null); setBusy(false); return; }
-    // 2.124 (stage 4ה): a period of the double-entry books — B100 + B110 from the books, 1013 = 2; across the start — refused
-    let books: Awaited<ReturnType<typeof loadBooksForFile>>;
-    try { books = await loadBooksForFile(from, to, booksStart, docs); }
-    // not the scope (that closes the button): a period across the start is fixed by changing the dates, then "הפקת קבצים" again
-    catch (e) { setBooksNote(e instanceof Error && e.message ? e.message : BOOKS_READ_FAILED); setResult(null); setBusy(false); return; }
-    const startedAt = new Date().toISOString();
-    let f: ReturnType<typeof buildOpenFormat>;
-    try { f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart, books }); }
-    catch (e) { setBooksNote(e instanceof Error && /[\u05d0-\u05ea]/.test(e.message) ? e.message : BOOKS_READ_FAILED); setResult(null); setBusy(false); return; }
-    const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
-    const bkmvZip = await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
-    const outer = new JSZip(); const folder = f.dir.replace(/\\/g, '/');
-    outer.file(`${folder}/INI.TXT`, toIso88598(f.ini)); outer.file(`${folder}/BKMVDATA.zip`, bkmvZip);
-    const blob = await outer.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `OPENFRMT-${business.dealerNumber}-${from}-${to}.zip`; a.click();
-    setResult({ ...f, startedAt }); setBusy(false);
-  }
-  const report = docTypeReport(docs, from, to);
-  const printSummary = () => { const w = window.open('', '_blank'); if (w && result) { w.document.write(summaryHtml(result, business, from, to)); w.document.close(); } };
-  const printReport = () => { if (!scope?.ok) return; const w = window.open('', '_blank'); if (w) { w.document.write(reportHtml(report, business, from, to)); w.document.close(); } };
-  return (
-    <Card className="p-4">
-      <p className="mb-3 text-sm text-ink-2">הפקת קבצים במבנה אחיד (INI.TXT + BKMVDATA) לפי הוראות רשות המסים, לרואה החשבון או לביקורת.</p>
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="מתאריך"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-        <Field label="עד תאריך"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="primary" onClick={run} disabled={busy || from > to || scope?.ok === false}>{busy ? 'מפיק…' : 'הפקת קבצים'}</Button>
-        <Button variant="ghost" onClick={printReport} disabled={!scope?.ok}>דוח מסמכים לפי סוג (2.6)</Button>
-      </div>
-      <ScopeNote scope={scope} />
-      {booksNote && <p role="alert" className="mt-2 text-sm text-warn">{booksNote}</p>}
-      {result && (
-        <div className="mt-4 rounded-2xl bg-surface-2 p-3 text-sm">
-          <p className="font-bold">ביצוע ממשק פתוח הסתיים בהצלחה.</p>
-          <p className="break-all text-xs" dir="ltr">{result.dir}</p>
-          <p className="mt-1">רשומות: {Object.entries(result.counts).map(([k, n]) => `${k}: ${n}`).join(' · ')}</p>
-          <Button size="sm" variant="ghost" className="mt-2" onClick={printSummary}>הדפסת סיכום ההפקה</Button>
-        </div>
-      )}
-    </Card>
   );
 }
 
