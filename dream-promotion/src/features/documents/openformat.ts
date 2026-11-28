@@ -566,6 +566,20 @@ export function booksFileProblems(books: BooksFile): string[] {
   return [...new Set(bad)];
 }
 
+export const BOOKS_DOCS_CHANGED = 'בזמן ההכנה נרשמו בספרים מסמכים שאינם ברשימת המסמכים שנקראה — הקובץ לא הופק. רעננו את הדף ונסו שוב.';
+/** the document types an entry of source 'document' refers to in its ref1 (7100 posts 300 / 305 / 320 / 330 / 400) */
+const POSTED_DOCS = new Set([300, 305, 320, 330, 400]);
+/**
+ * Every document entry of the file (source 'document', dated in the period — it is posted on its document's date) must have its
+ * document among the file's documents (C100): the documents and the books are read one after the other, and a document issued in
+ * between would be a B100 without its C100. True when one is missing.
+ */
+export function booksDocsMissing(books: BooksFile, docs: Pick<Doc, 'docType' | 'docNumber' | 'docDate'>[], from: string, to: string): boolean {
+  const have = new Set(docs.filter((d) => d.docDate >= from && d.docDate <= to).map((d) => `${d.docType}:${seriesNumber(d.docNumber)}`));
+  return books.transactions.some((t) => t.sourceKind === 'document' && t.ref1Type != null && POSTED_DOCS.has(t.ref1Type) && t.ref1Number
+    && !have.has(`${t.ref1Type}:${t.ref1Number}`));
+}
+
 /** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf).
  *  o.branches (2.120): the business numbers per location — 1034 = 1 and the branch fields; none / not per location — as before */
 export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string>;
@@ -584,6 +598,8 @@ export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: {
   if (books) {
     // never a file from books that are not whole, nor from books of another period's kind (a period before / across the start)
     if (booksPeriod(o.from, o.to, books.start) !== 'books' || booksFileProblems(books).length) throw new Error(BOOKS_FILE_BROKEN);
+    // never a B100 of a document whose C100 is not in the file (documents and books are read one after the other)
+    if (booksDocsMissing(books, docs, o.from, o.to)) throw new Error(BOOKS_DOCS_CHANGED);
   }
   const counts: Record<string, number> = books ? { B100: 0, B110: 0, C100: 0, D110: 0, D120: 0 } : { B110: 0, C100: 0, D110: 0, D120: 0 };
   // (a file before the books has no B100 key at all — its counts exactly as before)

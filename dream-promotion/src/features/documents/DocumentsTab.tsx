@@ -214,11 +214,13 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
     catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : BOOKS_START_MISSING }); setResult(null); setBusy(false); return; }
     // 2.124 (stage 4ה): a period of the double-entry books — B100 + B110 from the books, 1013 = 2; across the start — refused
     let books: Awaited<ReturnType<typeof loadBooksForFile>>;
-    try { books = await loadBooksForFile(from, to, booksStart); }
+    try { books = await loadBooksForFile(from, to, booksStart, docs); }
     // not the scope (that closes the button): a period across the start is fixed by changing the dates, then "הפקת קבצים" again
     catch (e) { setBooksNote(e instanceof Error && e.message ? e.message : BOOKS_READ_FAILED); setResult(null); setBusy(false); return; }
     const startedAt = new Date().toISOString();
-    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart, books });
+    let f: ReturnType<typeof buildOpenFormat>;
+    try { f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart, books }); }
+    catch (e) { setBooksNote(e instanceof Error && /[\u05d0-\u05ea]/.test(e.message) ? e.message : BOOKS_READ_FAILED); setResult(null); setBusy(false); return; }
     const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
     const bkmvZip = await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
     const outer = new JSZip(); const folder = f.dir.replace(/\\/g, '/');

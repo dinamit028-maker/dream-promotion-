@@ -15,7 +15,7 @@
  * out of the period's debits / credits, and added to the balance at the start (1414). A later period already has it in the trial
  * balance's "opening" (before its from) — nothing to move.
  */
-import type { BookAccount, BookTx, BooksFile } from './openformat';
+import { BOOKS_DOCS_CHANGED, BOOKS_FILE_BROKEN, BOOKS_PERIOD_SPLIT, booksDocsMissing, booksFileProblems, booksPeriod, type BookAccount, type BookTx, type BooksFile, type Doc } from './openformat';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 const strOrNull = (v: unknown) => (v == null || v === '' ? null : String(v));
@@ -45,8 +45,13 @@ export function booksFileOf(i: { start: string; journal: unknown; trialBalance: 
   const rows = new Map<string, any>();
   for (const r of arr(i.accounts)) if (typeof r?.key === 'string') rows.set(r.key, r);
   const nums = new Map<string, { openingA: number; debitA: number; creditA: number }>();
-  for (const a of tb.accounts) nums.set(str(a.key), { openingA: agorot(a.opening), debitA: agorot(a.debit), creditA: agorot(a.credit) });
-  const closing = new Map([...nums].map(([k, v]) => [k, v.openingA + v.debitA - v.creditA] as const));
+  // the closing balance is the database's own (report_trial_balance "closing") — never recomputed here, so booksFileProblems'
+  // 1414 + 1415 − 1416 = closing really checks the numbers (a missing one is NaN: refused)
+  const closing = new Map<string, number>();
+  for (const a of tb.accounts) {
+    nums.set(str(a.key), { openingA: agorot(a.opening), debitA: agorot(a.debit), creditA: agorot(a.credit) });
+    closing.set(str(a.key), agorot(a.closing));
+  }
   // answer 22: the opening entry of the period → the balance at its start (debit +, credit −), out of its debits / credits
   for (const t of opening) for (const l of t.lines) {
     const v = nums.get(l.account);
@@ -69,8 +74,69 @@ export function booksFileOf(i: { start: string; journal: unknown; trialBalance: 
     const v = nums.get(k) ?? { openingA: 0, debitA: 0, creditA: 0 };
     accounts.push({ key: k, name: str(r.name), tbCode: str(r.tb_code), tbName: str(r.tb_name), parentKey: strOrNull(r.parent_key),
       dealer: strOrNull(r.dealer_number), street: str(r.street), city: str(r.city), locationId: strOrNull(r.location_id),
-      party: role.startsWith('customer:') || role.startsWith('supplier:'), ...v, closingA: closing.get(k) ?? v.openingA + v.debitA - v.creditA });
+      party: role.startsWith('customer:') || role.startsWith('supplier:'), ...v, closingA: closing.has(k) ? closing.get(k)! : 0 });   // an account not in the trial balance (a parent): no movement at all — 0
   }
   accounts.sort((a, z) => (a.key < z.key ? -1 : a.key > z.key ? 1 : 0));
   return { ok: true, books: { start: i.start, transactions, accounts } };
+}
+
+export { BOOKS_DOCS_CHANGED, booksDocsMissing };
+// ---------- reading the books for a file — one place for the screens (openformat-books-data.ts) and scripts/ita-sample.mjs ----------
+export const BOOKS_READ_FAILED = 'לא הצלחנו לקרוא את הנהלת החשבונות של התקופה — הקובץ לרשות המסים לא הופק. רעננו את הדף ונסו שוב.';
+export const BOOKS_DB_OLD = 'כדי להפיק קובץ מהנהלת החשבונות צריך עדכון של המסד (דוחות הספרים) — הקובץ לא הופק. פנו לתמיכה.';
+export const BOOKS_TOO_MANY = 'בתקופה יש יותר שורות בספרים ממה שאפשר להפיק בקובץ אחד — מפיקים לתקופות קצרות יותר.';
+export const BOOKS_UNPOSTED = (n: number) =>
+  `${n === 1 ? 'פעולה אחת' : `${n} פעולות`} מתחילת הספרים ועד סוף התקופה עוד לא ${n === 1 ? 'נרשמה' : 'נרשמו'} בהנהלת החשבונות, והקובץ חייב להיות שלם — הוא לא הופק. `
+  + 'בהגדרות הכספים ← "ספרים" ← "לרשום עכשיו", ואחר כך מפיקים שוב.';
+/** a refusal of ours (its message is Hebrew, for the person) — any other error becomes BOOKS_READ_FAILED */
+export class BooksError extends Error {}
+
+/**
+ * Where the books come from — the browser (supabase-js, openformat-books-data.ts) or the local demo database (psql,
+ * scripts/ita-sample.mjs). Each call answers the database's data, or throws — a BooksError with one of the messages above
+ * (BOOKS_DB_OLD, BOOKS_READ_FAILED); anything else becomes BOOKS_READ_FAILED: never an English error to the person.
+ */
+export interface BooksSource {
+  /** how many sources of the books' time did not post, dated from..to (the view gl_unposted, 7100 — a count only) */
+  unposted(from: string, to: string): Promise<number>;
+  journal(from: string, to: string): Promise<unknown>;        // report_journal
+  trialBalance(from: string, to: string): Promise<unknown>;   // report_trial_balance
+  /** gl_accounts (key, name, tb_code, tb_name, parent_key, role, dealer_number, street, city, location_id) — every row */
+  accounts(): Promise<{ rows: unknown[]; truncated: boolean }>;
+  /** gl_transactions (id, user_id) of tx_date from..to — every row */
+  users(from: string, to: string): Promise<{ rows: unknown[]; truncated: boolean }>;
+}
+
+/**
+ * The books of a period for the unified file (booksPeriod): 'single' → null (the file as before); 'straddle' → throws
+ * BOOKS_PERIOD_SPLIT; 'books' → the books, or throws a Hebrew message — never a file with part of the books:
+ *   1. nothing unposted from the books' start to the period's end — 1414 is the balance of everything before the period, not only
+ *      the period's own (gl_unposted, source_date start..to);
+ *   2. the two reports (the database's sums), the accounts and the entries' people (every row);
+ *   3. booksFileOf → booksFileProblems (whole, balanced, 1414 + 1415 − 1416 = the database's closing);
+ *   4. docs given: every document entry's document is among them (booksDocsMissing → BOOKS_DOCS_CHANGED).
+ */
+export async function readBooksForFile(src: BooksSource, from: string, to: string, start: string | null,
+  docs?: Pick<Doc, 'docType' | 'docNumber' | 'docDate'>[]): Promise<BooksFile | null> {
+  const kind = booksPeriod(from, to, start);
+  if (kind === 'single' || !start) return null;
+  if (kind === 'straddle') throw new BooksError(BOOKS_PERIOD_SPLIT(start));
+  try {
+    const n = await src.unposted(start, to);
+    if (!Number.isSafeInteger(n) || n < 0) throw new BooksError(BOOKS_READ_FAILED);
+    if (n > 0) throw new BooksError(BOOKS_UNPOSTED(n));
+    const [journal, trialBalance] = await Promise.all([src.journal(from, to), src.trialBalance(from, to)]);
+    const [acc, users] = await Promise.all([src.accounts(), src.users(from, to)]);
+    if (acc.truncated || users.truncated) throw new BooksError(BOOKS_TOO_MANY);
+    let books: BooksFile | null = null;
+    try {
+      const r = booksFileOf({ start, journal, trialBalance, accounts: acc.rows, users: users.rows });
+      if (r.ok && !booksFileProblems(r.books).length) books = r.books;
+    } catch { /* an answer of an unexpected shape — below */ }
+    if (!books) throw new BooksError(BOOKS_FILE_BROKEN);
+    if (docs && booksDocsMissing(books, docs, from, to)) throw new BooksError(BOOKS_DOCS_CHANGED);
+    return books;
+  } catch (e) {
+    throw e instanceof BooksError && e.message ? e : new BooksError(BOOKS_READ_FAILED);
+  }
 }

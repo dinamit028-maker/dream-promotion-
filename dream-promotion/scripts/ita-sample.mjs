@@ -28,8 +28,8 @@ if (!/^[0-9a-f-]{36}$/.test(BIZ) || !/^\d{4}-\d\d-\d\d$/.test(from + '') || !/^\
 // the app's version, as next.config.mjs puts it in NEXT_PUBLIC_APP_VERSION (before the app code reads it)
 process.env.NEXT_PUBLIC_APP_VERSION ??= JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 const { toDoc } = await import('../src/features/documents/documents.ts');
-const { BOOKS_FILE_BROKEN, BOOKS_PERIOD_SPLIT, buildOpenFormat, booksFileProblems, booksPeriod, docCodesMap, docTypeReport, toIso88598 } = await import('../src/features/documents/openformat.ts');
-const { booksFileOf } = await import('../src/features/documents/openformat-books.ts');
+const { BOOKS_PERIOD_SPLIT, buildOpenFormat, booksPeriod, docCodesMap, docTypeReport, toIso88598 } = await import('../src/features/documents/openformat.ts');
+const { readBooksForFile } = await import('../src/features/documents/openformat-books.ts');
 const { SOFTWARE, reportHtml, summaryHtml } = await import('../src/features/documents/DocumentsTab.tsx');
 
 const q = (sql) => {
@@ -66,6 +66,7 @@ const hasBooks = q(`select to_json(to_regclass('public.gl_books') is not null)`)
 const booksStart = hasBooks ? q(`select coalesce(json_agg(start_date), '[]') from gl_books where business_id='${BIZ}'`)[0] ?? null : null;
 const kind = booksPeriod(from, to, booksStart);
 if (kind === 'straddle') throw new Error(BOOKS_PERIOD_SPLIT(booksStart));
+// the same reading and checks as the screens (readBooksForFile, openformat-books.ts) — only the source is psql, not supabase-js
 let books = null;
 if (kind === 'books') {
   const owner = q(`select to_json(user_id) from business_members where business_id='${BIZ}' and role='owner' order by user_id limit 1`);
@@ -76,14 +77,15 @@ if (kind === 'books') {
     if (r.status !== 0) throw new Error(r.stderr);
     return JSON.parse(r.stdout.split('\n').filter((l) => l && l !== 'SET').join('\n'));
   };
-  const unposted = asOwner(`select to_json(count(*)) from gl_unposted where source_date between '${from}' and '${to}'`);
-  if (unposted) throw new Error(`${unposted} sources of the period did not post — gl_replay first`);
-  const r = booksFileOf({ start: booksStart,
-    journal: asOwner(`select report_journal('${from}', '${to}')`), trialBalance: asOwner(`select report_trial_balance('${from}', '${to}')`),
-    accounts: asOwner(`select coalesce(json_agg(json_build_object('key', key, 'name', name, 'tb_code', tb_code, 'tb_name', tb_name, 'parent_key', parent_key, 'role', role, 'dealer_number', dealer_number, 'street', street, 'city', city, 'location_id', location_id) order by key), '[]') from gl_accounts`),
-    users: asOwner(`select coalesce(json_agg(json_build_object('id', id, 'user_id', user_id) order by number), '[]') from gl_transactions where tx_date between '${from}' and '${to}'`) });
-  if (!r.ok || booksFileProblems(r.books).length) throw new Error(BOOKS_FILE_BROKEN + (r.ok ? ' ' + booksFileProblems(r.books).join(',') : ' ' + r.problem));
-  books = r.books;
+  const day = (d) => { if (!/^\d{4}-\d\d-\d\d$/.test(d)) throw new Error('bad date'); return d; };
+  const psqlSource = {
+    unposted: async (f, t) => asOwner(`select to_json(count(*)) from gl_unposted where source_date between '${day(f)}' and '${day(t)}'`),
+    journal: async (f, t) => asOwner(`select report_journal('${day(f)}', '${day(t)}')`),
+    trialBalance: async (f, t) => asOwner(`select report_trial_balance('${day(f)}', '${day(t)}')`),
+    accounts: async () => ({ truncated: false, rows: asOwner(`select coalesce(json_agg(json_build_object('key', key, 'name', name, 'tb_code', tb_code, 'tb_name', tb_name, 'parent_key', parent_key, 'role', role, 'dealer_number', dealer_number, 'street', street, 'city', city, 'location_id', location_id) order by key), '[]') from gl_accounts`) }),
+    users: async (f, t) => ({ truncated: false, rows: asOwner(`select coalesce(json_agg(json_build_object('id', id, 'user_id', user_id) order by number), '[]') from gl_transactions where tx_date between '${day(f)}' and '${day(t)}'`) }),
+  };
+  books = await readBooksForFile(psqlSource, from, to, booksStart, docs);
 }
 const startedAt = new Date().toISOString();
 const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart, books });

@@ -24,6 +24,8 @@ const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.E2E_FINANCE_PORT ?? 3218);
 const BASE = `http://localhost:${PORT}`;
 const SHOTS = path.join(__dirname, 'shots');
+// 2.124: the screenshots of the unified file from the books (the accountant's package across the books' start)
+const SHOTS_124 = path.join(__dirname, '..', '..', 'docs', 'screenshots', '2.124.0');
 const BIZ = 'b0000000-0000-4000-8000-000000000002';
 const OTHER_BIZ = 'b0000000-0000-4000-8000-000000000003';
 const OWNER = 'a0000000-0000-4000-8000-0000000000a2';
@@ -461,33 +463,68 @@ async function main() {
       ];
       try {
         for (const [u, b] of routes) await page.route(u, reply(b));
-        // the books start the day after the period's first day (the fake does not insist on the 1st): the period crosses the start
+        // the books start the day after today (the fake does not insist on the 1st): the period crosses the start, and today's
+        // documents are in the single-entry part (a part with no document makes no single-entry file — the books' part always)
         const [first] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
         const root = Object.keys((await JSZip.loadAsync(readFileSync(await first.path()))).files)[0];
         const m = /-(\d{4}-\d\d-\d\d)-(\d{4}-\d\d-\d\d)\//.exec(root);
         assert.ok(m, `the period in ${root}`);
         const [, from, to] = m!;
-        const d = new Date(`${from}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1);
-        const start = d.toISOString().slice(0, 10);
+        const d = new Date(`${today}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1);
+        const tomorrow = d.toISOString().slice(0, 10);
+        // today is the period's last day (the 31st of December, …): the books start today — the documents in the books' part, and the
+        // single-entry part before it has none (no file of its own): one file, the books', at the package's root
+        const last = tomorrow > to;
+        const start = last ? to : tomorrow;
         fake.booksStart = start;
         const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
         const zip = await JSZip.loadAsync(readFileSync(await download.path()));
         const names = Object.keys(zip.files);
         assert.ok(names.some((n) => n.endsWith('מסמכים.csv')), 'the rest of the package is there');
         // the single-entry part [from, the day before the start] and the books' part [start, to] — each its INI, BKMVDATA and printouts
-        const parts = [[`ממשק-פתוח-${from}-${from}`, '0'], [`ממשק-פתוח-${start}-${to}`, '2']] as const;
+        const parts = (last ? [['', '2']] : [[`ממשק-פתוח-${from}-${today}`, '0'], [`ממשק-פתוח-${start}-${to}`, '2']]) as [string, string][];
         for (const [folder, kind] of parts) {
           for (const want of ['INI.TXT', 'BKMVDATA.zip', 'סיכום-הפקה-ממשק-פתוח.html', 'דוח-מסמכים-לפי-סוג.html']) {
-            assert.ok(names.some((n) => n.includes(`/${folder}/`) && n.endsWith(want)), `${folder}/…${want} (${names.join(', ')})`);
+            assert.ok(names.some((n) => (!folder || n.includes(`/${folder}/`)) && n.endsWith(want)), `${folder}/…${want} (${names.join(', ')})`);
           }
-          const ini = await zip.file(names.find((n) => n.includes(`/${folder}/`) && n.endsWith('INI.TXT'))!)!.async('nodebuffer');
+          const ini = await zip.file(names.find((n) => (!folder || n.includes(`/${folder}/`)) && n.endsWith('INI.TXT'))!)!.async('nodebuffer');
           assert.equal(ini.toString('latin1').slice(184, 185), kind, `1013 of ${folder}`);
         }
-        assert.equal(names.filter((n) => n.endsWith('INI.TXT')).length, 2, 'two files, no third');
-        assert.ok(!names.some((n) => n.startsWith(`${root}OPENFRMT/`)), 'no file of the whole period');
+        assert.equal(names.filter((n) => n.endsWith('INI.TXT')).length, parts.length, 'two files, no third');
+        if (!last) assert.ok(!names.some((n) => n.startsWith(`${root}OPENFRMT/`)), 'no file of the whole period');
         assert.equal(await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').count(), 0);
         await page.getByText(/החבילה ירדה: \d+ מסמכים/).waitFor();
         await noSideScroll(page, 'accountant-books-split');
+        // 2.124 screenshots (docs/screenshots/2.124.0): the screen after the package, and each file's summary (נספח 4) from the zip
+        mkdirSync(SHOTS_124, { recursive: true });
+        await page.screenshot({ path: path.join(SHOTS_124, 'accountant-two-files-phone-390.png') });
+        const sums = await Promise.all(parts.map(([folder]) => zip.file(names.find((n) => (!folder || n.includes(`/${folder}/`)) && n.endsWith('סיכום-הפקה-ממשק-פתוח.html'))!)!.async('string')));
+        // the two summaries side by side, as the accountant opens them (printing scripts removed)
+        const html = `<!doctype html><html dir="rtl" lang="he"><body style="margin:0;display:flex;gap:16px;font-family:Arial">${sums.map((h, i) =>
+          `<iframe style="flex:1;height:760px;border:1px solid #bbb" srcdoc="${h.replace(/<script[\s\S]*?<\/script>/g, '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" title="${parts[i][0]}"></iframe>`).join('')}</body></html>`;
+        const view = await browser.newPage({ viewport: { width: 1440, height: 800 } });
+        await view.setContent(html); await view.waitForTimeout(300);
+        await view.screenshot({ path: path.join(SHOTS_124, 'package-two-summaries-desktop-1440.png') });
+        await view.close();
+        const desk = await open({ access: 'full', userId: OWNER, path: '/finance/accountant', desktop: true });
+        try {
+          for (const [u, b] of routes) await desk.page.route(u, reply(b));
+          await desk.page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).waitFor({ timeout: 120_000 });
+          await Promise.all([desk.page.waitForEvent('download'), desk.page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
+          await desk.page.getByText(/החבילה ירדה: \d+ מסמכים/).waitFor();
+          await desk.page.screenshot({ path: path.join(SHOTS_124, 'accountant-two-files-desktop-1440.png') });
+          // the books cannot be read whole (a source that did not post): the package without the Tax Authority's part, and why
+          fake.booksPending = 1;
+          await Promise.all([desk.page.waitForEvent('download'), desk.page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
+          await desk.page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();
+          await desk.page.getByText(/לרשום עכשיו/).waitFor();
+          await desk.page.screenshot({ path: path.join(SHOTS_124, 'accountant-books-refused-desktop-1440.png') });
+          await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
+          await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();
+          await page.getByText(/לרשום עכשיו/).scrollIntoViewIfNeeded();
+          await page.screenshot({ path: path.join(SHOTS_124, 'accountant-books-refused-phone-390.png') });
+          await noSideScroll(page, 'accountant-books-refused');
+        } finally { fake.booksPending = 0; await desk.ctx.close(); }
       } finally {
         fake.booksStart = booksWas;
         for (const [u] of routes) await page.unroute(u);

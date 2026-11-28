@@ -126,7 +126,8 @@ export function Accountant() {
       // the Tax Authority's part (INI / BKMVDATA and its two printouts): the whole business only — a location picked at the top or a
       // member limited to locations would make a file with holes in the numbering (export-scope.ts); the rest of the package as before
       let booksRefused: ExportScope | null = null;
-      if (business.ready && docs.length && scope.ok) {
+      // 2.124: a period of the books makes its file even with no document (only expenses / manual entries — their B100 and B110)
+      if (business.ready && scope.ok) {
         const startedAt = new Date().toISOString();
         // 2.120 (migration 7000): a business that numbers per location — 1034 = 1 and each document's branch code; else as before
         let branches: Awaited<ReturnType<typeof loadBranchInfo>>;
@@ -138,22 +139,29 @@ export function Accountant() {
         // accountant's answer 21 (28.11.2026): two separate files, each in a folder named by its range (splitAtBooks): up to the day
         // before the start (single-entry, as before) and from the start (the books). Books that cannot be read whole — the package
         // without the Tax Authority's part, and why (as a location picked at the top): the rest is still the accountant's
-        const parts = splitAtBooks(period.from, period.to, booksStart);
+        // a single-entry part with no document of its own — no file, as before (nothing to write)
+        const parts = splitAtBooks(period.from, period.to, booksStart).filter((p) => p.books || marked.some((d) => d.docDate >= p.from && d.docDate <= p.to));
         const made: { from: string; to: string; books: Awaited<ReturnType<typeof loadBooksForFile>> }[] = [];
         for (const p of parts) {
-          try { made.push({ from: p.from, to: p.to, books: p.books ? await loadBooksForFile(p.from, p.to, booksStart) : null }); }
+          try { made.push({ from: p.from, to: p.to, books: p.books ? await loadBooksForFile(p.from, p.to, booksStart, marked) : null }); }
           catch (e) { booksRefused = { ok: false, message: e instanceof Error && e.message ? e.message : BOOKS_READ_FAILED }; break; }
         }
+        // every file first — then into the package: never one of the two files without the other
+        const outs: { base: string; from: string; to: string; f: ReturnType<typeof buildOpenFormat> }[] = [];
+        for (const p of booksRefused ? [] : made) {
+          // the file's own last guards (books not whole, a document entry without its document) — Hebrew, never an English error
+          try { outs.push({ base: made.length > 1 ? `${root}/${OPEN_FORMAT_PART(p.from, p.to)}` : root, from: p.from, to: p.to,
+            f: buildOpenFormat(business, SOFTWARE, marked, { from: p.from, to: p.to, startedAt, codes, branches, booksStart, books: p.books }) }); }
+          catch (e) { booksRefused = { ok: false, message: e instanceof Error && /[\u05d0-\u05ea]/.test(e.message) ? e.message : BOOKS_READ_FAILED }; break; }
+        }
         if (!booksRefused) {
-          for (const p of made) {
-            const base = made.length > 1 ? `${root}/${OPEN_FORMAT_PART(p.from, p.to)}` : root;
-            const f = buildOpenFormat(business, SOFTWARE, marked, { from: p.from, to: p.to, startedAt, codes, branches, booksStart, books: p.books });
+          for (const { base, from, to, f } of outs) {
             const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
             zip.file(`${base}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
             zip.file(`${base}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
             // the two printouts of the open-format module (2.6(ב) and נספח 4) — this package is now its one place (2.52.1); per file
-            zip.file(`${base}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, p.from, p.to));
-            zip.file(`${base}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, p.from, p.to), business, p.from, p.to));
+            zip.file(`${base}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, from, to));
+            zip.file(`${base}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, from, to), business, from, to));
           }
         }
       }

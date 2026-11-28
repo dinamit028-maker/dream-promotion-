@@ -36,3 +36,12 @@ test('loadBooksForFile: clean period reads both reports; before the start → nu
   assert.equal(calls.length, 0);
   await assert.rejects(loadBooksForFile('2026-05-01', '2026-06-30', '2026-06-01'));
 });
+test('review 1: the unposted check covers the books\' start to the period\'s end (1414 is the balance of everything before the period)', async () => {
+  const { loadBooksForFile } = await import('../src/features/finance/openformat-books-data');
+  unposted = 0; calls.length = 0;
+  await loadBooksForFile('2026-10-01', '2026-10-31', '2026-06-01');
+  const u = calls.find((c) => c.includes('/gl_unposted'));
+  assert.ok(u, calls.join('\n'));
+  const q = new URL(u!.split(' ')[1]).searchParams.getAll('source_date');
+  assert.deepEqual(q.sort(), ['gte.2026-06-01', 'lte.2026-10-31'], u);
+});

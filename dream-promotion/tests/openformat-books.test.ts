@@ -13,7 +13,7 @@ import {
   type BookTx, type BooksFile,
 } from '../src/features/documents/openformat';
 import { glCustomerKey } from '../src/features/documents/customer-key';
-import { booksFileOf } from '../src/features/documents/openformat-books';
+import { BOOKS_DOCS_CHANGED, BOOKS_READ_FAILED, BOOKS_UNPOSTED, BooksError, booksDocsMissing, booksFileOf, readBooksForFile, type BooksSource } from '../src/features/documents/openformat-books';
 import { biz, branches, dana, doc, firm, novemberDocs, sw } from './openformat-books.fixture';
 
 const col = (s: string, from: number, to: number) => s.slice(from - 1, to);
@@ -56,7 +56,8 @@ function trialBalance(es: typeof entries, from: string, to: string) {
       m.set(l.account, a);
     }
   }
-  return { from, to, accounts: [...m.values()].map((a) => ({ key: a.key, name: '', opening: a.opening / 100, debit: a.debit / 100, credit: a.credit / 100 })) };
+  return { from, to, accounts: [...m.values()].map((a) => ({ key: a.key, name: '', opening: a.opening / 100, debit: a.debit / 100, credit: a.credit / 100,
+    closing: (a.opening + a.debit - a.credit) / 100 })) };
 }
 const acc = (key: string, name: string, tb_code: string, tb_name: string, more: Record<string, unknown> = {}) =>
   ({ key, name, tb_code, tb_name, parent_key: null, role: null, dealer_number: null, street: '', city: '', location_id: null, ...more });
@@ -77,8 +78,10 @@ const books = (from = START, to = '2026-12-31', es = entries): BooksFile => {
 const decDocs = () => {
   const d = novemberDocs().map((x) => ({ ...x }));
   const dec = [
-    { ...doc(320, '2026-12-01', dana, 200), issuedAt: '2026-11-30T22:30:00Z', locationId: 'loc-2' },
-    doc(305, '2026-12-02', firm, 1000), doc(200, '2026-12-03', { name: 'לקוח הזמנה בלבד', phone: '050-0000009' }, 70, { payments: [] }),
+    // the documents of the December entries (their 1357 references): 320 02000001, 305 2, 400 3
+    { ...doc(320, '2026-12-01', dana, 200), docNumber: 2000001, issuedAt: '2026-11-30T22:30:00Z', locationId: 'loc-2' },
+    { ...doc(305, '2026-12-02', firm, 1000), docNumber: 2 }, doc(200, '2026-12-03', { name: 'לקוח הזמנה בלבד', phone: '050-0000009' }, 70, { payments: [] }),
+    { ...doc(400, '2026-12-31', firm, 1000, { total: 1180, vatAmount: 0, payments: [{ method: 3, amount: 1180, date: '2026-12-31', m: 'card', cardKind: 2 }] }), docNumber: 3 },
   ];
   return [...d, ...dec];
 };
@@ -308,4 +311,69 @@ test('answer 21: a period across the books\' start is two files — up to the da
   const c = (f: { bkmv: string }) => recs(f.bkmv).filter((l) => l.startsWith('C100')).map((l) => col(l, 375 + 15 + 10 + 1, 375 + 15 + 10 + 8));
   assert.ok(c(f1).every((d) => d <= '20261130') && c(f2).every((d) => d >= '20261201'), 'each file its own documents (1230)');
   assert.equal(c(f1).length + c(f2).length, docs.length);
+});
+
+test('review 4: the closing balance is the database\'s own (report_trial_balance "closing") — a mismatch is caught, a missing one too', () => {
+  const tb = trialBalance(entries, START, '2026-12-31');
+  const ok = booksFileOf({ start: START, journal: journal(), trialBalance: tb, accounts, users });
+  assert.ok(ok.ok && !booksFileProblems(ok.books).length);
+  assert.equal(ok.ok && ok.books.accounts.find((a) => a.key === 'BANK')!.closingA, 500000);
+  const off = structuredClone(tb); off.accounts.find((a) => a.key === 'BANK')!.closing += 0.01;   // one agora
+  const r = booksFileOf({ start: START, journal: journal(), trialBalance: off, accounts, users });
+  assert.ok(r.ok && booksFileProblems(r.books).includes('account_closing'));
+  const none = structuredClone(tb); delete (none.accounts[0] as any).closing;
+  const r2 = booksFileOf({ start: START, journal: journal(), trialBalance: none, accounts, users });
+  assert.ok(r2.ok && booksFileProblems(r2.books).includes('account_closing'), 'no closing from the database — refused, never recomputed');
+});
+
+test('review 3: a document entry whose document is not among the file\'s documents — never written (BOOKS_DOCS_CHANGED)', () => {
+  const b = books(), docs = decDocs();
+  const no400 = docs.filter((d) => !(d.docType === 400 && d.docNumber === 3));
+  assert.equal(booksDocsMissing(b, docs, START, '2026-12-31'), false);
+  assert.equal(booksDocsMissing(b, no400, START, '2026-12-31'), true, 'the receipt 3 was issued after the documents were read');
+  // a document of another period does not count; an entry of another kind (a cancellation, an expense) is not checked
+  assert.equal(booksDocsMissing(b, docs.map((d) => (d.docType === 400 && d.docNumber === 3 ? { ...d, docDate: '2027-01-01' } : d)), START, '2026-12-31'), true);
+  const other = structuredClone(b); other.transactions = other.transactions.map((t) => ({ ...t, sourceKind: 'cancellation' }));
+  assert.equal(booksDocsMissing(other, [], START, '2026-12-31'), false);
+  assert.throws(() => buildOpenFormat(biz, sw, no400, { ...at, books: b }), { message: BOOKS_DOCS_CHANGED });
+  assert.doesNotThrow(() => buildOpenFormat(biz, sw, docs, { ...at, books: b }));
+});
+
+test('review 5: a period of the books with no document at all (only expenses / manual entries) still makes its file', () => {
+  const manual = [{ id: 'm1', number: 9, date: '2026-12-05', valueDate: '2026-12-05', enteredOn: '2026-12-05', sourceKind: 'manual', details: 'שכירות דמו', locationId: 'biz-demo',
+    ref1Type: null, ref1Number: null, ref2Type: null, ref2Number: null,
+    lines: [{ lineNo: 1, account: '6117', side: 'D', amount: 3000, valueDate: '2026-12-05' }, { lineNo: 2, account: 'BANK', side: 'C', amount: 3000, valueDate: '2026-12-05' }] }];
+  const r = booksFileOf({ start: START, journal: journal(manual as any), trialBalance: trialBalance(manual as any, START, '2026-12-31'), accounts });
+  assert.ok(r.ok);
+  const f = buildOpenFormat(biz, sw, [], { ...at, books: r.ok ? r.books : null });
+  const bk = recs(f.bkmv);
+  assert.deepEqual(f.counts, { A100: 1, B100: 2, B110: 2, C100: 0, D110: 0, D120: 0, Z900: 1 });
+  assert.equal(col(f.ini, 185, 186), '21');
+  assert.ok(f.ini.includes('B100' + '2'.padStart(15, '0')) && !f.ini.includes('C100'), 'no summary of a record type that is not in the file');
+  assert.equal(Number(col(bk.at(-1)!, 46, 60)), bk.length);
+});
+
+const source = (o: Partial<BooksSource> & { seen?: string[] } = {}): BooksSource => ({
+  unposted: async (f, t) => { o.seen?.push(`unposted ${f}..${t}`); return 0; },
+  journal: async (f, t) => journal(entries.filter((e) => e.date >= f && e.date <= t)),
+  trialBalance: async (f, t) => trialBalance(entries, f, t),
+  accounts: async () => ({ rows: accounts, truncated: false }),
+  users: async () => ({ rows: users, truncated: false }),
+  ...o,
+});
+test('review 1 / 6 / 8: readBooksForFile — unposted from the books\' start to the period\'s end; any odd answer is Hebrew, never an English TypeError', async () => {
+  const seen: string[] = [];
+  const docs = [{ docType: 320, docNumber: 2000001, docDate: '2026-12-01' }, { docType: 305, docNumber: 2, docDate: '2026-12-02' }, { docType: 400, docNumber: 3, docDate: '2026-12-31' }];
+  const b = await readBooksForFile(source({ seen }), '2027-01-01', '2027-01-31', START);
+  assert.deepEqual(seen, ['unposted 2026-12-01..2027-01-31'], '1414 depends on everything from the start — not only the period');
+  assert.equal(b!.accounts.find((a) => a.key === 'BANK')!.openingA, 500000);
+  await assert.rejects(readBooksForFile(source({ unposted: async () => 3 }), '2027-01-01', '2027-01-31', START), { message: BOOKS_UNPOSTED(3) });
+  // an answer of an unexpected shape (an entry that is null): booksFileOf throws a TypeError inside — the person gets Hebrew
+  await assert.rejects(readBooksForFile(source({ journal: async () => ({ entries: [null] }) }), START, '2026-12-31', START, docs),
+    (e: Error) => e instanceof BooksError && /[\u05d0-\u05ea]/.test(e.message) && !/TypeError|undefined|null/.test(e.message));
+  await assert.rejects(readBooksForFile(source({ accounts: async () => { throw new TypeError('x is not a function'); } }), START, '2026-12-31', START),
+    { message: BOOKS_READ_FAILED });
+  await assert.rejects(readBooksForFile(source(), START, '2026-12-31', START, docs.slice(0, 2)), { message: BOOKS_DOCS_CHANGED });
+  assert.ok(await readBooksForFile(source(), START, '2026-12-31', START, docs));
+  assert.equal(await readBooksForFile(source({ unposted: async () => { throw new Error('no'); } }), '2026-11-01', '2026-11-30', START), null, 'before the books: nothing read');
 });
