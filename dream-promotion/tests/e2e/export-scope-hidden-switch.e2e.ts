@@ -76,6 +76,9 @@ async function main() {
   const browser = await (async () => { await waitForServer(dev); return chromium.launch(); })();
   for (const p of ['/finance/accountant', '/finance']) { for (let i = 0; i < 3; i++) { const ok = await fetch(`${BASE}${p}`).then((r) => r.ok, () => false); if (ok) break; } }
   const fake = new FakeSupabase(seed(), { businessId: BIZ, userId: OWNER, email: 'owner@clinic.test' });
+  // 2.124: these checks are of the locations' scope — the books start far after every period here (a period across the books'
+  // start makes no Tax Authority file: tests/openformat-books.test.ts), so the file is the one before the books, whatever today is
+  fake.booksStart = '2099-01-01';
   const errors: string[] = [];
   const said: string[] = [];
   const calls: string[] = [];
