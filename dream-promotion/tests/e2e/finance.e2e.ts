@@ -424,6 +424,10 @@ async function main() {
     });
 
     await step('the accountant\'s package: the files, the open format, and the seal of the audit log', async () => {
+      // 2.124: the period here is the current two months — the books start far after it, so the file is the one before the books,
+      // whatever today is (a period across the books' start: the next step)
+      const booksWas = fake.booksStart;
+      fake.booksStart = '2099-01-01';
       const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
       const zip = await JSZip.loadAsync(readFileSync(await download.path()));
       const names = Object.keys(zip.files);
@@ -440,6 +444,27 @@ async function main() {
       const docs = await zip.file(names.find((n) => n.endsWith('מסמכים.csv'))!)!.async('string');
       assert.ok(docs.includes('סלון דנה בע״מ'), 'the documents list has the invoice to the customer');
       await page.getByText(/החבילה ירדה: \d+ מסמכים/).waitFor();
+      fake.booksStart = booksWas;
+    });
+
+    await step('the accountant\'s package for a period across the books\' start (2.124): the package without the Tax Authority\'s file, and why', async () => {
+      const booksWas = fake.booksStart;
+      try {
+        // the books start the day after the period's first day (the fake does not insist on the 1st): the period crosses the start
+        const [first] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
+        const root = Object.keys((await JSZip.loadAsync(readFileSync(await first.path()))).files)[0];
+        const from = /-(\d{4}-\d\d-\d\d)-\d{4}-\d\d-\d\d\//.exec(root)?.[1];
+        assert.ok(from, `the period in ${root}`);
+        const d = new Date(`${from}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1);
+        fake.booksStart = d.toISOString().slice(0, 10);
+        const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
+        const names = Object.keys((await JSZip.loadAsync(readFileSync(await download.path()))).files);
+        assert.ok(names.some((n) => n.endsWith('מסמכים.csv')), 'the rest of the package is there');
+        assert.ok(!names.some((n) => n.endsWith('INI.TXT') || n.endsWith('BKMVDATA.zip')), `no Tax Authority file (${names.join(', ')})`);
+        await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();
+        await page.getByText(/מפיקים שני קבצים/).waitFor();
+        await noSideScroll(page, 'accountant-books-split');
+      } finally { fake.booksStart = booksWas; }
     });
 
     await step('settings: the allocation thresholds say they are not verified', async () => {

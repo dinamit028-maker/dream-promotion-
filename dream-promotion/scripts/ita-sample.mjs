@@ -28,7 +28,8 @@ if (!/^[0-9a-f-]{36}$/.test(BIZ) || !/^\d{4}-\d\d-\d\d$/.test(from + '') || !/^\
 // the app's version, as next.config.mjs puts it in NEXT_PUBLIC_APP_VERSION (before the app code reads it)
 process.env.NEXT_PUBLIC_APP_VERSION ??= JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 const { toDoc } = await import('../src/features/documents/documents.ts');
-const { buildOpenFormat, docCodesMap, docTypeReport, toIso88598 } = await import('../src/features/documents/openformat.ts');
+const { BOOKS_FILE_BROKEN, BOOKS_PERIOD_SPLIT, buildOpenFormat, booksFileProblems, booksPeriod, docCodesMap, docTypeReport, toIso88598 } = await import('../src/features/documents/openformat.ts');
+const { booksFileOf } = await import('../src/features/documents/openformat-books.ts');
 const { SOFTWARE, reportHtml, summaryHtml } = await import('../src/features/documents/DocumentsTab.tsx');
 
 const q = (sql) => {
@@ -57,8 +58,35 @@ if (switched) {
   const baseRows = q(`select coalesce(json_agg(json_build_object('k', doc_type || ':' || doc_number, 'loc', location_id)), '[]') from documents where business_id='${BIZ}'`);
   branches = { perLocation: true, businessId: BIZ, codes: new Map(locs.map((l) => [l.id, l.code])), baseLocations: new Map(baseRows.map((r) => [r.k, r.loc])) };
 }
+// 2.124 (stage 4ה): the books — as pack() does (loadBooksStart, loadBooksForFile): a period from the books' start on is written from
+// them (B100 + B110, 1013 = 2) — the same database answers the screens read, as the business's owner signed in (report_journal /
+// report_trial_balance are security invoker: the RLS of the business); a period across the start is refused; before it / a
+// database before 7100 — as before. scripts/ita-sample-books.sql gives the licensed demo books from 1.6.2026.
+const hasBooks = q(`select to_json(to_regclass('public.gl_books') is not null)`);
+const booksStart = hasBooks ? q(`select coalesce(json_agg(start_date), '[]') from gl_books where business_id='${BIZ}'`)[0] ?? null : null;
+const kind = booksPeriod(from, to, booksStart);
+if (kind === 'straddle') throw new Error(BOOKS_PERIOD_SPLIT(booksStart));
+let books = null;
+if (kind === 'books') {
+  const owner = q(`select to_json(user_id) from business_members where business_id='${BIZ}' and role='owner' order by user_id limit 1`);
+  if (!/^[0-9a-f-]{36}$/.test(owner ?? '')) throw new Error('no owner');
+  // as the owner (the RLS of the business — the reports refuse anyone else); psql prints SET for each set, then the answer
+  const asOwner = (sql) => {
+    const r = spawnSync('su', ['postgres', '-c', `psql -X -At -v ON_ERROR_STOP=1 -d ${DB} -c "set role authenticated; set request.jwt.claim.sub = '${owner}'; set request.jwt.claim.role = 'authenticated'; ${sql.replace(/"/g, '\\"')}"`], { encoding: 'utf8', maxBuffer: 1 << 30 });
+    if (r.status !== 0) throw new Error(r.stderr);
+    return JSON.parse(r.stdout.split('\n').filter((l) => l && l !== 'SET').join('\n'));
+  };
+  const unposted = asOwner(`select to_json(count(*)) from gl_unposted where source_date between '${from}' and '${to}'`);
+  if (unposted) throw new Error(`${unposted} sources of the period did not post — gl_replay first`);
+  const r = booksFileOf({ start: booksStart,
+    journal: asOwner(`select report_journal('${from}', '${to}')`), trialBalance: asOwner(`select report_trial_balance('${from}', '${to}')`),
+    accounts: asOwner(`select coalesce(json_agg(json_build_object('key', key, 'name', name, 'tb_code', tb_code, 'tb_name', tb_name, 'parent_key', parent_key, 'role', role, 'dealer_number', dealer_number, 'street', street, 'city', city, 'location_id', location_id) order by key), '[]') from gl_accounts`),
+    users: asOwner(`select coalesce(json_agg(json_build_object('id', id, 'user_id', user_id) order by number), '[]') from gl_transactions where tx_date between '${from}' and '${to}'`) });
+  if (!r.ok || booksFileProblems(r.books).length) throw new Error(BOOKS_FILE_BROKEN + (r.ok ? ' ' + booksFileProblems(r.books).join(',') : ' ' + r.problem));
+  books = r.books;
+}
 const startedAt = new Date().toISOString();
-const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches });
+const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart, books });
 const dir = join(out, ...f.dir.split('\\'));
 rmSync(join(out, 'OPENFRMT'), { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
@@ -70,4 +98,4 @@ writeFileSync(join(out, 'BKMVDATA.TXT'), bkmv);   // unzipped copy, for the simu
 writeFileSync(join(out, 'INI.TXT'), toIso88598(f.ini));
 writeFileSync(join(out, 'דוח-מסמכים-לפי-סוג.html'), reportHtml(docTypeReport(docs, from, to), business, from, to));
 writeFileSync(join(out, 'סיכום-הפקה-ממשק-פתוח.html'), summaryHtml({ ...f, startedAt }, business, from, to));
-console.log(JSON.stringify({ out, dir: f.dir, counts: f.counts, totalRecords: f.totalRecords, bkmvBytes: bkmv.length, docs: docs.length, cancelled: docs.filter((d) => d.cancelled).length, codes: hasCodes ? codes.size : 'no member_doc_codes table' }, null, 1));
+console.log(JSON.stringify({ out, dir: f.dir, counts: f.counts, totalRecords: f.totalRecords, bkmvBytes: bkmv.length, docs: docs.length, cancelled: docs.filter((d) => d.cancelled).length, codes: hasCodes ? codes.size : 'no member_doc_codes table', books: kind, booksStart }, null, 1));

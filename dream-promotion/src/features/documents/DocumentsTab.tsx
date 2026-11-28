@@ -10,6 +10,7 @@ import { buildOpenFormat, docTypeReport, toIso88598, type Business, type Doc, ty
 import { loadDocCodes } from './doc-codes';
 import { loadBranchInfo } from '@/features/finance/numbering-data';
 import { BOOKS_START_MISSING, loadBooksStart } from '@/features/finance/books-data';
+import { BOOKS_READ_FAILED, loadBooksForFile } from '@/features/finance/openformat-books-data';
 import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from './export-scope';
 import { ScopeNote } from './ScopeNote';
 import { multiLocation } from '@/features/locations/locations';
@@ -189,8 +190,10 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
   // 2.118: the file and its printouts are the whole business's — only when every location is seen (export-scope.ts)
   const [scope, setScope] = useState<ExportScope | null>(null);
   useEffect(() => { let alive = true; void loadExportScope().then((s) => { if (alive) setScope(s); }); return () => { alive = false; }; }, []);
+  // 2.124: why the file from the books was not made (a period across the books' start, books not whole) — until the next try
+  const [booksNote, setBooksNote] = useState<string | null>(null);
   async function run() {
-    setBusy(true);
+    setBusy(true); setBooksNote(null);
     // the documents here were read when the screen opened: the scope then (scope) and now must both be "every location", and no hole
     let now = bothScopes(scope ?? await loadExportScope(), await loadExportScope());
     if (now.ok) now = await confirmNoGaps(docs.filter((d) => d.docDate >= from && d.docDate <= to), (t) => DOC_LABEL[t] ?? `מסמך ${t}`, multiLocation(useLocations.getState().state));
@@ -209,8 +212,13 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
     let booksStart: string | null;
     try { booksStart = await loadBooksStart(); }
     catch (e) { setScope({ ok: false, message: e instanceof Error ? e.message : BOOKS_START_MISSING }); setResult(null); setBusy(false); return; }
+    // 2.124 (stage 4ה): a period of the double-entry books — B100 + B110 from the books, 1013 = 2; across the start — refused
+    let books: Awaited<ReturnType<typeof loadBooksForFile>>;
+    try { books = await loadBooksForFile(from, to, booksStart); }
+    // not the scope (that closes the button): a period across the start is fixed by changing the dates, then "הפקת קבצים" again
+    catch (e) { setBooksNote(e instanceof Error && e.message ? e.message : BOOKS_READ_FAILED); setResult(null); setBusy(false); return; }
     const startedAt = new Date().toISOString();
-    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart });
+    const f = buildOpenFormat(business, SOFTWARE, docs, { from, to, startedAt, codes, branches, booksStart, books });
     const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
     const bkmvZip = await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
     const outer = new JSZip(); const folder = f.dir.replace(/\\/g, '/');
@@ -234,6 +242,7 @@ function OpenFormatExport({ docs, business }: { docs: DocRow[]; business: Busine
         <Button variant="ghost" onClick={printReport} disabled={!scope?.ok}>דוח מסמכים לפי סוג (2.6)</Button>
       </div>
       <ScopeNote scope={scope} />
+      {booksNote && <p role="alert" className="mt-2 text-sm text-warn">{booksNote}</p>}
       {result && (
         <div className="mt-4 rounded-2xl bg-surface-2 p-3 text-sm">
           <p className="font-bold">ביצוע ממשק פתוח הסתיים בהצלחה.</p>
@@ -281,7 +290,7 @@ const docHtml = (d: Doc, b: Business, mark: string, allocation: string | null = 
 
 /** נספח 4: the summary of an open-format run (also in the accountant's package, 2.52.1) */
 export function summaryHtml(r: ReturnType<typeof buildOpenFormat> & { startedAt: string }, b: Business, from: string, to: string) {
-  const names: Record<string, string> = { A100: 'רשומת פתיחה', B110: 'חשבון בהנהלת חשבונות', C100: 'כותרת מסמך', D110: 'פרטי מסמך', D120: 'פרטי קבלות', Z900: 'רשומת סיום' };
+  const names: Record<string, string> = { A100: 'רשומת פתיחה', B100: 'תנועות בהנהלת חשבונות', B110: 'חשבון בהנהלת חשבונות', C100: 'כותרת מסמך', D110: 'פרטי מסמך', D120: 'פרטי קבלות', Z900: 'רשומת סיום' };
   const t = israelParts(new Date(r.startedAt));
   return page('הפקת קבצים במבנה אחיד', `<h2>הפקת קבצים במבנה אחיד עבור:</h2>
 <p>מספר עוסק מורשה: ${esc(b.dealerNumber)}<br>שם בית העסק: ${esc(b.name)}</p><p><strong>ביצוע ממשק פתוח הסתיים בהצלחה.</strong></p>

@@ -9,6 +9,7 @@ import { toDoc, type DocRow } from '@/features/documents/documents';
 import { loadBooksStart } from './books-data';
 import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
 import { loadBranchInfo } from './numbering-data';
+import { BOOKS_READ_FAILED, loadBooksForFile } from './openformat-books-data';
 import { loadDocCodes } from '@/features/documents/doc-codes';
 import { bothScopes, confirmNoGaps, loadExportScope, type ExportScope } from '@/features/documents/export-scope';
 import { ScopeNote } from '@/features/documents/ScopeNote';
@@ -124,6 +125,7 @@ export function Accountant() {
       }
       // the Tax Authority's part (INI / BKMVDATA and its two printouts): the whole business only — a location picked at the top or a
       // member limited to locations would make a file with holes in the numbering (export-scope.ts); the rest of the package as before
+      let booksRefused: ExportScope | null = null;
       if (business.ready && docs.length && scope.ok) {
         const startedAt = new Date().toISOString();
         // 2.120 (migration 7000): a business that numbers per location — 1034 = 1 and each document's branch code; else as before
@@ -132,13 +134,20 @@ export function Accountant() {
         // 2.121 (migration 7100): the books' start — documents from it on carry the books' customer key in 1225; before 7100 — none
         let booksStart: string | null;
         try { booksStart = await loadBooksStart(); } catch (e) { setBusy(null); fail(e instanceof Error ? e.message : financeError(e)); return; }
-        const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes, branches, booksStart });
-        const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
-        zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
-        zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
-        // the two printouts of the open-format module (2.6(ב) and נספח 4) — this package is now its one place (2.52.1)
-        zip.file(`${root}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, period.from, period.to));
-        zip.file(`${root}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, period.from, period.to), business, period.from, period.to));
+        // 2.124 (stage 4ה): a period of the double-entry books — B100 + B110 from the books, 1013 = 2. Across the start (or books not
+        // whole) — the package without the Tax Authority's part, and why (as a location picked at the top): the rest is still the accountant's
+        let books: Awaited<ReturnType<typeof loadBooksForFile>> = null;
+        try { books = await loadBooksForFile(period.from, period.to, booksStart); }
+        catch (e) { booksRefused = { ok: false, message: e instanceof Error && e.message ? e.message : BOOKS_READ_FAILED }; }
+        if (!booksRefused) {
+          const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes, branches, booksStart, books });
+          const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
+          zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
+          zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
+          // the two printouts of the open-format module (2.6(ב) and נספח 4) — this package is now its one place (2.52.1)
+          zip.file(`${root}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, period.from, period.to));
+          zip.file(`${root}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, period.from, period.to), business, period.from, period.to));
+        }
       }
       let files = 0;
       if (withFiles) {
@@ -155,6 +164,7 @@ export function Accountant() {
       void logEvent('export.package', 'accountant', '', { from: period.from, to: period.to, documents: docs.length, expenses: expenses.length, files });
       say(`החבילה ירדה: ${docs.length} מסמכים, ${expenses.length} הוצאות${files ? `, ${files} קבצים` : ''}`);
       if (!scope.ok && business.ready && docs.length) setScopeNote(scope);   // the package without the Tax Authority's part — and why
+      else if (booksRefused) setScopeNote(booksRefused);
     } catch (e) { fail(financeError(e)); }
     setBusy(null);
   }

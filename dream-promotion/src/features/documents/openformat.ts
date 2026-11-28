@@ -7,6 +7,11 @@
  * Checked against the official text (horaot-131.pdf, 22 pages) on 22.11.2026: pages 6, 10, 12, 13, 21 — see each change.
  * 2.120 (26.11.2026, against the same text, pdftotext): the branch fields and 1034 (seriesNumber, BranchInfo below) and the bank
  * deposit 420 (C100 + D120, no D110).
+ * 2.124 (stage 4ה — the accountant's answer 9, 25.11.2026: 1013 = 2; checked against horaot-131.pdf, pdftotext, 28.11.2026:
+ * A000 p. 10, §4.6 B100 p. 15, §4.7 B110 p. 16, §2.4יא p. 7, clarifications 7, 8, 12 p. 21–22): a period inside the time of the
+ * double-entry books (from gl_books.start_date on — booksPeriod) is written from the books — a B100 per line of an entry and a B110
+ * per account (BooksFile, booksAccountsOf), 1013 = 2 and 1014 = 1. A period before the start — exactly as before (1013 = 0, the
+ * customers' cards of accountsOf). A period across the start is not written (BOOKS_PERIOD_SPLIT).
  */
 import { glCustomerKey } from './customer-key';
 
@@ -305,11 +310,17 @@ export function D120(rec: number, b: Business, d: Doc, p: DocPayment, lineNo: nu
 }
 
 // ---------- INI.TXT ----------
-export function A000(b: Business, sw: SoftwareInfo, o: { id: string; totalRecords: number; path: string; from: string; to: string; startedAt: string; perLocation?: boolean }) {
+/**
+ * A000 1013 "סוג הנהח"ש של התוכנה" 9(1), position 185: "0 = לא רלוונטי, 1 = חד צידית, 2 = כפולה"; 1014 "איזון חשבונאי נדרש" 9(1),
+ * position 186: "1 = רמת התנועה, 2 = רמת המנה. בהנהלת חשבונות כפולה חובה" (spec p. 10, checked against horaot-131.pdf 28.11.2026).
+ * 2.124: o.books — the file is written from the double-entry books (the accountant's answer 9): 1013 = 2, 1014 = 1 (every entry —
+ * one 1353 — balances by itself: gl_check_balanced, migration 7100; Dream has no batches, 1355). Else 0 / 0, exactly as before.
+ */
+export function A000(b: Business, sw: SoftwareInfo, o: { id: string; totalRecords: number; path: string; from: string; to: string; startedAt: string; perLocation?: boolean; books?: boolean }) {
   const t = ilTime(o.startedAt);
   return 'A000' + X('', 5) + N(o.totalRecords, 15) + N(b.dealerNumber, 9) + N(o.id, 15) + X(SYSTEM_CONST, 8)
     + N(sw.regNumber, 8) + X(sw.name, 20) + X(sw.version, 20) + N(sw.vendorVat, 9) + X(sw.vendorName, 20) // 1006–1010 (p. 10)
-    + N(2, 1) + X(o.path, 50) + N(0, 1) + N(0, 1)                         // 1011 multi-year, 1012 path, 1013 no bookkeeping, 1014
+    + N(2, 1) + X(o.path, 50) + N(o.books ? 2 : 0, 1) + N(o.books ? 1 : 0, 1) // 1011 multi-year, 1012 path, 1013 (2 = double entry), 1014 (1 = per transaction)
     + N(b.companyNumber || 0, 9) + N(deductionsFileField(b), 9) + X('', 10) // 1015, 1016 (2.118), 1017
     + X(b.name, 50) + X(b.street, 50) + X(b.houseNo, 10) + X(b.city, 30) + X(b.zip, 8) // 1018–1022
     + N(0, 4) + N(yyyymmdd(o.from), 8) + N(yyyymmdd(o.to), 8)              // 1023 (single-year only), 1024, 1025
@@ -371,7 +382,11 @@ export interface Account { key: string; name: string; street: string; city: stri
   /** 2.120: the bank's account (a deposit, 420 — DEPOSIT_KEY): its own trial-balance code, no movements */
   bank?: boolean;
   /** 2.120: field 1421 — the branch of the account's first document in the file (BranchInfo; empty unless 1034 = 1) */
-  branch?: string }
+  branch?: string;
+  /** 2.124 — an account of the double-entry books (booksAccountsOf): its own trial-balance code and description (1405 / 1406), its
+   *  parent (1413), its balance at the start of the period in agorot (1414 — debit positive, credit negative, §2.4יא), the dealer
+   *  number of a customer / supplier (1419) and its country code (1412). None of them on the cards of accountsOf — written as before */
+  tbCode?: string; tbName?: string; parent?: string; openingA?: number; dealer?: string; country?: string }
 export function accountsOf(docs: Doc[], branches?: BranchInfo | null, booksStart: string | null = null): Account[] {
   const m = new Map<string, Account>();
   for (const d of docs) {
@@ -393,38 +408,189 @@ export function accountsOf(docs: Doc[], branches?: BranchInfo | null, booksStart
 }
 export const B110 = (rec: number, b: Business, a: Account) =>
   'B110' + N(rec, 9) + N(b.dealerNumber, 9) + a.key + X(a.name, 50)   // 1400–1404 (1403: the C100's 1225 as is)
-  + X(a.bank ? DEPOSIT_CODE : B110_CODE, 15) + X(a.bank ? DEPOSIT_NAME : B110_NAME, 30) // 1405, 1406 (2.120: the bank's account — its own)
-  + X(a.street, 50) + X('', 10) + X(a.city, 30) + X('', 8) + X('', 30) + X('', 2) // 1407–1412
-  + X('', 15)                                                        // 1413 parent account
-  + AMT(0) + AMT(a.debitA / 100) + AMT(a.creditA / 100)              // 1414, 1415, 1416
-  + N(0, 4) + N(0, 9) + X(a.branch ?? '', 7) + AMT(0) + X('', 3) + X('', 16); // 1417, 1419, 1421 (branch), 1422, 1423, 1424 → 376
+  + X(a.tbCode ?? (a.bank ? DEPOSIT_CODE : B110_CODE), 15) + X(a.tbName ?? (a.bank ? DEPOSIT_NAME : B110_NAME), 30) // 1405, 1406 (2.120: the bank's own; 2.124: the books')
+  + X(a.street, 50) + X('', 10) + X(a.city, 30) + X('', 8) + X('', 30) + X(a.country ?? '', 2) // 1407–1412 (1412: 2.124, a customer / supplier of the books)
+  + X(a.parent ?? '', 15)                                            // 1413 parent account (2.124: the books' parent_key)
+  + AMT((a.openingA ?? 0) / 100) + AMT(a.debitA / 100) + AMT(a.creditA / 100) // 1414 (2.124: the balance before the period), 1415, 1416
+  + N(0, 4) + N(a.dealer || 0, 9) + X(a.branch ?? '', 7) + AMT(0) + X('', 3) + X('', 16); // 1417 (answer 11: 0), 1419, 1421 (branch), 1422, 1423, 1424 → 376
+// ---------- 2.124 (stage 4ה): the double-entry books — B100 / B110 ----------
+/**
+ * Which kind of file a period makes (the plan of stage 4, part 4ה; the accountant's answer 9): the books start on start
+ * (gl_books.start_date, the 1st of a month — migration 7100):
+ *   'single'   — the period ends before the start, or there are no books (a database before 7100): the file exactly as before;
+ *   'books'    — the period starts on / after the start: B100 + B110 from the books, 1013 = 2, 1014 = 1;
+ *   'straddle' — it starts before and ends on / after the start: not written. STAGE4_PLAN_HE.md does not say how such a file is
+ *                made (the same file cannot say 1013 = 0 for part of it and 2 for the rest — A000 has one 1013): the person is asked
+ *                to split the period (BOOKS_PERIOD_SPLIT). Open question for the accountant (28.11.2026).
+ */
+export type BooksPeriod = 'single' | 'books' | 'straddle';
+export const booksPeriod = (from: string, to: string, start: string | null | undefined): BooksPeriod =>
+  !start || to < start ? 'single' : from >= start ? 'books' : 'straddle';
+const dmy = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}`;
+const dayBefore = (d: string) => new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10) - 1)).toISOString().slice(0, 10);
+export const BOOKS_PERIOD_SPLIT = (start: string) =>
+  `הנהלת החשבונות הכפולה מתחילה ב-${dmy(start)}, והתקופה שנבחרה מתחילה לפני התאריך הזה ונגמרת אחריו. אי אפשר להפיק קובץ אחד לשתיהן — `
+  + `מפיקים שני קבצים: אחד עד ${dmy(dayBefore(start))}, ואחד מ-${dmy(start)}.`;
+
+/** a line of an entry (gl_lines): the amount in agorot, above 0 (§2.4יא: positive, its side in 1366) */
+export interface BookLine { lineNo: number; account: string; side: 'D' | 'C'; amountA: number; valueDate: string; match1?: string | null; match2?: string | null }
+/** an entry (gl_transactions — one 1353): its dates (1362 tx_date, 1375 entered_on), what made it, its reference documents */
+export interface BookTx {
+  number: number; date: string; enteredOn: string; sourceKind: string; details: string;
+  ref1Type?: number | null; ref1Number?: string | null; ref2Type?: number | null; ref2Number?: string | null;
+  locationId?: string | null; userId?: string | null; lines: BookLine[];
+}
+/** an account of the books (gl_accounts) with its numbers for the period (report_trial_balance — agorot) */
+export interface BookAccount {
+  key: string; name: string; tbCode: string; tbName: string; parentKey?: string | null; dealer?: string | null; street?: string; city?: string;
+  locationId?: string | null; party?: boolean; openingA: number; debitA: number; creditA: number;
+}
+export interface BooksFile { start: string; transactions: BookTx[]; accounts: BookAccount[] }
+
+/**
+ * 1356 "סוג תנועה" X(15), ח/ר — what made the entry (gl_transactions.source_kind; the names of the books' screens, SOURCE_LABEL
+ * in ledger.ts, cut to fit 15). The spec gives no list: ours, for the accountant to see.
+ */
+export const B100_KIND: Record<string, string> = {
+  document: 'מסמך', cancellation: 'ביטול מסמך', payment: 'החזר כספי', deposit: 'הפקדה', deposit_cancel: 'ביטול הפקדה', opening: 'יתרות פתיחה',
+  expense: 'הוצאה', expense_payment: 'תשלום הוצאה', shift: 'הפרש קופה', bank_match: 'התאמת בנק', bank_unmatch: 'ביטול התאמה',
+  bank_class: 'שורת בנק', bank_unclass: 'ביטול שורת בנק', manual: 'פקודה ידנית',
+};
+/**
+ * B100 "תנועות בהנהלת חשבונות" (§4.6, p. 15, checked against horaot-131.pdf 28.11.2026) — one record per line of an entry, 317:
+ *   1350 1–4, 1351 5–13, 1352 14–22, 1353 "מספר תנועה" 9(10) 23–32 (clarification 7: the field that ties every line of the journal
+ *   entry — gl_transactions.number, running per business), 1354 "מספר שורה בתנועה" 9(5) 33–37 (gl_lines.line_no), 1355 "מנה" 9(8)
+ *   38–45 ח/ר (Dream has no batches — 0; 1014 = 1), 1356 "סוג תנועה" X(15) 46–60 (B100_KIND), 1357 "אסמכתא" X(20) 61–80 and 1358
+ *   its document type 9(3) 81–83, 1359 "אסמכתא 2" X(20) 84–103 and 1360 9(3) 104–106 (the entry's ref1 / ref2 — a document's number
+ *   as C100 1204 writes it, gl_doc_ref = seriesNumber; §2.4ד), 1361 "פרטים" X(50) 107–156, 1362 "תאריך" 9(8) 157–164 (the entry's
+ *   date), 1363 "תאריך ערך" 9(8) 165–172 (the line's own value date — an installment's, answer 8 and clarification 12's example),
+ *   1364 "חשבון בתנועה" X(15) 173–187 (must be a B110), 1365 "חשבון נגדי" X(15) 188–202 ("בהנהלת חשבונות חד צדית בלבד" — empty),
+ *   1366 "סימן הפעולה" 9(1) 203 (1 debit, 2 credit), 1367 currency X(3) 204–206 (empty — shekels), 1368 "סכום הפעולה" X9(12)v99
+ *   207–221 (positive, §2.4יא), 1369 foreign amount 222–236 and 1370 quantity X9(9)v99 237–248 (0, as 1217 / 1422 are written),
+ *   1371 / 1372 "שדה התאמה 1 / 2" X(10) 249–258 / 259–268 (the line's match1 / match2 — answer 9 of stage 4: filled), 1373 X(0),
+ *   1374 "מזהה סניף/ענף" X(7) 269–275 (the entry's location's branch code when 1034 = 1), 1375 "תאריך הזנה" 9(8) 276–283 (the day
+ *   the entry was written, Israel time — entered_on), 1376 "מבצע פעולה" X(9) 284–292 (the person's code, as 1233), 1377 X(25) 293–317.
+ */
+export function B100(rec: number, b: Business, t: BookTx, l: BookLine, branch = '', operator = '') {
+  return 'B100' + N(rec, 9) + N(b.dealerNumber, 9) + N(t.number, 10) + N(l.lineNo, 5) + N(0, 8)          // 1350–1355
+    + X(B100_KIND[t.sourceKind] ?? '', 15)                                                              // 1356
+    + X(t.ref1Number ?? '', 20) + N(t.ref1Number ? t.ref1Type ?? 0 : 0, 3) + X(t.ref2Number ?? '', 20) + N(t.ref2Number ? t.ref2Type ?? 0 : 0, 3) // 1357–1360
+    + X(t.details, 50) + N(yyyymmdd(t.date), 8) + N(yyyymmdd(l.valueDate || t.date), 8)                  // 1361–1363
+    + X(l.account, 15) + X('', 15) + N(l.side === 'C' ? 2 : 1, 1)                                       // 1364, 1365 (double entry — empty), 1366
+    + X('', 3) + AMT(l.amountA / 100) + AMT(0) + AMT(0, 9)                                              // 1367–1370
+    + X(l.match1 ?? '', 10) + X(l.match2 ?? '', 10)                                                     // 1371, 1372 (1373 — 0 long)
+    + X(branch, 7) + N(yyyymmdd(t.enteredOn || t.date), 8) + X(operator, 9) + X('', 25);                // 1374–1377 → 317
+}
+
+/**
+ * The accounts of a file from the books (B110 §4.7, p. 16): every account of the books' period (books.accounts — the trial
+ * balance's accounts with their details, booksFileOf) as written, and — so every 1225 of a C100 is an account of the file (the
+ * simulator, 25.11.2026) — a customer of a document that made no entry (an order / delivery / return note: 100 / 200 / 210 post
+ * nothing) gets a card of its own: the books' customer code (CUSTOMERS / לקוחות under 1300 — gl_customer_account's), its name and
+ * address from its first document, no movements.
+ *   1414 the balance before the period (debit +, credit −; 0 is "+", §2.4יא), 1415 / 1416 the debits / credits of the period —
+ *   "ללא יתרת פתיחה": the opening balances' entry (dated the books' start, 7100) is a movement of the period that starts on that day,
+ *   as in the books' trial balance — open question for the accountant (28.11.2026);
+ *   1419 the dealer number of a customer / supplier with one (answer 10: a private customer — 0); 1412 'IL' for a customer /
+ *   supplier (every party of Dream is in Israel — for the accountant); 1417 0 (answer 11); 1421 the account's location's branch
+ *   code when 1034 = 1 (an account of no location — the main location's: the business's own; open question 2.120 (ד)).
+ */
+export function booksAccountsOf(books: BooksFile, inFile: Doc[], branches?: BranchInfo | null): Account[] {
+  const out: Account[] = books.accounts.map((a) => ({
+    key: X(a.key, 15), name: a.name, street: a.street ?? '', city: a.city ?? '', debitA: a.debitA, creditA: a.creditA, openingA: a.openingA,
+    tbCode: a.tbCode, tbName: a.tbName, parent: a.parentKey ?? '', dealer: a.party && /^\d{9}$/.test(a.dealer ?? '') ? a.dealer! : '',
+    country: a.party ? 'IL' : '', ...(branches?.perLocation ? { branch: branchOf(branches, a.locationId) } : {}),
+  }));
+  const have = new Set(out.map((a) => a.key));
+  const hasCustomers = have.has(X('1300', 15));
+  for (const c of accountsOf(inFile, branches, books.start)) {
+    if (have.has(c.key)) continue;
+    have.add(c.key);
+    out.push({ ...c, debitA: 0, creditA: 0, openingA: 0, tbCode: c.bank ? DEPOSIT_CODE : B110_CODE, tbName: c.bank ? DEPOSIT_NAME : B110_NAME,
+      parent: c.bank || !hasCustomers ? '' : '1300', country: c.bank ? '' : 'IL' });
+  }
+  return out;
+}
+
+/**
+ * What would make a file from the books wrong — checked before the file is made (the screens say it in Hebrew; never a key, an
+ * amount or a dealer number in the message): an entry that does not balance (1014 = 1), a line whose account is not among the
+ * accounts (1364 "חייבת להיות רשומה מסוג B110"), two accounts whose keys are written the same (1403 "חד חד ערכי"), an account's
+ * debits / credits that are not the sum of its lines of the period.
+ */
+export const BOOKS_FILE_BROKEN = 'הנתונים של הנהלת החשבונות לתקופה לא שלמים (פקודה לא מאוזנת, חשבון חסר או סכומים שלא מתאימים) — הקובץ לא הופק. רעננו ונסו שוב; אם זה חוזר — פנו לתמיכה.';
+export function booksFileProblems(books: BooksFile): string[] {
+  const bad: string[] = [];
+  const keys = new Map<string, BookAccount>();
+  for (const a of books.accounts) {
+    const k = X(a.key, 15);
+    if (keys.has(k)) bad.push('account_key_twice'); else keys.set(k, a);
+  }
+  const sums = new Map<string, { d: number; c: number }>();
+  for (const t of books.transactions) {
+    let d = 0, c = 0;
+    for (const l of t.lines) {
+      if (!Number.isSafeInteger(l.amountA) || l.amountA <= 0) bad.push('line_amount');
+      if (l.side === 'D') d += l.amountA; else c += l.amountA;
+      const k = X(l.account, 15);
+      if (!keys.has(k)) { bad.push('line_account'); continue; }
+      const s = sums.get(k) ?? { d: 0, c: 0 };
+      if (l.side === 'D') s.d += l.amountA; else s.c += l.amountA;
+      sums.set(k, s);
+    }
+    if (d !== c || t.lines.length < 2) bad.push('tx_balance');
+  }
+  for (const [k, a] of keys) {
+    const s = sums.get(k) ?? { d: 0, c: 0 };
+    if (s.d !== a.debitA || s.c !== a.creditA) bad.push('account_sums');
+  }
+  return [...new Set(bad)];
+}
+
 /** o.codes: the people's codes for field 1233 (member_doc_codes, user_id → code); none — 1233 as before (operatorOf).
  *  o.branches (2.120): the business numbers per location — 1034 = 1 and the branch fields; none / not per location — as before */
 export function buildOpenFormat(b: Business, sw: SoftwareInfo, docs: Doc[], o: { from: string; to: string; startedAt: string; id?: string; codes?: ReadonlyMap<string, string>;
   branches?: BranchInfo | null;
   /** 2.121: the business's books start (gl_books_state().startDate) — documents from it on get the books' customer key (1225);
    *  none (a database before 7100) — every key exactly as before */
-  booksStart?: string | null }) {
+  booksStart?: string | null;
+  /** 2.124: the books of the period (booksPeriod(from, to, start) = 'books' — the caller reads them, booksFileOf): B100 + B110 from
+   *  them, 1013 = 2, 1014 = 1. A file with books that are not whole (booksFileProblems) is never written — throws BOOKS_FILE_BROKEN */
+  books?: BooksFile | null }) {
   const id = o.id ?? exportId();
   const t = ilTime(o.startedAt);
   const dir = `OPENFRMT\\${N(b.dealerNumber, 9).slice(0, 8)}.${t.date.slice(2, 4)}\\${t.date.slice(4, 8)}${t.time}`;
   const recs: string[] = [];
-  const counts: Record<string, number> = { B110: 0, C100: 0, D110: 0, D120: 0 };
+  const books = o.books ?? null;
+  if (books) {
+    // never a file from books that are not whole, nor from books of another period's kind (a period before / across the start)
+    if (booksPeriod(o.from, o.to, books.start) !== 'books' || booksFileProblems(books).length) throw new Error(BOOKS_FILE_BROKEN);
+  }
+  const counts: Record<string, number> = books ? { B100: 0, B110: 0, C100: 0, D110: 0, D120: 0 } : { B110: 0, C100: 0, D110: 0, D120: 0 };
+  // (a file before the books has no B100 key at all — its counts exactly as before)
   recs.push(A100(1, b, id));
   const inFile = docs.filter((x) => x.docDate >= o.from && x.docDate <= o.to).sort((a, z) => a.docType - z.docType || a.docNumber - z.docNumber);
   const br = o.branches?.perLocation ? o.branches : null;
   const byKey = new Map(docs.map((x) => [`${x.docType}:${x.docNumber}`, x] as const));
-  for (const a of accountsOf(inFile, br, o.booksStart ?? null)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }   // the accounts first, then the documents
+  if (books) {
+    // 2.124: the accounts (B110), then the entries' lines (B100) in the order of the journal (date, number, line), then the documents
+    for (const a of booksAccountsOf(books, inFile, br)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }
+    const txs = [...books.transactions].sort((a, z) => (a.date < z.date ? -1 : a.date > z.date ? 1 : a.number - z.number));
+    for (const t of txs) {
+      const branch = branchOf(br, t.locationId), op = t.userId ? o.codes?.get(t.userId) ?? '' : '';
+      for (const l of [...t.lines].sort((a, z) => a.lineNo - z.lineNo)) { recs.push(B100(recs.length + 1, b, t, l, branch, op)); counts.B100++; }
+    }
+  } else for (const a of accountsOf(inFile, br, o.booksStart ?? null)) { recs.push(B110(recs.length + 1, b, a)); counts.B110++; }   // the accounts first, then the documents
   for (const d of inFile) {
     const branch = branchOf(br, d.locationId), baseBranch = baseBranchOf(br, d, byKey);
-    recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes), branch, o.booksStart ?? null)); counts.C100++;
+    recs.push(C100(recs.length + 1, b, d, operatorOf(d, o.codes), branch, books?.start ?? o.booksStart ?? null)); counts.C100++;
     if (!NO_D110.has(d.docType)) d.lines.forEach((l, i) => { recs.push(D110(recs.length + 1, b, d, l, i + 1, branch, baseBranch)); counts.D110++; });
     filePayments(d).forEach((p, i) => { recs.push(D120(recs.length + 1, b, d, p, i + 1, branch)); counts.D120++; });
   }
   recs.push(Z900(recs.length + 1, b, id, recs.length + 1));
-  const ini = [A000(b, sw, { id, totalRecords: recs.length, path: dir, from: o.from, to: o.to, startedAt: o.startedAt, perLocation: Boolean(br) }),
+  const ini = [A000(b, sw, { id, totalRecords: recs.length, path: dir, from: o.from, to: o.to, startedAt: o.startedAt, perLocation: Boolean(br), books: Boolean(books) }),
     ...Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => SUM(k, n))];
-  return { id, dir, ini: ini.join('\r\n') + '\r\n', bkmv: recs.join('\r\n') + '\r\n', counts: { A100: 1, ...counts, Z900: 1 }, totalRecords: recs.length };
+  return { id, dir, ini: ini.join('\r\n') + '\r\n', bkmv: recs.join('\r\n') + '\r\n', counts: { A100: 1, ...counts, Z900: 1 } as Record<string, number>, totalRecords: recs.length };
 }
 
 /** printout 2.6(b): number and money total of each document type the software handles (0 when not handled) — the total is the
