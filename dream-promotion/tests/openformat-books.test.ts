@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  A000, B100, B100_KIND, B110, BOOKS_FILE_BROKEN, BOOKS_PERIOD_SPLIT, booksAccountsOf, booksFileProblems, booksPeriod, buildOpenFormat, customerKeyField, toIso88598,
+  A000, B100, B100_KIND, B110, BOOKS_FILE_BROKEN, BOOKS_PERIOD_SPLIT, OPEN_FORMAT_PART, booksAccountsOf, booksFileProblems, booksPeriod, buildOpenFormat, customerKeyField, splitAtBooks, toIso88598,
   type BookTx, type BooksFile,
 } from '../src/features/documents/openformat';
 import { glCustomerKey } from '../src/features/documents/customer-key';
@@ -172,8 +172,16 @@ test('the whole file from the books: A000 1013 = 2 / 1014 = 1; B110, B100, then 
   assert.deepEqual([...new Set(kinds)], ['A100', 'B110', 'B100', 'C100', 'D110', 'D120', 'Z900'].filter((k) => kinds.includes(k)));
   assert.ok(kinds.lastIndexOf('B110') < kinds.indexOf('B100') && kinds.lastIndexOf('B100') < kinds.indexOf('C100'));
   const n = (k: string) => kinds.filter((x) => x === k).length;
-  assert.equal(n('B100'), 12, 'one B100 per line of the four entries');
-  assert.equal(f.counts.B100, 12); assert.equal(f.counts.B110, n('B110'));
+  assert.equal(n('B100'), 9, 'one B100 per line of the three entries — the opening balances\' entry is not a movement (answer 22)');
+  assert.equal(f.counts.B100, 9); assert.equal(f.counts.B110, n('B110'));
+  assert.ok(!bk.some((l) => l.startsWith('B100') && col(l, 23, 32) === '0000000001'), 'no B100 of the opening entry');
+  // answer 22: the opening balances are 1414 of the period that starts on the start date (debit +, credit −), not 1415 / 1416
+  const acct = (k: string) => bk.find((l) => l.startsWith('B110') && col(l, 23, 37) === k.padEnd(15))!;
+  assert.deepEqual([col(acct(DANA), 278, 292), col(acct(DANA), 293, 307), col(acct(DANA), 308, 322)], ['+00000000012050', '+00000000000000', '+00000000000000']);
+  assert.deepEqual([col(acct('3100'), 278, 292), col(acct('3100'), 293, 307), col(acct('3100'), 308, 322)], ['-00000000512050', '+00000000000000', '+00000000000000']);
+  assert.equal(col(acct('BANK'), 278, 292), '+00000000500000');
+  const s1414 = bk.filter((l) => l.startsWith('B110')).reduce((a, l) => a + Number(col(l, 278, 292).replace('+', '')), 0);
+  assert.equal(s1414, 0, 'the balances at the start add up to 0');
   for (const k of ['B100', 'B110', 'C100', 'D110', 'D120']) assert.ok(ini.includes(k + String(n(k)).padStart(15, '0')), `INI ${k}`);
   assert.equal(Number(col(bk.at(-1)!, 46, 60)), bk.length, 'Z900 total'); assert.equal(Number(col(ini[0], 10, 24)), bk.length, 'A000 1002');
   // 1403 unique; every 1364 and every 1225 an account of the file; 1413 too
@@ -233,10 +241,12 @@ test('booksFileOf: the database\'s answers → the books; parents in; "?" (an ac
   assert.deepEqual(b.accounts.map((a) => a.key), [...b.accounts.map((a) => a.key)].sort());
   assert.ok(b.accounts.some((a) => a.key === '1300'), '1300 — the customers\' parent (1413) — though it has no movement');
   assert.ok(!b.accounts.some((a) => a.key === '6117'));
-  assert.equal(b.accounts.find((a) => a.key === DANA)!.openingA, 0);
-  assert.equal(b.accounts.find((a) => a.key === DANA)!.debitA, 12050, '120.50 → agorot');
-  assert.equal(b.transactions[1].userId, 'u-demo-1'); assert.equal(b.transactions[0].userId, null);
-  assert.equal(b.transactions[3].lines[2].match2, 'BANK-7');
+  const dn = b.accounts.find((a) => a.key === DANA)!;
+  assert.deepEqual([dn.openingA, dn.debitA, dn.creditA, dn.closingA], [12050, 0, 0, 12050], '120.50 → agorot; the opening entry in 1414 (answer 22)');
+  assert.deepEqual(b.transactions.map((t) => t.number), [2, 3, 4], 'the opening entry is not among the entries');
+  assert.equal(b.transactions[0].userId, 'u-demo-1'); assert.equal(b.transactions[2].userId, null);
+  assert.equal(b.transactions[2].lines[2].match2, 'BANK-7');
+  for (const a of b.accounts) assert.equal(a.openingA + a.debitA - a.creditA, a.closingA, `closing of ${a.key}`);
   const hidden = structuredClone(entries); hidden[1].lines[0].account = '?';
   assert.deepEqual(booksFileOf({ start: START, journal: journal(hidden), trialBalance: trialBalance(hidden, START, '2026-12-31'), accounts }), { ok: false, problem: 'hidden_account' });
   assert.deepEqual(booksFileOf({ start: START, journal: journal(), trialBalance: trialBalance(entries, START, '2026-12-31'), accounts: accounts.filter((a) => a.key !== '4100') }),
@@ -260,4 +270,42 @@ test('1225 of a document from the books\' start = its customer\'s account key in
   const plain = A000(biz, sw, { id: '1', totalRecords: 1, path: 'x', from: START, to: START, startedAt: at.startedAt });
   assert.equal(col(plain, 185, 186), '00');
   assert.equal(col(A000(biz, sw, { id: '1', totalRecords: 1, path: 'x', from: START, to: START, startedAt: at.startedAt, books: true }), 185, 186), '21');
+});
+
+test('answer 22: the opening entry is never a B100, and 1414 + 1415 − 1416 is always the closing balance', () => {
+  const ok = books();
+  const withOpening = structuredClone(ok);
+  withOpening.transactions.unshift({ number: 1, date: START, enteredOn: START, sourceKind: 'opening', details: 'יתרות פתיחה',
+    lines: [{ lineNo: 1, account: 'BANK', side: 'D', amountA: 100, valueDate: START }, { lineNo: 2, account: '3100', side: 'C', amountA: 100, valueDate: START }] });
+  assert.ok(booksFileProblems(withOpening).includes('opening_movement'));
+  const closing = structuredClone(ok); closing.accounts.find((a) => a.key === 'BANK')!.openingA += 1;
+  assert.ok(booksFileProblems(closing).includes('account_closing'));
+  // a later period: the opening is already in the balance before its from — the same closing as December's end
+  const dec = books(), jan = books('2027-01-01', '2027-01-31');
+  for (const a of jan.accounts) {
+    const d = dec.accounts.find((x) => x.key === a.key);
+    assert.equal(a.openingA, d ? d.closingA : 0, `1414 of January = December's closing (${a.key})`);
+  }
+});
+
+test('answer 21: a period across the books\' start is two files — up to the day before (single-entry) and from the start (the books)', () => {
+  assert.deepEqual(splitAtBooks('2026-11-01', '2026-12-31', START), [{ from: '2026-11-01', to: '2026-11-30', books: false }, { from: START, to: '2026-12-31', books: true }]);
+  assert.deepEqual(splitAtBooks('2026-11-01', '2026-11-30', START), [{ from: '2026-11-01', to: '2026-11-30', books: false }]);
+  assert.deepEqual(splitAtBooks(START, '2026-12-31', START), [{ from: START, to: '2026-12-31', books: true }]);
+  assert.deepEqual(splitAtBooks('2026-01-01', '2026-12-31', null), [{ from: '2026-01-01', to: '2026-12-31', books: false }]);
+  assert.deepEqual(splitAtBooks('2027-02-15', '2027-03-15', '2027-03-01')[0], { from: '2027-02-15', to: '2027-02-28', books: false });
+  assert.equal(OPEN_FORMAT_PART('2026-11-01', '2026-11-30'), 'ממשק-פתוח-2026-11-01-2026-11-30');
+  // the two files the package writes: the first exactly the file of November alone (as before), the second the books' file
+  const docs = decDocs(), common = { startedAt: at.startedAt, booksStart: START, branches, codes: new Map([['u-demo-1', 'U01']]) };
+  const [p1, p2] = splitAtBooks('2026-11-01', '2026-12-31', START);
+  const f1 = buildOpenFormat(biz, sw, docs, { ...common, ...p1, id: '123456789012345', books: null });
+  const f2 = buildOpenFormat(biz, sw, docs, { ...common, ...p2, id: '223456789012345', books: books() });
+  assert.equal(sha(f1), sha(buildOpenFormat(biz, sw, novemberDocs(), { ...common, from: '2026-11-01', to: '2026-11-30', id: '123456789012345' })),
+    'the single-entry part = the file of November alone');
+  assert.equal(col(f1.ini, 185, 186), '00'); assert.equal(col(f2.ini, 185, 186), '21');
+  assert.equal(col(f1.ini, 367, 382), '2026110120261130'); assert.equal(col(f2.ini, 367, 382), '2026120120261231');
+  assert.ok(!recs(f1.bkmv).some((l) => l.startsWith('B100')) && recs(f2.bkmv).some((l) => l.startsWith('B100')));
+  const c = (f: { bkmv: string }) => recs(f.bkmv).filter((l) => l.startsWith('C100')).map((l) => col(l, 375 + 15 + 10 + 1, 375 + 15 + 10 + 8));
+  assert.ok(c(f1).every((d) => d <= '20261130') && c(f2).every((d) => d >= '20261201'), 'each file its own documents (1230)');
+  assert.equal(c(f1).length + c(f2).length, docs.length);
 });

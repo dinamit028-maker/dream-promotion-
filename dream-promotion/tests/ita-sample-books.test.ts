@@ -4,7 +4,7 @@
  * books from 1.6.2026). The files as they are on disk — a missing file FAILS (no skip). What the Tax Authority's simulator checks
  * that can be checked here: the bytes (ISO-8859-8, CRLF), every record's fixed length (B100 317, B110 376 — spec p. 8), the
  * running record number, INI's summaries = the real counts, A000 1002 = Z900's total, 1013 = 2 / 1014 = 1, every entry balanced
- * (1014 = 1: per 1353), every 1364 / 1225 / 1413 an account of the file and 1403 once, and each B110's 1415 / 1416 = Σ its B100.
+ * (1014 = 1: per 1353), every 1364 / 1225 / 1413 an account of the file and 1403 once, and each B110's 1415 / 1416 = Σ its B100; the opening balances in 1414 only (answer 22).
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -67,8 +67,12 @@ t('the books tie: entries balance, every key is an account (once), each account\
   for (const l of bk.filter((x) => x.startsWith('B110'))) {
     const k = col(l, 23, 37);
     assert.deepEqual([Number(col(l, 294, 307)), Number(col(l, 309, 322))], per.get(k) ?? [0, 0], `B110 ${k.trim()}`);
-    assert.equal(col(l, 278, 292), '+00000000000000', '1414: the period starts on the books\' start — 0');
     const p = col(l, 263, 277); if (p.trim()) assert.ok(keys.includes(p), `1413 ${p.trim()}`);
   }
   for (const l of bk.filter((x) => x.startsWith('C100'))) assert.ok(keys.includes(col(l, 375, 389)), `1225 ${col(l, 375, 389).trim()}`);
+  // the accountant's answer 22: the opening balances are 1414 of this period (it starts on the books' start), never a B100
+  assert.ok(!bk.some((l) => l.startsWith('B100') && col(l, 46, 60).trim() === Buffer.from([0xe9, 0xfa, 0xf8, 0xe5, 0xfa, 0x20, 0xf4, 0xfa, 0xe9, 0xe7, 0xe4]).toString('latin1')), 'no B100 of the opening entry');
+  const opening = bk.filter((x) => x.startsWith('B110')).map((l) => Number(col(l, 278, 292).replace('+', '')));
+  assert.ok(opening.some((v) => v !== 0), 'the demo has opening balances — in 1414');
+  assert.equal(opening.reduce((a, v) => a + v, 0), 0, 'Σ 1414 = 0 (the opening entry balances)');
 });

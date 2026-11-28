@@ -447,24 +447,51 @@ async function main() {
       fake.booksStart = booksWas;
     });
 
-    await step('the accountant\'s package for a period across the books\' start (2.124): the package without the Tax Authority\'s file, and why', async () => {
+    await step('the accountant\'s package for a period across the books\' start (2.124, answer 21): two files, each in its own folder by its range', async () => {
       const booksWas = fake.booksStart;
+      // the books' reports of the part from the start (the fake has none): an empty month of the books — no entry, no account; the
+      // customers of the documents get their cards (booksAccountsOf). Only for this step (page routes come before the context's)
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': '*' };
+      const reply = (body: unknown) => async (route: any) => route.request().method() === 'OPTIONS' ? route.fulfill({ status: 204, headers: cors })
+        : route.fulfill({ status: 200, contentType: 'application/json', headers: { ...cors, 'content-range': '*/0' }, body: JSON.stringify(body) });
+      const routes: [string, unknown][] = [
+        ['http://sb.test/rest/v1/rpc/report_journal', { from: '', to: '', count: 0, debit: 0, credit: 0, entries: [] }],
+        ['http://sb.test/rest/v1/rpc/report_trial_balance', { from: '', to: '', accounts: [], groups: [], total: { opening: 0, debit: 0, credit: 0, closing: 0 } }],
+        ['http://sb.test/rest/v1/gl_transactions**', []],
+      ];
       try {
+        for (const [u, b] of routes) await page.route(u, reply(b));
         // the books start the day after the period's first day (the fake does not insist on the 1st): the period crosses the start
         const [first] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
         const root = Object.keys((await JSZip.loadAsync(readFileSync(await first.path()))).files)[0];
-        const from = /-(\d{4}-\d\d-\d\d)-\d{4}-\d\d-\d\d\//.exec(root)?.[1];
-        assert.ok(from, `the period in ${root}`);
+        const m = /-(\d{4}-\d\d-\d\d)-(\d{4}-\d\d-\d\d)\//.exec(root);
+        assert.ok(m, `the period in ${root}`);
+        const [, from, to] = m!;
         const d = new Date(`${from}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1);
-        fake.booksStart = d.toISOString().slice(0, 10);
+        const start = d.toISOString().slice(0, 10);
+        fake.booksStart = start;
         const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'הורדת החבילה (ZIP)' }).click()]);
-        const names = Object.keys((await JSZip.loadAsync(readFileSync(await download.path()))).files);
+        const zip = await JSZip.loadAsync(readFileSync(await download.path()));
+        const names = Object.keys(zip.files);
         assert.ok(names.some((n) => n.endsWith('מסמכים.csv')), 'the rest of the package is there');
-        assert.ok(!names.some((n) => n.endsWith('INI.TXT') || n.endsWith('BKMVDATA.zip')), `no Tax Authority file (${names.join(', ')})`);
-        await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').waitFor();
-        await page.getByText(/מפיקים שני קבצים/).waitFor();
+        // the single-entry part [from, the day before the start] and the books' part [start, to] — each its INI, BKMVDATA and printouts
+        const parts = [[`ממשק-פתוח-${from}-${from}`, '0'], [`ממשק-פתוח-${start}-${to}`, '2']] as const;
+        for (const [folder, kind] of parts) {
+          for (const want of ['INI.TXT', 'BKMVDATA.zip', 'סיכום-הפקה-ממשק-פתוח.html', 'דוח-מסמכים-לפי-סוג.html']) {
+            assert.ok(names.some((n) => n.includes(`/${folder}/`) && n.endsWith(want)), `${folder}/…${want} (${names.join(', ')})`);
+          }
+          const ini = await zip.file(names.find((n) => n.includes(`/${folder}/`) && n.endsWith('INI.TXT'))!)!.async('nodebuffer');
+          assert.equal(ini.toString('latin1').slice(184, 185), kind, `1013 of ${folder}`);
+        }
+        assert.equal(names.filter((n) => n.endsWith('INI.TXT')).length, 2, 'two files, no third');
+        assert.ok(!names.some((n) => n.startsWith(`${root}OPENFRMT/`)), 'no file of the whole period');
+        assert.equal(await page.getByText('החבילה ירדה בלי הקובץ לרשות המסים:').count(), 0);
+        await page.getByText(/החבילה ירדה: \d+ מסמכים/).waitFor();
         await noSideScroll(page, 'accountant-books-split');
-      } finally { fake.booksStart = booksWas; }
+      } finally {
+        fake.booksStart = booksWas;
+        for (const [u] of routes) await page.unroute(u);
+      }
     });
 
     await step('settings: the allocation thresholds say they are not verified', async () => {

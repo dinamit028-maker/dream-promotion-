@@ -7,7 +7,7 @@ import { Spinner } from '@/components/ui/feedback';
 import { formatIL } from '@/lib/il-time';
 import { toDoc, type DocRow } from '@/features/documents/documents';
 import { loadBooksStart } from './books-data';
-import { buildOpenFormat, docTypeReport, toIso88598 } from '@/features/documents/openformat';
+import { OPEN_FORMAT_PART, buildOpenFormat, docTypeReport, splitAtBooks, toIso88598 } from '@/features/documents/openformat';
 import { loadBranchInfo } from './numbering-data';
 import { BOOKS_READ_FAILED, loadBooksForFile } from './openformat-books-data';
 import { loadDocCodes } from '@/features/documents/doc-codes';
@@ -134,19 +134,27 @@ export function Accountant() {
         // 2.121 (migration 7100): the books' start — documents from it on carry the books' customer key in 1225; before 7100 — none
         let booksStart: string | null;
         try { booksStart = await loadBooksStart(); } catch (e) { setBusy(null); fail(e instanceof Error ? e.message : financeError(e)); return; }
-        // 2.124 (stage 4ה): a period of the double-entry books — B100 + B110 from the books, 1013 = 2. Across the start (or books not
-        // whole) — the package without the Tax Authority's part, and why (as a location picked at the top): the rest is still the accountant's
-        let books: Awaited<ReturnType<typeof loadBooksForFile>> = null;
-        try { books = await loadBooksForFile(period.from, period.to, booksStart); }
-        catch (e) { booksRefused = { ok: false, message: e instanceof Error && e.message ? e.message : BOOKS_READ_FAILED }; }
+        // 2.124 (stage 4ה): a period of the double-entry books — B100 + B110 from the books, 1013 = 2. Across the books' start — the
+        // accountant's answer 21 (28.11.2026): two separate files, each in a folder named by its range (splitAtBooks): up to the day
+        // before the start (single-entry, as before) and from the start (the books). Books that cannot be read whole — the package
+        // without the Tax Authority's part, and why (as a location picked at the top): the rest is still the accountant's
+        const parts = splitAtBooks(period.from, period.to, booksStart);
+        const made: { from: string; to: string; books: Awaited<ReturnType<typeof loadBooksForFile>> }[] = [];
+        for (const p of parts) {
+          try { made.push({ from: p.from, to: p.to, books: p.books ? await loadBooksForFile(p.from, p.to, booksStart) : null }); }
+          catch (e) { booksRefused = { ok: false, message: e instanceof Error && e.message ? e.message : BOOKS_READ_FAILED }; break; }
+        }
         if (!booksRefused) {
-          const f = buildOpenFormat(business, SOFTWARE, marked, { from: period.from, to: period.to, startedAt, codes, branches, booksStart, books });
-          const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
-          zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
-          zip.file(`${root}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
-          // the two printouts of the open-format module (2.6(ב) and נספח 4) — this package is now its one place (2.52.1)
-          zip.file(`${root}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, period.from, period.to));
-          zip.file(`${root}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, period.from, period.to), business, period.from, period.to));
+          for (const p of made) {
+            const base = made.length > 1 ? `${root}/${OPEN_FORMAT_PART(p.from, p.to)}` : root;
+            const f = buildOpenFormat(business, SOFTWARE, marked, { from: p.from, to: p.to, startedAt, codes, branches, booksStart, books: p.books });
+            const inner = new JSZip(); inner.file('BKMVDATA.TXT', toIso88598(f.bkmv));
+            zip.file(`${base}/${f.dir.replace(/\\/g, '/')}/INI.TXT`, toIso88598(f.ini));
+            zip.file(`${base}/${f.dir.replace(/\\/g, '/')}/BKMVDATA.zip`, await inner.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }));
+            // the two printouts of the open-format module (2.6(ב) and נספח 4) — this package is now its one place (2.52.1); per file
+            zip.file(`${base}/סיכום-הפקה-ממשק-פתוח.html`, openFormatSummaryHtml({ ...f, startedAt }, business, p.from, p.to));
+            zip.file(`${base}/דוח-מסמכים-לפי-סוג.html`, docTypeReportHtml(docTypeReport(marked, p.from, p.to), business, p.from, p.to));
+          }
         }
       }
       let files = 0;

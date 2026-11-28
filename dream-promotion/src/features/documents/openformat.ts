@@ -419,15 +419,25 @@ export const B110 = (rec: number, b: Business, a: Account) =>
  * (gl_books.start_date, the 1st of a month — migration 7100):
  *   'single'   — the period ends before the start, or there are no books (a database before 7100): the file exactly as before;
  *   'books'    — the period starts on / after the start: B100 + B110 from the books, 1013 = 2, 1014 = 1;
- *   'straddle' — it starts before and ends on / after the start: not written. STAGE4_PLAN_HE.md does not say how such a file is
- *                made (the same file cannot say 1013 = 0 for part of it and 2 for the rest — A000 has one 1013): the person is asked
- *                to split the period (BOOKS_PERIOD_SPLIT). Open question for the accountant (28.11.2026).
+ *   'straddle' — it starts before and ends on / after the start: never one file (A000 has one 1013). The accountant's answer 21
+ *                (STAGE4_PLAN_HE.md, 28.11.2026): two separate files — up to the day before the start (single-entry, as before) and
+ *                from the start (the books). The accountant's package makes both (splitAtBooks); the documents tab asks the person to
+ *                split the period (BOOKS_PERIOD_SPLIT).
  */
 export type BooksPeriod = 'single' | 'books' | 'straddle';
 export const booksPeriod = (from: string, to: string, start: string | null | undefined): BooksPeriod =>
   !start || to < start ? 'single' : from >= start ? 'books' : 'straddle';
 const dmy = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}`;
 const dayBefore = (d: string) => new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10) - 1)).toISOString().slice(0, 10);
+/** answer 21: the parts of a period — one ('single' or 'books') or, across the start, two: [from, the day before the start]
+ *  (single-entry) and [start, to] (the books), in this order */
+export function splitAtBooks(from: string, to: string, start: string | null | undefined): { from: string; to: string; books: boolean }[] {
+  const k = booksPeriod(from, to, start);
+  if (k !== 'straddle' || !start) return [{ from, to, books: k === 'books' }];
+  return [{ from, to: dayBefore(start), books: false }, { from: start, to, books: true }];
+}
+/** answer 21: the folder of each file of a period across the books' start in the accountant's package — its range (YYYY-MM-DD) */
+export const OPEN_FORMAT_PART = (from: string, to: string) => `ממשק-פתוח-${from}-${to}`;
 export const BOOKS_PERIOD_SPLIT = (start: string) =>
   `הנהלת החשבונות הכפולה מתחילה ב-${dmy(start)}, והתקופה שנבחרה מתחילה לפני התאריך הזה ונגמרת אחריו. אי אפשר להפיק קובץ אחד לשתיהן — `
   + `מפיקים שני קבצים: אחד עד ${dmy(dayBefore(start))}, ואחד מ-${dmy(start)}.`;
@@ -444,6 +454,8 @@ export interface BookTx {
 export interface BookAccount {
   key: string; name: string; tbCode: string; tbName: string; parentKey?: string | null; dealer?: string | null; street?: string; city?: string;
   locationId?: string | null; party?: boolean; openingA: number; debitA: number; creditA: number;
+  /** the balance at the period's end (the trial balance's closing, agorot) — 1414 + 1415 − 1416 must equal it (booksFileProblems) */
+  closingA?: number;
 }
 export interface BooksFile { start: string; transactions: BookTx[]; accounts: BookAccount[] }
 
@@ -470,6 +482,10 @@ export const B100_KIND: Record<string, string> = {
  *   1371 / 1372 "שדה התאמה 1 / 2" X(10) 249–258 / 259–268 (the line's match1 / match2 — answer 9 of stage 4: filled), 1373 X(0),
  *   1374 "מזהה סניף/ענף" X(7) 269–275 (the entry's location's branch code when 1034 = 1), 1375 "תאריך הזנה" 9(8) 276–283 (the day
  *   the entry was written, Israel time — entered_on), 1376 "מבצע פעולה" X(9) 284–292 (the person's code, as 1233), 1377 X(25) 293–317.
+ * Which entries: the accountant's answer 23 (28.11.2026) — an entry is in the period by its date (1362, gl_transactions.tx_date —
+ * report_journal's own rule), not by a value date. The opening balances' entry is never a B100 (answer 22 — booksFileOf).
+ * Decisions kept until the accountant says otherwise (28.11.2026): 1356 — the books' screens' names (B100_KIND); 1421 of an account
+ * of no location — the main location's code; 1412 'IL' for every customer / supplier (booksAccountsOf).
  */
 export function B100(rec: number, b: Business, t: BookTx, l: BookLine, branch = '', operator = '') {
   return 'B100' + N(rec, 9) + N(b.dealerNumber, 9) + N(t.number, 10) + N(l.lineNo, 5) + N(0, 8)          // 1350–1355
@@ -488,9 +504,10 @@ export function B100(rec: number, b: Business, t: BookTx, l: BookLine, branch = 
  * simulator, 25.11.2026) — a customer of a document that made no entry (an order / delivery / return note: 100 / 200 / 210 post
  * nothing) gets a card of its own: the books' customer code (CUSTOMERS / לקוחות under 1300 — gl_customer_account's), its name and
  * address from its first document, no movements.
- *   1414 the balance before the period (debit +, credit −; 0 is "+", §2.4יא), 1415 / 1416 the debits / credits of the period —
- *   "ללא יתרת פתיחה": the opening balances' entry (dated the books' start, 7100) is a movement of the period that starts on that day,
- *   as in the books' trial balance — open question for the accountant (28.11.2026);
+ *   1414 the balance at the start of the period (debit +, credit −; 0 is "+", §2.4יא), 1415 / 1416 the debits / credits of the
+ *   period "ללא יתרת פתיחה" — the accountant's answer 22 (28.11.2026): the opening balances' entry (gl_opening_balances, dated the
+ *   books' start) is NOT a movement: never a B100, never in 1415 / 1416; a period from the start has it in 1414, a later period's
+ *   1414 is the balance before its from (the opening included) — booksFileOf moves it; 1414 + 1415 − 1416 = the closing balance;
  *   1419 the dealer number of a customer / supplier with one (answer 10: a private customer — 0); 1412 'IL' for a customer /
  *   supplier (every party of Dream is in Israel — for the accountant); 1417 0 (answer 11); 1421 the account's location's branch
  *   code when 1034 = 1 (an account of no location — the main location's: the business's own; open question 2.120 (ד)).
@@ -528,6 +545,7 @@ export function booksFileProblems(books: BooksFile): string[] {
   }
   const sums = new Map<string, { d: number; c: number }>();
   for (const t of books.transactions) {
+    if (t.sourceKind === 'opening') bad.push('opening_movement');   // answer 22: in 1414, never a B100
     let d = 0, c = 0;
     for (const l of t.lines) {
       if (!Number.isSafeInteger(l.amountA) || l.amountA <= 0) bad.push('line_amount');
@@ -543,6 +561,7 @@ export function booksFileProblems(books: BooksFile): string[] {
   for (const [k, a] of keys) {
     const s = sums.get(k) ?? { d: 0, c: 0 };
     if (s.d !== a.debitA || s.c !== a.creditA) bad.push('account_sums');
+    if (a.closingA != null && a.openingA + a.debitA - a.creditA !== a.closingA) bad.push('account_closing');
   }
   return [...new Set(bad)];
 }

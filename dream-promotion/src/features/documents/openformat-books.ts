@@ -8,7 +8,12 @@
  *                                                  location — read in pages, pageAll);
  *   users         gl_transactions (id, user_id)   (1376 — the person's code, as 1233; report_journal does not return it).
  * Pure (no database, no browser): the screens (openformat-books-data.ts) and scripts/ita-sample.mjs both call it.
- * The result is checked again by booksFileProblems (balance per entry, every line's account in B110, the sums equal the lines).
+ * The result is checked again by booksFileProblems (balance per entry, every line's account in B110, the sums equal the lines,
+ * 1414 + 1415 − 1416 = the closing balance).
+ * The accountant's answer 22 (STAGE4_PLAN_HE.md, 28.11.2026): the opening balances' entry (source_kind 'opening' — the one
+ * gl_opening_balances writes, dated the books' start) is not a movement of the file: it is taken out of the entries (no B100) and
+ * out of the period's debits / credits, and added to the balance at the start (1414). A later period already has it in the trial
+ * balance's "opening" (before its from) — nothing to move.
  */
 import type { BookAccount, BookTx, BooksFile } from './openformat';
 
@@ -26,7 +31,7 @@ export function booksFileOf(i: { start: string; journal: unknown; trialBalance: 
   if (!j || !Array.isArray(j.entries) || !tb || !Array.isArray(tb.accounts)) return { ok: false, problem: 'bad_answer' };
   const users = new Map<string, string>();
   for (const u of arr(i.users)) if (typeof u?.id === 'string' && typeof u?.user_id === 'string') users.set(u.id, u.user_id);
-  const transactions: BookTx[] = j.entries.map((e: any) => ({
+  const all: BookTx[] = j.entries.map((e: any) => ({
     number: Number(e.number), date: str(e.date), enteredOn: str(e.enteredOn), sourceKind: str(e.sourceKind), details: str(e.details),
     ref1Type: intOrNull(e.ref1Type), ref1Number: strOrNull(e.ref1Number), ref2Type: intOrNull(e.ref2Type), ref2Number: strOrNull(e.ref2Number),
     locationId: strOrNull(e.locationId), userId: users.get(str(e.id)) ?? null,
@@ -34,18 +39,27 @@ export function booksFileOf(i: { start: string; journal: unknown; trialBalance: 
       amountA: agorot(l.amount), valueDate: str(l.valueDate), match1: strOrNull(l.match1), match2: strOrNull(l.match2) })),
   }));
   // an account the person may not see (report_*: "?" — another location's): the file is the whole business's only
-  if (tb.accounts.some((a: any) => str(a.key) === '?') || transactions.some((t) => t.lines.some((l) => l.account === '?'))) return { ok: false, problem: 'hidden_account' };
+  if (tb.accounts.some((a: any) => str(a.key) === '?') || all.some((t) => t.lines.some((l) => l.account === '?'))) return { ok: false, problem: 'hidden_account' };
+  const transactions = all.filter((t) => t.sourceKind !== 'opening');
+  const opening = all.filter((t) => t.sourceKind === 'opening');
   const rows = new Map<string, any>();
   for (const r of arr(i.accounts)) if (typeof r?.key === 'string') rows.set(r.key, r);
   const nums = new Map<string, { openingA: number; debitA: number; creditA: number }>();
   for (const a of tb.accounts) nums.set(str(a.key), { openingA: agorot(a.opening), debitA: agorot(a.debit), creditA: agorot(a.credit) });
+  const closing = new Map([...nums].map(([k, v]) => [k, v.openingA + v.debitA - v.creditA] as const));
+  // answer 22: the opening entry of the period → the balance at its start (debit +, credit −), out of its debits / credits
+  for (const t of opening) for (const l of t.lines) {
+    const v = nums.get(l.account);
+    if (!v) return { ok: false, problem: 'bad_answer' };   // a line the trial balance does not have — never expected
+    if (l.side === 'D') { v.openingA += l.amountA; v.debitA -= l.amountA; } else { v.openingA -= l.amountA; v.creditA -= l.amountA; }
+  }
   // the accounts of the file: the trial balance's (every account with a movement up to the period's end), every line's, and their
   // parents (1413 names an account of the file)
   const keys: string[] = [];
   const seen = new Set<string>();
   const add = (k: string) => { if (k && !seen.has(k)) { seen.add(k); keys.push(k); } };
   for (const k of nums.keys()) add(k);
-  for (const t of transactions) for (const l of t.lines) add(l.account);
+  for (const t of all) for (const l of t.lines) add(l.account);
   for (let n = 0; n < keys.length; n++) { const p = strOrNull(rows.get(keys[n])?.parent_key); if (p) add(p); }
   const accounts: BookAccount[] = [];
   for (const k of keys) {
@@ -55,7 +69,7 @@ export function booksFileOf(i: { start: string; journal: unknown; trialBalance: 
     const v = nums.get(k) ?? { openingA: 0, debitA: 0, creditA: 0 };
     accounts.push({ key: k, name: str(r.name), tbCode: str(r.tb_code), tbName: str(r.tb_name), parentKey: strOrNull(r.parent_key),
       dealer: strOrNull(r.dealer_number), street: str(r.street), city: str(r.city), locationId: strOrNull(r.location_id),
-      party: role.startsWith('customer:') || role.startsWith('supplier:'), ...v });
+      party: role.startsWith('customer:') || role.startsWith('supplier:'), ...v, closingA: closing.get(k) ?? v.openingA + v.debitA - v.creditA });
   }
   accounts.sort((a, z) => (a.key < z.key ? -1 : a.key > z.key ? 1 : 0));
   return { ok: true, books: { start: i.start, transactions, accounts } };
